@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { OrganizationEntity } from '../modules/auth/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../modules/auth/entities/organization-document.entity';
 import { UserEntity } from '../modules/auth/entities/user.entity';
+import { ReferralCodeEntity } from '../modules/auth/entities/referral-code.entity';
 import { RefreshTokenEntity } from '../modules/auth/entities/refresh-token.entity';
 import { LoginAttemptEntity } from '../modules/auth/entities/login-attempt.entity';
 import { RoleEntity } from '../modules/roles/entities/role.entity';
@@ -33,6 +34,7 @@ export const AppDataSource = new DataSource({
     OrganizationEntity,
     OrganizationDocumentEntity,
     UserEntity,
+    ReferralCodeEntity,
     RefreshTokenEntity,
     LoginAttemptEntity,
     RoleEntity,

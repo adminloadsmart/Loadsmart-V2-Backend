@@ -1,6 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { OrganizationDocumentEntity } from './organization-document.entity';
 import { UserEntity } from './user.entity';
+import { ReferralCodeEntity } from './referral-code.entity';
 
 // Single source of truth for the status value set — reused by admin.validators.ts's zod schema
 // so the two can't drift again the way they did before (DB had no 'suspended', validator had a
@@ -55,8 +56,15 @@ export class OrganizationEntity {
     @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
     documents!: OrganizationDocumentEntity[];
 
-    @Column({ type: 'varchar', nullable: true })
-    referralCode!: string | null;
+    // Which sales rep's code (if any) this org signed up with — set once at signup by
+    // AuthService.createOrganization, never editable afterward. SET NULL on delete since not
+    // every org has a referral (nullable) and an org shouldn't be blocked by a code's lifecycle.
+    @Column({ name: 'referral_code_id', type: 'uuid', nullable: true })
+    referralCodeId!: string | null;
+
+    @ManyToOne(() => ReferralCodeEntity, { nullable: true, onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'referral_code_id' })
+    referralCode!: ReferralCodeEntity | null;
 
     // The two staff members responsible for reviewing this org — one per KYC track. Assignment is
     // record-keeping/routing only for now: /admin/* stays platform_admin-only, "no exceptions" (see

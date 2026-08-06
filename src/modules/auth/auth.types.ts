@@ -56,4 +56,8 @@ export interface CompleteCompanyProfileInput {
   hasOwnFleet: boolean;
   fleetSize?: number;
   documents?: OrganizationDocumentInput[];
+  // Optional — attributes this organization to a sales rep at signup only. Validated against
+  // ReferralCodeService.validateAndResolve; ignored on later profile updates (tenantId already
+  // present) since attribution is set once and never changed. See auth.service.ts's createOrganization.
+  referralCode?: string;
 }

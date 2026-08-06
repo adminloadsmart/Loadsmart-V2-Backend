@@ -15,6 +15,11 @@ export const AADHAAR_REGEX = /^[2-9][0-9]{11}$/;
 export const CIN_REGEX = /^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/;
 export const UDYAM_REGEX = /^UDYAM-[A-Z]{2}-[0-9]{2}-[0-9]{7}$/;
 
+// A referral code as admin-typed/generated: uppercase letters/digits plus - and _, 4-40 chars.
+// Enforced both at the API boundary (admin.validators.ts's createReferralCode) and again in
+// referral-code.service.ts (defense in depth for any other caller of createCode).
+export const REFERRAL_CODE_REGEX = /^[A-Z0-9_-]{4,40}$/;
+
 // Per-type format check for a submitted organization document's `documentNumber` — see
 // auth.validators.ts's createOrganization. `shop_establishment` has no standardized national
 // number format (state-specific), so it's validated as a non-empty string only (null here means

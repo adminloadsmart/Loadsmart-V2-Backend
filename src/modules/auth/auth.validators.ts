@@ -86,6 +86,10 @@ export const authValidators = {
         hasOwnFleet: z.boolean(),
         fleetSize: z.number().int().positive().optional(),
         documents: z.array(organizationDocumentSchema).optional(),
+        // Optional — attributes this org to a sales rep's code at signup. Format checked here;
+        // existence/validity is a lookup, so that's checked service-side (see
+        // ReferralCodeService.validateAndResolve).
+        referralCode: z.string().min(1).optional(),
       })
       .superRefine((data, ctx) => {
         if (data.hasOwnFleet) {

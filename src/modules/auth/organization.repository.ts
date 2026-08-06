@@ -16,7 +16,25 @@ export class OrganizationRepository {
     }
 
     async findById(id: string): Promise<OrganizationEntity | null> {
-        return this.repo.findOneBy({ id });
+        return this.repo.findOne({
+            where: { id },
+            relations: {
+                onlineKycVerifier: true,
+                physicalKycAgent: true
+            },
+            select: {
+                onlineKycVerifier: {
+                    id: true,
+                    fullName: true,
+                    email: true,
+                },
+                physicalKycAgent: {
+                    id: true,
+                    fullName: true,
+                    email: true,
+                }
+            }
+        });
     }
 
     async list(filters: {
@@ -65,6 +83,7 @@ export class OrganizationRepository {
             onlineKycVerifierId: string | null;
             physicalKycAgentId: string | null;
             decisionReason: string | null;
+            referralCodeId: string | null;
         }>,
         manager?: EntityManager,
     ): Promise<OrganizationEntity> {
@@ -75,5 +94,12 @@ export class OrganizationRepository {
             throw new NotFoundError(`Organization ${id} not found`);
         }
         return organization;
+    }
+
+    // Used by AdminService.deleteReferralCode to block hard-deleting a code that's already
+    // attributed to at least one organization — attribution history has to survive, so revoke is
+    // the only option once this is non-zero.
+    countByReferralCodeId(referralCodeId: string): Promise<number> {
+        return this.repo.count({ where: { referralCodeId } });
     }
 }

@@ -60,6 +60,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationService: auth.organizationService,
     organizationDocumentService: auth.organizationDocumentService,
     authService: auth.service,
+    referralCodeService: auth.referralCodeService,
     auditService: audit.service,
   });
 

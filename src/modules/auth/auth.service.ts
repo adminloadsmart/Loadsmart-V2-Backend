@@ -13,6 +13,7 @@ import { OrganizationStatus } from './entities/organization.entity';
 import { OrganizationDocumentInput } from './entities/organization-document.entity';
 import { isTenantAccessible } from './organization.constants';
 import { AuthRepository } from './auth.repository';
+import { ReferralCodeService } from './referral-code.service';
 import { RoleService } from '../roles/role.service';
 import { AuditService } from '../audit/audit.service';
 import { redisManager } from '../../db/redis';
@@ -39,6 +40,7 @@ export class AuthService {
     private readonly authRepository: AuthRepository,
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
     private readonly dataSource: DataSource,
@@ -225,6 +227,8 @@ export class AuthService {
 
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
+    // Batched, not per-row — one extra query for the whole page, keyed by owner.
+    const codesByOwner = await this.referralCodeService.listByOwnerIds(items.map((user) => user.id));
     return {
       items: items.map((user) => ({
         id: user.id,
@@ -233,6 +237,7 @@ export class AuthService {
         email: user.email,
         role: user.role.name,
         coverage: user.coverage,
+        referralCodes: codesByOwner.get(user.id) ?? [],
         createdAt: user.createdAt,
       })),
       page: input.page,
@@ -346,6 +351,7 @@ export class AuthService {
       hasOwnFleet,
       fleetSize,
       documents,
+      referralCode,
     } = input;
 
     const profileData = {
@@ -390,6 +396,16 @@ export class AuthService {
     if (existing) {
       throw new ConflictError('A user with this email already exists');
     }
+
+    // Resolved before hashing the password (and before opening the transaction) so a bad code
+    // fails fast without the wasted bcrypt round trip. Attribution is set once, here, and never
+    // re-editable — the tenantId-present branch above never touches referralCodeId.
+    let referralCodeId: string | null = null;
+    if (referralCode) {
+      const resolved = await this.referralCodeService.validateAndResolve(referralCode);
+      referralCodeId = resolved.id;
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     // First time: create the org, attach it to the user, set their credentials, and re-issue
@@ -400,7 +416,11 @@ export class AuthService {
         { name: null, status: 'pending' },
         manager,
       );
-      const updated = await this.organizationService.updateOrganization(organization.id, profileData, manager);
+      const updated = await this.organizationService.updateOrganization(
+        organization.id,
+        { ...profileData, referralCodeId },
+        manager,
+      );
       await this.syncOrganizationDocuments(organization.id, userId, hasOwnFleet, documents, manager);
       await this.authRepository.updateUserTenant(userId, organization.id, manager);
       await this.authRepository.setUserCredentials(userId, { email, passwordHash }, manager);

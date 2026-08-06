@@ -49,9 +49,14 @@ export class OrganizationService {
             onlineKycVerifierId: string | null;
             physicalKycAgentId: string | null;
             decisionReason: string | null;
+            referralCodeId: string | null;
         }>,
         manager?: EntityManager,
     ): Promise<OrganizationEntity> {
         return this.organizationRepository.update(organizationId, data, manager);
+    }
+
+    countByReferralCodeId(referralCodeId: string): Promise<number> {
+        return this.organizationRepository.countByReferralCodeId(referralCodeId);
     }
 }

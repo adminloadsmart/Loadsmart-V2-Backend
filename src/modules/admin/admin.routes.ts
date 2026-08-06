@@ -67,5 +67,28 @@ export function createAdminRoutes(controller: AdminController): Router {
   router.post('/staff', validate(adminValidators.createStaff), asyncHandler(controller.createStaff));
   router.get('/staff', validate(adminValidators.listStaff), asyncHandler(controller.listStaff));
 
+  router.post('/referral-codes', validate(adminValidators.createReferralCode), asyncHandler(controller.createReferralCode));
+  router.get('/referral-codes', validate(adminValidators.listReferralCodes), asyncHandler(controller.listReferralCodes));
+  router.get(
+    '/referral-codes/:referralCodeId',
+    validate(adminValidators.getReferralCode),
+    asyncHandler(controller.getReferralCode),
+  );
+  router.patch(
+    '/referral-codes/:referralCodeId',
+    validate(adminValidators.updateReferralCode),
+    asyncHandler(controller.updateReferralCode),
+  );
+  router.post(
+    '/referral-codes/:referralCodeId/revoke',
+    validate(adminValidators.revokeReferralCode),
+    asyncHandler(controller.revokeReferralCode),
+  );
+  router.delete(
+    '/referral-codes/:referralCodeId',
+    validate(adminValidators.deleteReferralCode),
+    asyncHandler(controller.deleteReferralCode),
+  );
+
   return router;
 }
