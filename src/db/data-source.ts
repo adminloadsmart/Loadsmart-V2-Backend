@@ -23,6 +23,12 @@ import { FleetDriverLinkEntity } from '../modules/masters/entities/fleet-driver-
 import { DriverDocumentEntity } from '../modules/masters/entities/driver-document.entity';
 import { DriverVerificationEntity } from '../modules/masters/entities/driver-verification.entity';
 import { DriverBankDetailsEntity } from '../modules/masters/entities/driver-bank-details.entity';
+import { VehicleOperationalStatusEntity } from '../modules/masters/entities/vehicle-operational-status.entity';
+import { VehicleVerificationSnapshotEntity } from '../modules/masters/entities/vehicle-verification-snapshot.entity';
+import { VehicleTelemetryMetaEntity } from '../modules/masters/entities/vehicle-telemetry-meta.entity';
+import { VehicleServiceUsageEntity } from '../modules/masters/entities/vehicle-service-usage.entity';
+import { DriverOperationalStatusEntity } from '../modules/masters/entities/driver-operational-status.entity';
+import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip-metrics.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -51,6 +57,12 @@ export const AppDataSource = new DataSource({
     DriverDocumentEntity,
     DriverVerificationEntity,
     DriverBankDetailsEntity,
+    VehicleOperationalStatusEntity,
+    VehicleVerificationSnapshotEntity,
+    VehicleTelemetryMetaEntity,
+    VehicleServiceUsageEntity,
+    DriverOperationalStatusEntity,
+    DriverTripMetricsEntity,
   ],     // every new module adds its entity here
   migrations: ['src/db/migrations/**/*.ts'],
 });

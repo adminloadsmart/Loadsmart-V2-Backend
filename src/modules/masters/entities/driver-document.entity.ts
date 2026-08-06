@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from "typeorm";
 import { DriverEntity } from "./driver.entity";
-import { DriverDocumentType, DriverDocumentVerificationSource } from "../utils/drivers.types";
+import { DRIVER_DOCUMENT_TYPES, DRIVER_DOCUMENT_VERIFICATION_SOURCES, DriverDocumentType, DriverDocumentVerificationSource } from '../utils/drivers.types';
 
 @Entity({ schema: "masters", name: "driver_documents" })
 @Index("driver_documents_tenant_id_idx", ["tenantId"])
@@ -33,7 +33,7 @@ export class DriverDocumentEntity {
   @Column({
     name: "document_type",
     type: "enum",
-    enum: ["driving_license_front", "driving_license_back"],
+    enum: [...DRIVER_DOCUMENT_TYPES],
   })
   documentType!: DriverDocumentType;
 
@@ -43,7 +43,7 @@ export class DriverDocumentEntity {
   @Column({
     name: "verification_source",
     type: "enum",
-    enum: ["sarathi", "manual"],
+    enum: [...DRIVER_DOCUMENT_VERIFICATION_SOURCES],
   })
   verificationSource!: DriverDocumentVerificationSource;
 

@@ -1,13 +1,17 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, OneToMany, OneToOne } from 'typeorm';
 import { FleetDriverLinkEntity } from './fleet-driver-link.entity';
 import { DriverDocumentEntity } from './driver-document.entity';
 import { DriverVerificationEntity } from './driver-verification.entity';
 import { DriverBankDetailsEntity } from './driver-bank-details.entity';
-import { DriverStatus } from '../utils/drivers.types';
+import { DRIVER_STATUSES, DriverStatus } from '../utils/drivers.types';
+import { DriverOperationalStatusEntity } from './driver-operational-status.entity';
+import { DriverTripMetricsEntity } from './driver-trip-metrics.entity';
 
 @Entity({ schema: 'masters', name: 'drivers' })
 @Index('drivers_tenant_id_idx', ['tenantId'])
 @Index('drivers_tenant_phone_number_active_unique', ['tenantId', 'phoneNumber'], { unique: true, where: '"deleted_at" IS NULL' })
+// NULL licence numbers do not collide in Postgres, so drivers pending a licence stay insertable.
+@Index('drivers_tenant_license_number_active_unique', ['tenantId', 'licenseNumber'], { unique: true, where: '"deleted_at" IS NULL' })
 export class DriverEntity {
     @PrimaryGeneratedColumn('uuid')
     id!: string;
@@ -33,7 +37,7 @@ export class DriverEntity {
     @Column({ name: 'date_of_joining', type: 'date', nullable: true })
     dateOfJoining!: string | null;
 
-    @Column({ type: 'enum', enum: ['active', 'inactive', 'blacklisted'], default: 'active' })
+    @Column({ type: 'enum', enum: [...DRIVER_STATUSES], default: 'active' })
     status!: DriverStatus;
 
     @OneToMany(() => FleetDriverLinkEntity, (link) => link.driver)
@@ -47,6 +51,12 @@ export class DriverEntity {
 
     @OneToMany(() => DriverBankDetailsEntity, (bankDetails) => bankDetails.driver)
     bankDetails!: DriverBankDetailsEntity[];
+
+    @OneToOne(() => DriverOperationalStatusEntity, (status) => status.driver)
+    operationalStatus!: DriverOperationalStatusEntity;
+
+    @OneToMany(() => DriverTripMetricsEntity, (metric) => metric.driver)
+    tripMetrics!: DriverTripMetricsEntity[];
 
     @Column({ name: 'created_by', type: 'uuid', nullable: true })
     createdBy!: string | null;

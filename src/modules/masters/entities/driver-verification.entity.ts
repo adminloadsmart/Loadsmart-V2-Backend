@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from "typeorm";
 import { DriverEntity } from "./driver.entity";
-import { DriverVerificationStatus, DriverVerificationType } from "../utils/drivers.types";
+import { DRIVER_VERIFICATION_STATUSES, DRIVER_VERIFICATION_TYPES, DriverVerificationStatus, DriverVerificationType } from '../utils/drivers.types';
 @Entity({ schema: "masters", name: "driver_verifications" })
 @Index("driver_verifications_tenant_id_idx", ["tenantId"])
 @Index("driver_verifications_driver_id_idx", ["driverId"])
@@ -29,13 +29,13 @@ export class DriverVerificationEntity {
   @JoinColumn({ name: "driver_id" })
   driver!: DriverEntity;
 
-  @Column({ name: "verification_type", type: "enum", enum: ["sarathi_dl"] })
+  @Column({ name: "verification_type", type: "enum", enum: [...DRIVER_VERIFICATION_TYPES] })
   verificationType!: DriverVerificationType;
 
   @Column({
     name: "verification_status",
     type: "enum",
-    enum: ["pending", "verified", "not_found", "manual_review"],
+    enum: [...DRIVER_VERIFICATION_STATUSES],
     default: "pending",
   })
   verificationStatus!: DriverVerificationStatus;
@@ -61,6 +61,14 @@ export class DriverVerificationEntity {
 
   @Column({ name: "valid_until", type: "date", nullable: true })
   validUntil!: string | null;
+
+  /** Free text from the registry, e.g. "HMV · Transport". */
+  @Column({ name: "license_class", type: "varchar", length: 100, nullable: true })
+  licenseClass!: string | null;
+
+  /** Free text from the registry, e.g. "Active — no endorsements". */
+  @Column({ name: "license_status", type: "varchar", length: 150, nullable: true })
+  licenseStatus!: string | null;
 
   @Column({
     name: "address_line_1",

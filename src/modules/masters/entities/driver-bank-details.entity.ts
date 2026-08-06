@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from "typeorm";
 import { DriverEntity } from "./driver.entity";
-import { DriverBankVerificationStatus } from "../utils/drivers.types";
+import { DRIVER_BANK_VERIFICATION_STATUSES, DriverBankVerificationStatus } from '../utils/drivers.types';
 
 @Entity({ schema: "masters", name: "driver_bank_details" })
 @Index("driver_bank_details_tenant_id_idx", ["tenantId"])
@@ -47,7 +47,7 @@ export class DriverBankDetailsEntity {
   @Column({
     name: "verification_status",
     type: "enum",
-    enum: ["pending", "verified", "rejected"],
+    enum: [...DRIVER_BANK_VERIFICATION_STATUSES],
     default: "pending",
   })
   verificationStatus!: DriverBankVerificationStatus;

@@ -1,11 +1,28 @@
+import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { VehicleEntity } from './entities/vehicle.entity';
+import { VehicleServiceUsageEntity } from './entities/vehicle-service-usage.entity';
 import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
-import { VehicleDocumentStatus } from './utils/vehicle.type';
+import { VehicleOperationalStatusEntity } from './entities/vehicle-operational-status.entity';
+import { VehicleTelemetryMetaEntity } from './entities/vehicle-telemetry-meta.entity';
+import { VehicleVerificationSnapshotEntity } from './entities/vehicle-verification-snapshot.entity';
+import { VehicleDocumentStatus, VehicleDocumentType } from './utils/vehicle.type';
 import { VehicleRepository } from './vehicle.repository';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './masters.constants';
 import { Paginated, paginate } from './utils/masters.types';
-import { AddVehicleDocumentInput, CreateVehicleInput, ListVehiclesInput, UpdateVehicleDocumentInput, UpdateVehicleInput } from './utils/vehicle.interface';
+import {
+  AddVehicleDocumentInput,
+  CreateVehicleInput,
+  ListVehiclesInput,
+  OnboardVehicleInput,
+  RecordVehicleVerificationInput,
+  SetVehicleOperationalStatusInput,
+  SetVehicleServiceUsageInput,
+  SetVehicleTelemetryMetaInput,
+  UpdateVehicleDocumentInput,
+  UpdateVehicleInput,
+  VehicleVerificationPapersInput,
+} from './utils/vehicle.interface';
 
 /** Derives the document's lifecycle state from its expiry date; undated documents stay `valid`. */
 export function resolveDocumentStatus(expiryDate: string | null): VehicleDocumentStatus {
@@ -21,9 +38,17 @@ export function resolveDocumentStatus(expiryDate: string | null): VehicleDocumen
 }
 
 export class VehicleService {
-  constructor(private readonly vehicleRepository: VehicleRepository) { }
+  constructor(
+    private readonly vehicleRepository: VehicleRepository,
+    private readonly dataSource: DataSource,
+  ) { }
 
-  async createVehicle(tenantId: string, actorId: string, input: CreateVehicleInput): Promise<VehicleEntity> {
+  async createVehicle(
+    tenantId: string,
+    actorId: string,
+    input: CreateVehicleInput,
+    manager?: EntityManager,
+  ): Promise<VehicleEntity> {
     try {
       const registrationNumber = input.registrationNumber.toUpperCase();
 
@@ -32,16 +57,22 @@ export class VehicleService {
         throw new ConflictError(`A vehicle with registration number ${registrationNumber} already exists`);
       }
 
-      return await this.vehicleRepository.create({
-        tenantId,
-        registrationNumber,
-        vehicleType: input.vehicleType ?? null,
-        make: input.make ?? null,
-        model: input.model ?? null,
-        capacityTons: input.capacityTons === undefined ? null : String(input.capacityTons),
-        ownershipType: input.ownershipType ?? 'owned',
-        createdBy: actorId,
-      });
+      return await this.vehicleRepository.create(
+        {
+          tenantId,
+          registrationNumber,
+          vehicleType: input.vehicleType ?? null,
+          make: input.make ?? null,
+          model: input.model ?? null,
+          fuelType: input.fuelType ?? null,
+          bodyType: input.bodyType ?? null,
+          wheelCount: input.wheelCount ?? null,
+          capacityTons: input.capacityTons === undefined ? null : String(input.capacityTons),
+          ownershipType: input.ownershipType ?? 'owned',
+          createdBy: actorId,
+        },
+        manager,
+      );
     } catch (error) {
       rethrow(error, 'Failed to create vehicle');
     }
@@ -158,10 +189,363 @@ export class VehicleService {
     }
   }
 
-  /** Shared by this service and the fleet-link service, which needs the vehicle to exist before linking. */
-  async assertVehicleExists(tenantId: string, vehicleId: string): Promise<VehicleEntity> {
+  async getOperationalStatus(tenantId: string, vehicleId: string): Promise<VehicleOperationalStatusEntity> {
     try {
-      const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId);
+      await this.assertVehicleExists(tenantId, vehicleId);
+
+      const status = await this.vehicleRepository.findOperationalStatus(tenantId, vehicleId);
+      if (!status) throw new NotFoundError(`Vehicle ${vehicleId} has no operational status yet`);
+      return status;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch vehicle operational status');
+    }
+  }
+
+  /** One row per vehicle, so the first call inserts and later calls overwrite it. */
+  async setOperationalStatus(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: SetVehicleOperationalStatusInput,
+    manager?: EntityManager,
+  ): Promise<VehicleOperationalStatusEntity> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+      const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
+      const existing = await this.vehicleRepository.findOperationalStatus(tenantId, vehicleId);
+
+      if (!existing) {
+        return await this.vehicleRepository.createOperationalStatus(
+          {
+            tenantId,
+            vehicleId,
+            operationalStatus: input.operationalStatus,
+            reason: input.reason ?? null,
+            effectiveAt,
+            createdBy: actorId,
+          },
+          manager,
+        );
+      }
+
+      const status = await this.vehicleRepository.updateOperationalStatus(tenantId, vehicleId, {
+        operationalStatus: input.operationalStatus,
+        reason: input.reason ?? null,
+        effectiveAt,
+        updatedBy: actorId,
+      });
+      if (!status) throw new NotFoundError(`Vehicle ${vehicleId} has no operational status yet`);
+      return status;
+    } catch (error) {
+      rethrow(error, 'Failed to set vehicle operational status');
+    }
+  }
+
+  async getTelemetryMeta(tenantId: string, vehicleId: string): Promise<VehicleTelemetryMetaEntity> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId);
+
+      const meta = await this.vehicleRepository.findTelemetryMeta(tenantId, vehicleId);
+      if (!meta) throw new NotFoundError(`Vehicle ${vehicleId} has no telemetry metadata yet`);
+      return meta;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch vehicle telemetry metadata');
+    }
+  }
+
+  /** One row per vehicle, so the first call inserts and later calls patch the stored row. */
+  async setTelemetryMeta(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: SetVehicleTelemetryMetaInput,
+    manager?: EntityManager,
+  ): Promise<VehicleTelemetryMetaEntity> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+      const emiAmount = input.emiAmount === undefined ? undefined : String(input.emiAmount);
+      const existing = await this.vehicleRepository.findTelemetryMeta(tenantId, vehicleId);
+
+      if (!existing) {
+        return await this.vehicleRepository.createTelemetryMeta(
+          {
+            tenantId,
+            vehicleId,
+            gpsProvider: input.gpsProvider ?? null,
+            gpsEnabled: input.gpsEnabled ?? false,
+            emiAmount: emiAmount ?? null,
+            emiEndDate: input.emiEndDate ?? null,
+            createdBy: actorId,
+          },
+          manager,
+        );
+      }
+
+      const meta = await this.vehicleRepository.updateTelemetryMeta(tenantId, vehicleId, {
+        ...input,
+        emiAmount,
+        updatedBy: actorId,
+      });
+      if (!meta) throw new NotFoundError(`Vehicle ${vehicleId} has no telemetry metadata yet`);
+      return meta;
+    } catch (error) {
+      rethrow(error, 'Failed to set vehicle telemetry metadata');
+    }
+  }
+
+  async getServiceUsage(tenantId: string, vehicleId: string): Promise<VehicleServiceUsageEntity> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId);
+
+      const usage = await this.vehicleRepository.findServiceUsage(tenantId, vehicleId);
+      if (!usage) throw new NotFoundError(`Vehicle ${vehicleId} has no service usage recorded yet`);
+      return usage;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch vehicle service usage');
+    }
+  }
+
+  /** One row per vehicle, so the first call inserts and later calls patch the stored row. */
+  async setServiceUsage(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: SetVehicleServiceUsageInput,
+    manager?: EntityManager,
+  ): Promise<VehicleServiceUsageEntity> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+      const existing = await this.vehicleRepository.findServiceUsage(tenantId, vehicleId);
+
+      if (!existing) {
+        return await this.vehicleRepository.createServiceUsage(
+          {
+            tenantId,
+            vehicleId,
+            odometerKm: input.odometerKm ?? null,
+            lastServiceDate: input.lastServiceDate ?? null,
+            lastServiceOdometerKm: input.lastServiceOdometerKm ?? null,
+            lastTyreChangeBrand: input.lastTyreChangeBrand ?? null,
+            lastTyreChangeDate: input.lastTyreChangeDate ?? null,
+            createdBy: actorId,
+          },
+          manager,
+        );
+      }
+
+      const usage = await this.vehicleRepository.updateServiceUsage(tenantId, vehicleId, {
+        ...input,
+        updatedBy: actorId,
+      });
+      if (!usage) throw new NotFoundError(`Vehicle ${vehicleId} has no service usage recorded yet`);
+      return usage;
+    } catch (error) {
+      rethrow(error, 'Failed to set vehicle service usage');
+    }
+  }
+
+  async recordVerification(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: RecordVehicleVerificationInput,
+    outerManager?: EntityManager,
+  ): Promise<VehicleVerificationSnapshotEntity> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId, outerManager);
+
+      const run = async (manager: EntityManager) => {
+        const verified = input.verificationStatus === 'verified';
+
+        const snapshot = await this.vehicleRepository.createVerificationSnapshot(
+          {
+            tenantId,
+            vehicleId,
+            verificationType: input.verificationType,
+            verificationStatus: input.verificationStatus,
+            sourceReference: input.sourceReference ?? null,
+            registeredName: input.registeredName ?? null,
+            registeredOn: input.registeredOn ?? null,
+            vehicleClass: input.vehicleClass ?? null,
+            addressLine1: input.addressLine1 ?? null,
+            addressLine2: input.addressLine2 ?? null,
+            city: input.city ?? null,
+            pinCode: input.pinCode ?? null,
+            responsePayload: input.responsePayload ?? null,
+            verifiedAt: verified ? new Date() : null,
+            checkedAt: new Date(),
+            createdBy: actorId,
+          },
+          manager,
+        );
+
+        // A confirmed registry response is the source of truth for the papers, so fold its
+        // expiry dates into the document rows the compliance column reads from.
+        if (verified && input.papers) {
+          await this.applyVerifiedPapers(tenantId, actorId, vehicleId, input.papers, manager);
+        }
+
+        return snapshot;
+      };
+
+      return outerManager ? await run(outerManager) : await this.dataSource.transaction(run);
+    } catch (error) {
+      rethrow(error, 'Failed to record vehicle verification');
+    }
+  }
+
+  async listVerifications(tenantId: string, vehicleId: string): Promise<VehicleVerificationSnapshotEntity[]> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId);
+      return await this.vehicleRepository.listVerificationSnapshots(tenantId, vehicleId);
+    } catch (error) {
+      rethrow(error, 'Failed to list vehicle verifications');
+    }
+  }
+
+  /** Upserts one document per registry-supplied expiry date, leaving any attached file alone. */
+  private async applyVerifiedPapers(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    papers: VehicleVerificationPapersInput,
+    manager: EntityManager,
+  ): Promise<void> {
+    const byType: [VehicleDocumentType, string | undefined][] = [
+      ['insurance', papers.insuranceValidTo],
+      ['rc', papers.rcValidTo],
+      ['permit', papers.permitValidTo],
+      ['puc', papers.pucValidTo],
+      ['fitness', papers.fitnessValidTo],
+    ];
+
+    for (const [documentType, expiryDate] of byType) {
+      if (!expiryDate) continue;
+
+      const existing = await this.vehicleRepository.findDocumentByType(tenantId, vehicleId, documentType, manager);
+      const status = resolveDocumentStatus(expiryDate);
+
+      if (existing) {
+        await this.vehicleRepository.updateDocument(
+          tenantId,
+          vehicleId,
+          existing.id,
+          { expiryDate, status, updatedBy: actorId },
+          manager,
+        );
+        continue;
+      }
+
+      await this.vehicleRepository.createDocument(
+        {
+          tenantId,
+          vehicleId,
+          documentType,
+          documentNumber: null,
+          issueDate: null,
+          expiryDate,
+          fileUrl: null,
+          status,
+          createdBy: actorId,
+        },
+        manager,
+      );
+    }
+  }
+
+  /**
+   * Backs the single "Save vehicle" button: creates the vehicle and every section of the form in
+   * one transaction, so a failure partway through rolls the whole thing back rather than leaving a
+   * half-built vehicle behind. Returns the vehicle with its relations loaded.
+   */
+  async onboardVehicle(tenantId: string, actorId: string, input: OnboardVehicleInput): Promise<VehicleEntity> {
+    try {
+      const { verification, telemetry, serviceUsage, documents, operationalStatus, ...vehicleInput } = input;
+
+      const vehicleId = await this.dataSource.transaction(async (manager) => {
+        const vehicle = await this.createVehicle(tenantId, actorId, vehicleInput, manager);
+
+        if (verification) {
+          await this.recordVerification(tenantId, actorId, vehicle.id, verification, manager);
+        }
+
+        // Explicit documents come after the registry write-back so an attached file wins over a bare date.
+        for (const document of documents ?? []) {
+          const expiryDate = document.expiryDate ?? null;
+          const existing = await this.vehicleRepository.findDocumentByType(
+            tenantId,
+            vehicle.id,
+            document.documentType,
+            manager,
+          );
+
+          if (existing) {
+            await this.vehicleRepository.updateDocument(
+              tenantId,
+              vehicle.id,
+              existing.id,
+              { ...document, expiryDate, status: resolveDocumentStatus(expiryDate), updatedBy: actorId },
+              manager,
+            );
+            continue;
+          }
+
+          await this.vehicleRepository.createDocument(
+            {
+              tenantId,
+              vehicleId: vehicle.id,
+              documentType: document.documentType,
+              documentNumber: document.documentNumber ?? null,
+              issueDate: document.issueDate ?? null,
+              expiryDate,
+              fileUrl: document.fileUrl ?? null,
+              status: resolveDocumentStatus(expiryDate),
+              createdBy: actorId,
+            },
+            manager,
+          );
+        }
+
+        if (telemetry) {
+          await this.setTelemetryMeta(tenantId, actorId, vehicle.id, telemetry, manager);
+        }
+
+        if (serviceUsage) {
+          await this.setServiceUsage(tenantId, actorId, vehicle.id, serviceUsage, manager);
+        }
+
+        await this.setOperationalStatus(
+          tenantId,
+          actorId,
+          vehicle.id,
+          {
+            operationalStatus: operationalStatus?.operationalStatus ?? 'idle',
+            reason: operationalStatus?.reason,
+            effectiveAt: operationalStatus?.effectiveAt,
+          },
+          manager,
+        );
+
+        return vehicle.id;
+      });
+
+      return await this.getVehicle(tenantId, vehicleId);
+    } catch (error) {
+      rethrow(error, 'Failed to onboard vehicle');
+    }
+  }
+
+  /**
+   * Shared by this service and the fleet-link service, which needs the vehicle to exist before linking.
+   * Callers inside a transaction must pass the manager, or the read runs on another connection and
+   * cannot see a vehicle created moments earlier in the same uncommitted transaction.
+   */
+  async assertVehicleExists(tenantId: string, vehicleId: string, manager?: EntityManager): Promise<VehicleEntity> {
+    try {
+      const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
       if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
       return vehicle;
     } catch (error) {
