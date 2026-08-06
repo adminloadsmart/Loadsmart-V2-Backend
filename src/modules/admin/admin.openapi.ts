@@ -43,11 +43,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organizations/{organizationId}`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.updateOrganization',
-    ...adminOnly(
-      "Update an organization's status and/or GSTIN verification status.\n\n" +
-        'Cross-field rule enforced server-side (not expressible in this schema): at least one of ' +
-        '`status` or `gstinVerificationStatus` is required.',
-    ),
+    ...adminOnly("Update an organization's status."),
     request: {
       params: adminValidators.updateOrganization.shape.params,
       body: json(adminValidators.updateOrganization.shape.body),
@@ -56,6 +52,27 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Updated organization' },
       400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Organization not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/organizations/{organizationId}/documents/{documentId}`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.verifyOrganizationDocument',
+    ...adminOnly(
+      "Verify or reject one of an organization's submitted documents (gst_certificate, pan, udyam, " +
+        'aadhaar, cin, or shop_establishment) — separate from PATCH /admin/organizations/{organizationId}, ' +
+        "which only touches the organization's own status.",
+    ),
+    request: {
+      params: adminValidators.verifyOrganizationDocument.shape.params,
+      body: json(adminValidators.verifyOrganizationDocument.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated document' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Organization or document not found', ...errorContent },
     },
   });
 

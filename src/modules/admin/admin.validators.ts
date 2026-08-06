@@ -4,6 +4,7 @@ import { ORGANIZATION_STATUSES } from '../auth/entities/organization.entity';
 
 const uuid = z.string().uuid();
 const organizationParams = z.object({ organizationId: uuid });
+const organizationDocumentParams = organizationParams.extend({ documentId: uuid });
 
 const pagination = z.object({
   page: z.coerce.number().int().positive().default(DEFAULT_PAGE),
@@ -18,23 +19,22 @@ export const adminValidators = {
     }),
   }),
   getOrganization: z.object({ params: organizationParams }),
-  
+
   updateOrganization: z.object({
     params: organizationParams,
-    body: z
-      .object({
-        status: z.enum(ORGANIZATION_STATUSES).optional(),
-        gstinVerificationStatus: z.enum(['pending', 'verified', 'invalid']).optional(),
-      })
-      .superRefine((data, ctx) => {
-        if (data.status === undefined && data.gstinVerificationStatus === undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['status'],
-            message: 'At least one of status or gstinVerificationStatus is required',
-          });
-        }
-      }),
+    body: z.object({
+      status: z.enum(ORGANIZATION_STATUSES),
+    }),
+  }),
+
+  // Verifies/rejects one specific submitted document — separate from updateOrganization above,
+  // which only ever touches the org's own status now. See organization-document.entity.ts for the
+  // document-type/verification-status value sets.
+  verifyOrganizationDocument: z.object({
+    params: organizationDocumentParams,
+    body: z.object({
+      verificationStatus: z.enum(['pending', 'verified', 'invalid']),
+    }),
   }),
 
   createStaff: z.object({

@@ -1,5 +1,7 @@
 /* Service-layer inputs — shapes accepted by AuthService's methods. */
 
+import { OrganizationDocumentInput } from './entities/organization-document.entity';
+
 export interface SignupInput {
   phoneNumber: string;
 }
@@ -53,6 +55,5 @@ export interface CompleteCompanyProfileInput {
   state: string;
   hasOwnFleet: boolean;
   fleetSize?: number;
-  gstin?: string;
-  documentUrl?: string;
+  documents?: OrganizationDocumentInput[];
 }

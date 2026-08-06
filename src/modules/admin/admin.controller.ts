@@ -1,6 +1,13 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
-import { ListOrganizationsInput, ListStaffInput, OrganizationParams, UpdateOrganizationInput } from './utils/admin.interface';
+import {
+  ListOrganizationsInput,
+  ListStaffInput,
+  OrganizationDocumentParams,
+  OrganizationParams,
+  UpdateOrganizationInput,
+  VerifyOrganizationDocumentInput,
+} from './utils/admin.interface';
 import { CreateStaffInput } from '../auth/auth.types';
 import { AdminService } from './admin.service';
 
@@ -23,6 +30,16 @@ export class AdminController {
       req.body as UpdateOrganizationInput,
     );
     respond(res, organization);
+  };
+
+  verifyOrganizationDocument = async (req: Request<OrganizationDocumentParams>, res: Response) => {
+    const document = await this.adminService.verifyOrganizationDocument(
+      req.user!,
+      req.params.organizationId,
+      req.params.documentId,
+      req.body as VerifyOrganizationDocumentInput,
+    );
+    respond(res, document);
   };
 
   createStaff = async (req: Request, res: Response) => {

@@ -1,5 +1,5 @@
 import { randomBytes, randomInt, randomUUID, createHash } from 'crypto';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
 import { AuthenticationError, AuthorizationError, ConflictError, RateLimitError, ValidationError } from '../../shared/errors';
@@ -8,7 +8,9 @@ import { signToken, hashToken } from '../../shared/utils/token';
 import { blockToken } from '../../shared/utils/token-blocklist';
 import { invalidateUserExistsCache } from '../../shared/utils/user-existence-cache';
 import { OrganizationService } from './organization.service';
-import { GstinVerificationStatus, OrganizationStatus } from './entities/organization.entity';
+import { OrganizationDocumentService } from './organization-document.service';
+import { OrganizationStatus } from './entities/organization.entity';
+import { OrganizationDocumentInput } from './entities/organization-document.entity';
 import { isTenantAccessible } from './organization.constants';
 import { AuthRepository } from './auth.repository';
 import { RoleService } from '../roles/role.service';
@@ -36,6 +38,7 @@ export class AuthService {
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly organizationService: OrganizationService,
+    private readonly organizationDocumentService: OrganizationDocumentService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
     private readonly dataSource: DataSource,
@@ -311,7 +314,11 @@ export class AuthService {
   }
 
   async getOrganization(tenantId: string) {
-    return this.organizationService.getOrganizationStatus(tenantId);
+    const [organization, documents] = await Promise.all([
+      this.organizationService.getOrganizationStatus(tenantId),
+      this.organizationDocumentService.listByOrganization(tenantId),
+    ]);
+    return { ...organization, documents };
   }
 
   async createOrganization(userId: string, tenantId: string | null, input: CompleteCompanyProfileInput) {
@@ -329,8 +336,7 @@ export class AuthService {
       state,
       hasOwnFleet,
       fleetSize,
-      gstin,
-      documentUrl,
+      documents,
     } = input;
 
     const profileData = {
@@ -346,9 +352,6 @@ export class AuthService {
       state,
       hasOwnFleet,
       fleetSize: hasOwnFleet ? fleetSize ?? null : null,
-      gstin: hasOwnFleet ? null : gstin ?? null,
-      gstinVerificationStatus: (!hasOwnFleet && gstin ? 'pending' : null) as GstinVerificationStatus | null,
-      documentUrl: hasOwnFleet ? null : documentUrl ?? null,
     };
 
     if (tenantId) {
@@ -360,7 +363,11 @@ export class AuthService {
         throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
       }
 
-      const organization = await this.organizationService.updateOrganization(tenantId, profileData);
+      const organization = await this.dataSource.transaction(async (manager) => {
+        const updated = await this.organizationService.updateOrganization(tenantId, profileData, manager);
+        await this.syncOrganizationDocuments(tenantId, userId, hasOwnFleet, documents, manager);
+        return updated;
+      });
       return { organization };
     }
 
@@ -385,12 +392,31 @@ export class AuthService {
         manager,
       );
       const updated = await this.organizationService.updateOrganization(organization.id, profileData, manager);
+      await this.syncOrganizationDocuments(organization.id, userId, hasOwnFleet, documents, manager);
       await this.authRepository.updateUserTenant(userId, organization.id, manager);
       await this.authRepository.setUserCredentials(userId, { email, passwordHash }, manager);
       const permissions = await this.roleService.getEffectivePermissions(userId);
       const tokens = await this.issueTokenPair(userId, organization.id, ORG_ADMIN_ROLE, permissions);
       return { organization: updated, ...tokens };
     });
+  }
+
+  // hasOwnFleet true → fleet-owning orgs don't need these documents tracked, so any existing ones
+  // are cleared (mirrors the old behavior of nulling out gstin/documentUrl in that case).
+  // hasOwnFleet false → replaces each submitted document type's active row (see
+  // OrganizationDocumentRepository.replace for the soft-delete-then-insert semantics).
+  private async syncOrganizationDocuments(
+    organizationId: string,
+    actingUserId: string,
+    hasOwnFleet: boolean,
+    documents: OrganizationDocumentInput[] | undefined,
+    manager: EntityManager,
+  ) {
+    if (hasOwnFleet) {
+      await this.organizationDocumentService.clearDocuments(organizationId, actingUserId, manager);
+    } else if (documents?.length) {
+      await this.organizationDocumentService.replaceDocuments(organizationId, actingUserId, documents, manager);
+    }
   }
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues

@@ -1,5 +1,42 @@
 import { z } from 'zod';
-import { GSTIN_REGEX } from './auth.constants';
+import { DOCUMENT_NUMBER_REGEX } from './auth.constants';
+import { ORGANIZATION_DOCUMENT_TYPES } from './entities/organization-document.entity';
+
+const organizationDocumentSchema = z
+  .object({
+    documentType: z.enum(ORGANIZATION_DOCUMENT_TYPES),
+    documentNumber: z.string().min(1).optional(),
+    fileKey: z.string().min(1).optional(),
+    // Self-declared, as printed on this specific document (e.g. GST legal name & registered
+    // address, PAN/Aadhaar holder name & DOB) — none required, since not every field applies to
+    // every document type (dob only makes sense for individual-linked documents).
+    registeredName: z.string().min(1).optional(),
+    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dob must be in YYYY-MM-DD format').optional(),
+    addressLine1: z.string().min(1).optional(),
+    addressLine2: z.string().min(1).optional(),
+    city: z.string().min(1).optional(),
+    district: z.string().min(1).optional(),
+    state: z.string().min(1).optional(),
+    pinCode: z.string().min(1).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.documentNumber && !data.fileKey) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documentNumber'],
+        message: 'Either documentNumber or fileKey is required',
+      });
+      return;
+    }
+    const regex = DOCUMENT_NUMBER_REGEX[data.documentType];
+    if (data.documentNumber && regex && !regex.test(data.documentNumber)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documentNumber'],
+        message: `Invalid ${data.documentType} number format`,
+      });
+    }
+  });
 
 export const authValidators = {
   signup: z.object({
@@ -48,8 +85,7 @@ export const authValidators = {
         state: z.string().min(1),
         hasOwnFleet: z.boolean(),
         fleetSize: z.number().int().positive().optional(),
-        gstin: z.string().regex(GSTIN_REGEX).optional(),
-        documentUrl: z.string().min(1).optional(),
+        documents: z.array(organizationDocumentSchema).optional(),
       })
       .superRefine((data, ctx) => {
         if (data.hasOwnFleet) {
@@ -60,11 +96,25 @@ export const authValidators = {
               message: 'fleetSize is required when hasOwnFleet is true',
             });
           }
-        } else if (!data.gstin && !data.documentUrl) {
+          return;
+        }
+
+        if (!data.documents || data.documents.length === 0) {
           ctx.addIssue({
             code: 'custom',
-            path: ['gstin'],
-            message: 'Either gstin or documentUrl is required when hasOwnFleet is false',
+            path: ['documents'],
+            message:
+              'At least one document (gst_certificate, pan, udyam, aadhaar, cin, or shop_establishment) is required when hasOwnFleet is false',
+          });
+          return;
+        }
+
+        const types = data.documents.map((document) => document.documentType);
+        if (new Set(types).size !== types.length) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['documents'],
+            message: 'Each document type may only be submitted once',
           });
         }
       }),

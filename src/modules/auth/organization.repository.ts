@@ -1,6 +1,6 @@
 import { DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
-import { GstinVerificationStatus, OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
+import { OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
 
 export class OrganizationRepository {
     private readonly repo: Repository<OrganizationEntity>;
@@ -62,9 +62,6 @@ export class OrganizationRepository {
             state: string | null;
             hasOwnFleet: boolean | null;
             fleetSize: number | null;
-            gstin: string | null;
-            gstinVerificationStatus: GstinVerificationStatus | null;
-            documentUrl: string | null;
         }>,
         manager?: EntityManager,
     ): Promise<OrganizationEntity> {

@@ -1,11 +1,11 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { OrganizationDocumentEntity } from './organization-document.entity';
 
 // Single source of truth for the status value set — reused by admin.validators.ts's zod schema
 // so the two can't drift again the way they did before (DB had no 'suspended', validator had a
 // phantom one and was missing 'rejected'/'partial_pending').
 export const ORGANIZATION_STATUSES = ['active', 'rejected', 'pending', 'partial_pending', 'draft', 'suspended'] as const;
 export type OrganizationStatus = typeof ORGANIZATION_STATUSES[number];
-export type GstinVerificationStatus = 'pending' | 'verified' | 'invalid';
 
 @Entity({ schema: 'auth', name: 'organizations' })
 export class OrganizationEntity {
@@ -51,14 +51,8 @@ export class OrganizationEntity {
     @Column({ name: 'fleet_size', type: 'int', nullable: true })
     fleetSize!: number | null;
 
-    @Column({ type: 'varchar', nullable: true })
-    gstin!: string | null;
-
-    @Column({ name: 'gstin_verification_status', type: 'enum', enum: ['pending', 'verified', 'invalid'], nullable: true })
-    gstinVerificationStatus!: GstinVerificationStatus | null;
-
-    @Column({ name: 'document_url', type: 'varchar', nullable: true })
-    documentUrl!: string | null;
+    @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
+    documents!: OrganizationDocumentEntity[];
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;

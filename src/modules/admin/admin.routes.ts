@@ -25,6 +25,12 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.updateOrganization),
   );
 
+  router.patch(
+    '/organizations/:organizationId/documents/:documentId',
+    validate(adminValidators.verifyOrganizationDocument),
+    asyncHandler(controller.verifyOrganizationDocument),
+  );
+
   router.post('/staff', validate(adminValidators.createStaff), asyncHandler(controller.createStaff));
   router.get('/staff', validate(adminValidators.listStaff), asyncHandler(controller.listStaff));
 

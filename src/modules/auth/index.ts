@@ -4,6 +4,8 @@ import { AuditService } from '../audit/audit.service';
 import { RoleService } from '../roles/role.service';
 import { OrganizationRepository } from './organization.repository';
 import { OrganizationService } from './organization.service';
+import { OrganizationDocumentRepository } from './organization-document.repository';
+import { OrganizationDocumentService } from './organization-document.service';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -13,8 +15,18 @@ export function createAuthModule(dataSource: DataSource, deps: { auditService: A
   const organizationRepository = new OrganizationRepository(dataSource);
   const organizationService = new OrganizationService(organizationRepository);
 
+  const organizationDocumentRepository = new OrganizationDocumentRepository(dataSource);
+  const organizationDocumentService = new OrganizationDocumentService(organizationDocumentRepository);
+
   const repository = new AuthRepository(dataSource);
-  const service = new AuthService(repository, organizationService, deps.roleService, deps.auditService, dataSource);
+  const service = new AuthService(
+    repository,
+    organizationService,
+    organizationDocumentService,
+    deps.roleService,
+    deps.auditService,
+    dataSource,
+  );
   const controller = new AuthController(service);
   const publicRouter = createAuthPublicRoutes(controller);
   const protectedRouter = createAuthProtectedRoutes(controller);
@@ -27,5 +39,6 @@ export function createAuthModule(dataSource: DataSource, deps: { auditService: A
     tenancyGateway,
     authRepository: repository,
     organizationService,
+    organizationDocumentService,
   };
 }

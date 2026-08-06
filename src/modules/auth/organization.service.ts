@@ -1,7 +1,7 @@
 import { EntityManager } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
 import { OrganizationRepository } from './organization.repository';
-import { GstinVerificationStatus, OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
+import { OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
 
 interface CreateOrganizationInput {
     name: string | null;
@@ -46,9 +46,6 @@ export class OrganizationService {
             state: string | null;
             hasOwnFleet: boolean | null;
             fleetSize: number | null;
-            gstin: string | null;
-            gstinVerificationStatus: GstinVerificationStatus | null;
-            documentUrl: string | null;
         }>,
         manager?: EntityManager,
     ): Promise<OrganizationEntity> {

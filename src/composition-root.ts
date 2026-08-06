@@ -54,9 +54,13 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsGateway: new MaintenanceNotificationsGatewayLocal(notifications.service),
   });
 
-  // Reads auth's organizationService and authService directly — cross-tenant ops, not a
-  // producer/consumer integration, so no gateway wrapper (see admin/index.ts).
-  const admin = createAdminModule({ organizationService: auth.organizationService, authService: auth.service });
+  // Reads auth's organizationService/organizationDocumentService and authService directly —
+  // cross-tenant ops, not a producer/consumer integration, so no gateway wrapper (see admin/index.ts).
+  const admin = createAdminModule({
+    organizationService: auth.organizationService,
+    organizationDocumentService: auth.organizationDocumentService,
+    authService: auth.service,
+  });
 
   // Last — reads other modules' services directly (none wired yet).
   const dashboards = createDashboardsModule();

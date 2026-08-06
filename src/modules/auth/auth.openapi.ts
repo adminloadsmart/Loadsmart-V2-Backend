@@ -158,7 +158,9 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         '`email`/`password` are ignored (not a change-credentials endpoint) and it just updates the existing ' +
         'organization, returning it alone.\n\n' +
         'Cross-field rules enforced server-side (not expressible in this schema): `fleetSize` is required when ' +
-        '`hasOwnFleet` is true; otherwise at least one of `gstin` or `documentUrl` is required.',
+        '`hasOwnFleet` is true; otherwise at least one `documents` entry is required — each entry is one of ' +
+        '`gst_certificate`, `pan`, `udyam`, `aadhaar`, `cin`, or `shop_establishment`, verified either by its ' +
+        'official `documentNumber` or by an uploaded file\'s `fileKey` (from a separate upload API).',
     ),
     request: { body: json(authValidators.createOrganization.shape.body) },
     responses: {
