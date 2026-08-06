@@ -60,6 +60,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationService: auth.organizationService,
     organizationDocumentService: auth.organizationDocumentService,
     authService: auth.service,
+    auditService: audit.service,
   });
 
   // Last — reads other modules' services directly (none wired yet).

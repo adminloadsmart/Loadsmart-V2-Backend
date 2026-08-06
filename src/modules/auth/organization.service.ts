@@ -46,6 +46,9 @@ export class OrganizationService {
             state: string | null;
             hasOwnFleet: boolean | null;
             fleetSize: number | null;
+            onlineKycVerifierId: string | null;
+            physicalKycAgentId: string | null;
+            decisionReason: string | null;
         }>,
         manager?: EntityManager,
     ): Promise<OrganizationEntity> {

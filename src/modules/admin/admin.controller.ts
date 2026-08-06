@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import {
+  AssignReviewerInput,
   ListOrganizationsInput,
   ListStaffInput,
+  OrganizationDecisionReasonInput,
   OrganizationDocumentParams,
   OrganizationParams,
   UpdateOrganizationInput,
@@ -26,6 +28,7 @@ export class AdminController {
 
   updateOrganization = async (req: Request<OrganizationParams>, res: Response) => {
     const organization = await this.adminService.updateOrganization(
+      req.user!,
       req.params.organizationId,
       req.body as UpdateOrganizationInput,
     );
@@ -40,6 +43,55 @@ export class AdminController {
       req.body as VerifyOrganizationDocumentInput,
     );
     respond(res, document);
+  };
+
+  assignOnlineVerifier = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.assignOnlineVerifier(
+      req.user!,
+      req.params.organizationId,
+      req.body as AssignReviewerInput,
+    );
+    respond(res, organization);
+  };
+
+  assignPhysicalAgent = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.assignPhysicalAgent(
+      req.user!,
+      req.params.organizationId,
+      req.body as AssignReviewerInput,
+    );
+    respond(res, organization);
+  };
+
+  approveOrganization = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.approveOrganization(req.user!, req.params.organizationId);
+    respond(res, organization);
+  };
+
+  rejectOrganization = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.rejectOrganization(
+      req.user!,
+      req.params.organizationId,
+      req.body as OrganizationDecisionReasonInput,
+    );
+    respond(res, organization);
+  };
+
+  denyOrganization = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.denyOrganization(
+      req.user!,
+      req.params.organizationId,
+      req.body as OrganizationDecisionReasonInput,
+    );
+    respond(res, organization);
+  };
+
+  getOrganizationAuditTrail = async (req: Request<OrganizationParams>, res: Response) => {
+    const trail = await this.adminService.getOrganizationAuditTrail(
+      req.params.organizationId,
+      req.validatedQuery as { page: number; limit: number },
+    );
+    respond(res, trail);
   };
 
   createStaff = async (req: Request, res: Response) => {

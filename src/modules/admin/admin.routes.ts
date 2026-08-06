@@ -31,6 +31,39 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.verifyOrganizationDocument),
   );
 
+  router.patch(
+    '/organizations/:organizationId/online-verifier',
+    validate(adminValidators.assignOnlineVerifier),
+    asyncHandler(controller.assignOnlineVerifier),
+  );
+  router.patch(
+    '/organizations/:organizationId/physical-agent',
+    validate(adminValidators.assignPhysicalAgent),
+    asyncHandler(controller.assignPhysicalAgent),
+  );
+
+  router.post(
+    '/organizations/:organizationId/approve',
+    validate(adminValidators.approveOrganization),
+    asyncHandler(controller.approveOrganization),
+  );
+  router.post(
+    '/organizations/:organizationId/reject',
+    validate(adminValidators.rejectOrganization),
+    asyncHandler(controller.rejectOrganization),
+  );
+  router.post(
+    '/organizations/:organizationId/deny',
+    validate(adminValidators.denyOrganization),
+    asyncHandler(controller.denyOrganization),
+  );
+
+  router.get(
+    '/organizations/:organizationId/audit',
+    validate(adminValidators.getOrganizationAuditTrail),
+    asyncHandler(controller.getOrganizationAuditTrail),
+  );
+
   router.post('/staff', validate(adminValidators.createStaff), asyncHandler(controller.createStaff));
   router.get('/staff', validate(adminValidators.listStaff), asyncHandler(controller.listStaff));
 

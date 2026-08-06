@@ -15,9 +15,18 @@ export interface VerifyOrganizationDocumentInput {
   verificationStatus: DocumentVerificationStatus;
 }
 
+export interface AssignReviewerInput {
+  userId: string;
+}
+
+export interface OrganizationDecisionReasonInput {
+  reason: string;
+}
+
 export type OrganizationParams = { organizationId: string };
 export type OrganizationDocumentParams = { organizationId: string; documentId: string };
 
 export interface ListStaffInput extends PaginationInput {
   search?: string;
+  role?: string;
 }

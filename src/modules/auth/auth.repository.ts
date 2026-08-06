@@ -57,8 +57,8 @@ export class AuthRepository {
     // "tenantId IS NULL", since an org_admin mid-self-signup (hasn't completed their company
     // profile yet) also has a null tenantId at that point without being staff. role.scope is the
     // real distinguishing field.
-    async listStaffUsers(filters: { search?: string; page: number; limit: number }): Promise<{ items: UserEntity[]; total: number }> {
-        const { search, page, limit } = filters;
+    async listStaffUsers(filters: { search?: string; role?: string; page: number; limit: number }): Promise<{ items: UserEntity[]; total: number }> {
+        const { search, role, page, limit } = filters;
         const qb = this.users
             .createQueryBuilder('user')
             .innerJoinAndSelect('user.role', 'role')
@@ -71,6 +71,11 @@ export class AuthRepository {
 
         if (search) {
             qb.andWhere('(user.full_name ILIKE :search OR user.email ILIKE :search)', { search: `%${search}%` });
+        }
+        // Narrows to a specific role (e.g. 'online_kyc_desk') — used by the admin UI to populate
+        // the KYC verifier/agent assignment dropdowns with only eligible staff.
+        if (role) {
+            qb.andWhere('role.name = :role', { role });
         }
 
         const [items, total] = await qb.getManyAndCount();

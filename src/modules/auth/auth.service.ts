@@ -2,7 +2,7 @@ import { randomBytes, randomInt, randomUUID, createHash } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
-import { AuthenticationError, AuthorizationError, ConflictError, RateLimitError, ValidationError } from '../../shared/errors';
+import { AuthenticationError, AuthorizationError, ConflictError, NotFoundError, RateLimitError, ValidationError } from '../../shared/errors';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { signToken, hashToken } from '../../shared/utils/token';
 import { blockToken } from '../../shared/utils/token-blocklist';
@@ -214,7 +214,16 @@ export class AuthService {
   }
 
 
-  async listStaffUsers(input: { search?: string; page: number; limit: number }) {
+  // Thin wrapper so callers outside this module (admin.service.ts's verifier/agent assignment)
+  // depend on AuthService, not AuthRepository directly — matches the pattern AdminService already
+  // uses for organizationService/organizationDocumentService.
+  async getUserById(userId: string) {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundError(`User ${userId} not found`);
+    return user;
+  }
+
+  async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
     return {
       items: items.map((user) => ({

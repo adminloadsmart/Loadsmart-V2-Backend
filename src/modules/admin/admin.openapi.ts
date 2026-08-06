@@ -43,7 +43,12 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organizations/{organizationId}`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.updateOrganization',
-    ...adminOnly("Update an organization's status."),
+    ...adminOnly(
+      "Update an organization's status directly — for lifecycle transitions outside the KYC review " +
+        'moment (e.g. suspending an active org, reactivating one). For the actual review decision, use ' +
+        'POST .../approve, .../reject, or .../deny below instead, which also validate documents and ' +
+        'record why. Logged to this organization\'s audit trail either way.',
+    ),
     request: {
       params: adminValidators.updateOrganization.shape.params,
       body: json(adminValidators.updateOrganization.shape.body),
@@ -77,6 +82,125 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/organizations/{organizationId}/online-verifier`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.assignOnlineVerifier',
+    ...adminOnly(
+      "Assign a staff member (must hold the online_kyc_desk role) as this organization's online " +
+        'KYC reviewer. Record-keeping/routing only today — the assignee is not themselves granted ' +
+        'any access by this call; every /admin/* action still requires platform_admin.',
+    ),
+    request: {
+      params: adminValidators.assignOnlineVerifier.shape.params,
+      body: json(adminValidators.assignOnlineVerifier.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated organization' },
+      400: { description: "userId doesn't hold the online_kyc_desk role", ...errorContent },
+      404: { description: 'Organization or user not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/organizations/{organizationId}/physical-agent`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.assignPhysicalAgent',
+    ...adminOnly(
+      "Assign a staff member (must hold the offline_kyc_desk role) as this organization's physical " +
+        'KYC field agent. Same record-keeping/routing-only caveat as the online-verifier endpoint above.',
+    ),
+    request: {
+      params: adminValidators.assignPhysicalAgent.shape.params,
+      body: json(adminValidators.assignPhysicalAgent.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated organization' },
+      400: { description: "userId doesn't hold the offline_kyc_desk role", ...errorContent },
+      404: { description: 'Organization or user not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organizations/{organizationId}/approve`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.approveOrganization',
+    ...adminOnly(
+      "Approve the organization and grant platform access (status → active). Blocked until every " +
+        'submitted document is verified via PATCH .../documents/{documentId} first.',
+    ),
+    request: { params: adminValidators.approveOrganization.shape.params },
+    responses: {
+      200: { description: 'Updated organization' },
+      400: { description: 'One or more submitted documents are not yet verified', ...errorContent },
+      404: { description: 'Organization not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organizations/{organizationId}/reject`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.rejectOrganization',
+    ...adminOnly(
+      "Reject the organization (status → rejected) with a mandatory reason — typically one of the " +
+        "caller's own canned template reasons (e.g. \"document expired\"), but any non-empty string " +
+        'is accepted server-side. Distinguished from POST .../deny only by which audit action is ' +
+        'recorded and by convention, not by a different status value.',
+    ),
+    request: {
+      params: adminValidators.rejectOrganization.shape.params,
+      body: json(adminValidators.rejectOrganization.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated organization' },
+      400: { description: 'Validation failed (reason required)', ...errorContent },
+      404: { description: 'Organization not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organizations/{organizationId}/deny`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.denyOrganization',
+    ...adminOnly(
+      'Deny platform access (status → rejected) with a mandatory free-text reason. Same status ' +
+        'change as POST .../reject — see that endpoint for how the two are distinguished.',
+    ),
+    request: {
+      params: adminValidators.denyOrganization.shape.params,
+      body: json(adminValidators.denyOrganization.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated organization' },
+      400: { description: 'Validation failed (reason required)', ...errorContent },
+      404: { description: 'Organization not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organizations/{organizationId}/audit`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.getOrganizationAuditTrail',
+    ...adminOnly(
+      "This organization's audit history — status changes, document verifications, verifier/agent " +
+        'assignments, and approve/reject/deny decisions — newest first, paginated.',
+    ),
+    request: {
+      params: adminValidators.getOrganizationAuditTrail.shape.params,
+      query: adminValidators.getOrganizationAuditTrail.shape.query,
+    },
+    responses: {
+      200: { description: 'Paginated audit log entries — { data: { items, page, limit, total, totalPages } }' },
+      404: { description: 'Organization not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/staff`,
     tags: [TAGS.ADMIN],
@@ -84,8 +208,9 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly(
       'Provision an internal staff account (sales, online/offline KYC desk, load console).\n\n' +
         '`roleId` must resolve to one of those four platform-scope roles — platform_admin and ' +
-        "org_admin can't be assigned this way. The admin sets an initial password; the staff " +
-        'member logs in themselves via POST /auth/login.\n\n' +
+        "org_admin can't be assigned this way. The password is generated server-side (not admin-" +
+        "supplied) and isn't returned in this response; the staff member logs in themselves via " +
+        'POST /auth/login once they have it through some other channel.\n\n' +
         'Optional `permissionIds` grants extra permissions on top of the role, in the same call ' +
         '(each id from GET /roles/permissions?scope=platform — group by that response\'s `module` ' +
         'field to build a checklist). Not atomic with account creation: if one id in the list is ' +
@@ -109,7 +234,10 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/staff`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.listStaff',
-    ...adminOnly('List internal staff accounts, paginated and optionally filtered by name/email search.'),
+    ...adminOnly(
+      'List internal staff accounts, paginated and optionally filtered by name/email search and/or ' +
+        'role (e.g. ?role=online_kyc_desk to populate the KYC verifier/agent assignment dropdowns).',
+    ),
     request: { query: adminValidators.listStaff.shape.query },
     responses: {
       200: { description: 'Paginated staff — { data: { items, page, limit, total, totalPages } }' },

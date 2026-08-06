@@ -26,4 +26,11 @@ export class AuditService {
             userAgent: entry.userAgent ?? null,
         });
     }
+
+    // Read-side passthrough so other modules (admin.service.ts's org audit trail) depend on
+    // AuditService, not AuditRepository directly — same layering every other cross-module read in
+    // this codebase already follows.
+    findByOrganization(organizationId: string, pagination: { page: number; limit: number }) {
+        return this.auditRepository.findByOrganization(organizationId, pagination);
+    }
 }
