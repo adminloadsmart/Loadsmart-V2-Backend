@@ -1,0 +1,46 @@
+// src/config/env.ts
+import dotenv from 'dotenv';
+dotenv.config();
+
+function required(key: string): string {
+  const val = process.env[key];
+  if (!val) throw new Error(`Missing required env var: ${key}`);
+  return val;
+}
+
+function numberWithDefault(key: string, defaultValue: number): number {
+  const val = process.env[key];
+  return val ? Number(val) : defaultValue;
+}
+
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+const jwtSecret = required('JWT_SECRET');
+const MIN_JWT_SECRET_LENGTH = 32;
+if (jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
+  const message = `JWT_SECRET is only ${jwtSecret.length} chars — should be at least ${MIN_JWT_SECRET_LENGTH} for a symmetric HMAC secret`;
+  // Hard-fail in production; warn everywhere else so short dev/local secrets keep working.
+  if (nodeEnv === 'production') {
+    throw new Error(message);
+  }
+  console.warn(`⚠ ${message}`);
+}
+
+export const env = {
+  nodeEnv,
+  port: Number(process.env.PORT ?? 4000),
+  databaseUrl: required('DATABASE_URL'),
+  jwtSecret,
+  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  accessTokenTtlSeconds: numberWithDefault('ACCESS_TOKEN_TTL_SECONDS', 15 * 60),
+  refreshTokenTtlMs: numberWithDefault('REFRESH_TOKEN_TTL_MS', 30 * 24 * 60 * 60 * 1000),
+  signupOtpTtlSeconds: numberWithDefault('SIGNUP_OTP_TTL_SECONDS', 600),
+  userExistsCacheTtlSeconds: numberWithDefault('USER_EXISTS_CACHE_TTL_SECONDS', 30),
+  // Per-IP request throttles on the unauthenticated auth endpoints — defense-in-depth alongside
+  // the (email, ip)-scoped login lockout and the per-phone OTP attempt cap.
+  loginRateLimitMax: numberWithDefault('LOGIN_RATE_LIMIT_MAX', 20),
+  loginRateLimitWindowSeconds: numberWithDefault('LOGIN_RATE_LIMIT_WINDOW_SECONDS', 300),
+  verifyOtpRateLimitMax: numberWithDefault('VERIFY_OTP_RATE_LIMIT_MAX', 20),
+  verifyOtpRateLimitWindowSeconds: numberWithDefault('VERIFY_OTP_RATE_LIMIT_WINDOW_SECONDS', 300),
+  signupRateLimitMax: numberWithDefault('SIGNUP_RATE_LIMIT_MAX', 20),
+  signupRateLimitWindowSeconds: numberWithDefault('SIGNUP_RATE_LIMIT_WINDOW_SECONDS', 300),
+};
