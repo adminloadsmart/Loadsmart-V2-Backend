@@ -12,8 +12,15 @@ import { OrganizationEntity } from './organization.entity';
 
 // A company can prove its identity through any one (or more) of these — see auth.validators.ts's
 // createOrganization and auth.constants.ts's DOCUMENT_NUMBER_REGEX for the per-type number format.
-export const ORGANIZATION_DOCUMENT_TYPES = ['gst_certificate', 'pan', 'udyam', 'aadhaar', 'cin', 'shop_establishment'] as const;
-export type OrganizationDocumentType = typeof ORGANIZATION_DOCUMENT_TYPES[number];
+export const ORGANIZATION_DOCUMENT_TYPES = [
+  'gst_certificate',
+  'pan',
+  'udyam',
+  'aadhaar',
+  'cin',
+  'shop_establishment',
+] as const;
+export type OrganizationDocumentType = (typeof ORGANIZATION_DOCUMENT_TYPES)[number];
 
 // Same value set as the old GstinVerificationStatus it replaces — nothing in this codebase sets
 // it to 'verified'/'invalid' automatically yet (no gov-API integration wired up), only the admin

@@ -12,7 +12,11 @@ export function createRoleRoutes(controller: RoleController): Router {
   const router = Router();
 
   router.get('/', validate(roleValidators.listRoles), asyncHandler(controller.listRoles));
-  router.get('/permissions', validate(roleValidators.listPermissions), asyncHandler(controller.listPermissions));
+  router.get(
+    '/permissions',
+    validate(roleValidators.listPermissions),
+    asyncHandler(controller.listPermissions),
+  );
 
   router.get(
     '/users/:userId/permissions',

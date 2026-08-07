@@ -3,7 +3,7 @@ import { respond } from '../../shared/responses/respond';
 import { AuthService } from './auth.service';
 
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   signup = async (req: Request, res: Response) => {
     const tokens = await this.authService.signup(req.body);
@@ -27,7 +27,12 @@ export class AuthController {
   };
 
   logout = async (req: Request, res: Response) => {
-    await this.authService.logout({ ...req.body, userId: req.user!.id, jti: req.user!.jti, exp: req.user!.exp });
+    await this.authService.logout({
+      ...req.body,
+      userId: req.user!.id,
+      jti: req.user!.jti,
+      exp: req.user!.exp,
+    });
     respond(res, { success: true });
   };
 
@@ -46,7 +51,11 @@ export class AuthController {
   };
 
   createOrganization = async (req: Request, res: Response) => {
-    const result = await this.authService.createOrganization(req.user!.id, req.user!.tenantId, req.body);
+    const result = await this.authService.createOrganization(
+      req.user!.id,
+      req.user!.tenantId,
+      req.body,
+    );
     respond(res, result);
   };
 }

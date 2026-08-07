@@ -31,7 +31,12 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
     windowSeconds: env.verifyOtpRateLimitWindowSeconds,
   });
 
-  router.post('/signup', signupRateLimit, validate(authValidators.signup), asyncHandler(controller.signup));
+  router.post(
+    '/signup',
+    signupRateLimit,
+    validate(authValidators.signup),
+    asyncHandler(controller.signup),
+  );
   router.post(
     '/verify-otp',
     verifyOtpRateLimit,
@@ -39,7 +44,12 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
     verifySignupToken,
     asyncHandler(controller.verifyOtp),
   );
-  router.post('/login', loginRateLimit, validate(authValidators.login), asyncHandler(controller.login));
+  router.post(
+    '/login',
+    loginRateLimit,
+    validate(authValidators.login),
+    asyncHandler(controller.login),
+  );
   router.post('/refresh', validate(authValidators.refresh), asyncHandler(controller.refresh));
 
   return router;

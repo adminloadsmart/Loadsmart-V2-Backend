@@ -17,7 +17,12 @@ export const SALES_ROLE = 'sales';
 // Roles a platform admin may hand a newly-created staff account (POST /admin/staff) — deliberately
 // excludes platform_admin (no minting new platform admins through a bulk staff form) and org_admin
 // (provisioned exclusively through self-signup).
-export const STAFF_ASSIGNABLE_ROLES = [SALES_ROLE, ONLINE_KYC_DESK_ROLE, OFFLINE_KYC_DESK_ROLE, 'load_console'];
+export const STAFF_ASSIGNABLE_ROLES = [
+  SALES_ROLE,
+  ONLINE_KYC_DESK_ROLE,
+  OFFLINE_KYC_DESK_ROLE,
+  'load_console',
+];
 
 // Every role with scope: 'platform' in auth.roles — i.e. never tied to a tenant (tenantId is
 // always null for these). Used by tenant-scope.middleware.ts to exempt them from requiring a

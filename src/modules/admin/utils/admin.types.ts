@@ -11,6 +11,10 @@ export interface Paginated<T> {
   totalPages: number;
 }
 
-export function paginate<T>(items: T[], total: number, { page, limit }: PaginationInput): Paginated<T> {
+export function paginate<T>(
+  items: T[],
+  total: number,
+  { page, limit }: PaginationInput,
+): Paginated<T> {
   return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
 }

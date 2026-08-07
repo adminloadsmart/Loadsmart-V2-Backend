@@ -1,11 +1,11 @@
-import { z } from "zod";
+import { z } from 'zod';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
   IFSC_REGEX,
   MAX_PAGE_SIZE,
   REGISTRATION_NUMBER_REGEX,
-} from "./masters.constants";
+} from './masters.constants';
 import {
   BODY_TYPES,
   FUEL_TYPES,
@@ -17,7 +17,7 @@ import {
   VEHICLE_VERIFICATION_STATUSES,
   VEHICLE_VERIFICATION_TYPES,
   WHEEL_COUNTS,
-} from "./utils/vehicle.type";
+} from './utils/vehicle.type';
 import {
   DRIVER_BANK_VERIFICATION_STATUSES,
   DRIVER_DOCUMENT_TYPES,
@@ -26,23 +26,16 @@ import {
   DRIVER_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
-} from "./utils/drivers.types";
+} from './utils/drivers.types';
 
 const uuid = z.string().uuid();
-const isoDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date");
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date');
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
 
 const pagination = z.object({
   page: z.coerce.number().int().positive().default(DEFAULT_PAGE),
-  limit: z.coerce
-    .number()
-    .int()
-    .positive()
-    .max(MAX_PAGE_SIZE)
-    .default(DEFAULT_PAGE_SIZE),
+  limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
   search: z.string().min(1).optional(),
 });
 
@@ -63,11 +56,8 @@ const linkParams = z.object({ linkId: uuid });
 const registrationNumber = z
   .string()
   .trim()
-  .transform((value) => value.replace(/\s+/g, "").toUpperCase())
-  .refine(
-    (value) => REGISTRATION_NUMBER_REGEX.test(value),
-    "Invalid registration number",
-  );
+  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
+  .refine((value) => REGISTRATION_NUMBER_REGEX.test(value), 'Invalid registration number');
 
 /**
  * Licence numbers are typed as printed — "MH12 20190012345" — but formats vary too much across
@@ -77,18 +67,15 @@ const registrationNumber = z
 const licenseNumber = z
   .string()
   .trim()
-  .transform((value) => value.replace(/\s+/g, "").toUpperCase())
-  .refine(
-    (value) => value.length >= 8 && value.length <= 30,
-    "Invalid driving licence number",
-  );
+  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
+  .refine((value) => value.length >= 8 && value.length <= 30, 'Invalid driving licence number');
 
 const wheelCount = z
   .number()
   .int()
   .refine(
     (value) => (WHEEL_COUNTS as readonly number[]).includes(value),
-    `Expected one of: ${WHEEL_COUNTS.join(", ")}`,
+    `Expected one of: ${WHEEL_COUNTS.join(', ')}`,
   );
 
 /** Shared by `createVehicle` and the section-1 fields of `onboardVehicle`. */
@@ -139,11 +126,8 @@ const driverCoreFields = {
   phoneNumber: z
     .string()
     .trim()
-    .transform((value) => value.replace(/[\s-]/g, ""))
-    .refine(
-      (value) => /^\d{10,15}$/.test(value),
-      "Expected a 10-15 digit mobile number",
-    ),
+    .transform((value) => value.replace(/[\s-]/g, ''))
+    .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number'),
   licenseNumber: licenseNumber.optional(),
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
@@ -161,7 +145,10 @@ const driverVerificationBody = z.object({
   addressLine1: z.string().min(1).max(255).optional(),
   addressLine2: z.string().min(1).max(255).optional(),
   city: z.string().min(1).max(100).optional(),
-  pinCode: z.string().regex(/^\d{6}$/, "Expected a 6-digit PIN code").optional(),
+  pinCode: z
+    .string()
+    .regex(/^\d{6}$/, 'Expected a 6-digit PIN code')
+    .optional(),
   rawResponse: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -171,7 +158,7 @@ const driverBankDetailsBody = z.object({
     .string()
     .trim()
     .transform((value) => value.toUpperCase())
-    .refine((value) => IFSC_REGEX.test(value), "Invalid IFSC code"),
+    .refine((value) => IFSC_REGEX.test(value), 'Invalid IFSC code'),
   accountHolderName: z.string().min(1).max(150).optional(),
 });
 
@@ -199,7 +186,7 @@ const vehicleVerificationBody = z.object({
   city: z.string().min(1).max(100).optional(),
   pinCode: z
     .string()
-    .regex(/^\d{6}$/, "Expected a 6-digit PIN code")
+    .regex(/^\d{6}$/, 'Expected a 6-digit PIN code')
     .optional(),
   papers: z
     .object({
@@ -231,9 +218,7 @@ export const mastersValidators = {
   listVehicles: z.object({
     query: pagination.extend({
       status: z.enum(VEHICLE_STATUSES).optional(),
-      operationalStatus: z
-        .enum(["on_trip", "idle", "warn_on_assign", "inactive"])
-        .optional(),
+      operationalStatus: z.enum(['on_trip', 'idle', 'warn_on_assign', 'inactive']).optional(),
     }),
   }),
   getVehicle: z.object({ params: vehicleParams }),
@@ -251,10 +236,7 @@ export const mastersValidators = {
         ownershipType: z.enum(OWNERSHIP_TYPES).optional(),
         status: z.enum(VEHICLE_STATUSES).optional(),
       })
-      .refine(
-        (data) => Object.keys(data).length > 0,
-        "At least one field is required",
-      ),
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteVehicle: z.object({ params: vehicleParams }),
 
@@ -263,7 +245,7 @@ export const mastersValidators = {
     params: vehicleParams,
     body: vehicleServiceUsageBody.refine(
       (data) => Object.keys(data).length > 0,
-      "At least one field is required",
+      'At least one field is required',
     ),
   }),
 
@@ -281,10 +263,7 @@ export const mastersValidators = {
         expiryDate: isoDate.optional(),
         fileUrl: z.string().min(1).optional(),
       })
-      .refine(
-        (data) => Object.keys(data).length > 0,
-        "At least one field is required",
-      ),
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteVehicleDocument: z.object({ params: vehicleDocumentParams }),
 
@@ -304,9 +283,7 @@ export const mastersValidators = {
   listDrivers: z.object({
     query: pagination.extend({
       status: z.enum(DRIVER_STATUSES).optional(),
-      operationalStatus: z
-        .enum(["active", "on_trip", "on_leave", "inactive"])
-        .optional(),
+      operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
     }),
   }),
   getDriver: z.object({ params: driverParams }),
@@ -320,10 +297,7 @@ export const mastersValidators = {
         dateOfJoining: isoDate.optional(),
         status: z.enum(DRIVER_STATUSES).optional(),
       })
-      .refine(
-        (data) => Object.keys(data).length > 0,
-        "At least one field is required",
-      ),
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteDriver: z.object({ params: driverParams }),
 
@@ -390,10 +364,7 @@ export const mastersValidators = {
         emiAmount: z.number().nonnegative().max(9999999999).optional(),
         emiEndDate: isoDate.optional(),
       })
-      .refine(
-        (data) => Object.keys(data).length > 0,
-        "At least one field is required",
-      ),
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
 
   recordVehicleVerification: z.object({

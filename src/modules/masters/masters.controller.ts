@@ -20,10 +20,14 @@ export class MastersController {
     private readonly vehicleService: VehicleService,
     private readonly driverService: DriverService,
     private readonly fleetDriverLinkService: FleetDriverLinkService,
-  ) { }
+  ) {}
 
   createVehicle = async (req: Request, res: Response) => {
-    const vehicle = await this.vehicleService.createVehicle(requireTenantId(req), req.user!.id, req.body);
+    const vehicle = await this.vehicleService.createVehicle(
+      requireTenantId(req),
+      req.user!.id,
+      req.body,
+    );
     respond(res, vehicle, 201);
   };
 
@@ -36,7 +40,10 @@ export class MastersController {
   };
 
   getVehicle = async (req: Request<VehicleParams>, res: Response) => {
-    const vehicle = await this.vehicleService.getVehicle(requireTenantId(req), req.params.vehicleId);
+    const vehicle = await this.vehicleService.getVehicle(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, vehicle);
   };
 
@@ -51,7 +58,11 @@ export class MastersController {
   };
 
   deleteVehicle = async (req: Request<VehicleParams>, res: Response) => {
-    await this.vehicleService.deleteVehicle(requireTenantId(req), req.user!.id, req.params.vehicleId);
+    await this.vehicleService.deleteVehicle(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+    );
     respond(res, { success: true });
   };
 
@@ -66,7 +77,10 @@ export class MastersController {
   };
 
   listVehicleDocuments = async (req: Request<VehicleParams>, res: Response) => {
-    const documents = await this.vehicleService.listDocuments(requireTenantId(req), req.params.vehicleId);
+    const documents = await this.vehicleService.listDocuments(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, documents);
   };
 
@@ -92,7 +106,11 @@ export class MastersController {
   };
 
   createDriver = async (req: Request, res: Response) => {
-    const driver = await this.driverService.createDriver(requireTenantId(req), req.user!.id, req.body);
+    const driver = await this.driverService.createDriver(
+      requireTenantId(req),
+      req.user!.id,
+      req.body,
+    );
     respond(res, driver, 201);
   };
 
@@ -138,7 +156,10 @@ export class MastersController {
   };
 
   listDriverDocuments = async (req: Request<DriverParams>, res: Response) => {
-    const documents = await this.driverService.listDocuments(requireTenantId(req), req.params.driverId);
+    const documents = await this.driverService.listDocuments(
+      requireTenantId(req),
+      req.params.driverId,
+    );
     respond(res, documents);
   };
 
@@ -163,7 +184,10 @@ export class MastersController {
   };
 
   listDriverVerifications = async (req: Request<DriverParams>, res: Response) => {
-    const verifications = await this.driverService.listVerifications(requireTenantId(req), req.params.driverId);
+    const verifications = await this.driverService.listVerifications(
+      requireTenantId(req),
+      req.params.driverId,
+    );
     respond(res, verifications);
   };
 
@@ -178,11 +202,17 @@ export class MastersController {
   };
 
   listDriverBankDetails = async (req: Request<DriverParams>, res: Response) => {
-    const bankDetails = await this.driverService.listBankDetails(requireTenantId(req), req.params.driverId);
+    const bankDetails = await this.driverService.listBankDetails(
+      requireTenantId(req),
+      req.params.driverId,
+    );
     respond(res, bankDetails);
   };
 
-  setDriverBankDetailsVerification = async (req: Request<DriverBankDetailsParams>, res: Response) => {
+  setDriverBankDetailsVerification = async (
+    req: Request<DriverBankDetailsParams>,
+    res: Response,
+  ) => {
     const bankDetails = await this.driverService.setBankDetailsVerification(
       requireTenantId(req),
       req.user!.id,
@@ -214,17 +244,27 @@ export class MastersController {
   };
 
   listVehicleLinks = async (req: Request<VehicleParams>, res: Response) => {
-    const links = await this.fleetDriverLinkService.listVehicleLinks(requireTenantId(req), req.params.vehicleId);
+    const links = await this.fleetDriverLinkService.listVehicleLinks(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, links);
   };
 
   listDriverLinks = async (req: Request<DriverParams>, res: Response) => {
-    const links = await this.fleetDriverLinkService.listDriverLinks(requireTenantId(req), req.params.driverId);
+    const links = await this.fleetDriverLinkService.listDriverLinks(
+      requireTenantId(req),
+      req.params.driverId,
+    );
     respond(res, links);
   };
 
   setLinkPrimary = async (req: Request<LinkParams>, res: Response) => {
-    const link = await this.fleetDriverLinkService.setPrimary(requireTenantId(req), req.user!.id, req.params.linkId);
+    const link = await this.fleetDriverLinkService.setPrimary(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.linkId,
+    );
     respond(res, link);
   };
 
@@ -239,17 +279,28 @@ export class MastersController {
   };
 
   deleteLink = async (req: Request<LinkParams>, res: Response) => {
-    await this.fleetDriverLinkService.deleteLink(requireTenantId(req), req.user!.id, req.params.linkId);
+    await this.fleetDriverLinkService.deleteLink(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.linkId,
+    );
     respond(res, { success: true });
   };
 
   onboardVehicle = async (req: Request, res: Response) => {
-    const vehicle = await this.vehicleService.onboardVehicle(requireTenantId(req), req.user!.id, req.body);
+    const vehicle = await this.vehicleService.onboardVehicle(
+      requireTenantId(req),
+      req.user!.id,
+      req.body,
+    );
     respond(res, vehicle, 201);
   };
 
   getVehicleOperationalStatus = async (req: Request<VehicleParams>, res: Response) => {
-    const status = await this.vehicleService.getOperationalStatus(requireTenantId(req), req.params.vehicleId);
+    const status = await this.vehicleService.getOperationalStatus(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, status);
   };
 
@@ -264,7 +315,10 @@ export class MastersController {
   };
 
   getVehicleTelemetryMeta = async (req: Request<VehicleParams>, res: Response) => {
-    const meta = await this.vehicleService.getTelemetryMeta(requireTenantId(req), req.params.vehicleId);
+    const meta = await this.vehicleService.getTelemetryMeta(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, meta);
   };
 
@@ -279,7 +333,10 @@ export class MastersController {
   };
 
   getVehicleServiceUsage = async (req: Request<VehicleParams>, res: Response) => {
-    const usage = await this.vehicleService.getServiceUsage(requireTenantId(req), req.params.vehicleId);
+    const usage = await this.vehicleService.getServiceUsage(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, usage);
   };
 
@@ -304,17 +361,27 @@ export class MastersController {
   };
 
   listVehicleVerifications = async (req: Request<VehicleParams>, res: Response) => {
-    const snapshots = await this.vehicleService.listVerifications(requireTenantId(req), req.params.vehicleId);
+    const snapshots = await this.vehicleService.listVerifications(
+      requireTenantId(req),
+      req.params.vehicleId,
+    );
     respond(res, snapshots);
   };
 
   onboardDriver = async (req: Request, res: Response) => {
-    const driver = await this.driverService.onboardDriver(requireTenantId(req), req.user!.id, req.body);
+    const driver = await this.driverService.onboardDriver(
+      requireTenantId(req),
+      req.user!.id,
+      req.body,
+    );
     respond(res, driver, 201);
   };
 
   getDriverOperationalStatus = async (req: Request<DriverParams>, res: Response) => {
-    const status = await this.driverService.getOperationalStatus(requireTenantId(req), req.params.driverId);
+    const status = await this.driverService.getOperationalStatus(
+      requireTenantId(req),
+      req.params.driverId,
+    );
     respond(res, status);
   };
 
@@ -339,7 +406,10 @@ export class MastersController {
   };
 
   listDriverTripMetrics = async (req: Request<DriverParams>, res: Response) => {
-    const metrics = await this.driverService.listTripMetrics(requireTenantId(req), req.params.driverId);
+    const metrics = await this.driverService.listTripMetrics(
+      requireTenantId(req),
+      req.params.driverId,
+    );
     respond(res, metrics);
   };
 }

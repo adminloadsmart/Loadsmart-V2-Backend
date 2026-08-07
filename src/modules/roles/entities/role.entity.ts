@@ -1,11 +1,11 @@
 import {
-    Entity,
-    Column,
-    PrimaryGeneratedColumn,
-    CreateDateColumn,
-    UpdateDateColumn,
-    ManyToMany,
-    JoinTable,
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { PermissionEntity } from './permission.entity';
 
@@ -16,28 +16,28 @@ export type RoleScope = 'platform' | 'organization';
 // roles — see the RBAC plan for why.
 @Entity({ schema: 'auth', name: 'roles' })
 export class RoleEntity {
-    @PrimaryGeneratedColumn('uuid')
-    id!: string;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-    // 'platform_admin', 'sales', 'online_kyc_desk', 'offline_kyc_desk', 'load_console', 'org_admin'
-    @Column({ unique: true })
-    name!: string;
+  // 'platform_admin', 'sales', 'online_kyc_desk', 'offline_kyc_desk', 'load_console', 'org_admin'
+  @Column({ unique: true })
+  name!: string;
 
-    @Column({ type: 'enum', enum: ['platform', 'organization'] })
-    scope!: RoleScope;
+  @Column({ type: 'enum', enum: ['platform', 'organization'] })
+  scope!: RoleScope;
 
-    @ManyToMany(() => PermissionEntity)
-    @JoinTable({
-        name: 'role_permissions',
-        schema: 'auth',
-        joinColumn: { name: 'role_id' },
-        inverseJoinColumn: { name: 'permission_id' },
-    })
-    permissions!: PermissionEntity[];
+  @ManyToMany(() => PermissionEntity)
+  @JoinTable({
+    name: 'role_permissions',
+    schema: 'auth',
+    joinColumn: { name: 'role_id' },
+    inverseJoinColumn: { name: 'permission_id' },
+  })
+  permissions!: PermissionEntity[];
 
-    @CreateDateColumn({ name: 'created_at' })
-    createdAt!: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
 
-    @UpdateDateColumn({ name: 'updated_at' })
-    updatedAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt!: Date;
 }

@@ -1,4 +1,4 @@
-import { PaginationInput } from "./masters.types";
+import { PaginationInput } from './masters.types';
 import {
   VehicleBodyType,
   VehicleDocumentStatus,
@@ -10,7 +10,7 @@ import {
   VehicleType,
   VehicleVerificationStatus,
   VehicleVerificationType,
-} from "./vehicle.type";
+} from './vehicle.type';
 
 /* Service-layer inputs — shapes accepted from the controller. */
 

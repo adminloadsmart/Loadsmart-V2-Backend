@@ -13,7 +13,10 @@ import { DRIVER_OPERATIONAL_STATUSES, DriverOperationalStatus } from '../utils/d
 
 @Entity({ schema: 'masters', name: 'driver_operational_statuses' })
 @Index('driver_operational_statuses_tenant_id_idx', ['tenantId'])
-@Index('driver_operational_statuses_driver_id_unique', ['driverId'], { unique: true, where: '"deleted_at" IS NULL' })
+@Index('driver_operational_statuses_driver_id_unique', ['driverId'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class DriverOperationalStatusEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

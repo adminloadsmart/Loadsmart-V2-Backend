@@ -13,18 +13,29 @@ export class FleetDriverLinkService {
     private readonly vehicleService: VehicleService,
     private readonly driverService: DriverService,
     private readonly dataSource: DataSource,
-  ) { }
+  ) {}
 
-  async linkDriver(tenantId: string, actorId: string, vehicleId: string, input: LinkDriverInput): Promise<FleetDriverLinkEntity> {
+  async linkDriver(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: LinkDriverInput,
+  ): Promise<FleetDriverLinkEntity> {
     try {
       await this.vehicleService.assertVehicleExists(tenantId, vehicleId);
       const driver = await this.driverService.assertDriverExists(tenantId, input.driverId);
 
       if (driver.status !== 'active') {
-        throw new ValidationError(`Driver ${driver.id} is ${driver.status} and cannot be assigned to a vehicle`);
+        throw new ValidationError(
+          `Driver ${driver.id} is ${driver.status} and cannot be assigned to a vehicle`,
+        );
       }
 
-      const existing = await this.linkRepository.findActiveLink(tenantId, vehicleId, input.driverId);
+      const existing = await this.linkRepository.findActiveLink(
+        tenantId,
+        vehicleId,
+        input.driverId,
+      );
       if (existing) {
         throw new ConflictError('This driver is already assigned to the vehicle');
       }
@@ -35,11 +46,24 @@ export class FleetDriverLinkService {
       return await this.dataSource.transaction(async (manager) => {
         // At most one primary driver per vehicle, so the incoming primary demotes the incumbent.
         if (isPrimary) {
-          await this.linkRepository.demoteOtherPrimaryLinks(tenantId, vehicleId, null, actorId, manager);
+          await this.linkRepository.demoteOtherPrimaryLinks(
+            tenantId,
+            vehicleId,
+            null,
+            actorId,
+            manager,
+          );
         }
 
         return this.linkRepository.create(
-          { tenantId, vehicleId, driverId: input.driverId, isPrimary, linkedFrom, createdBy: actorId },
+          {
+            tenantId,
+            vehicleId,
+            driverId: input.driverId,
+            isPrimary,
+            linkedFrom,
+            createdBy: actorId,
+          },
           manager,
         );
       });
@@ -66,14 +90,29 @@ export class FleetDriverLinkService {
     }
   }
 
-  async setPrimary(tenantId: string, actorId: string, linkId: string): Promise<FleetDriverLinkEntity> {
+  async setPrimary(
+    tenantId: string,
+    actorId: string,
+    linkId: string,
+  ): Promise<FleetDriverLinkEntity> {
     try {
       const existing = await this.getActiveLink(tenantId, linkId);
 
       return await this.dataSource.transaction(async (manager) => {
-        await this.linkRepository.demoteOtherPrimaryLinks(tenantId, existing.vehicleId, linkId, actorId, manager);
+        await this.linkRepository.demoteOtherPrimaryLinks(
+          tenantId,
+          existing.vehicleId,
+          linkId,
+          actorId,
+          manager,
+        );
 
-        const link = await this.linkRepository.update(tenantId, linkId, { isPrimary: true, updatedBy: actorId }, manager);
+        const link = await this.linkRepository.update(
+          tenantId,
+          linkId,
+          { isPrimary: true, updatedBy: actorId },
+          manager,
+        );
         if (!link) throw new NotFoundError(`Fleet driver link ${linkId} not found`);
         return link;
       });
@@ -82,7 +121,12 @@ export class FleetDriverLinkService {
     }
   }
 
-  async endLink(tenantId: string, actorId: string, linkId: string, linkedTo?: string): Promise<FleetDriverLinkEntity> {
+  async endLink(
+    tenantId: string,
+    actorId: string,
+    linkId: string,
+    linkedTo?: string,
+  ): Promise<FleetDriverLinkEntity> {
     try {
       await this.getActiveLink(tenantId, linkId);
 

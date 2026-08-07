@@ -1,4 +1,4 @@
-import { FleetDriverLinkStatus } from "./fleet-driver-link.type";
+import { FleetDriverLinkStatus } from './fleet-driver-link.type';
 
 /* Service-layer inputs — shapes accepted from the controller. */
 

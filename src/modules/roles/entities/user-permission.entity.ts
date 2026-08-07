@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index,
+} from 'typeorm';
 import { UserEntity } from '../../auth/entities/user.entity';
 import { PermissionEntity } from './permission.entity';
 
@@ -8,27 +16,27 @@ import { PermissionEntity } from './permission.entity';
 @Entity({ schema: 'auth', name: 'user_permissions' })
 @Index('user_permissions_unique', ['userId', 'permissionId'], { unique: true })
 export class UserPermissionEntity {
-    @PrimaryGeneratedColumn('uuid')
-    id!: string;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-    @Column({ name: 'user_id', type: 'uuid' })
-    userId!: string;
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId!: string;
 
-    @ManyToOne(() => UserEntity)
-    @JoinColumn({ name: 'user_id' })
-    user!: UserEntity;
+  @ManyToOne(() => UserEntity)
+  @JoinColumn({ name: 'user_id' })
+  user!: UserEntity;
 
-    @Column({ name: 'permission_id', type: 'uuid' })
-    permissionId!: string;
+  @Column({ name: 'permission_id', type: 'uuid' })
+  permissionId!: string;
 
-    @ManyToOne(() => PermissionEntity)
-    @JoinColumn({ name: 'permission_id' })
-    permission!: PermissionEntity;
+  @ManyToOne(() => PermissionEntity)
+  @JoinColumn({ name: 'permission_id' })
+  permission!: PermissionEntity;
 
-    // Plain uuid, no relation — audit trail only (who granted this).
-    @Column({ name: 'granted_by', type: 'uuid' })
-    grantedBy!: string;
+  // Plain uuid, no relation — audit trail only (who granted this).
+  @Column({ name: 'granted_by', type: 'uuid' })
+  grantedBy!: string;
 
-    @CreateDateColumn({ name: 'created_at' })
-    createdAt!: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
 }

@@ -58,11 +58,17 @@ export class VehicleRepository {
     });
   }
 
-  findByRegistrationNumber(tenantId: string, registrationNumber: string): Promise<VehicleEntity | null> {
+  findByRegistrationNumber(
+    tenantId: string,
+    registrationNumber: string,
+  ): Promise<VehicleEntity | null> {
     return this.vehicles.findOneBy({ tenantId, registrationNumber, deletedAt: IsNull() });
   }
 
-  async list(tenantId: string, filters: ListVehiclesFilters): Promise<{ items: VehicleEntity[]; total: number }> {
+  async list(
+    tenantId: string,
+    filters: ListVehiclesFilters,
+  ): Promise<{ items: VehicleEntity[]; total: number }> {
     const { status, operationalStatus, search, page, limit } = filters;
 
     const base: FindOptionsWhere<VehicleEntity> = { tenantId, deletedAt: IsNull() };
@@ -73,9 +79,9 @@ export class VehicleRepository {
     // Search spans two columns, so it becomes two OR'd where-clauses rather than one.
     const where: FindOptionsWhere<VehicleEntity>[] = search
       ? [
-        { ...base, registrationNumber: ILike(`%${search}%`) },
-        { ...base, model: ILike(`%${search}%`) },
-      ]
+          { ...base, registrationNumber: ILike(`%${search}%`) },
+          { ...base, model: ILike(`%${search}%`) },
+        ]
       : [base];
 
     const [items, total] = await this.vehicles.findAndCount({
@@ -89,16 +95,26 @@ export class VehicleRepository {
     return { items, total };
   }
 
-  async update(tenantId: string, id: string, data: UpdateVehicleData): Promise<VehicleEntity | null> {
+  async update(
+    tenantId: string,
+    id: string,
+    data: UpdateVehicleData,
+  ): Promise<VehicleEntity | null> {
     await this.vehicles.update({ id, tenantId, deletedAt: IsNull() }, data);
     return this.findById(tenantId, id);
   }
 
   async softDelete(tenantId: string, id: string, deletedBy: string | null): Promise<void> {
-    await this.vehicles.update({ id, tenantId, deletedAt: IsNull() }, { deletedAt: new Date(), updatedBy: deletedBy });
+    await this.vehicles.update(
+      { id, tenantId, deletedAt: IsNull() },
+      { deletedAt: new Date(), updatedBy: deletedBy },
+    );
   }
 
-  async createDocument(data: CreateVehicleDocumentData, manager?: EntityManager): Promise<VehicleDocumentEntity> {
+  async createDocument(
+    data: CreateVehicleDocumentData,
+    manager?: EntityManager,
+  ): Promise<VehicleDocumentEntity> {
     const documents = manager ? manager.getRepository(VehicleDocumentEntity) : this.documents;
     const document = documents.create({ ...data, deletedAt: null });
     return documents.save(document);
@@ -114,7 +130,11 @@ export class VehicleRepository {
     return documents.findOneBy({ tenantId, vehicleId, documentType, deletedAt: IsNull() });
   }
 
-  findDocumentById(tenantId: string, vehicleId: string, id: string): Promise<VehicleDocumentEntity | null> {
+  findDocumentById(
+    tenantId: string,
+    vehicleId: string,
+    id: string,
+  ): Promise<VehicleDocumentEntity | null> {
     return this.documents.findOneBy({ id, vehicleId, tenantId, deletedAt: IsNull() });
   }
 
@@ -137,14 +157,22 @@ export class VehicleRepository {
     return documents.findOneBy({ id, vehicleId, tenantId, deletedAt: IsNull() });
   }
 
-  async softDeleteDocument(tenantId: string, vehicleId: string, id: string, deletedBy: string | null): Promise<void> {
+  async softDeleteDocument(
+    tenantId: string,
+    vehicleId: string,
+    id: string,
+    deletedBy: string | null,
+  ): Promise<void> {
     await this.documents.update(
       { id, vehicleId, tenantId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
   }
 
-  findOperationalStatus(tenantId: string, vehicleId: string): Promise<VehicleOperationalStatusEntity | null> {
+  findOperationalStatus(
+    tenantId: string,
+    vehicleId: string,
+  ): Promise<VehicleOperationalStatusEntity | null> {
     return this.operationalStatuses.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
   }
 
@@ -152,7 +180,9 @@ export class VehicleRepository {
     data: CreateVehicleOperationalStatusData,
     manager?: EntityManager,
   ): Promise<VehicleOperationalStatusEntity> {
-    const statuses = manager ? manager.getRepository(VehicleOperationalStatusEntity) : this.operationalStatuses;
+    const statuses = manager
+      ? manager.getRepository(VehicleOperationalStatusEntity)
+      : this.operationalStatuses;
     const status = statuses.create({ ...data, deletedAt: null });
     return statuses.save(status);
   }
@@ -166,7 +196,10 @@ export class VehicleRepository {
     return this.findOperationalStatus(tenantId, vehicleId);
   }
 
-  findTelemetryMeta(tenantId: string, vehicleId: string): Promise<VehicleTelemetryMetaEntity | null> {
+  findTelemetryMeta(
+    tenantId: string,
+    vehicleId: string,
+  ): Promise<VehicleTelemetryMetaEntity | null> {
     return this.telemetryMeta.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
   }
 
@@ -174,7 +207,9 @@ export class VehicleRepository {
     data: CreateVehicleTelemetryMetaData,
     manager?: EntityManager,
   ): Promise<VehicleTelemetryMetaEntity> {
-    const telemetry = manager ? manager.getRepository(VehicleTelemetryMetaEntity) : this.telemetryMeta;
+    const telemetry = manager
+      ? manager.getRepository(VehicleTelemetryMetaEntity)
+      : this.telemetryMeta;
     const meta = telemetry.create({ ...data, deletedAt: null });
     return telemetry.save(meta);
   }
@@ -192,12 +227,17 @@ export class VehicleRepository {
     data: CreateVehicleVerificationSnapshotData,
     manager?: EntityManager,
   ): Promise<VehicleVerificationSnapshotEntity> {
-    const snapshots = manager ? manager.getRepository(VehicleVerificationSnapshotEntity) : this.verificationSnapshots;
+    const snapshots = manager
+      ? manager.getRepository(VehicleVerificationSnapshotEntity)
+      : this.verificationSnapshots;
     const snapshot = snapshots.create({ ...data, deletedAt: null });
     return snapshots.save(snapshot);
   }
 
-  listVerificationSnapshots(tenantId: string, vehicleId: string): Promise<VehicleVerificationSnapshotEntity[]> {
+  listVerificationSnapshots(
+    tenantId: string,
+    vehicleId: string,
+  ): Promise<VehicleVerificationSnapshotEntity[]> {
     return this.verificationSnapshots.find({
       where: { tenantId, vehicleId, deletedAt: IsNull() },
       order: { checkedAt: 'DESC' },

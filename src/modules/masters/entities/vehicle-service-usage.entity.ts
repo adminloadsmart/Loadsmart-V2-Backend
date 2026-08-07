@@ -13,7 +13,10 @@ import { VehicleEntity } from './vehicle.entity';
 /** Backs the "Service & usage" section of the vehicle form; feeds the maintenance reminders. */
 @Entity({ schema: 'masters', name: 'vehicle_service_usage' })
 @Index('vehicle_service_usage_tenant_id_idx', ['tenantId'])
-@Index('vehicle_service_usage_vehicle_id_unique', ['vehicleId'], { unique: true, where: '"deleted_at" IS NULL' })
+@Index('vehicle_service_usage_vehicle_id_unique', ['vehicleId'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class VehicleServiceUsageEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

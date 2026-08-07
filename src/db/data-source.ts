@@ -34,7 +34,7 @@ import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
-  synchronize: true,          // off by default — see note below on when to flip this
+  synchronize: true, // off by default — see note below on when to flip this
   logging: env.nodeEnv === 'development',
   entities: [
     OrganizationEntity,
@@ -65,6 +65,6 @@ export const AppDataSource = new DataSource({
     VehicleServiceUsageEntity,
     DriverOperationalStatusEntity,
     DriverTripMetricsEntity,
-  ],     // every new module adds its entity here
+  ], // every new module adds its entity here
   migrations: ['src/db/migrations/**/*.ts'],
 });

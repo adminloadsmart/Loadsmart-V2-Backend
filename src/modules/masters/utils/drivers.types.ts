@@ -14,13 +14,19 @@ export type DriverDocumentType = (typeof DRIVER_DOCUMENT_TYPES)[number];
 
 /** Whether the document came from the registry or was uploaded by hand. */
 export const DRIVER_DOCUMENT_VERIFICATION_SOURCES = ['sarathi', 'manual'] as const;
-export type DriverDocumentVerificationSource = (typeof DRIVER_DOCUMENT_VERIFICATION_SOURCES)[number];
+export type DriverDocumentVerificationSource =
+  (typeof DRIVER_DOCUMENT_VERIFICATION_SOURCES)[number];
 
 /** Drivers are checked against the Sarathi registry. */
 export const DRIVER_VERIFICATION_TYPES = ['sarathi_dl'] as const;
 export type DriverVerificationType = (typeof DRIVER_VERIFICATION_TYPES)[number];
 
-export const DRIVER_VERIFICATION_STATUSES = ['pending', 'verified', 'not_found', 'manual_review'] as const;
+export const DRIVER_VERIFICATION_STATUSES = [
+  'pending',
+  'verified',
+  'not_found',
+  'manual_review',
+] as const;
 export type DriverVerificationStatus = (typeof DRIVER_VERIFICATION_STATUSES)[number];
 
 export const DRIVER_BANK_VERIFICATION_STATUSES = ['pending', 'verified', 'rejected'] as const;

@@ -9,7 +9,12 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { VehicleEntity } from './vehicle.entity';
-import { VEHICLE_VERIFICATION_STATUSES, VEHICLE_VERIFICATION_TYPES, VehicleVerificationStatus, VehicleVerificationType } from '../utils/vehicle.type';
+import {
+  VEHICLE_VERIFICATION_STATUSES,
+  VEHICLE_VERIFICATION_TYPES,
+  VehicleVerificationStatus,
+  VehicleVerificationType,
+} from '../utils/vehicle.type';
 
 @Entity({ schema: 'masters', name: 'vehicle_verification_snapshots' })
 @Index('vehicle_verification_snapshots_tenant_id_idx', ['tenantId'])
@@ -25,7 +30,9 @@ export class VehicleVerificationSnapshotEntity {
   @Column({ name: 'vehicle_id', type: 'uuid' })
   vehicleId!: string;
 
-  @ManyToOne(() => VehicleEntity, (vehicle) => vehicle.verificationSnapshots, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => VehicleEntity, (vehicle) => vehicle.verificationSnapshots, {
+    onDelete: 'RESTRICT',
+  })
   @JoinColumn({ name: 'vehicle_id' })
   vehicle!: VehicleEntity;
 

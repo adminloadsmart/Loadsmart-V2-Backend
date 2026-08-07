@@ -42,8 +42,14 @@ function getOpenApiDocument() {
       tags: [
         { name: TAGS.AUTH, description: 'Signup, login, session, and organization management' },
         { name: TAGS.ROLES, description: 'Role assignment and permission grants for users' },
-        { name: TAGS.MASTERS, description: 'Vehicles, drivers, documents, verifications, and fleet-driver links' },
-        { name: TAGS.ADMIN, description: 'Platform-admin operations on organizations (status, document verification)' },
+        {
+          name: TAGS.MASTERS,
+          description: 'Vehicles, drivers, documents, verifications, and fleet-driver links',
+        },
+        {
+          name: TAGS.ADMIN,
+          description: 'Platform-admin operations on organizations (status, document verification)',
+        },
       ],
     });
   }

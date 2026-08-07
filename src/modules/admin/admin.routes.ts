@@ -12,13 +12,17 @@ export function createAdminRoutes(controller: AdminController): Router {
   // Everything in this module is cross-tenant — platform_admin only, no exceptions.
   router.use(requirePermission(ADMIN_ORGANIZATIONS_MANAGE));
 
-  router.get('/organizations', validate(adminValidators.listOrganizations), asyncHandler(controller.listOrganizations));
+  router.get(
+    '/organizations',
+    validate(adminValidators.listOrganizations),
+    asyncHandler(controller.listOrganizations),
+  );
   router.get(
     '/organizations/:organizationId',
     validate(adminValidators.getOrganization),
     asyncHandler(controller.getOrganization),
   );
-  
+
   router.patch(
     '/organizations/:organizationId',
     validate(adminValidators.updateOrganization),
@@ -64,11 +68,23 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.getOrganizationAuditTrail),
   );
 
-  router.post('/staff', validate(adminValidators.createStaff), asyncHandler(controller.createStaff));
+  router.post(
+    '/staff',
+    validate(adminValidators.createStaff),
+    asyncHandler(controller.createStaff),
+  );
   router.get('/staff', validate(adminValidators.listStaff), asyncHandler(controller.listStaff));
 
-  router.post('/referral-codes', validate(adminValidators.createReferralCode), asyncHandler(controller.createReferralCode));
-  router.get('/referral-codes', validate(adminValidators.listReferralCodes), asyncHandler(controller.listReferralCodes));
+  router.post(
+    '/referral-codes',
+    validate(adminValidators.createReferralCode),
+    asyncHandler(controller.createReferralCode),
+  );
+  router.get(
+    '/referral-codes',
+    validate(adminValidators.listReferralCodes),
+    asyncHandler(controller.listReferralCodes),
+  );
   router.get(
     '/referral-codes/:referralCodeId',
     validate(adminValidators.getReferralCode),

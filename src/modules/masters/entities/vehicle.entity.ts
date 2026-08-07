@@ -7,9 +7,9 @@ import {
   Index,
   OneToMany,
   OneToOne,
-} from "typeorm";
-import { VehicleDocumentEntity } from "./vehicle-document.entity";
-import { FleetDriverLinkEntity } from "./fleet-driver-link.entity";
+} from 'typeorm';
+import { VehicleDocumentEntity } from './vehicle-document.entity';
+import { FleetDriverLinkEntity } from './fleet-driver-link.entity';
 import {
   BODY_TYPES,
   FUEL_TYPES,
@@ -23,64 +23,63 @@ import {
   VehicleType,
 } from '../utils/vehicle.type';
 
-import { VehicleOperationalStatusEntity } from "./vehicle-operational-status.entity";
-import { VehicleTelemetryMetaEntity } from "./vehicle-telemetry-meta.entity";
-import { VehicleVerificationSnapshotEntity } from "./vehicle-verification-snapshot.entity";
-import { VehicleServiceUsageEntity } from "./vehicle-service-usage.entity";
+import { VehicleOperationalStatusEntity } from './vehicle-operational-status.entity';
+import { VehicleTelemetryMetaEntity } from './vehicle-telemetry-meta.entity';
+import { VehicleVerificationSnapshotEntity } from './vehicle-verification-snapshot.entity';
+import { VehicleServiceUsageEntity } from './vehicle-service-usage.entity';
 
-@Entity({ schema: "masters", name: "vehicles" })
-@Index("vehicles_tenant_id_idx", ["tenantId"])
-@Index(
-  "vehicles_tenant_registration_active_unique",
-  ["tenantId", "registrationNumber"],
-  { unique: true, where: '"deleted_at" IS NULL' },
-)
+@Entity({ schema: 'masters', name: 'vehicles' })
+@Index('vehicles_tenant_id_idx', ['tenantId'])
+@Index('vehicles_tenant_registration_active_unique', ['tenantId', 'registrationNumber'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class VehicleEntity {
-  @PrimaryGeneratedColumn("uuid")
+  @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: "tenant_id", type: "uuid" })
+  @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
 
-  @Column({ name: "registration_number", type: "varchar", length: 20 })
+  @Column({ name: 'registration_number', type: 'varchar', length: 20 })
   registrationNumber!: string;
 
   @Column({
-    name: "vehicle_type",
-    type: "enum",
+    name: 'vehicle_type',
+    type: 'enum',
     enum: [...VEHICLE_TYPES],
     nullable: true,
   })
   vehicleType!: VehicleType | null;
 
-  @Column({ name: "make", type: "varchar", length: 50, nullable: true })
+  @Column({ name: 'make', type: 'varchar', length: 50, nullable: true })
   make!: string | null;
 
-  @Column({ name: "model", type: "varchar", length: 50, nullable: true })
+  @Column({ name: 'model', type: 'varchar', length: 50, nullable: true })
   model!: string | null;
 
   @Column({
-    name: "fuel_type",
-    type: "enum",
+    name: 'fuel_type',
+    type: 'enum',
     enum: [...FUEL_TYPES],
     nullable: true,
   })
   fuelType!: VehicleFuelType | null;
 
   @Column({
-    name: "body_type",
-    type: "enum",
+    name: 'body_type',
+    type: 'enum',
     enum: [...BODY_TYPES],
     nullable: true,
   })
   bodyType!: VehicleBodyType | null;
 
-  @Column({ name: "wheel_count", type: "smallint", nullable: true })
+  @Column({ name: 'wheel_count', type: 'smallint', nullable: true })
   wheelCount!: number | null;
 
   @Column({
-    name: "capacity_tons",
-    type: "numeric",
+    name: 'capacity_tons',
+    type: 'numeric',
     precision: 6,
     scale: 2,
     nullable: true,
@@ -88,17 +87,17 @@ export class VehicleEntity {
   capacityTons!: string | null;
 
   @Column({
-    name: "ownership_type",
-    type: "enum",
+    name: 'ownership_type',
+    type: 'enum',
     enum: [...OWNERSHIP_TYPES],
-    default: "owned",
+    default: 'owned',
   })
   ownershipType!: VehicleOwnershipType;
 
   @Column({
-    type: "enum",
+    type: 'enum',
     enum: [...VEHICLE_STATUSES],
-    default: "active",
+    default: 'active',
   })
   status!: VehicleStatus;
 
@@ -120,18 +119,18 @@ export class VehicleEntity {
   @OneToOne(() => VehicleServiceUsageEntity, (usage) => usage.vehicle)
   serviceUsage!: VehicleServiceUsageEntity;
 
-  @Column({ name: "created_by", type: "uuid", nullable: true })
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 
-  @Column({ name: "updated_by", type: "uuid", nullable: true })
+  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
   updatedBy!: string | null;
 
-  @Column({ name: "deleted_at", type: "timestamptz", nullable: true })
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
 
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 }

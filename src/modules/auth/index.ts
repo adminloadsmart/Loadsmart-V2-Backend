@@ -13,12 +13,17 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { createAuthPublicRoutes, createAuthProtectedRoutes } from './auth.routes';
 
-export function createAuthModule(dataSource: DataSource, deps: { auditService: AuditService; roleService: RoleService }) {
+export function createAuthModule(
+  dataSource: DataSource,
+  deps: { auditService: AuditService; roleService: RoleService },
+) {
   const organizationRepository = new OrganizationRepository(dataSource);
   const organizationService = new OrganizationService(organizationRepository);
 
   const organizationDocumentRepository = new OrganizationDocumentRepository(dataSource);
-  const organizationDocumentService = new OrganizationDocumentService(organizationDocumentRepository);
+  const organizationDocumentService = new OrganizationDocumentService(
+    organizationDocumentRepository,
+  );
 
   const repository = new AuthRepository(dataSource);
   const referralCodeRepository = new ReferralCodeRepository(dataSource);

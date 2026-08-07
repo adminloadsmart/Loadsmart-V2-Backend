@@ -10,7 +10,8 @@ import { TAGS, permissionGated, errorContent, json } from '../../shared/openapi/
  */
 
 const BASE = '/admin'; // absolute path — must match its mount in composition-root.ts
-const adminOnly = (description: string) => permissionGated([ADMIN_ORGANIZATIONS_MANAGE], description);
+const adminOnly = (description: string) =>
+  permissionGated([ADMIN_ORGANIZATIONS_MANAGE], description);
 
 export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
@@ -21,7 +22,10 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly('List organizations across all tenants, paginated and optionally filtered.'),
     request: { query: adminValidators.listOrganizations.shape.query },
     responses: {
-      200: { description: 'Paginated organizations — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description:
+          'Paginated organizations — { data: { items, page, limit, total, totalPages } }',
+      },
     },
   });
 
@@ -47,7 +51,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       "Update an organization's status directly — for lifecycle transitions outside the KYC review " +
         'moment (e.g. suspending an active org, reactivating one). For the actual review decision, use ' +
         'POST .../approve, .../reject, or .../deny below instead, which also validate documents and ' +
-        'record why. Logged to this organization\'s audit trail either way.',
+        "record why. Logged to this organization's audit trail either way.",
     ),
     request: {
       params: adminValidators.updateOrganization.shape.params,
@@ -128,7 +132,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.approveOrganization',
     ...adminOnly(
-      "Approve the organization and grant platform access (status → active). Blocked until every " +
+      'Approve the organization and grant platform access (status → active). Blocked until every ' +
         'submitted document is verified via PATCH .../documents/{documentId} first.',
     ),
     request: { params: adminValidators.approveOrganization.shape.params },
@@ -145,8 +149,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.rejectOrganization',
     ...adminOnly(
-      "Reject the organization (status → rejected) with a mandatory reason — typically one of the " +
-        "caller's own canned template reasons (e.g. \"document expired\"), but any non-empty string " +
+      'Reject the organization (status → rejected) with a mandatory reason — typically one of the ' +
+        'caller\'s own canned template reasons (e.g. "document expired"), but any non-empty string ' +
         'is accepted server-side. Distinguished from POST .../deny only by which audit action is ' +
         'recorded and by convention, not by a different status value.',
     ),
@@ -195,7 +199,10 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       query: adminValidators.getOrganizationAuditTrail.shape.query,
     },
     responses: {
-      200: { description: 'Paginated audit log entries — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description:
+          'Paginated audit log entries — { data: { items, page, limit, total, totalPages } }',
+      },
       404: { description: 'Organization not found', ...errorContent },
     },
   });
@@ -212,7 +219,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
         "supplied) and isn't returned in this response; the staff member logs in themselves via " +
         'POST /auth/login once they have it through some other channel.\n\n' +
         'Optional `permissionIds` grants extra permissions on top of the role, in the same call ' +
-        '(each id from GET /roles/permissions?scope=platform — group by that response\'s `module` ' +
+        "(each id from GET /roles/permissions?scope=platform — group by that response's `module` " +
         'field to build a checklist). Not atomic with account creation: if one id in the list is ' +
         "invalid (wrong scope, or doesn't exist), the account is still created and any ids granted " +
         'before it stay granted — the error identifies which id failed so it can be retried alone ' +
@@ -223,8 +230,14 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: 'Created staff account (no password hash in the response)' },
       400: { description: 'Validation failed, or roleId is not staff-assignable', ...errorContent },
-      403: { description: 'A permissionId in the list is organization-scope, not platform-scope', ...errorContent },
-      404: { description: 'Role not found, or a permissionId in the list not found', ...errorContent },
+      403: {
+        description: 'A permissionId in the list is organization-scope, not platform-scope',
+        ...errorContent,
+      },
+      404: {
+        description: 'Role not found, or a permissionId in the list not found',
+        ...errorContent,
+      },
       409: { description: 'Phone number or email already in use', ...errorContent },
     },
   });
@@ -251,15 +264,18 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.createReferralCode',
     ...adminOnly(
       'Create a referral code and assign it to a sales rep (ownerUserId must hold the sales role). ' +
-        'Shared with prospects, then redeemed at signup via POST /auth/organization\'s optional ' +
-        "referralCode field to attribute the resulting organization to that rep. Both validFrom and " +
+        "Shared with prospects, then redeemed at signup via POST /auth/organization's optional " +
+        'referralCode field to attribute the resulting organization to that rep. Both validFrom and ' +
         'validUntil are optional (open-ended if omitted) — see GET .../{referralCodeId} for how the ' +
         'computed status (upcoming/active/expired/revoked) is derived from them.',
     ),
     request: { body: json(adminValidators.createReferralCode.shape.body) },
     responses: {
       201: { description: 'Created referral code' },
-      400: { description: 'Validation failed, or ownerUserId does not hold the sales role', ...errorContent },
+      400: {
+        description: 'Validation failed, or ownerUserId does not hold the sales role',
+        ...errorContent,
+      },
       404: { description: 'ownerUserId not found', ...errorContent },
       409: { description: 'code already exists', ...errorContent },
     },
@@ -276,7 +292,10 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { query: adminValidators.listReferralCodes.shape.query },
     responses: {
-      200: { description: 'Paginated referral codes — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description:
+          'Paginated referral codes — { data: { items, page, limit, total, totalPages } }',
+      },
     },
   });
 
@@ -299,7 +318,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.updateReferralCode',
     ...adminOnly(
-      'Update a referral code\'s owner and/or validity window. The code string itself is not ' +
+      "Update a referral code's owner and/or validity window. The code string itself is not " +
         "editable — it may already be in a prospect's hands, so create a new code instead of " +
         'changing this one. Omitted fields keep their current value.',
     ),
@@ -310,7 +329,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Updated referral code' },
       400: {
-        description: 'Validation failed, ownerUserId does not hold the sales role, or validUntil precedes validFrom',
+        description:
+          'Validation failed, ownerUserId does not hold the sales role, or validUntil precedes validFrom',
         ...errorContent,
       },
       404: { description: 'Referral code or ownerUserId not found', ...errorContent },
@@ -325,7 +345,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly(
       'Revoke a referral code immediately, independent of its validUntil — it stops being ' +
         'redeemable at signup right away. Preferred over DELETE for a code that may already be in ' +
-        "circulation, since the row (and any organization attribution already recorded) is kept.",
+        'circulation, since the row (and any organization attribution already recorded) is kept.',
     ),
     request: { params: adminValidators.revokeReferralCode.shape.params },
     responses: {
@@ -349,7 +369,10 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: '{ success: true }' },
       404: { description: 'Referral code not found', ...errorContent },
-      409: { description: 'Referral code has already been used by one or more organizations', ...errorContent },
+      409: {
+        description: 'Referral code has already been used by one or more organizations',
+        ...errorContent,
+      },
     },
   });
 }

@@ -22,54 +22,58 @@ import { RoleEntity } from '../modules/roles/entities/role.entity';
 import { PLATFORM_ADMIN_ROLE } from '../shared/constants/roles';
 
 function requiredEnv(key: string): string {
-    const value = process.env[key];
-    if (!value) throw new Error(`Missing required env var: ${key} (see db/seed-platform-admin.ts)`);
-    return value;
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing required env var: ${key} (see db/seed-platform-admin.ts)`);
+  return value;
 }
 
 async function bootstrap(): Promise<void> {
-    const phoneNumber = requiredEnv('BOOTSTRAP_ADMIN_PHONE');
-    const email = requiredEnv('BOOTSTRAP_ADMIN_EMAIL');
-    const password = requiredEnv('BOOTSTRAP_ADMIN_PASSWORD');
-    const fullName = process.env.BOOTSTRAP_ADMIN_NAME ?? 'Platform Admin';
+  const phoneNumber = requiredEnv('BOOTSTRAP_ADMIN_PHONE');
+  const email = requiredEnv('BOOTSTRAP_ADMIN_EMAIL');
+  const password = requiredEnv('BOOTSTRAP_ADMIN_PASSWORD');
+  const fullName = process.env.BOOTSTRAP_ADMIN_NAME ?? 'Platform Admin';
 
-    const dataSource = await AppDataSource.initialize();
+  const dataSource = await AppDataSource.initialize();
 
-    try {
-        const users = dataSource.getRepository(UserEntity);
-        const roles = dataSource.getRepository(RoleEntity);
+  try {
+    const users = dataSource.getRepository(UserEntity);
+    const roles = dataSource.getRepository(RoleEntity);
 
-        const existing = await users.findOne({ where: [{ phoneNumber }, { email }] });
-        if (existing) {
-            console.log(`A user with this phone or email already exists (id: ${existing.id}) — nothing to do.`);
-            return;
-        }
-
-        const role = await roles.findOneBy({ name: PLATFORM_ADMIN_ROLE });
-        if (!role) {
-            throw new Error(`Seeded role "${PLATFORM_ADMIN_ROLE}" is missing — run "npm run seed:roles" first.`);
-        }
-
-        const passwordHash = await bcrypt.hash(password, 10);
-        const user = users.create({
-            phoneNumber,
-            email,
-            passwordHash,
-            fullName,
-            roleId: role.id,
-            tenantId: null,
-            coverage: null,
-            deletedAt: null,
-        });
-        const saved = await users.save(user);
-
-        console.log(`Created platform_admin user ${saved.id} (${email}).`);
-    } finally {
-        await dataSource.destroy();
+    const existing = await users.findOne({ where: [{ phoneNumber }, { email }] });
+    if (existing) {
+      console.log(
+        `A user with this phone or email already exists (id: ${existing.id}) — nothing to do.`,
+      );
+      return;
     }
+
+    const role = await roles.findOneBy({ name: PLATFORM_ADMIN_ROLE });
+    if (!role) {
+      throw new Error(
+        `Seeded role "${PLATFORM_ADMIN_ROLE}" is missing — run "npm run seed:roles" first.`,
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = users.create({
+      phoneNumber,
+      email,
+      passwordHash,
+      fullName,
+      roleId: role.id,
+      tenantId: null,
+      coverage: null,
+      deletedAt: null,
+    });
+    const saved = await users.save(user);
+
+    console.log(`Created platform_admin user ${saved.id} (${email}).`);
+  } finally {
+    await dataSource.destroy();
+  }
 }
 
 bootstrap().catch((error) => {
-    console.error(error);
-    process.exit(1);
+  console.error(error);
+  process.exit(1);
 });

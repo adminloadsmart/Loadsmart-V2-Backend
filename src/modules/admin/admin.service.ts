@@ -5,7 +5,11 @@ import { ReferralCodeService, resolveReferralCodeStatus } from '../auth/referral
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, rethrow, ValidationError } from '../../shared/errors';
-import { ONLINE_KYC_DESK_ROLE, OFFLINE_KYC_DESK_ROLE, SALES_ROLE } from '../../shared/constants/roles';
+import {
+  ONLINE_KYC_DESK_ROLE,
+  OFFLINE_KYC_DESK_ROLE,
+  SALES_ROLE,
+} from '../../shared/constants/roles';
 import { paginate } from './utils/admin.types';
 import {
   AssignReviewerInput,
@@ -27,7 +31,7 @@ export class AdminService {
     private readonly authService: AuthService,
     private readonly referralCodeService: ReferralCodeService,
     private readonly auditService: AuditService,
-  ) { }
+  ) {}
 
   async listOrganizations(input: ListOrganizationsInput) {
     const { items, total } = await this.organizationService.listOrganizations(input);
@@ -42,13 +46,15 @@ export class AdminService {
       ]);
       return { ...organization, documents };
     } catch (error) {
-      rethrow(error, "Failed to get organization");
-
+      rethrow(error, 'Failed to get organization');
     }
-
   }
 
-  async updateOrganization(actingUser: AuthenticatedUser, organizationId: string, input: UpdateOrganizationInput) {
+  async updateOrganization(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    input: UpdateOrganizationInput,
+  ) {
     const before = await this.organizationService.getOrganizationStatus(organizationId);
     const organization = await this.organizationService.updateOrganization(organizationId, input);
 
@@ -82,7 +88,11 @@ export class AdminService {
       userId: actingUser.id,
       action: 'ORGANIZATION_DOCUMENT_VERIFIED',
       resourceType: 'organization_document',
-      newData: { documentId, documentType: document.documentType, verificationStatus: document.verificationStatus },
+      newData: {
+        documentId,
+        documentType: document.documentType,
+        verificationStatus: document.verificationStatus,
+      },
     });
 
     return document;
@@ -91,7 +101,11 @@ export class AdminService {
   /** Assignment is record-keeping/routing only today — /admin/* stays platform_admin-only, "no
    *  exceptions" (see admin.routes.ts), so this doesn't grant the assignee themselves any access.
    *  Shared logic between the two roles, factored out below as assignReviewer. */
-  assignOnlineVerifier(actingUser: AuthenticatedUser, organizationId: string, input: AssignReviewerInput) {
+  assignOnlineVerifier(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    input: AssignReviewerInput,
+  ) {
     return this.assignReviewer(actingUser, organizationId, input.userId, {
       role: ONLINE_KYC_DESK_ROLE,
       field: 'onlineKycVerifierId',
@@ -99,7 +113,11 @@ export class AdminService {
     });
   }
 
-  assignPhysicalAgent(actingUser: AuthenticatedUser, organizationId: string, input: AssignReviewerInput) {
+  assignPhysicalAgent(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    input: AssignReviewerInput,
+  ) {
     return this.assignReviewer(actingUser, organizationId, input.userId, {
       role: OFFLINE_KYC_DESK_ROLE,
       field: 'physicalKycAgentId',
@@ -118,7 +136,9 @@ export class AdminService {
       throw new ValidationError(`User ${userId} does not have the "${opts.role}" role`);
     }
 
-    const organization = await this.organizationService.updateOrganization(organizationId, { [opts.field]: userId });
+    const organization = await this.organizationService.updateOrganization(organizationId, {
+      [opts.field]: userId,
+    });
 
     await this.auditService.log({
       tenantId: organizationId,
@@ -138,10 +158,9 @@ export class AdminService {
     const documents = await this.organizationDocumentService.listByOrganization(organizationId);
     const unverified = documents.filter((document) => document.verificationStatus !== 'verified');
     if (documents.length === 0 || unverified.length > 0) {
-      throw new ValidationError(
-        'Cannot approve: every submitted document must be verified first',
-        { unverifiedDocumentIds: unverified.map((document) => document.id) },
-      );
+      throw new ValidationError('Cannot approve: every submitted document must be verified first', {
+        unverifiedDocumentIds: unverified.map((document) => document.id),
+      });
     }
 
     const organization = await this.organizationService.updateOrganization(organizationId, {
@@ -160,18 +179,36 @@ export class AdminService {
     return organization;
   }
 
-  rejectOrganization(actingUser: AuthenticatedUser, organizationId: string, input: OrganizationDecisionReasonInput) {
-    return this.decideOrganization(actingUser, organizationId, input.reason, 'ORGANIZATION_REJECTED');
+  rejectOrganization(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    input: OrganizationDecisionReasonInput,
+  ) {
+    return this.decideOrganization(
+      actingUser,
+      organizationId,
+      input.reason,
+      'ORGANIZATION_REJECTED',
+    );
   }
 
-  denyOrganization(actingUser: AuthenticatedUser, organizationId: string, input: OrganizationDecisionReasonInput) {
+  denyOrganization(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    input: OrganizationDecisionReasonInput,
+  ) {
     return this.decideOrganization(actingUser, organizationId, input.reason, 'ORGANIZATION_DENIED');
   }
 
   /** Reject and Deny both land on status: 'rejected' — the existing OrganizationStatus enum has no
    *  separate value for each — distinguished by which audit action fired and by decisionReason's
    *  text, not by a different status. */
-  private async decideOrganization(actingUser: AuthenticatedUser, organizationId: string, reason: string, action: string) {
+  private async decideOrganization(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    reason: string,
+    action: string,
+  ) {
     const organization = await this.organizationService.updateOrganization(organizationId, {
       status: 'rejected',
       decisionReason: reason,
@@ -188,7 +225,10 @@ export class AdminService {
     return organization;
   }
 
-  async getOrganizationAuditTrail(organizationId: string, pagination: { page: number; limit: number }) {
+  async getOrganizationAuditTrail(
+    organizationId: string,
+    pagination: { page: number; limit: number },
+  ) {
     const { items, total } = await this.auditService.findByOrganization(organizationId, pagination);
     return paginate(items, total, pagination);
   }
@@ -247,13 +287,19 @@ export class AdminService {
   /** Owner reassignment (if any) is re-checked against the 'sales' role the same way
    *  createReferralCode checks it — a partial body that only touches validFrom/validUntil skips
    *  this check entirely. */
-  async updateReferralCode(actingUser: AuthenticatedUser, referralCodeId: string, input: UpdateReferralCodeInput) {
+  async updateReferralCode(
+    actingUser: AuthenticatedUser,
+    referralCodeId: string,
+    input: UpdateReferralCodeInput,
+  ) {
     const before = await this.referralCodeService.getById(referralCodeId);
 
     if (input.ownerUserId) {
       const owner = await this.authService.getUserById(input.ownerUserId);
       if (owner.role.name !== SALES_ROLE) {
-        throw new ValidationError(`User ${input.ownerUserId} does not have the "${SALES_ROLE}" role`);
+        throw new ValidationError(
+          `User ${input.ownerUserId} does not have the "${SALES_ROLE}" role`,
+        );
       }
     }
 
@@ -264,8 +310,16 @@ export class AdminService {
       userId: actingUser.id,
       action: 'REFERRAL_CODE_UPDATED',
       resourceType: 'referral_code',
-      oldData: { ownerUserId: before.ownerUserId, validFrom: before.validFrom, validUntil: before.validUntil },
-      newData: { ownerUserId: updated.ownerUserId, validFrom: updated.validFrom, validUntil: updated.validUntil },
+      oldData: {
+        ownerUserId: before.ownerUserId,
+        validFrom: before.validFrom,
+        validUntil: before.validUntil,
+      },
+      newData: {
+        ownerUserId: updated.ownerUserId,
+        validFrom: updated.validFrom,
+        validUntil: updated.validUntil,
+      },
     });
 
     return updated;

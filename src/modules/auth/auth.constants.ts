@@ -24,7 +24,10 @@ export const REFERRAL_CODE_REGEX = /^[A-Z0-9_-]{4,40}$/;
 // auth.validators.ts's createOrganization. `shop_establishment` has no standardized national
 // number format (state-specific), so it's validated as a non-empty string only (null here means
 // "no regex check").
-export const DOCUMENT_NUMBER_REGEX: Record<import('./entities/organization-document.entity').OrganizationDocumentType, RegExp | null> = {
+export const DOCUMENT_NUMBER_REGEX: Record<
+  import('./entities/organization-document.entity').OrganizationDocumentType,
+  RegExp | null
+> = {
   gst_certificate: GSTIN_REGEX,
   pan: PAN_REGEX,
   udyam: UDYAM_REGEX,

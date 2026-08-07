@@ -12,7 +12,10 @@ import { VehicleEntity } from './vehicle.entity';
 
 @Entity({ schema: 'masters', name: 'vehicle_telemetry_meta' })
 @Index('vehicle_telemetry_meta_tenant_id_idx', ['tenantId'])
-@Index('vehicle_telemetry_meta_vehicle_id_unique', ['vehicleId'], { unique: true, where: '"deleted_at" IS NULL' })
+@Index('vehicle_telemetry_meta_vehicle_id_unique', ['vehicleId'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class VehicleTelemetryMetaEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

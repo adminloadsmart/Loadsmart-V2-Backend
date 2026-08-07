@@ -1,6 +1,12 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { roleValidators } from './role.validators';
-import { TAGS, authenticated, SuccessResponseSchema, errorContent, json } from '../../shared/openapi/core';
+import {
+  TAGS,
+  authenticated,
+  SuccessResponseSchema,
+  errorContent,
+  json,
+} from '../../shared/openapi/core';
 
 /**
  * OpenAPI docs for role.routes.ts — role assignment and permission grants for users, all owned
@@ -21,7 +27,9 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     path: BASE,
     tags: [TAGS.ROLES],
     operationId: 'role.listRoles',
-    ...authenticated('List the fixed role catalog, optionally filtered by scope — for an "assign role" dropdown.'),
+    ...authenticated(
+      'List the fixed role catalog, optionally filtered by scope — for an "assign role" dropdown.',
+    ),
     request: { query: roleValidators.listRoles.shape.query },
     responses: { 200: { description: 'Roles' } },
   });
@@ -31,7 +39,9 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/permissions`,
     tags: [TAGS.ROLES],
     operationId: 'role.listPermissions',
-    ...authenticated('List the fixed permission catalog, optionally filtered by scope — for a "grant permission" checklist UI.'),
+    ...authenticated(
+      'List the fixed permission catalog, optionally filtered by scope — for a "grant permission" checklist UI.',
+    ),
     request: { query: roleValidators.listPermissions.shape.query },
     responses: { 200: { description: 'Permissions' } },
   });
@@ -48,7 +58,7 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     request: { params: roleValidators.getUserPermissions.shape.params },
     responses: {
       200: { description: 'Role + role permissions + direct grants + effective (deduped) list' },
-      403: { description: 'Not authorized to view this user\'s permissions', ...errorContent },
+      403: { description: "Not authorized to view this user's permissions", ...errorContent },
       404: { description: 'User not found', ...errorContent },
     },
   });
@@ -59,9 +69,9 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ROLES],
     operationId: 'role.assignRole',
     ...authenticated(
-      "Assign a role to a user, replacing their current one.\n\n" +
+      'Assign a role to a user, replacing their current one.\n\n' +
         'platform_admin may only assign platform-scope roles; org_admin may only assign organization-scope ' +
-        "roles to a user in their own org (this is how a second org_admin gets created after self-signup).",
+        'roles to a user in their own org (this is how a second org_admin gets created after self-signup).',
     ),
     request: {
       params: roleValidators.assignRole.shape.params,
@@ -70,7 +80,10 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'The assigned role' },
       400: { description: 'Validation failed', ...errorContent },
-      403: { description: 'Caller not authorized to assign this role to this user', ...errorContent },
+      403: {
+        description: 'Caller not authorized to assign this role to this user',
+        ...errorContent,
+      },
       404: { description: 'User or role not found', ...errorContent },
     },
   });
@@ -81,7 +94,7 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ROLES],
     operationId: 'role.grantPermission',
     ...authenticated(
-      "Grant a user an extra permission directly, on top of what their role already grants.\n\n" +
+      'Grant a user an extra permission directly, on top of what their role already grants.\n\n' +
         'Same scope/ownership rule as assigning a role — see PATCH /roles/users/{userId}/role.',
     ),
     request: {
@@ -91,7 +104,10 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: 'The granted permission' },
       400: { description: 'Validation failed', ...errorContent },
-      403: { description: 'Caller not authorized to grant this permission to this user', ...errorContent },
+      403: {
+        description: 'Caller not authorized to grant this permission to this user',
+        ...errorContent,
+      },
       404: { description: 'User or permission not found', ...errorContent },
       409: { description: 'User already has this permission granted directly', ...errorContent },
     },
@@ -102,11 +118,16 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/users/{userId}/permissions/{permissionId}`,
     tags: [TAGS.ROLES],
     operationId: 'role.revokePermission',
-    ...authenticated('Revoke a directly-granted permission from a user. Does not affect permissions they have via their role.'),
+    ...authenticated(
+      'Revoke a directly-granted permission from a user. Does not affect permissions they have via their role.',
+    ),
     request: { params: roleValidators.revokePermission.shape.params },
     responses: {
       200: { description: 'Revoked', ...json(SuccessResponseSchema) },
-      403: { description: 'Caller not authorized to revoke this permission from this user', ...errorContent },
+      403: {
+        description: 'Caller not authorized to revoke this permission from this user',
+        ...errorContent,
+      },
       404: { description: 'User, permission, or grant not found', ...errorContent },
     },
   });

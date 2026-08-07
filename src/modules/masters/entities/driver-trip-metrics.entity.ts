@@ -13,7 +13,11 @@ import { DriverEntity } from './driver.entity';
 @Entity({ schema: 'masters', name: 'driver_trip_metrics' })
 @Index('driver_trip_metrics_tenant_id_idx', ['tenantId'])
 @Index('driver_trip_metrics_driver_id_idx', ['driverId'])
-@Index('driver_trip_metrics_driver_period_unique', ['tenantId', 'driverId', 'periodStart', 'periodEnd'], { unique: true, where: '"deleted_at" IS NULL' })
+@Index(
+  'driver_trip_metrics_driver_period_unique',
+  ['tenantId', 'driverId', 'periodStart', 'periodEnd'],
+  { unique: true, where: '"deleted_at" IS NULL' },
+)
 export class DriverTripMetricsEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

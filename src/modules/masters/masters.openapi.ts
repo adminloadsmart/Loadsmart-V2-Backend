@@ -1,7 +1,14 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { mastersValidators } from './masters.validators';
 import { MASTERS_WRITE } from '../../shared/constants/permissions';
-import { TAGS, authenticated, permissionGated, SuccessResponseSchema, errorContent, json } from '../../shared/openapi/core';
+import {
+  TAGS,
+  authenticated,
+  permissionGated,
+  SuccessResponseSchema,
+  errorContent,
+  json,
+} from '../../shared/openapi/core';
 
 /**
  * OpenAPI docs for the masters module: registers every route in masters.routes.ts, in the
@@ -41,7 +48,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated('List vehicles for the tenant, paginated and optionally filtered.'),
     request: { query: mastersValidators.listVehicles.shape.query },
     responses: {
-      200: { description: 'Paginated vehicles — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description: 'Paginated vehicles — { data: { items, page, limit, total, totalPages } }',
+      },
     },
   });
 
@@ -172,7 +181,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated('List drivers for the tenant, paginated and optionally filtered.'),
     request: { query: mastersValidators.listDrivers.shape.query },
     responses: {
-      200: { description: 'Paginated drivers — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description: 'Paginated drivers — { data: { items, page, limit, total, totalPages } }',
+      },
     },
   });
 
@@ -181,7 +192,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getDriver',
-    ...authenticated('Get a single driver, including documents, verifications, bank details, and linked vehicles.'),
+    ...authenticated(
+      'Get a single driver, including documents, verifications, bank details, and linked vehicles.',
+    ),
     request: { params: mastersValidators.getDriver.shape.params },
     responses: {
       200: { description: 'Driver detail' },
@@ -404,7 +417,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/fleet-driver-links/{linkId}/primary`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.setLinkPrimary',
-    ...write('Mark a fleet-driver link as the primary link for its vehicle (demotes any other primary link).'),
+    ...write(
+      'Mark a fleet-driver link as the primary link for its vehicle (demotes any other primary link).',
+    ),
     request: { params: mastersValidators.setLinkPrimary.shape.params },
     responses: {
       200: { description: 'Updated link' },
@@ -481,7 +496,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/operational-status`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.setVehicleOperationalStatus',
-    ...write('Set the operational status. One row per vehicle — first call inserts, later calls overwrite.'),
+    ...write(
+      'Set the operational status. One row per vehicle — first call inserts, later calls overwrite.',
+    ),
     request: {
       params: mastersValidators.setVehicleOperationalStatus.shape.params,
       body: json(mastersValidators.setVehicleOperationalStatus.shape.body),
@@ -513,7 +530,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/telemetry`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.setVehicleTelemetryMeta',
-    ...write('Set GPS and EMI metadata. One row per vehicle — first call inserts, later calls patch it.'),
+    ...write(
+      'Set GPS and EMI metadata. One row per vehicle — first call inserts, later calls patch it.',
+    ),
     request: {
       params: mastersValidators.setVehicleTelemetryMeta.shape.params,
       body: json(mastersValidators.setVehicleTelemetryMeta.shape.body),
@@ -632,7 +651,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/operational-status`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.setDriverOperationalStatus',
-    ...write('Set the operational status. One row per driver — first call inserts, later calls overwrite.'),
+    ...write(
+      'Set the operational status. One row per driver — first call inserts, later calls overwrite.',
+    ),
     request: {
       params: mastersValidators.setDriverOperationalStatus.shape.params,
       body: json(mastersValidators.setDriverOperationalStatus.shape.body),
@@ -651,7 +672,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/trip-metrics`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.recordDriverTripMetrics',
-    ...write('Record trip count and on-time percentage for a period. Re-reporting a period overwrites it.'),
+    ...write(
+      'Record trip count and on-time percentage for a period. Re-reporting a period overwrites it.',
+    ),
     request: {
       params: mastersValidators.recordDriverTripMetrics.shape.params,
       body: json(mastersValidators.recordDriverTripMetrics.shape.body),

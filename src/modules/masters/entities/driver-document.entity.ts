@@ -7,61 +7,66 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
-} from "typeorm";
-import { DriverEntity } from "./driver.entity";
-import { DRIVER_DOCUMENT_TYPES, DRIVER_DOCUMENT_VERIFICATION_SOURCES, DriverDocumentType, DriverDocumentVerificationSource } from '../utils/drivers.types';
+} from 'typeorm';
+import { DriverEntity } from './driver.entity';
+import {
+  DRIVER_DOCUMENT_TYPES,
+  DRIVER_DOCUMENT_VERIFICATION_SOURCES,
+  DriverDocumentType,
+  DriverDocumentVerificationSource,
+} from '../utils/drivers.types';
 
-@Entity({ schema: "masters", name: "driver_documents" })
-@Index("driver_documents_tenant_id_idx", ["tenantId"])
-@Index("driver_documents_driver_id_idx", ["driverId"])
+@Entity({ schema: 'masters', name: 'driver_documents' })
+@Index('driver_documents_tenant_id_idx', ['tenantId'])
+@Index('driver_documents_driver_id_idx', ['driverId'])
 export class DriverDocumentEntity {
-  @PrimaryGeneratedColumn("uuid")
+  @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: "tenant_id", type: "uuid" })
+  @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
 
-  @Column({ name: "driver_id", type: "uuid" })
+  @Column({ name: 'driver_id', type: 'uuid' })
   driverId!: string;
 
   @ManyToOne(() => DriverEntity, (driver) => driver.documents, {
-    onDelete: "RESTRICT",
+    onDelete: 'RESTRICT',
   })
-  @JoinColumn({ name: "driver_id" })
+  @JoinColumn({ name: 'driver_id' })
   driver!: DriverEntity;
 
   @Column({
-    name: "document_type",
-    type: "enum",
+    name: 'document_type',
+    type: 'enum',
     enum: [...DRIVER_DOCUMENT_TYPES],
   })
   documentType!: DriverDocumentType;
 
-  @Column({ name: "file_url", type: "text" })
+  @Column({ name: 'file_url', type: 'text' })
   fileUrl!: string;
 
   @Column({
-    name: "verification_source",
-    type: "enum",
+    name: 'verification_source',
+    type: 'enum',
     enum: [...DRIVER_DOCUMENT_VERIFICATION_SOURCES],
   })
   verificationSource!: DriverDocumentVerificationSource;
 
-  @Column({ name: "verified_at", type: "timestamptz", nullable: true })
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt!: Date | null;
 
-  @Column({ name: "created_by", type: "uuid", nullable: true })
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 
-  @Column({ name: "updated_by", type: "uuid", nullable: true })
+  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
   updatedBy!: string | null;
 
-  @Column({ name: "deleted_at", type: "timestamptz", nullable: true })
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
 
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 }

@@ -50,7 +50,12 @@ export class DriverRepository {
   findByIdWithRelations(tenantId: string, id: string): Promise<DriverEntity | null> {
     return this.drivers.findOne({
       where: { id, tenantId, deletedAt: IsNull() },
-      relations: { documents: true, verifications: true, bankDetails: true, vehicleLinks: { vehicle: true } },
+      relations: {
+        documents: true,
+        verifications: true,
+        bankDetails: true,
+        vehicleLinks: { vehicle: true },
+      },
     });
   }
 
@@ -58,7 +63,10 @@ export class DriverRepository {
     return this.drivers.findOneBy({ tenantId, phoneNumber, deletedAt: IsNull() });
   }
 
-  async list(tenantId: string, filters: ListDriversFilters): Promise<{ items: DriverEntity[]; total: number }> {
+  async list(
+    tenantId: string,
+    filters: ListDriversFilters,
+  ): Promise<{ items: DriverEntity[]; total: number }> {
     const { status, operationalStatus, search, page, limit } = filters;
 
     const base: FindOptionsWhere<DriverEntity> = { tenantId, deletedAt: IsNull() };
@@ -69,9 +77,9 @@ export class DriverRepository {
     // Search spans two columns, so it becomes two OR'd where-clauses rather than one.
     const where: FindOptionsWhere<DriverEntity>[] = search
       ? [
-        { ...base, fullName: ILike(`%${search}%`) },
-        { ...base, phoneNumber: ILike(`%${search}%`) },
-      ]
+          { ...base, fullName: ILike(`%${search}%`) },
+          { ...base, phoneNumber: ILike(`%${search}%`) },
+        ]
       : [base];
 
     // The table renders DL verification, status and trip figures per row, so load them with the page
@@ -87,23 +95,38 @@ export class DriverRepository {
     return { items, total };
   }
 
-  async update(tenantId: string, id: string, data: UpdateDriverData, manager?: EntityManager): Promise<DriverEntity | null> {
+  async update(
+    tenantId: string,
+    id: string,
+    data: UpdateDriverData,
+    manager?: EntityManager,
+  ): Promise<DriverEntity | null> {
     const drivers = manager ? manager.getRepository(DriverEntity) : this.drivers;
     await drivers.update({ id, tenantId, deletedAt: IsNull() }, data);
     return drivers.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
   async softDelete(tenantId: string, id: string, deletedBy: string | null): Promise<void> {
-    await this.drivers.update({ id, tenantId, deletedAt: IsNull() }, { deletedAt: new Date(), updatedBy: deletedBy });
+    await this.drivers.update(
+      { id, tenantId, deletedAt: IsNull() },
+      { deletedAt: new Date(), updatedBy: deletedBy },
+    );
   }
 
-  async createDocument(data: CreateDriverDocumentData, manager?: EntityManager): Promise<DriverDocumentEntity> {
+  async createDocument(
+    data: CreateDriverDocumentData,
+    manager?: EntityManager,
+  ): Promise<DriverDocumentEntity> {
     const documents = manager ? manager.getRepository(DriverDocumentEntity) : this.documents;
     const document = documents.create({ ...data, deletedAt: null });
     return documents.save(document);
   }
 
-  findDocumentById(tenantId: string, driverId: string, id: string): Promise<DriverDocumentEntity | null> {
+  findDocumentById(
+    tenantId: string,
+    driverId: string,
+    id: string,
+  ): Promise<DriverDocumentEntity | null> {
     return this.documents.findOneBy({ id, driverId, tenantId, deletedAt: IsNull() });
   }
 
@@ -114,15 +137,25 @@ export class DriverRepository {
     });
   }
 
-  async softDeleteDocument(tenantId: string, driverId: string, id: string, deletedBy: string | null): Promise<void> {
+  async softDeleteDocument(
+    tenantId: string,
+    driverId: string,
+    id: string,
+    deletedBy: string | null,
+  ): Promise<void> {
     await this.documents.update(
       { id, driverId, tenantId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
   }
 
-  async createVerification(data: CreateDriverVerificationData, manager?: EntityManager): Promise<DriverVerificationEntity> {
-    const verifications = manager ? manager.getRepository(DriverVerificationEntity) : this.verifications;
+  async createVerification(
+    data: CreateDriverVerificationData,
+    manager?: EntityManager,
+  ): Promise<DriverVerificationEntity> {
+    const verifications = manager
+      ? manager.getRepository(DriverVerificationEntity)
+      : this.verifications;
     const verification = verifications.create({ ...data, deletedAt: null });
     return verifications.save(verification);
   }
@@ -143,12 +176,27 @@ export class DriverRepository {
     return bank.save(bankDetails);
   }
 
-  findBankDetailsById(tenantId: string, driverId: string, id: string): Promise<DriverBankDetailsEntity | null> {
+  findBankDetailsById(
+    tenantId: string,
+    driverId: string,
+    id: string,
+  ): Promise<DriverBankDetailsEntity | null> {
     return this.bankDetails.findOneBy({ id, driverId, tenantId, deletedAt: IsNull() });
   }
 
-  findBankDetailsByAccount(tenantId: string, driverId: string, accountNumber: string, ifsc: string): Promise<DriverBankDetailsEntity | null> {
-    return this.bankDetails.findOneBy({ tenantId, driverId, accountNumber, ifsc, deletedAt: IsNull() });
+  findBankDetailsByAccount(
+    tenantId: string,
+    driverId: string,
+    accountNumber: string,
+    ifsc: string,
+  ): Promise<DriverBankDetailsEntity | null> {
+    return this.bankDetails.findOneBy({
+      tenantId,
+      driverId,
+      accountNumber,
+      ifsc,
+      deletedAt: IsNull(),
+    });
   }
 
   listBankDetails(tenantId: string, driverId: string): Promise<DriverBankDetailsEntity[]> {
@@ -162,20 +210,32 @@ export class DriverRepository {
     tenantId: string,
     driverId: string,
     id: string,
-    data: { verificationStatus: DriverBankVerificationStatus; verifiedAt: Date | null; updatedBy: string | null },
+    data: {
+      verificationStatus: DriverBankVerificationStatus;
+      verifiedAt: Date | null;
+      updatedBy: string | null;
+    },
   ): Promise<DriverBankDetailsEntity | null> {
     await this.bankDetails.update({ id, driverId, tenantId, deletedAt: IsNull() }, data);
     return this.findBankDetailsById(tenantId, driverId, id);
   }
 
-  async softDeleteBankDetails(tenantId: string, driverId: string, id: string, deletedBy: string | null): Promise<void> {
+  async softDeleteBankDetails(
+    tenantId: string,
+    driverId: string,
+    id: string,
+    deletedBy: string | null,
+  ): Promise<void> {
     await this.bankDetails.update(
       { id, driverId, tenantId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
   }
 
-  findOperationalStatus(tenantId: string, driverId: string): Promise<DriverOperationalStatusEntity | null> {
+  findOperationalStatus(
+    tenantId: string,
+    driverId: string,
+  ): Promise<DriverOperationalStatusEntity | null> {
     return this.operationalStatuses.findOneBy({ tenantId, driverId, deletedAt: IsNull() });
   }
 
@@ -183,7 +243,9 @@ export class DriverRepository {
     data: CreateDriverOperationalStatusData,
     manager?: EntityManager,
   ): Promise<DriverOperationalStatusEntity> {
-    const statuses = manager ? manager.getRepository(DriverOperationalStatusEntity) : this.operationalStatuses;
+    const statuses = manager
+      ? manager.getRepository(DriverOperationalStatusEntity)
+      : this.operationalStatuses;
     const status = statuses.create({ ...data, deletedAt: null });
     return statuses.save(status);
   }
@@ -203,7 +265,13 @@ export class DriverRepository {
     periodStart: string,
     periodEnd: string,
   ): Promise<DriverTripMetricsEntity | null> {
-    return this.tripMetrics.findOneBy({ tenantId, driverId, periodStart, periodEnd, deletedAt: IsNull() });
+    return this.tripMetrics.findOneBy({
+      tenantId,
+      driverId,
+      periodStart,
+      periodEnd,
+      deletedAt: IsNull(),
+    });
   }
 
   async createTripMetrics(data: CreateDriverTripMetricsData): Promise<DriverTripMetricsEntity> {

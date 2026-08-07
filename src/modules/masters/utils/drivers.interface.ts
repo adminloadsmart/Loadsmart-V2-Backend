@@ -5,8 +5,8 @@ import {
   DriverStatus,
   DriverVerificationStatus,
   DriverVerificationType,
-} from "./drivers.types";
-import { PaginationInput } from "./masters.types";
+} from './drivers.types';
+import { PaginationInput } from './masters.types';
 
 /* Service-layer inputs — shapes accepted from the controller. */
 

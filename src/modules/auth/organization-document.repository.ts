@@ -65,7 +65,11 @@ export class OrganizationDocumentRepository {
 
   // Soft-deletes every active document for the org — used when hasOwnFleet flips to true, mirroring
   // the old behavior of nulling out gstin/documentUrl in that case.
-  async softDeleteAllActive(organizationId: string, actingUserId: string | null, manager?: EntityManager): Promise<void> {
+  async softDeleteAllActive(
+    organizationId: string,
+    actingUserId: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
     const repo = manager ? manager.getRepository(OrganizationDocumentEntity) : this.repo;
     await repo.update(
       { organizationId, deletedAt: IsNull() },
@@ -75,7 +79,11 @@ export class OrganizationDocumentRepository {
 
   async updateVerificationStatus(
     id: string,
-    data: { verificationStatus: DocumentVerificationStatus; verifiedAt: Date | null; updatedBy: string },
+    data: {
+      verificationStatus: DocumentVerificationStatus;
+      verifiedAt: Date | null;
+      updatedBy: string;
+    },
   ): Promise<OrganizationDocumentEntity | null> {
     await this.repo.update({ id }, data);
     return this.findActiveById(id);

@@ -2,18 +2,18 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeor
 
 @Entity({ schema: 'auth', name: 'login_attempts' })
 export class LoginAttemptEntity {
-    @PrimaryGeneratedColumn('uuid')
-    id!: string;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-    @Column()
-    email!: string;
+  @Column()
+  email!: string;
 
-    @Column()
-    success!: boolean;
+  @Column()
+  success!: boolean;
 
-    @Column({ name: 'ip_address', type: 'varchar', nullable: true })
-    ipAddress!: string | null;
+  @Column({ name: 'ip_address', type: 'varchar', nullable: true })
+  ipAddress!: string | null;
 
-    @CreateDateColumn({ name: 'created_at' })
-    createdAt!: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
 }

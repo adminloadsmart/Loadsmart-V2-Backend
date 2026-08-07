@@ -58,12 +58,22 @@ export const VEHICLE_DOCUMENT_STATUSES = ['valid', 'expiring_soon', 'expired'] a
 export type VehicleDocumentStatus = (typeof VEHICLE_DOCUMENT_STATUSES)[number];
 
 /** What the vehicle is doing right now. `warn_on_assign` flags a truck that is assignable but has a compliance problem. */
-export const VEHICLE_OPERATIONAL_STATUSES = ['on_trip', 'idle', 'warn_on_assign', 'inactive'] as const;
+export const VEHICLE_OPERATIONAL_STATUSES = [
+  'on_trip',
+  'idle',
+  'warn_on_assign',
+  'inactive',
+] as const;
 export type VehicleOperationalStatus = (typeof VEHICLE_OPERATIONAL_STATUSES)[number];
 
 /** Vehicles are checked against the VAHAN registry. */
 export const VEHICLE_VERIFICATION_TYPES = ['vahan'] as const;
 export type VehicleVerificationType = (typeof VEHICLE_VERIFICATION_TYPES)[number];
 
-export const VEHICLE_VERIFICATION_STATUSES = ['pending', 'verified', 'not_found', 'manual_review'] as const;
+export const VEHICLE_VERIFICATION_STATUSES = [
+  'pending',
+  'verified',
+  'not_found',
+  'manual_review',
+] as const;
 export type VehicleVerificationStatus = (typeof VEHICLE_VERIFICATION_STATUSES)[number];

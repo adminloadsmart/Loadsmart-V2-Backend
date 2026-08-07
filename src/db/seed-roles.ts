@@ -32,17 +32,63 @@ import {
 } from '../shared/constants/permissions';
 import { PLATFORM_ADMIN_ROLE, ORG_ADMIN_ROLE } from '../shared/constants/roles';
 
-const PERMISSIONS: { key: string; module: string; scope: PermissionScope; description: string }[] = [
-  { key: ADMIN_ORGANIZATIONS_MANAGE, module: 'admin', scope: 'platform', description: 'Manage organizations across all tenants' },
-  { key: ORGANIZATION_PROFILE_MANAGE, module: 'auth', scope: 'organization', description: "Create/update the caller's own organization profile" },
-  { key: MASTERS_WRITE, module: 'masters', scope: 'organization', description: 'Create/update/delete vehicles, drivers, and their documents' },
-  { key: KYC_ONLINE_VERIFY, module: 'onboarding', scope: 'platform', description: 'Verify KYC submitted online' },
-  { key: KYC_ONLINE_REJECT, module: 'onboarding', scope: 'platform', description: 'Reject KYC submitted online' },
-  { key: KYC_OFFLINE_VERIFY, module: 'onboarding', scope: 'platform', description: 'Verify KYC submitted offline' },
-  { key: KYC_OFFLINE_REJECT, module: 'onboarding', scope: 'platform', description: 'Reject KYC submitted offline' },
-  { key: LOADS_CONSOLE_ACCESS, module: 'dispatch', scope: 'platform', description: 'Access the load console' },
-  { key: SALES_LEADS_MANAGE, module: 'sales', scope: 'platform', description: 'Manage sales leads' },
-];
+const PERMISSIONS: { key: string; module: string; scope: PermissionScope; description: string }[] =
+  [
+    {
+      key: ADMIN_ORGANIZATIONS_MANAGE,
+      module: 'admin',
+      scope: 'platform',
+      description: 'Manage organizations across all tenants',
+    },
+    {
+      key: ORGANIZATION_PROFILE_MANAGE,
+      module: 'auth',
+      scope: 'organization',
+      description: "Create/update the caller's own organization profile",
+    },
+    {
+      key: MASTERS_WRITE,
+      module: 'masters',
+      scope: 'organization',
+      description: 'Create/update/delete vehicles, drivers, and their documents',
+    },
+    {
+      key: KYC_ONLINE_VERIFY,
+      module: 'onboarding',
+      scope: 'platform',
+      description: 'Verify KYC submitted online',
+    },
+    {
+      key: KYC_ONLINE_REJECT,
+      module: 'onboarding',
+      scope: 'platform',
+      description: 'Reject KYC submitted online',
+    },
+    {
+      key: KYC_OFFLINE_VERIFY,
+      module: 'onboarding',
+      scope: 'platform',
+      description: 'Verify KYC submitted offline',
+    },
+    {
+      key: KYC_OFFLINE_REJECT,
+      module: 'onboarding',
+      scope: 'platform',
+      description: 'Reject KYC submitted offline',
+    },
+    {
+      key: LOADS_CONSOLE_ACCESS,
+      module: 'dispatch',
+      scope: 'platform',
+      description: 'Access the load console',
+    },
+    {
+      key: SALES_LEADS_MANAGE,
+      module: 'sales',
+      scope: 'platform',
+      description: 'Manage sales leads',
+    },
+  ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
 // (require-permission.middleware.ts), not data, so this list never needs updating when a new
@@ -50,10 +96,22 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
 const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
   { name: 'sales', scope: 'platform', permissionKeys: [SALES_LEADS_MANAGE] },
-  { name: 'online_kyc_desk', scope: 'platform', permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT] },
-  { name: 'offline_kyc_desk', scope: 'platform', permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT] },
+  {
+    name: 'online_kyc_desk',
+    scope: 'platform',
+    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT],
+  },
+  {
+    name: 'offline_kyc_desk',
+    scope: 'platform',
+    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT],
+  },
   { name: 'load_console', scope: 'platform', permissionKeys: [LOADS_CONSOLE_ACCESS] },
-  { name: ORG_ADMIN_ROLE, scope: 'organization', permissionKeys: [ORGANIZATION_PROFILE_MANAGE, MASTERS_WRITE] },
+  {
+    name: ORG_ADMIN_ROLE,
+    scope: 'organization',
+    permissionKeys: [ORGANIZATION_PROFILE_MANAGE, MASTERS_WRITE],
+  },
 ];
 
 async function seed(): Promise<void> {
@@ -70,7 +128,12 @@ async function seed(): Promise<void> {
         permission = await permissionRepo.save(permissionRepo.create(p));
         console.log(`created permission ${p.key}`);
       } else {
-        await permissionRepo.save({ ...permission, module: p.module, scope: p.scope, description: p.description });
+        await permissionRepo.save({
+          ...permission,
+          module: p.module,
+          scope: p.scope,
+          description: p.description,
+        });
       }
       permissionByKey.set(p.key, permission);
     }
@@ -79,10 +142,14 @@ async function seed(): Promise<void> {
       // relations: { permissions: true } so TypeORM has the current join-table rows loaded to diff
       // against — without it, re-assigning `.permissions` on save() would try to re-insert rows
       // that already exist and fail the composite PK on role_permissions on a second run.
-      const existing = await roleRepo.findOne({ where: { name: r.name }, relations: { permissions: true } });
+      const existing = await roleRepo.findOne({
+        where: { name: r.name },
+        relations: { permissions: true },
+      });
       const permissions = r.permissionKeys.map((key) => {
         const permission = permissionByKey.get(key);
-        if (!permission) throw new Error(`Role "${r.name}" references unknown permission key "${key}"`);
+        if (!permission)
+          throw new Error(`Role "${r.name}" references unknown permission key "${key}"`);
         return permission;
       });
 

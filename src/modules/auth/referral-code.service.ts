@@ -30,13 +30,15 @@ export interface CreateReferralCodeData {
 }
 
 export class ReferralCodeService {
-  constructor(private readonly referralCodeRepository: ReferralCodeRepository) { }
+  constructor(private readonly referralCodeRepository: ReferralCodeRepository) {}
 
   async createCode(input: CreateReferralCodeData): Promise<ReferralCodeEntity> {
     try {
       const code = this.normalizeCode(input.code);
       if (!REFERRAL_CODE_REGEX.test(code)) {
-        throw new ValidationError('Referral code must be 4-40 characters, using only A-Z, 0-9, - and _');
+        throw new ValidationError(
+          'Referral code must be 4-40 characters, using only A-Z, 0-9, - and _',
+        );
       }
       if (input.validFrom && input.validUntil && input.validFrom > input.validUntil) {
         throw new ValidationError('validUntil must be on or after validFrom');
@@ -73,7 +75,9 @@ export class ReferralCodeService {
   }
 
   // Batched for AuthService.listStaffUsers — one query for a whole page of staff, keyed by owner.
-  async listByOwnerIds(ownerUserIds: string[]): Promise<Map<string, Array<ReferralCodeEntity & { status: ReferralCodeStatus }>>> {
+  async listByOwnerIds(
+    ownerUserIds: string[],
+  ): Promise<Map<string, Array<ReferralCodeEntity & { status: ReferralCodeStatus }>>> {
     try {
       const items = await this.referralCodeRepository.findByOwnerIds(ownerUserIds);
       const byOwner = new Map<string, Array<ReferralCodeEntity & { status: ReferralCodeStatus }>>();
@@ -169,7 +173,9 @@ export class ReferralCodeService {
     return code.trim().toUpperCase();
   }
 
-  private withStatus(entity: ReferralCodeEntity): ReferralCodeEntity & { status: ReferralCodeStatus } {
+  private withStatus(
+    entity: ReferralCodeEntity,
+  ): ReferralCodeEntity & { status: ReferralCodeStatus } {
     return { ...entity, status: resolveReferralCodeStatus(entity) };
   }
 }

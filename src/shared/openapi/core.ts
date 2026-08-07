@@ -27,7 +27,8 @@ const bearerAuth = registry.registerComponent('securitySchemes', 'bearerAuth', {
   type: 'http',
   scheme: 'bearer',
   bearerFormat: 'JWT',
-  description: 'Obtain via POST /auth/login, /auth/verify-otp, or /auth/refresh. Send as `Authorization: Bearer <token>`.',
+  description:
+    'Obtain via POST /auth/login, /auth/verify-otp, or /auth/refresh. Send as `Authorization: Bearer <token>`.',
 });
 
 /**
@@ -80,10 +81,14 @@ export const ErrorResponseSchema = z
   .meta({ id: 'ErrorResponse' });
 
 /** Every delete endpoint in auth/masters returns exactly this via respond(res, { success: true }). */
-export const SuccessResponseSchema = z.object({ success: z.literal(true) }).meta({ id: 'SuccessResponse' });
+export const SuccessResponseSchema = z
+  .object({ success: z.literal(true) })
+  .meta({ id: 'SuccessResponse' });
 
 /** Small helper used by every module's *.openapi.ts to build a JSON request/response body. */
-export const json = <T extends ZodTypeAny>(schema: T) => ({ content: { 'application/json': { schema } } });
+export const json = <T extends ZodTypeAny>(schema: T) => ({
+  content: { 'application/json': { schema } },
+});
 
 // Built from `json()` deliberately — an ad-hoc `{ 'application/json': {...} }` object here
 // (missing the `content` wrapper `json()` adds) type-checked fine under `{ ...errorContent }`

@@ -18,10 +18,12 @@ import { CreateStaffInput } from '../auth/auth.types';
 import { AdminService } from './admin.service';
 
 export class AdminController {
-  constructor(private readonly adminService: AdminService) { }
+  constructor(private readonly adminService: AdminService) {}
 
   listOrganizations = async (req: Request, res: Response) => {
-    const organizations = await this.adminService.listOrganizations(req.validatedQuery as ListOrganizationsInput);
+    const organizations = await this.adminService.listOrganizations(
+      req.validatedQuery as ListOrganizationsInput,
+    );
     respond(res, organizations);
   };
 
@@ -68,7 +70,10 @@ export class AdminController {
   };
 
   approveOrganization = async (req: Request<OrganizationParams>, res: Response) => {
-    const organization = await this.adminService.approveOrganization(req.user!, req.params.organizationId);
+    const organization = await this.adminService.approveOrganization(
+      req.user!,
+      req.params.organizationId,
+    );
     respond(res, organization);
   };
 
@@ -109,12 +114,17 @@ export class AdminController {
   };
 
   createReferralCode = async (req: Request, res: Response) => {
-    const referralCode = await this.adminService.createReferralCode(req.user!, req.body as CreateReferralCodeInput);
+    const referralCode = await this.adminService.createReferralCode(
+      req.user!,
+      req.body as CreateReferralCodeInput,
+    );
     respond(res, referralCode, 201);
   };
 
   listReferralCodes = async (req: Request, res: Response) => {
-    const referralCodes = await this.adminService.listReferralCodes(req.validatedQuery as ListReferralCodesInput);
+    const referralCodes = await this.adminService.listReferralCodes(
+      req.validatedQuery as ListReferralCodesInput,
+    );
     respond(res, referralCodes);
   };
 
@@ -133,7 +143,10 @@ export class AdminController {
   };
 
   revokeReferralCode = async (req: Request<ReferralCodeParams>, res: Response) => {
-    const referralCode = await this.adminService.revokeReferralCode(req.user!, req.params.referralCodeId);
+    const referralCode = await this.adminService.revokeReferralCode(
+      req.user!,
+      req.params.referralCodeId,
+    );
     respond(res, referralCode);
   };
 

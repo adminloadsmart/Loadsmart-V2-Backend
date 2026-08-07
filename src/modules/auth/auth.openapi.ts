@@ -1,6 +1,13 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { authValidators } from './auth.validators';
-import { TAGS, authenticated, permissionGated, SuccessResponseSchema, errorContent, json } from '../../shared/openapi/core';
+import {
+  TAGS,
+  authenticated,
+  permissionGated,
+  SuccessResponseSchema,
+  errorContent,
+  json,
+} from '../../shared/openapi/core';
 import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
 
 /**
@@ -26,7 +33,8 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     type: 'http',
     scheme: 'bearer',
     bearerFormat: 'JWT',
-    description: 'The short-lived signup token returned by POST /auth/signup. Send as `Authorization: Bearer <signupToken>`.',
+    description:
+      'The short-lived signup token returned by POST /auth/signup. Send as `Authorization: Bearer <signupToken>`.',
   });
 
   // --- Public ---
@@ -45,7 +53,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
       201: { description: 'OTP sent — { signupToken, expiresIn, message }' },
       400: { description: 'Validation failed', ...errorContent },
       409: { description: 'A user with this phone number already exists', ...errorContent },
-      429: { description: 'On cooldown for this phone number, or too many requests from this IP', ...errorContent },
+      429: {
+        description: 'On cooldown for this phone number, or too many requests from this IP',
+        ...errorContent,
+      },
     },
   });
 
@@ -64,7 +75,11 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Tokens issued — { accessToken, refreshToken }' },
       400: { description: 'Validation failed', ...errorContent },
-      401: { description: 'Missing/invalid/expired signup token, invalid OTP, or too many incorrect attempts', ...errorContent },
+      401: {
+        description:
+          'Missing/invalid/expired signup token, invalid OTP, or too many incorrect attempts',
+        ...errorContent,
+      },
       429: { description: 'Too many requests from this IP', ...errorContent },
     },
   });
@@ -82,7 +97,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
           'Tokens issued — { user: { id, fullName, email, phoneNumber, role, tenantId, coverage }, permissions, accessToken, refreshToken }',
       },
       400: { description: 'Validation failed', ...errorContent },
-      401: { description: 'Invalid credentials, or too many recent failed attempts', ...errorContent },
+      401: {
+        description: 'Invalid credentials, or too many recent failed attempts',
+        ...errorContent,
+      },
       429: { description: 'Too many requests from this IP', ...errorContent },
     },
   });
@@ -122,7 +140,9 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/account`,
     tags: [TAGS.AUTH],
     operationId: 'auth.deleteAccount',
-    ...authenticated("Soft-delete the caller's own account and revoke all of their refresh tokens."),
+    ...authenticated(
+      "Soft-delete the caller's own account and revoke all of their refresh tokens.",
+    ),
     responses: {
       200: { description: 'Account deleted', ...json(SuccessResponseSchema) },
     },
@@ -139,7 +159,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     ),
     responses: {
       200: { description: 'Organization, or null if none exists yet' },
-      404: { description: 'Caller has a tenantId but no matching organization (data inconsistency)', ...errorContent },
+      404: {
+        description: 'Caller has a tenantId but no matching organization (data inconsistency)',
+        ...errorContent,
+      },
     },
   });
 
@@ -160,7 +183,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         'Cross-field rules enforced server-side (not expressible in this schema): `fleetSize` is required when ' +
         '`hasOwnFleet` is true; otherwise at least one `documents` entry is required — each entry is one of ' +
         '`gst_certificate`, `pan`, `udyam`, `aadhaar`, `cin`, or `shop_establishment`, verified either by its ' +
-        'official `documentNumber` or by an uploaded file\'s `fileKey` (from a separate upload API).',
+        "official `documentNumber` or by an uploaded file's `fileKey` (from a separate upload API).",
     ),
     request: { body: json(authValidators.createOrganization.shape.body) },
     responses: {
@@ -168,12 +191,19 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         description:
           'Updated organization — `{ organization }`, or `{ organization, accessToken, refreshToken }` the first time',
       },
-      400: { description: 'Validation failed, or missing email/password on first-time creation', ...errorContent },
-      403: {
-        description: "Caller lacks organization.profile.manage, or the organization is rejected/suspended and can't be updated",
+      400: {
+        description: 'Validation failed, or missing email/password on first-time creation',
         ...errorContent,
       },
-      409: { description: 'email already belongs to another user (first-time creation only)', ...errorContent },
+      403: {
+        description:
+          "Caller lacks organization.profile.manage, or the organization is rejected/suspended and can't be updated",
+        ...errorContent,
+      },
+      409: {
+        description: 'email already belongs to another user (first-time creation only)',
+        ...errorContent,
+      },
     },
   });
 }

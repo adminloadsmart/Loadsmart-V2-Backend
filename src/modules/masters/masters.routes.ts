@@ -17,7 +17,12 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   // Reads are open to any authenticated member of the tenant; writes are restricted below.
   const canWrite = requirePermission(MASTERS_WRITE);
 
-  router.post('/vehicles', canWrite, validate(mastersValidators.createVehicle), asyncHandler(controller.createVehicle));
+  router.post(
+    '/vehicles',
+    canWrite,
+    validate(mastersValidators.createVehicle),
+    asyncHandler(controller.createVehicle),
+  );
   // Backs the single "Save vehicle" button — whole form, one transaction. Declared before
   // '/vehicles/:vehicleId' so the literal segment isn't captured as an id.
   router.post(
@@ -26,8 +31,16 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     validate(mastersValidators.onboardVehicle),
     asyncHandler(controller.onboardVehicle),
   );
-  router.get('/vehicles', validate(mastersValidators.listVehicles), asyncHandler(controller.listVehicles));
-  router.get('/vehicles/:vehicleId', validate(mastersValidators.getVehicle), asyncHandler(controller.getVehicle));
+  router.get(
+    '/vehicles',
+    validate(mastersValidators.listVehicles),
+    asyncHandler(controller.listVehicles),
+  );
+  router.get(
+    '/vehicles/:vehicleId',
+    validate(mastersValidators.getVehicle),
+    asyncHandler(controller.getVehicle),
+  );
   router.patch(
     '/vehicles/:vehicleId',
     canWrite,
@@ -65,7 +78,12 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     asyncHandler(controller.deleteVehicleDocument),
   );
 
-  router.post('/drivers', canWrite, validate(mastersValidators.createDriver), asyncHandler(controller.createDriver));
+  router.post(
+    '/drivers',
+    canWrite,
+    validate(mastersValidators.createDriver),
+    asyncHandler(controller.createDriver),
+  );
   // Backs the single "Save driver" button — whole form, one transaction.
   router.post(
     '/drivers/onboard',
@@ -73,8 +91,16 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     validate(mastersValidators.onboardDriver),
     asyncHandler(controller.onboardDriver),
   );
-  router.get('/drivers', validate(mastersValidators.listDrivers), asyncHandler(controller.listDrivers));
-  router.get('/drivers/:driverId', validate(mastersValidators.getDriver), asyncHandler(controller.getDriver));
+  router.get(
+    '/drivers',
+    validate(mastersValidators.listDrivers),
+    asyncHandler(controller.listDrivers),
+  );
+  router.get(
+    '/drivers/:driverId',
+    validate(mastersValidators.getDriver),
+    asyncHandler(controller.getDriver),
+  );
   router.patch(
     '/drivers/:driverId',
     canWrite,

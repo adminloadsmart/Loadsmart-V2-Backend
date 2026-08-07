@@ -74,7 +74,9 @@ export const adminValidators = {
   }),
   // role narrows to eligible staff for the KYC assignment dropdowns (see auth.repository.ts's
   // listStaffUsers) — same enum the staff-creation roleId is ultimately validated against.
-  listStaff: z.object({ query: pagination.extend({ role: z.enum(STAFF_ASSIGNABLE_ROLES).optional() }) }),
+  listStaff: z.object({
+    query: pagination.extend({ role: z.enum(STAFF_ASSIGNABLE_ROLES).optional() }),
+  }),
 
   // ownerUserId's role match (must be 'sales') can't be expressed at the schema level — see
   // admin.service.ts's createReferralCode.
@@ -88,7 +90,11 @@ export const adminValidators = {
       })
       .superRefine((data, ctx) => {
         if (data.validFrom && data.validUntil && data.validFrom > data.validUntil) {
-          ctx.addIssue({ code: 'custom', path: ['validUntil'], message: 'validUntil must be on/after validFrom' });
+          ctx.addIssue({
+            code: 'custom',
+            path: ['validUntil'],
+            message: 'validUntil must be on/after validFrom',
+          });
         }
       }),
   }),
@@ -107,7 +113,11 @@ export const adminValidators = {
       })
       .superRefine((data, ctx) => {
         if (data.validFrom && data.validUntil && data.validFrom > data.validUntil) {
-          ctx.addIssue({ code: 'custom', path: ['validUntil'], message: 'validUntil must be on/after validFrom' });
+          ctx.addIssue({
+            code: 'custom',
+            path: ['validUntil'],
+            message: 'validUntil must be on/after validFrom',
+          });
         }
       }),
   }),

@@ -1,14 +1,14 @@
-import { DataSource, EntityManager } from "typeorm";
-import { ConflictError, NotFoundError, rethrow, ValidationError } from "../../shared/errors";
-import { DriverEntity } from "./entities/driver.entity";
-import { DriverDocumentEntity } from "./entities/driver-document.entity";
-import { DriverVerificationEntity } from "./entities/driver-verification.entity";
-import { DriverBankDetailsEntity } from "./entities/driver-bank-details.entity";
-import { DriverOperationalStatusEntity } from "./entities/driver-operational-status.entity";
-import { DriverTripMetricsEntity } from "./entities/driver-trip-metrics.entity";
-import { DriverBankVerificationStatus } from "./utils/drivers.types";
-import { DriverRepository } from "./driver.repository";
-import { Paginated, paginate } from "./utils/masters.types";
+import { DataSource, EntityManager } from 'typeorm';
+import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
+import { DriverEntity } from './entities/driver.entity';
+import { DriverDocumentEntity } from './entities/driver-document.entity';
+import { DriverVerificationEntity } from './entities/driver-verification.entity';
+import { DriverBankDetailsEntity } from './entities/driver-bank-details.entity';
+import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
+import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
+import { DriverBankVerificationStatus } from './utils/drivers.types';
+import { DriverRepository } from './driver.repository';
+import { Paginated, paginate } from './utils/masters.types';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
@@ -19,7 +19,7 @@ import {
   RecordVerificationInput,
   SetDriverOperationalStatusInput,
   UpdateDriverInput,
-} from "./utils/drivers.interface";
+} from './utils/drivers.interface';
 
 export class DriverService {
   constructor(
@@ -34,12 +34,9 @@ export class DriverService {
     manager?: EntityManager,
   ): Promise<DriverEntity> {
     try {
-      const existing = await this.driverRepository.findByPhoneNumber(
-        tenantId,
-        input.phoneNumber,
-      );
+      const existing = await this.driverRepository.findByPhoneNumber(tenantId, input.phoneNumber);
       if (existing) {
-        throw new ConflictError("A driver with this phone number already exists");
+        throw new ConflictError('A driver with this phone number already exists');
       }
 
       return await this.driverRepository.create(
@@ -55,32 +52,26 @@ export class DriverService {
         manager,
       );
     } catch (error) {
-      rethrow(error, "Failed to create driver");
+      rethrow(error, 'Failed to create driver');
     }
   }
 
-  async listDrivers(
-    tenantId: string,
-    input: ListDriversInput,
-  ): Promise<Paginated<DriverEntity>> {
+  async listDrivers(tenantId: string, input: ListDriversInput): Promise<Paginated<DriverEntity>> {
     try {
       const { items, total } = await this.driverRepository.list(tenantId, input);
       return paginate(items, total, input);
     } catch (error) {
-      rethrow(error, "Failed to list drivers");
+      rethrow(error, 'Failed to list drivers');
     }
   }
 
   async getDriver(tenantId: string, driverId: string): Promise<DriverEntity> {
     try {
-      const driver = await this.driverRepository.findByIdWithRelations(
-        tenantId,
-        driverId,
-      );
+      const driver = await this.driverRepository.findByIdWithRelations(tenantId, driverId);
       if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
       return driver;
     } catch (error) {
-      rethrow(error, "Failed to fetch driver");
+      rethrow(error, 'Failed to fetch driver');
     }
   }
 
@@ -105,20 +96,16 @@ export class DriverService {
       if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
       return driver;
     } catch (error) {
-      rethrow(error, "Failed to update driver");
+      rethrow(error, 'Failed to update driver');
     }
   }
 
-  async deleteDriver(
-    tenantId: string,
-    actorId: string,
-    driverId: string,
-  ): Promise<void> {
+  async deleteDriver(tenantId: string, actorId: string, driverId: string): Promise<void> {
     try {
       await this.assertDriverExists(tenantId, driverId);
       await this.driverRepository.softDelete(tenantId, driverId, actorId);
     } catch (error) {
-      rethrow(error, "Failed to delete driver");
+      rethrow(error, 'Failed to delete driver');
     }
   }
 
@@ -131,7 +118,7 @@ export class DriverService {
     try {
       await this.assertDriverExists(tenantId, driverId);
 
-      const verificationSource = input.verificationSource ?? "manual";
+      const verificationSource = input.verificationSource ?? 'manual';
       return await this.driverRepository.createDocument({
         tenantId,
         driverId,
@@ -142,19 +129,16 @@ export class DriverService {
         createdBy: actorId,
       });
     } catch (error) {
-      rethrow(error, "Failed to add driver document");
+      rethrow(error, 'Failed to add driver document');
     }
   }
 
-  async listDocuments(
-    tenantId: string,
-    driverId: string,
-  ): Promise<DriverDocumentEntity[]> {
+  async listDocuments(tenantId: string, driverId: string): Promise<DriverDocumentEntity[]> {
     try {
       await this.assertDriverExists(tenantId, driverId);
       return await this.driverRepository.listDocuments(tenantId, driverId);
     } catch (error) {
-      rethrow(error, "Failed to list driver documents");
+      rethrow(error, 'Failed to list driver documents');
     }
   }
 
@@ -165,21 +149,11 @@ export class DriverService {
     documentId: string,
   ): Promise<void> {
     try {
-      const existing = await this.driverRepository.findDocumentById(
-        tenantId,
-        driverId,
-        documentId,
-      );
-      if (!existing)
-        throw new NotFoundError(`Driver document ${documentId} not found`);
-      await this.driverRepository.softDeleteDocument(
-        tenantId,
-        driverId,
-        documentId,
-        actorId,
-      );
+      const existing = await this.driverRepository.findDocumentById(tenantId, driverId, documentId);
+      if (!existing) throw new NotFoundError(`Driver document ${documentId} not found`);
+      await this.driverRepository.softDeleteDocument(tenantId, driverId, documentId, actorId);
     } catch (error) {
-      rethrow(error, "Failed to delete driver document");
+      rethrow(error, 'Failed to delete driver document');
     }
   }
 
@@ -192,7 +166,7 @@ export class DriverService {
   ): Promise<DriverVerificationEntity> {
     try {
       await this.assertDriverExists(tenantId, driverId, outerManager);
-      const verified = input.verificationStatus === "verified";
+      const verified = input.verificationStatus === 'verified';
       const licenseNumber = input.licenseNumber?.toUpperCase() ?? null;
 
       const run = async (manager: EntityManager) => {
@@ -237,23 +211,18 @@ export class DriverService {
         return verification;
       };
 
-      return outerManager
-        ? await run(outerManager)
-        : await this.dataSource.transaction(run);
+      return outerManager ? await run(outerManager) : await this.dataSource.transaction(run);
     } catch (error) {
-      rethrow(error, "Failed to record driver verification");
+      rethrow(error, 'Failed to record driver verification');
     }
   }
 
-  async listVerifications(
-    tenantId: string,
-    driverId: string,
-  ): Promise<DriverVerificationEntity[]> {
+  async listVerifications(tenantId: string, driverId: string): Promise<DriverVerificationEntity[]> {
     try {
       await this.assertDriverExists(tenantId, driverId);
       return await this.driverRepository.listVerifications(tenantId, driverId);
     } catch (error) {
-      rethrow(error, "Failed to list driver verifications");
+      rethrow(error, 'Failed to list driver verifications');
     }
   }
 
@@ -273,9 +242,7 @@ export class DriverService {
         ifsc,
       );
       if (existing) {
-        throw new ConflictError(
-          "This bank account is already on file for the driver",
-        );
+        throw new ConflictError('This bank account is already on file for the driver');
       }
 
       return await this.driverRepository.createBankDetails({
@@ -287,19 +254,16 @@ export class DriverService {
         createdBy: actorId,
       });
     } catch (error) {
-      rethrow(error, "Failed to add driver bank details");
+      rethrow(error, 'Failed to add driver bank details');
     }
   }
 
-  async listBankDetails(
-    tenantId: string,
-    driverId: string,
-  ): Promise<DriverBankDetailsEntity[]> {
+  async listBankDetails(tenantId: string, driverId: string): Promise<DriverBankDetailsEntity[]> {
     try {
       await this.assertDriverExists(tenantId, driverId);
       return await this.driverRepository.listBankDetails(tenantId, driverId);
     } catch (error) {
-      rethrow(error, "Failed to list driver bank details");
+      rethrow(error, 'Failed to list driver bank details');
     }
   }
 
@@ -316,25 +280,22 @@ export class DriverService {
         driverId,
         bankDetailsId,
       );
-      if (!existing)
-        throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
+      if (!existing) throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
 
-      const bankDetails =
-        await this.driverRepository.updateBankDetailsVerification(
-          tenantId,
-          driverId,
-          bankDetailsId,
-          {
-            verificationStatus,
-            verifiedAt: verificationStatus === "verified" ? new Date() : null,
-            updatedBy: actorId,
-          },
-        );
-      if (!bankDetails)
-        throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
+      const bankDetails = await this.driverRepository.updateBankDetailsVerification(
+        tenantId,
+        driverId,
+        bankDetailsId,
+        {
+          verificationStatus,
+          verifiedAt: verificationStatus === 'verified' ? new Date() : null,
+          updatedBy: actorId,
+        },
+      );
+      if (!bankDetails) throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
       return bankDetails;
     } catch (error) {
-      rethrow(error, "Failed to update driver bank details verification");
+      rethrow(error, 'Failed to update driver bank details verification');
     }
   }
 
@@ -350,16 +311,10 @@ export class DriverService {
         driverId,
         bankDetailsId,
       );
-      if (!existing)
-        throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
-      await this.driverRepository.softDeleteBankDetails(
-        tenantId,
-        driverId,
-        bankDetailsId,
-        actorId,
-      );
+      if (!existing) throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
+      await this.driverRepository.softDeleteBankDetails(tenantId, driverId, bankDetailsId, actorId);
     } catch (error) {
-      rethrow(error, "Failed to delete driver bank details");
+      rethrow(error, 'Failed to delete driver bank details');
     }
   }
 
@@ -374,7 +329,7 @@ export class DriverService {
       if (!status) throw new NotFoundError(`Driver ${driverId} has no operational status yet`);
       return status;
     } catch (error) {
-      rethrow(error, "Failed to fetch driver operational status");
+      rethrow(error, 'Failed to fetch driver operational status');
     }
   }
 
@@ -415,7 +370,7 @@ export class DriverService {
       if (!status) throw new NotFoundError(`Driver ${driverId} has no operational status yet`);
       return status;
     } catch (error) {
-      rethrow(error, "Failed to set driver operational status");
+      rethrow(error, 'Failed to set driver operational status');
     }
   }
 
@@ -430,7 +385,7 @@ export class DriverService {
       await this.assertDriverExists(tenantId, driverId);
 
       if (input.periodEnd < input.periodStart) {
-        throw new ValidationError("periodEnd must not be earlier than periodStart");
+        throw new ValidationError('periodEnd must not be earlier than periodStart');
       }
 
       const onTimePercentage = String(input.onTimePercentage);
@@ -461,19 +416,16 @@ export class DriverService {
       if (!metrics) throw new NotFoundError(`Trip metrics ${existing.id} not found`);
       return metrics;
     } catch (error) {
-      rethrow(error, "Failed to record driver trip metrics");
+      rethrow(error, 'Failed to record driver trip metrics');
     }
   }
 
-  async listTripMetrics(
-    tenantId: string,
-    driverId: string,
-  ): Promise<DriverTripMetricsEntity[]> {
+  async listTripMetrics(tenantId: string, driverId: string): Promise<DriverTripMetricsEntity[]> {
     try {
       await this.assertDriverExists(tenantId, driverId);
       return await this.driverRepository.listTripMetrics(tenantId, driverId);
     } catch (error) {
-      rethrow(error, "Failed to list driver trip metrics");
+      rethrow(error, 'Failed to list driver trip metrics');
     }
   }
 
@@ -504,7 +456,7 @@ export class DriverService {
               driverId: driver.id,
               documentType: document.documentType,
               fileUrl: document.fileUrl,
-              verificationSource: document.verificationSource ?? "manual",
+              verificationSource: document.verificationSource ?? 'manual',
               verifiedAt: null,
               createdBy: actorId,
             },
@@ -531,7 +483,7 @@ export class DriverService {
           actorId,
           driver.id,
           {
-            operationalStatus: operationalStatus?.operationalStatus ?? "active",
+            operationalStatus: operationalStatus?.operationalStatus ?? 'active',
             reason: operationalStatus?.reason,
             effectiveAt: operationalStatus?.effectiveAt,
           },
@@ -543,7 +495,7 @@ export class DriverService {
 
       return await this.getDriver(tenantId, driverId);
     } catch (error) {
-      rethrow(error, "Failed to onboard driver");
+      rethrow(error, 'Failed to onboard driver');
     }
   }
 
@@ -562,7 +514,7 @@ export class DriverService {
       if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
       return driver;
     } catch (error) {
-      rethrow(error, "Failed to verify driver exists");
+      rethrow(error, 'Failed to verify driver exists');
     }
   }
 }

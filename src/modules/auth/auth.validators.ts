@@ -11,7 +11,10 @@ const organizationDocumentSchema = z
     // address, PAN/Aadhaar holder name & DOB) — none required, since not every field applies to
     // every document type (dob only makes sense for individual-linked documents).
     registeredName: z.string().min(1).optional(),
-    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dob must be in YYYY-MM-DD format').optional(),
+    dob: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'dob must be in YYYY-MM-DD format')
+      .optional(),
     addressLine1: z.string().min(1).optional(),
     addressLine2: z.string().min(1).optional(),
     city: z.string().min(1).optional(),

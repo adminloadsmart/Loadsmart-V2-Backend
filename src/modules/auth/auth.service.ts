@@ -1,8 +1,15 @@
-import { randomBytes, randomInt, randomUUID, createHash } from 'crypto';
+import { randomBytes, randomInt, randomUUID } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
-import { AuthenticationError, AuthorizationError, ConflictError, NotFoundError, RateLimitError, ValidationError } from '../../shared/errors';
+import {
+  AuthenticationError,
+  AuthorizationError,
+  ConflictError,
+  NotFoundError,
+  RateLimitError,
+  ValidationError,
+} from '../../shared/errors';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { signToken, hashToken } from '../../shared/utils/token';
 import { blockToken } from '../../shared/utils/token-blocklist';
@@ -44,7 +51,7 @@ export class AuthService {
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
     private readonly dataSource: DataSource,
-  ) { }
+  ) {}
 
   async signup(input: SignupInput) {
     const { phoneNumber } = input;
@@ -126,7 +133,6 @@ export class AuthService {
     return this.issueTokenPairForUser(user);
   }
 
-
   /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
    *  user-creation path that isn't self-service. Unlike self-signup, phone ownership is never
    *  proven via OTP here, so both phone and email get pre-checked for collisions. The admin sets
@@ -156,7 +162,7 @@ export class AuthService {
     ]);
     if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
     if (existingByEmail) throw new ConflictError('A user with this email already exists');
-    let password = this.generatePassword();
+    const password = this.generatePassword();
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.authRepository.createUser({
       phoneNumber,
@@ -195,10 +201,10 @@ export class AuthService {
   }
 
   generatePassword() {
-    const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const lower = "abcdefghijklmnopqrstuvwxyz";
-    const number = "0123456789";
-    const special = "!@#$%^&*";
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lower = 'abcdefghijklmnopqrstuvwxyz';
+    const number = '0123456789';
+    const special = '!@#$%^&*';
 
     const all = upper + lower + number + special;
 
@@ -215,7 +221,6 @@ export class AuthService {
     return password;
   }
 
-
   // Thin wrapper so callers outside this module (admin.service.ts's verifier/agent assignment)
   // depend on AuthService, not AuthRepository directly — matches the pattern AdminService already
   // uses for organizationService/organizationDocumentService.
@@ -228,7 +233,9 @@ export class AuthService {
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
     // Batched, not per-row — one extra query for the whole page, keyed by owner.
-    const codesByOwner = await this.referralCodeService.listByOwnerIds(items.map((user) => user.id));
+    const codesByOwner = await this.referralCodeService.listByOwnerIds(
+      items.map((user) => user.id),
+    );
     return {
       items: items.map((user) => ({
         id: user.id,
@@ -250,7 +257,11 @@ export class AuthService {
   async login(input: LoginInput, ipAddress: string | null) {
     const { email, password } = input;
 
-    const recentFailures = await this.authRepository.countRecentFailedAttempts(email, ipAddress, LOGIN_ATTEMPT_WINDOW_MS);
+    const recentFailures = await this.authRepository.countRecentFailedAttempts(
+      email,
+      ipAddress,
+      LOGIN_ATTEMPT_WINDOW_MS,
+    );
     if (recentFailures >= MAX_FAILED_ATTEMPTS) {
       throw new AuthenticationError('Too many failed login attempts, try again later');
     }
@@ -260,7 +271,10 @@ export class AuthService {
     // against — otherwise a nonexistent email returns near-instantly while a real one takes the
     // usual tens-of-ms bcrypt round trip, letting an attacker enumerate valid emails purely from
     // response timing.
-    const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    );
 
     await this.authRepository.recordLoginAttempt({ email, success: passwordMatches, ipAddress });
 
@@ -335,7 +349,11 @@ export class AuthService {
     return { ...organization, documents };
   }
 
-  async createOrganization(userId: string, tenantId: string | null, input: CompleteCompanyProfileInput) {
+  async createOrganization(
+    userId: string,
+    tenantId: string | null,
+    input: CompleteCompanyProfileInput,
+  ) {
     const {
       email,
       password,
@@ -366,7 +384,7 @@ export class AuthService {
       district,
       state,
       hasOwnFleet,
-      fleetSize: hasOwnFleet ? fleetSize ?? null : null,
+      fleetSize: hasOwnFleet ? (fleetSize ?? null) : null,
     };
 
     if (tenantId) {
@@ -379,7 +397,11 @@ export class AuthService {
       }
 
       const organization = await this.dataSource.transaction(async (manager) => {
-        const updated = await this.organizationService.updateOrganization(tenantId, profileData, manager);
+        const updated = await this.organizationService.updateOrganization(
+          tenantId,
+          profileData,
+          manager,
+        );
         await this.syncOrganizationDocuments(tenantId, userId, hasOwnFleet, documents, manager);
         return updated;
       });
@@ -421,11 +443,22 @@ export class AuthService {
         { ...profileData, referralCodeId },
         manager,
       );
-      await this.syncOrganizationDocuments(organization.id, userId, hasOwnFleet, documents, manager);
+      await this.syncOrganizationDocuments(
+        organization.id,
+        userId,
+        hasOwnFleet,
+        documents,
+        manager,
+      );
       await this.authRepository.updateUserTenant(userId, organization.id, manager);
       await this.authRepository.setUserCredentials(userId, { email, passwordHash }, manager);
       const permissions = await this.roleService.getEffectivePermissions(userId);
-      const tokens = await this.issueTokenPair(userId, organization.id, ORG_ADMIN_ROLE, permissions);
+      const tokens = await this.issueTokenPair(
+        userId,
+        organization.id,
+        ORG_ADMIN_ROLE,
+        permissions,
+      );
       return { organization: updated, ...tokens };
     });
   }
@@ -444,20 +477,37 @@ export class AuthService {
     if (hasOwnFleet) {
       await this.organizationDocumentService.clearDocuments(organizationId, actingUserId, manager);
     } else if (documents?.length) {
-      await this.organizationDocumentService.replaceDocuments(organizationId, actingUserId, documents, manager);
+      await this.organizationDocumentService.replaceDocuments(
+        organizationId,
+        actingUserId,
+        documents,
+        manager,
+      );
     }
   }
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues
    *  a token pair for them — the common path used by verifyOtp/login/refresh. */
-  private async issueTokenPairForUser(user: { id: string; tenantId: string | null; role: { name: string } }) {
+  private async issueTokenPairForUser(user: {
+    id: string;
+    tenantId: string | null;
+    role: { name: string };
+  }) {
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     return this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
   }
 
-  private async issueTokenPair(userId: string, tenantId: string | null, role: string, permissions: string[]) {
+  private async issueTokenPair(
+    userId: string,
+    tenantId: string | null,
+    role: string,
+    permissions: string[],
+  ) {
     const jti = randomUUID();
-    const accessToken = signToken({ id: userId, tenantId, role, permissions, jti, purpose: 'access' }, env.accessTokenTtlSeconds);
+    const accessToken = signToken(
+      { id: userId, tenantId, role, permissions, jti, purpose: 'access' },
+      env.accessTokenTtlSeconds,
+    );
 
     const rawRefreshToken = randomBytes(40).toString('hex');
     await this.authRepository.createRefreshToken({

@@ -41,7 +41,7 @@ export class VehicleService {
   constructor(
     private readonly vehicleRepository: VehicleRepository,
     private readonly dataSource: DataSource,
-  ) { }
+  ) {}
 
   async createVehicle(
     tenantId: string,
@@ -52,9 +52,14 @@ export class VehicleService {
     try {
       const registrationNumber = input.registrationNumber.toUpperCase();
 
-      const existing = await this.vehicleRepository.findByRegistrationNumber(tenantId, registrationNumber);
+      const existing = await this.vehicleRepository.findByRegistrationNumber(
+        tenantId,
+        registrationNumber,
+      );
       if (existing) {
-        throw new ConflictError(`A vehicle with registration number ${registrationNumber} already exists`);
+        throw new ConflictError(
+          `A vehicle with registration number ${registrationNumber} already exists`,
+        );
       }
 
       return await this.vehicleRepository.create(
@@ -78,7 +83,10 @@ export class VehicleService {
     }
   }
 
-  async listVehicles(tenantId: string, input: ListVehiclesInput): Promise<Paginated<VehicleEntity>> {
+  async listVehicles(
+    tenantId: string,
+    input: ListVehiclesInput,
+  ): Promise<Paginated<VehicleEntity>> {
     try {
       const { items, total } = await this.vehicleRepository.list(tenantId, input);
       return paginate(items, total, input);
@@ -97,7 +105,12 @@ export class VehicleService {
     }
   }
 
-  async updateVehicle(tenantId: string, actorId: string, vehicleId: string, input: UpdateVehicleInput): Promise<VehicleEntity> {
+  async updateVehicle(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: UpdateVehicleInput,
+  ): Promise<VehicleEntity> {
     try {
       await this.assertVehicleExists(tenantId, vehicleId);
 
@@ -122,7 +135,12 @@ export class VehicleService {
     }
   }
 
-  async addDocument(tenantId: string, actorId: string, vehicleId: string, input: AddVehicleDocumentInput): Promise<VehicleDocumentEntity> {
+  async addDocument(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: AddVehicleDocumentInput,
+  ): Promise<VehicleDocumentEntity> {
     try {
       await this.assertVehicleExists(tenantId, vehicleId);
 
@@ -160,18 +178,27 @@ export class VehicleService {
     input: UpdateVehicleDocumentInput,
   ): Promise<VehicleDocumentEntity> {
     try {
-      const existing = await this.vehicleRepository.findDocumentById(tenantId, vehicleId, documentId);
+      const existing = await this.vehicleRepository.findDocumentById(
+        tenantId,
+        vehicleId,
+        documentId,
+      );
       if (!existing) throw new NotFoundError(`Vehicle document ${documentId} not found`);
 
       // Recompute the status whenever the caller moves the expiry date.
       const expiryDate = input.expiryDate === undefined ? existing.expiryDate : input.expiryDate;
 
-      const document = await this.vehicleRepository.updateDocument(tenantId, vehicleId, documentId, {
-        ...input,
-        expiryDate,
-        status: resolveDocumentStatus(expiryDate),
-        updatedBy: actorId,
-      });
+      const document = await this.vehicleRepository.updateDocument(
+        tenantId,
+        vehicleId,
+        documentId,
+        {
+          ...input,
+          expiryDate,
+          status: resolveDocumentStatus(expiryDate),
+          updatedBy: actorId,
+        },
+      );
       if (!document) throw new NotFoundError(`Vehicle document ${documentId} not found`);
       return document;
     } catch (error) {
@@ -179,9 +206,18 @@ export class VehicleService {
     }
   }
 
-  async deleteDocument(tenantId: string, actorId: string, vehicleId: string, documentId: string): Promise<void> {
+  async deleteDocument(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    documentId: string,
+  ): Promise<void> {
     try {
-      const existing = await this.vehicleRepository.findDocumentById(tenantId, vehicleId, documentId);
+      const existing = await this.vehicleRepository.findDocumentById(
+        tenantId,
+        vehicleId,
+        documentId,
+      );
       if (!existing) throw new NotFoundError(`Vehicle document ${documentId} not found`);
       await this.vehicleRepository.softDeleteDocument(tenantId, vehicleId, documentId, actorId);
     } catch (error) {
@@ -189,7 +225,10 @@ export class VehicleService {
     }
   }
 
-  async getOperationalStatus(tenantId: string, vehicleId: string): Promise<VehicleOperationalStatusEntity> {
+  async getOperationalStatus(
+    tenantId: string,
+    vehicleId: string,
+  ): Promise<VehicleOperationalStatusEntity> {
     try {
       await this.assertVehicleExists(tenantId, vehicleId);
 
@@ -397,7 +436,10 @@ export class VehicleService {
     }
   }
 
-  async listVerifications(tenantId: string, vehicleId: string): Promise<VehicleVerificationSnapshotEntity[]> {
+  async listVerifications(
+    tenantId: string,
+    vehicleId: string,
+  ): Promise<VehicleVerificationSnapshotEntity[]> {
     try {
       await this.assertVehicleExists(tenantId, vehicleId);
       return await this.vehicleRepository.listVerificationSnapshots(tenantId, vehicleId);
@@ -425,7 +467,12 @@ export class VehicleService {
     for (const [documentType, expiryDate] of byType) {
       if (!expiryDate) continue;
 
-      const existing = await this.vehicleRepository.findDocumentByType(tenantId, vehicleId, documentType, manager);
+      const existing = await this.vehicleRepository.findDocumentByType(
+        tenantId,
+        vehicleId,
+        documentType,
+        manager,
+      );
       const status = resolveDocumentStatus(expiryDate);
 
       if (existing) {
@@ -461,9 +508,20 @@ export class VehicleService {
    * one transaction, so a failure partway through rolls the whole thing back rather than leaving a
    * half-built vehicle behind. Returns the vehicle with its relations loaded.
    */
-  async onboardVehicle(tenantId: string, actorId: string, input: OnboardVehicleInput): Promise<VehicleEntity> {
+  async onboardVehicle(
+    tenantId: string,
+    actorId: string,
+    input: OnboardVehicleInput,
+  ): Promise<VehicleEntity> {
     try {
-      const { verification, telemetry, serviceUsage, documents, operationalStatus, ...vehicleInput } = input;
+      const {
+        verification,
+        telemetry,
+        serviceUsage,
+        documents,
+        operationalStatus,
+        ...vehicleInput
+      } = input;
 
       const vehicleId = await this.dataSource.transaction(async (manager) => {
         const vehicle = await this.createVehicle(tenantId, actorId, vehicleInput, manager);
@@ -487,7 +545,12 @@ export class VehicleService {
               tenantId,
               vehicle.id,
               existing.id,
-              { ...document, expiryDate, status: resolveDocumentStatus(expiryDate), updatedBy: actorId },
+              {
+                ...document,
+                expiryDate,
+                status: resolveDocumentStatus(expiryDate),
+                updatedBy: actorId,
+              },
               manager,
             );
             continue;
@@ -543,7 +606,11 @@ export class VehicleService {
    * Callers inside a transaction must pass the manager, or the read runs on another connection and
    * cannot see a vehicle created moments earlier in the same uncommitted transaction.
    */
-  async assertVehicleExists(tenantId: string, vehicleId: string, manager?: EntityManager): Promise<VehicleEntity> {
+  async assertVehicleExists(
+    tenantId: string,
+    vehicleId: string,
+    manager?: EntityManager,
+  ): Promise<VehicleEntity> {
     try {
       const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
       if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
