@@ -1,7 +1,11 @@
 import { EntityManager } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
 import { OrganizationRepository } from './organization.repository';
-import { OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
+import {
+  OrganizationEntity,
+  OrganizationOnboardingStep,
+  OrganizationStatus,
+} from './entities/organization.entity';
 
 interface CreateOrganizationInput {
   name: string | null;
@@ -40,19 +44,24 @@ export class OrganizationService {
       name: string;
       status: OrganizationStatus;
       companyLegalName: string | null;
+      registeredBusinessName: string | null;
       orgAdminName: string | null;
       operationalCity: string | null;
+      referralCodeId: string | null;
+      onboardingStep: OrganizationOnboardingStep | null;
+      registrationDate: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
       city: string | null;
       district: string | null;
       state: string | null;
+      pinCode: string | null;
       hasOwnFleet: boolean | null;
       fleetSize: number | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
       decisionReason: string | null;
-      referralCodeId: string | null;
+      submittedAt: Date | null;
     }>,
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {

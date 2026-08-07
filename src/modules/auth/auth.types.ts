@@ -2,6 +2,9 @@
 
 import { OrganizationDocumentInput } from './entities/organization-document.entity';
 
+export type OnboardingStatus = 'incomplete' | 'submitted' | 'completed';
+export type OnboardingStep = 'company_details' | 'business_details' | 'review_submit' | 'submitted';
+
 export interface SignupInput {
   phoneNumber: string;
 }
@@ -23,7 +26,7 @@ export interface CreateStaffInput {
 }
 
 export interface LoginInput {
-  email: string;
+  phoneNumber: string;
   password: string;
 }
 
@@ -38,6 +41,55 @@ export interface LogoutInput {
   userId: string;
   jti?: string;
   exp?: number;
+}
+
+export interface CreatePasswordInput {
+  password: string;
+  confirmPassword: string;
+}
+
+export interface SaveCompanyDetailsInput {
+  companyLegalName: string;
+  contactPersonName: string;
+  operatingCity: string;
+  ownsFleet: boolean;
+  fleetSize?: number;
+  referralCode?: string;
+}
+
+export interface SaveBusinessDetailsInput {
+  registeredBusinessName: string;
+  registrationDate?: string;
+  address: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    district: string;
+    state: string;
+    pinCode: string;
+  };
+  documents: OrganizationDocumentInput[];
+}
+
+export interface SubmitOrganizationInput {
+  step: 'review_submit';
+  companyLegalName: string;
+  contactPersonName: string;
+  operatingCity: string;
+  ownsFleet: boolean;
+  fleetSize?: number;
+  referralCode?: string;
+  registeredBusinessName: string;
+  registrationDate?: string;
+  address: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    district: string;
+    state: string;
+    pinCode: string;
+  };
+  documents: OrganizationDocumentInput[];
 }
 
 export interface CompleteCompanyProfileInput {

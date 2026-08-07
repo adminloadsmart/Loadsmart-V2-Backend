@@ -1,5 +1,5 @@
 import { randomBytes, randomInt, randomUUID } from 'crypto';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
 import {
@@ -14,10 +14,11 @@ import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { signToken, hashToken } from '../../shared/utils/token';
 import { blockToken } from '../../shared/utils/token-blocklist';
 import { invalidateUserExistsCache } from '../../shared/utils/user-existence-cache';
+import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { OrganizationService } from './organization.service';
 import { OrganizationDocumentService } from './organization-document.service';
-import { OrganizationStatus } from './entities/organization.entity';
-import { OrganizationDocumentInput } from './entities/organization-document.entity';
+import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
+import { OrganizationDocumentEntity } from './entities/organization-document.entity';
 import { isTenantAccessible } from './organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from './referral-code.service';
@@ -39,8 +40,61 @@ import {
   LoginInput,
   RefreshInput,
   LogoutInput,
-  CompleteCompanyProfileInput,
+  SaveCompanyDetailsInput,
+  SaveBusinessDetailsInput,
+  SubmitOrganizationInput,
+  CreatePasswordInput,
+  OnboardingStatus,
+  OnboardingStep,
 } from './auth.types';
+import { UserEntity } from './entities/user.entity';
+
+type AuthSession = {
+  accessToken: string;
+  refreshToken: string;
+  permissions: string[];
+  user: {
+    id: string;
+    phoneNumber: string;
+    hasPassword: boolean;
+  };
+  onboardingStatus: OnboardingStatus;
+  onboardingStep: OnboardingStep;
+  nextStep: OnboardingStep;
+};
+
+type OrganizationProgress = {
+  onboardingStatus: OnboardingStatus;
+  onboardingStep: OrganizationOnboardingStep;
+  nextStep: OnboardingStep;
+  organization: OrganizationEntity | null;
+  documents: OrganizationDocumentEntity[];
+};
+
+type OrganizationReviewData = {
+  companyLegalName: string | null;
+  contactPersonName: string | null;
+  operatingCity: string | null;
+  ownsFleet: boolean | null;
+  fleetSize: number | null;
+  registeredBusinessName: string | null;
+  registrationDate: string | null;
+  address: {
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    district: string | null;
+    state: string | null;
+    pinCode: string | null;
+  };
+  referralCode: string | null;
+  documents: Array<{
+    documentType: string;
+    documentNumber: string | null;
+    documentUrl: string | null;
+    isVaild: boolean;
+  }>;
+};
 
 export class AuthService {
   constructor(
@@ -132,20 +186,23 @@ export class AuthService {
 
     return this.issueTokenPairForUser(user);
   }
+  async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
+    const current = await this.getUserById(user.id);
+    if (current.passwordHash) {
+      throw new ConflictError('Password already exists');
+    }
+
+    const passwordHash = await bcrypt.hash(input.password, 10);
+    await this.authRepository.setUserPassword(current.id, passwordHash);
+
+    return { success: true, hasPassword: true };
+  }
 
   /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
    *  user-creation path that isn't self-service. Unlike self-signup, phone ownership is never
    *  proven via OTP here, so both phone and email get pre-checked for collisions. The admin sets
    *  an initial password; the staff member logs in themselves via the existing POST /auth/login —
-   *  this method never issues a token pair, since the admin isn't the one logging in.
-   *
-   *  Takes the full acting AuthenticatedUser, not just an id — permissionIds grants below reuse
-   *  roleService.grantPermission, which needs the actor's own role/tenantId to run its
-   *  assertCanManage scope check (this is also what correctly rejects granting an
-   *  organization-scope permission here, since staff are always platform-scope). Not wrapped in a
-   *  DB transaction with the user creation: the account stays valid even if one permissionId in
-   *  the list is bad (wrong scope, or doesn't exist) — that grant just fails and the admin retries
-   *  it alone via POST /roles/users/:id/permissions, same endpoint this reuses internally. */
+   *  this method never issues a token pair, since the admin isn't the one logging in. */
   async createStaffUser(actingUser: AuthenticatedUser, input: CreateStaffInput) {
     const { fullName, phoneNumber, email, roleId, coverage, permissionIds } = input;
 
@@ -156,8 +213,9 @@ export class AuthService {
       );
     }
 
+    const normalizedPhone = this.normalizePhone(phoneNumber);
     const [existingByPhone, existingByEmail] = await Promise.all([
-      this.authRepository.findUserByPhone(phoneNumber),
+      this.authRepository.findUserByPhone(normalizedPhone),
       this.authRepository.findUserByEmail(email),
     ]);
     if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
@@ -165,7 +223,7 @@ export class AuthService {
     const password = this.generatePassword();
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.authRepository.createUser({
-      phoneNumber,
+      phoneNumber: normalizedPhone,
       tenantId: null,
       roleId,
       email,
@@ -179,11 +237,16 @@ export class AuthService {
       userId: actingUser.id,
       action: 'STAFF_CREATED',
       resourceType: 'user',
-      newData: { id: user.id, fullName, phoneNumber, email, role: role.name, coverage },
+      newData: {
+        id: user.id,
+        fullName,
+        phoneNumber: user.phoneNumber,
+        email,
+        role: role.name,
+        coverage,
+      },
     });
 
-    // Dedupe defensively so an accidental repeat in the request doesn't 409 against itself on
-    // its second occurrence — each grant below audits its own PERMISSION_GRANTED entry.
     for (const permissionId of new Set(permissionIds ?? [])) {
       await this.roleService.grantPermission(actingUser, user.id, permissionId);
     }
@@ -205,7 +268,6 @@ export class AuthService {
     const lower = 'abcdefghijklmnopqrstuvwxyz';
     const number = '0123456789';
     const special = '!@#$%^&*';
-
     const all = upper + lower + number + special;
 
     let password =
@@ -255,57 +317,13 @@ export class AuthService {
   }
 
   async login(input: LoginInput, ipAddress: string | null) {
-    const { email, password } = input;
-
-    const recentFailures = await this.authRepository.countRecentFailedAttempts(
-      email,
-      ipAddress,
-      LOGIN_ATTEMPT_WINDOW_MS,
-    );
-    if (recentFailures >= MAX_FAILED_ATTEMPTS) {
-      throw new AuthenticationError('Too many failed login attempts, try again later');
-    }
-
-    const user = await this.authRepository.findUserByEmail(email);
-    // Always run a bcrypt.compare of comparable cost, even when there's no user/hash to check
-    // against — otherwise a nonexistent email returns near-instantly while a real one takes the
-    // usual tens-of-ms bcrypt round trip, letting an attacker enumerate valid emails purely from
-    // response timing.
-    const passwordMatches = await bcrypt.compare(
-      password,
-      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
-    );
-
-    await this.authRepository.recordLoginAttempt({ email, success: passwordMatches, ipAddress });
-
-    if (!user || !passwordMatches) {
-      throw new AuthenticationError('Invalid credentials');
-    }
-
-    const permissions = await this.roleService.getEffectivePermissions(user.id);
-    const tokens = await this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
-
-    return {
-      user: {
-        id: user.id,
-        fullName: user.fullName,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        role: user.role.name,
-        tenantId: user.tenantId,
-        coverage: user.coverage,
-      },
-      permissions,
-      ...tokens,
-    };
+    return this.loginWithPhone(input.phoneNumber, input.password, ipAddress);
   }
 
   async refresh(input: RefreshInput) {
     const { refreshToken } = input;
 
     const tokenHash = hashToken(refreshToken);
-    // Atomically finds-and-revokes — see claimRefreshToken's comment — so the same refresh token
-    // can't be used twice by concurrent requests racing the old separate find-then-revoke steps.
     const stored = await this.authRepository.claimRefreshToken(tokenHash);
     if (!stored) {
       throw new AuthenticationError('Invalid or expired refresh token');
@@ -316,7 +334,7 @@ export class AuthService {
       throw new AuthenticationError('Invalid or expired refresh token');
     }
 
-    return this.issueTokenPairForUser(user);
+    return this.buildAuthSession(user);
   }
 
   async logout(input: LogoutInput) {
@@ -324,9 +342,6 @@ export class AuthService {
 
     const tokenHash = hashToken(refreshToken);
     const stored = await this.authRepository.findActiveRefreshTokenByHash(tokenHash);
-    // Ownership check: without it, an authenticated caller who happens to be holding someone
-    // else's raw refresh token could revoke that other user's session. Treated identically to
-    // "not found" on a mismatch — no distinct error, no oracle for whether the token exists.
     if (stored && stored.userId === userId) {
       await this.authRepository.revokeRefreshToken(stored.id);
     }
@@ -346,112 +361,56 @@ export class AuthService {
       this.organizationService.getOrganizationStatus(tenantId),
       this.organizationDocumentService.listByOrganization(tenantId),
     ]);
-    return { ...organization, documents };
+    return this.buildOrganizationResponse(organization, documents);
   }
 
   async createOrganization(
     userId: string,
     tenantId: string | null,
-    input: CompleteCompanyProfileInput,
+    input: SaveCompanyDetailsInput,
   ) {
-    const {
-      email,
-      password,
-      name,
-      companyLegalName,
-      orgAdminName,
-      operationalCity,
-      addressLine1,
-      addressLine2,
-      city,
-      district,
-      state,
-      hasOwnFleet,
-      fleetSize,
-      documents,
-      referralCode,
-    } = input;
+    const referralCodeId = input.referralCode
+      ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
+      : null;
 
     const profileData = {
-      name,
-      status: 'pending' as OrganizationStatus,
-      companyLegalName,
-      orgAdminName,
-      operationalCity,
-      addressLine1,
-      addressLine2: addressLine2 ?? null,
-      city,
-      district,
-      state,
-      hasOwnFleet,
-      fleetSize: hasOwnFleet ? (fleetSize ?? null) : null,
+      name: input.companyLegalName,
+      companyLegalName: input.companyLegalName,
+      orgAdminName: input.contactPersonName,
+      operationalCity: input.operatingCity,
+      hasOwnFleet: input.ownsFleet,
+      fleetSize: input.ownsFleet ? (input.fleetSize ?? null) : null,
+      referralCodeId,
     };
 
     if (tenantId) {
-      // This route sits ahead of createTenantScope in the middleware chain (see app.ts), so
-      // assertTenantActive never runs for it — check directly, or a rejected/suspended org could
-      // keep resubmitting its profile indefinitely.
       const current = await this.organizationService.getOrganizationStatus(tenantId);
       if (!isTenantAccessible(current.status)) {
         throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
       }
+      if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
+        throw new AuthorizationError('Organization has already been submitted');
+      }
+      const onboardingStep = this.advanceStepAfterCompanyDetails(current.onboardingStep);
 
-      const organization = await this.dataSource.transaction(async (manager) => {
-        const updated = await this.organizationService.updateOrganization(
-          tenantId,
-          profileData,
-          manager,
-        );
-        await this.syncOrganizationDocuments(tenantId, userId, hasOwnFleet, documents, manager);
-        return updated;
-      });
-      return { organization };
+      const [organization, documents] = await Promise.all([
+        this.organizationService.updateOrganization(tenantId, { ...profileData, onboardingStep }),
+        this.organizationDocumentService.listByOrganization(tenantId),
+      ]);
+      return this.buildOrganizationResponse(organization, documents);
     }
 
-    // First time only: this is also the org_admin's one chance to set login credentials — they
-    // were created by verifyOtp with email/passwordHash both null, and there's no other route
-    // that can ever set them (self-signup only proves phone ownership, never email).
-    if (!email || !password) {
-      throw new ValidationError('email and password are required to complete your company profile');
-    }
-    const existing = await this.authRepository.findUserByEmail(email);
-    if (existing) {
-      throw new ConflictError('A user with this email already exists');
-    }
-
-    // Resolved before hashing the password (and before opening the transaction) so a bad code
-    // fails fast without the wasted bcrypt round trip. Attribution is set once, here, and never
-    // re-editable — the tenantId-present branch above never touches referralCodeId.
-    let referralCodeId: string | null = null;
-    if (referralCode) {
-      const resolved = await this.referralCodeService.validateAndResolve(referralCode);
-      referralCodeId = resolved.id;
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // First time: create the org, attach it to the user, set their credentials, and re-issue
-    // tokens — all atomically, since the access token the caller is using right now still
-    // carries tenantId: null.
     return this.dataSource.transaction(async (manager) => {
       const organization = await this.organizationService.createOrganization(
-        { name: null, status: 'pending' },
+        { name: input.companyLegalName, status: 'draft' },
         manager,
       );
       const updated = await this.organizationService.updateOrganization(
         organization.id,
-        { ...profileData, referralCodeId },
-        manager,
-      );
-      await this.syncOrganizationDocuments(
-        organization.id,
-        userId,
-        hasOwnFleet,
-        documents,
+        { ...profileData, onboardingStep: 'business_details' },
         manager,
       );
       await this.authRepository.updateUserTenant(userId, organization.id, manager);
-      await this.authRepository.setUserCredentials(userId, { email, passwordHash }, manager);
       const permissions = await this.roleService.getEffectivePermissions(userId);
       const tokens = await this.issueTokenPair(
         userId,
@@ -459,31 +418,392 @@ export class AuthService {
         ORG_ADMIN_ROLE,
         permissions,
       );
-      return { organization: updated, ...tokens };
+      return { ...this.buildOrganizationResponse(updated, []), ...tokens };
     });
   }
 
-  // hasOwnFleet true → fleet-owning orgs don't need these documents tracked, so any existing ones
-  // are cleared (mirrors the old behavior of nulling out gstin/documentUrl in that case).
-  // hasOwnFleet false → replaces each submitted document type's active row (see
-  // OrganizationDocumentRepository.replace for the soft-delete-then-insert semantics).
-  private async syncOrganizationDocuments(
-    organizationId: string,
-    actingUserId: string,
-    hasOwnFleet: boolean,
-    documents: OrganizationDocumentInput[] | undefined,
-    manager: EntityManager,
-  ) {
-    if (hasOwnFleet) {
-      await this.organizationDocumentService.clearDocuments(organizationId, actingUserId, manager);
-    } else if (documents?.length) {
-      await this.organizationDocumentService.replaceDocuments(
-        organizationId,
-        actingUserId,
-        documents,
+  async saveBusinessDetails(user: AuthenticatedUser, input: SaveBusinessDetailsInput) {
+    if (!user.tenantId) {
+      throw new AuthorizationError('Missing organization context');
+    }
+
+    const current = await this.organizationService.getOrganizationStatus(user.tenantId);
+    if (!isTenantAccessible(current.status)) {
+      throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
+    }
+    if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
+      throw new AuthorizationError('Organization has already been submitted');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const organization = await this.organizationService.updateOrganization(
+        user.tenantId!,
+        {
+          registeredBusinessName: input.registeredBusinessName,
+          registrationDate: input.registrationDate ?? null,
+          addressLine1: input.address.addressLine1,
+          addressLine2: input.address.addressLine2 ?? null,
+          city: input.address.city,
+          district: input.address.district,
+          state: input.address.state,
+          pinCode: input.address.pinCode,
+          status: current.status === 'draft' ? 'partial_pending' : current.status,
+          onboardingStep: this.advanceStepAfterBusinessDetails(current.onboardingStep),
+        },
         manager,
       );
+
+      const documents = input.documents?.length
+        ? await this.organizationDocumentService.upsertDocuments(
+            user.tenantId!,
+            user.id,
+            input.documents,
+            manager,
+          )
+        : await this.organizationDocumentService.listByOrganization(user.tenantId!);
+
+      return this.buildOrganizationResponse(organization, documents);
+    });
+  }
+
+  async submitOrganization(user: AuthenticatedUser, input: SubmitOrganizationInput) {
+    if (!user.tenantId) {
+      throw new AuthorizationError('Missing organization context');
     }
+
+    const referralCodeId = input.referralCode
+      ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
+      : null;
+
+    const current = await this.organizationService.getOrganizationStatus(user.tenantId);
+    if (!isTenantAccessible(current.status)) {
+      throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
+    }
+    if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
+      throw new AuthorizationError('Organization has already been submitted');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const organization = await this.organizationService.updateOrganization(
+        user.tenantId!,
+        {
+          companyLegalName: input.companyLegalName,
+          orgAdminName: input.contactPersonName,
+          operationalCity: input.operatingCity,
+          hasOwnFleet: input.ownsFleet,
+          fleetSize: input.ownsFleet ? (input.fleetSize ?? null) : null,
+          registeredBusinessName: input.registeredBusinessName,
+          registrationDate: input.registrationDate ?? null,
+          addressLine1: input.address.addressLine1,
+          addressLine2: input.address.addressLine2 ?? null,
+          city: input.address.city,
+          district: input.address.district,
+          state: input.address.state,
+          pinCode: input.address.pinCode,
+          referralCodeId,
+          status: current.status === 'draft' ? 'partial_pending' : current.status,
+          onboardingStep: 'review_submit',
+        },
+        manager,
+      );
+
+      const documents = await this.organizationDocumentService.upsertDocuments(
+        user.tenantId!,
+        user.id,
+        input.documents,
+        manager,
+      );
+
+      this.assertCompanyDetailsComplete(organization);
+      this.assertBusinessDetailsComplete(organization);
+      this.assertDocumentsReady(documents);
+
+      const submittedAt = organization.submittedAt ?? new Date();
+      const updated = await this.organizationService.updateOrganization(
+        user.tenantId!,
+        {
+          status: 'pending',
+          submittedAt,
+          onboardingStep: 'submitted',
+        },
+        manager,
+      );
+
+      return this.buildOrganizationResponse(updated, documents);
+    });
+  }
+
+  private async requestOtp(phoneNumber: string) {
+    const cooldownKey = `signup:${phoneNumber}:cooldown`;
+    if (await redisManager.get(cooldownKey)) {
+      throw new RateLimitError('Please wait before requesting another OTP');
+    }
+    await redisManager.set(cooldownKey, '1', SIGNUP_RESEND_COOLDOWN_SECONDS);
+
+    const otp = randomInt(100000, 1000000).toString();
+    await redisManager.set(
+      this.otpRedisKey(phoneNumber),
+      JSON.stringify({ phoneNumber, otp }),
+      env.signupOtpTtlSeconds,
+    );
+    await redisManager.delete(`${this.otpRedisKey(phoneNumber)}:attempts`);
+  }
+
+  private async loginWithPhone(phoneNumber: string, password: string, ipAddress: string | null) {
+    const normalizedPhone = this.normalizePhone(phoneNumber);
+    const recentFailures = await this.authRepository.countRecentFailedAttempts(
+      normalizedPhone,
+      ipAddress,
+      LOGIN_ATTEMPT_WINDOW_MS,
+    );
+    if (recentFailures >= MAX_FAILED_ATTEMPTS) {
+      throw new AuthenticationError('Too many failed login attempts, try again later');
+    }
+
+    const user = await this.authRepository.findUserByPhone(normalizedPhone);
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    );
+    await this.authRepository.recordLoginAttempt({
+      email: normalizedPhone,
+      success: passwordMatches,
+      ipAddress,
+    });
+
+    if (!user || !passwordMatches || !user.passwordHash) {
+      throw new AuthenticationError('Invalid credentials');
+    }
+
+    return this.buildAuthSession(user);
+  }
+
+  private async buildAuthSession(user: UserEntity): Promise<AuthSession> {
+    const permissions = await this.roleService.getEffectivePermissions(user.id);
+    const tokens = await this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
+    const progress = await this.getOrganizationProgress(user);
+
+    return {
+      ...tokens,
+      permissions,
+      user: {
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        hasPassword: Boolean(user.passwordHash),
+      },
+      onboardingStatus: progress.onboardingStatus,
+      onboardingStep: progress.onboardingStep,
+      nextStep: progress.nextStep,
+    };
+  }
+
+  private async getOrganizationProgress(user: UserEntity): Promise<OrganizationProgress> {
+    if (!user.tenantId) {
+      return user.role.name === ORG_ADMIN_ROLE
+        ? {
+            onboardingStatus: 'incomplete',
+            onboardingStep: 'company_details',
+            nextStep: 'company_details',
+            organization: null,
+            documents: [],
+          }
+        : {
+            onboardingStatus: 'completed',
+            onboardingStep: 'submitted',
+            nextStep: 'submitted',
+            organization: null,
+            documents: [],
+          };
+    }
+
+    const [organization, documents] = await Promise.all([
+      this.organizationService.getOrganizationStatus(user.tenantId),
+      this.organizationDocumentService.listByOrganization(user.tenantId),
+    ]);
+
+    return this.buildOnboardingState(organization, documents);
+  }
+
+  private buildOnboardingState(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ): OrganizationProgress {
+    const onboardingStep = this.resolveOnboardingStep(organization, documents);
+
+    if (organization.status === 'active') {
+      return {
+        onboardingStatus: 'completed',
+        onboardingStep: 'submitted',
+        nextStep: 'submitted',
+        organization,
+        documents,
+      };
+    }
+
+    if (organization.status === 'pending' || organization.submittedAt) {
+      return {
+        onboardingStatus: 'submitted',
+        onboardingStep: 'submitted',
+        nextStep: 'submitted',
+        organization,
+        documents,
+      };
+    }
+
+    return {
+      onboardingStatus: 'incomplete',
+      onboardingStep,
+      nextStep: onboardingStep,
+      organization,
+      documents,
+    };
+  }
+
+  private buildOrganizationResponse(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ) {
+    const state = this.buildOnboardingState(organization, documents);
+    return {
+      ...state,
+      organization,
+      documents,
+      reviewData: this.buildReviewData(organization, documents),
+    };
+  }
+
+  private hasCompanyDetails(organization: OrganizationEntity): boolean {
+    return Boolean(
+      organization.companyLegalName &&
+      organization.orgAdminName &&
+      organization.operationalCity &&
+      organization.hasOwnFleet !== null &&
+      (organization.hasOwnFleet ? organization.fleetSize !== null : true),
+    );
+  }
+
+  private hasBusinessDetails(organization: OrganizationEntity): boolean {
+    return Boolean(
+      organization.registeredBusinessName &&
+      organization.registrationDate &&
+      organization.addressLine1 &&
+      organization.city &&
+      organization.district &&
+      organization.state &&
+      organization.pinCode,
+    );
+  }
+
+  private assertCompanyDetailsComplete(organization: OrganizationEntity): void {
+    if (!this.hasCompanyDetails(organization)) {
+      throw new ValidationError('Company details are incomplete');
+    }
+  }
+
+  private assertBusinessDetailsComplete(organization: OrganizationEntity): void {
+    if (!this.hasBusinessDetails(organization)) {
+      throw new ValidationError('Business details are incomplete');
+    }
+  }
+
+  private assertDocumentsPresent(documents: OrganizationDocumentEntity[]): void {
+    if (documents.length === 0) {
+      throw new ValidationError('At least one document is required before submission');
+    }
+  }
+
+  private assertDocumentsReady(documents: OrganizationDocumentEntity[]): void {
+    this.assertDocumentsPresent(documents);
+    const invalidDocuments = documents.filter(
+      (document) => !document.documentNumber && !document.fileKey,
+    );
+    if (invalidDocuments.length > 0) {
+      throw new ValidationError(
+        'Each document must include either a document number or a document URL',
+      );
+    }
+  }
+
+  private resolveOnboardingStep(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ): OrganizationOnboardingStep {
+    if (organization.onboardingStep) {
+      return organization.onboardingStep;
+    }
+    if (organization.status === 'pending' || organization.submittedAt) {
+      return 'submitted';
+    }
+    if (!this.hasCompanyDetails(organization)) {
+      return 'company_details';
+    }
+    if (!this.hasBusinessDetails(organization)) {
+      return 'business_details';
+    }
+    if (!documents.length) {
+      return 'review_submit';
+    }
+    return 'review_submit';
+  }
+
+  private advanceStepAfterCompanyDetails(
+    currentStep: OrganizationOnboardingStep | null,
+  ): OrganizationOnboardingStep {
+    if (currentStep === 'review_submit' || currentStep === 'submitted') {
+      return currentStep;
+    }
+    return 'business_details';
+  }
+
+  private advanceStepAfterBusinessDetails(
+    currentStep: OrganizationOnboardingStep | null,
+  ): OrganizationOnboardingStep {
+    if (currentStep === 'submitted') {
+      return 'submitted';
+    }
+    return 'review_submit';
+  }
+
+  private buildReviewData(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ): OrganizationReviewData {
+    return {
+      companyLegalName: organization.companyLegalName,
+      contactPersonName: organization.orgAdminName,
+      operatingCity: organization.operationalCity,
+      ownsFleet: organization.hasOwnFleet,
+      fleetSize: organization.fleetSize,
+      registeredBusinessName: organization.registeredBusinessName,
+      registrationDate: organization.registrationDate,
+      address: {
+        addressLine1: organization.addressLine1,
+        addressLine2: organization.addressLine2,
+        city: organization.city,
+        district: organization.district,
+        state: organization.state,
+        pinCode: organization.pinCode,
+      },
+      referralCode: organization.referralCode?.code ?? null,
+      documents: documents.map((document) => ({
+        documentType: document.documentType,
+        documentNumber: document.documentNumber,
+        documentUrl: document.fileKey,
+        isVaild: document.isVaild,
+      })),
+    };
+  }
+
+  private normalizePhone(phoneNumber: string): string {
+    const normalized = normalizePhoneNumber(phoneNumber);
+    if (!normalized) {
+      throw new ValidationError('phoneNumber is invalid');
+    }
+    return normalized;
+  }
+
+  private otpRedisKey(phoneNumber: string): string {
+    return `signup:${phoneNumber}`;
   }
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues

@@ -25,6 +25,14 @@ export const ORGANIZATION_STATUSES = [
 ] as const;
 export type OrganizationStatus = (typeof ORGANIZATION_STATUSES)[number];
 
+export const ORGANIZATION_ONBOARDING_STEPS = [
+  'company_details',
+  'business_details',
+  'review_submit',
+  'submitted',
+] as const;
+export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[number];
+
 @Entity({ schema: 'auth', name: 'organizations' })
 export class OrganizationEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -39,11 +47,25 @@ export class OrganizationEntity {
   @Column({ name: 'company_legal_name', type: 'varchar', nullable: true })
   companyLegalName!: string | null;
 
+  @Column({ name: 'registered_business_name', type: 'varchar', nullable: true })
+  registeredBusinessName!: string | null;
+
   @Column({ name: 'org_admin_name', type: 'varchar', nullable: true })
   orgAdminName!: string | null;
 
   @Column({ name: 'operational_city', type: 'varchar', nullable: true })
   operationalCity!: string | null;
+
+  @Column({
+    name: 'onboarding_step',
+    type: 'enum',
+    enum: ORGANIZATION_ONBOARDING_STEPS,
+    nullable: true,
+  })
+  onboardingStep!: OrganizationOnboardingStep | null;
+
+  @Column({ name: 'registration_date', type: 'date', nullable: true })
+  registrationDate!: string | null;
 
   @Column({ name: 'address_line_1', type: 'varchar', nullable: true })
   addressLine1!: string | null;
@@ -102,6 +124,9 @@ export class OrganizationEntity {
   // Set by reject/deny (why this decision was made), cleared by approve.
   @Column({ name: 'decision_reason', type: 'varchar', nullable: true })
   decisionReason!: string | null;
+
+  @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
+  submittedAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

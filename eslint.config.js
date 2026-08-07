@@ -52,7 +52,10 @@ module.exports = tseslint.config(
         { category: 'route', pattern: 'src/modules/*/*.routes.ts' },
         { category: 'service', pattern: 'src/modules/*/*.service.ts' },
         { category: 'repository', pattern: 'src/modules/*/*.repository.ts' },
-        { category: 'entity', pattern: ['src/modules/*/*.entity.ts', 'src/modules/*/entities/*.entity.ts'] },
+        {
+          category: 'entity',
+          pattern: ['src/modules/*/*.entity.ts', 'src/modules/*/entities/*.entity.ts'],
+        },
       ],
     },
     rules: {
@@ -77,16 +80,36 @@ module.exports = tseslint.config(
       // otherwise (confirmed: with it left at the default false, every policy below was a
       // silent no-op — the deliberate boundary-violation test in the verification section
       // wasn't caught until this was added).
-      'boundaries/dependencies': ['error', {
-        default: 'allow',
-        checkInternals: true,
-        policies: [
-          { from: { file: { categories: 'controller' } }, disallow: { file: { categories: 'repository' } }, message: 'Controllers must go through a service, not import a repository directly.' },
-          { from: { file: { categories: 'route' } }, disallow: { file: { categories: ['service', 'repository'] } }, message: 'Routes must go through the controller, not import a service/repository directly.' },
-          { from: { file: { categories: 'repository' } }, disallow: { file: { categories: ['controller', 'service'] } }, message: 'Repositories must not depend upward on controllers/services.' },
-          { from: { file: { categories: 'entity' } }, disallow: { file: { categories: ['controller', 'service', 'repository'] } }, message: 'Entities must not depend upward on controllers/services/repositories.' },
-        ],
-      }],
+      'boundaries/dependencies': [
+        'error',
+        {
+          default: 'allow',
+          checkInternals: true,
+          policies: [
+            {
+              from: { file: { categories: 'controller' } },
+              disallow: { file: { categories: 'repository' } },
+              message: 'Controllers must go through a service, not import a repository directly.',
+            },
+            {
+              from: { file: { categories: 'route' } },
+              disallow: { file: { categories: ['service', 'repository'] } },
+              message:
+                'Routes must go through the controller, not import a service/repository directly.',
+            },
+            {
+              from: { file: { categories: 'repository' } },
+              disallow: { file: { categories: ['controller', 'service'] } },
+              message: 'Repositories must not depend upward on controllers/services.',
+            },
+            {
+              from: { file: { categories: 'entity' } },
+              disallow: { file: { categories: ['controller', 'service', 'repository'] } },
+              message: 'Entities must not depend upward on controllers/services/repositories.',
+            },
+          ],
+        },
+      ],
       // boundaries/no-private is deliberately NOT enabled: it's deprecated in this version
       // (eslint-plugin-boundaries says so at runtime) in favor of expressing privacy directly
       // as boundaries/dependencies policies, and it would be inert here anyway today (no

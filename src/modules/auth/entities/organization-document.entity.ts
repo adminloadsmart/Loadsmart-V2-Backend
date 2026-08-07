@@ -36,15 +36,7 @@ export type DocumentVerificationStatus = 'pending' | 'verified' | 'invalid';
 export interface OrganizationDocumentInput {
   documentType: OrganizationDocumentType;
   documentNumber?: string;
-  fileKey?: string;
-  registeredName?: string;
-  dob?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  city?: string;
-  district?: string;
-  state?: string;
-  pinCode?: string;
+  documentUrl?: string;
 }
 
 @Entity({ schema: 'auth', name: 'organization_documents' })
@@ -88,6 +80,9 @@ export class OrganizationDocumentEntity {
     default: 'pending',
   })
   verificationStatus!: DocumentVerificationStatus;
+
+  @Column({ name: 'is_vaild', type: 'boolean', default: false })
+  isVaild!: boolean;
 
   // Self-declared, as printed on this specific document — see OrganizationDocumentInput above.
   @Column({ name: 'registered_name', type: 'varchar', nullable: true })

@@ -15,7 +15,7 @@ export class OrganizationRepository {
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {
     const repo = manager ? manager.getRepository(OrganizationEntity) : this.repo;
-    const organization = repo.create({ name, status });
+    const organization = repo.create({ name, status, onboardingStep: 'company_details' });
     return repo.save(organization);
   }
 
@@ -23,10 +23,15 @@ export class OrganizationRepository {
     return this.repo.findOne({
       where: { id },
       relations: {
+        referralCode: true,
         onlineKycVerifier: true,
         physicalKycAgent: true,
       },
       select: {
+        referralCode: {
+          id: true,
+          code: true,
+        },
         onlineKycVerifier: {
           id: true,
           fullName: true,
@@ -75,8 +80,12 @@ export class OrganizationRepository {
       name: string;
       status: OrganizationStatus;
       companyLegalName: string | null;
+      registeredBusinessName: string | null;
       orgAdminName: string | null;
       operationalCity: string | null;
+      referralCodeId: string | null;
+      onboardingStep: import('./entities/organization.entity').OrganizationOnboardingStep | null;
+      registrationDate: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
       city: string | null;
@@ -87,7 +96,7 @@ export class OrganizationRepository {
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
       decisionReason: string | null;
-      referralCodeId: string | null;
+      submittedAt: Date | null;
     }>,
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {

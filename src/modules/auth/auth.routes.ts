@@ -1,10 +1,8 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
-import { requirePermission } from '../../shared/middleware/require-permission.middleware';
 import { verifySignupToken } from '../../shared/middleware/signup-token.middleware';
 import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
-import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
 import { env } from '../../config/env';
 import { AuthController } from './auth.controller';
 import { authValidators } from './auth.validators';
@@ -62,10 +60,24 @@ export function createAuthProtectedRoutes(controller: AuthController): Router {
   router.delete('/account', asyncHandler(controller.deleteAccount));
   router.get('/organization', asyncHandler(controller.getOrganization));
   router.post(
+    '/password',
+    validate(authValidators.createPassword),
+    asyncHandler(controller.createPassword),
+  );
+  router.post(
     '/organization',
-    requirePermission(ORGANIZATION_PROFILE_MANAGE),
     validate(authValidators.createOrganization),
     asyncHandler(controller.createOrganization),
+  );
+  router.post(
+    '/organization/business',
+    validate(authValidators.saveBusinessDetails),
+    asyncHandler(controller.saveBusinessDetails),
+  );
+  router.post(
+    '/organization/submit',
+    validate(authValidators.submitOrganization),
+    asyncHandler(controller.submitOrganization),
   );
 
   return router;
