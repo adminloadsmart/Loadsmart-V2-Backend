@@ -1,0 +1,32 @@
+/**
+ * Closed set of `action`/`resourceType` values passed to AuditService.log() — declared once as a
+ * `const` tuple, same pattern as DRIVER_STATUSES etc. in masters/utils/drivers.types.ts, so a call
+ * site can't pass an arbitrary string (typo or otherwise) that silently ends up in the audit log.
+ * Add new entries here first, then use them at the call site.
+ */
+export const AUDIT_ACTIONS = [
+  'ORGANIZATION_STATUS_UPDATED',
+  'ORGANIZATION_DOCUMENT_VERIFIED',
+  'ONLINE_KYC_VERIFIER_ASSIGNED',
+  'PHYSICAL_KYC_AGENT_ASSIGNED',
+  'ORGANIZATION_APPROVED',
+  'ORGANIZATION_REJECTED',
+  'ORGANIZATION_DENIED',
+  'REFERRAL_CODE_CREATED',
+  'REFERRAL_CODE_UPDATED',
+  'REFERRAL_CODE_REVOKED',
+  'REFERRAL_CODE_DELETED',
+  'STAFF_CREATED',
+  'ROLE_ASSIGNED',
+  'PERMISSION_GRANTED',
+  'PERMISSION_REVOKED',
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export const AUDIT_RESOURCE_TYPES = [
+  'organization',
+  'organization_document',
+  'referral_code',
+  'user',
+] as const;
+export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];
