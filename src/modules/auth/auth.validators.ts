@@ -2,29 +2,26 @@ import { z } from 'zod';
 import { DOCUMENT_NUMBER_REGEX } from './auth.constants';
 import { ORGANIZATION_DOCUMENT_TYPES } from './entities/organization-document.entity';
 
+const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters long')
+  .refine((value) => /[a-z]/.test(value), 'Password must include at least one lowercase letter')
+  .refine((value) => /[A-Z]/.test(value), 'Password must include at least one uppercase letter')
+  .refine((value) => /[0-9]/.test(value), 'Password must include at least one number')
+  .refine((value) => /[^A-Za-z0-9]/.test(value), 'Password must include at least one special character');
+
 const organizationDocumentSchema = z
   .object({
     documentType: z.enum(ORGANIZATION_DOCUMENT_TYPES),
-    documentNumber: z.string().min(1).optional(),
-    fileKey: z.string().min(1).optional(),
-    // Self-declared, as printed on this specific document (e.g. GST legal name & registered
-    // address, PAN/Aadhaar holder name & DOB) — none required, since not every field applies to
-    // every document type (dob only makes sense for individual-linked documents).
-    registeredName: z.string().min(1).optional(),
-    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dob must be in YYYY-MM-DD format').optional(),
-    addressLine1: z.string().min(1).optional(),
-    addressLine2: z.string().min(1).optional(),
-    city: z.string().min(1).optional(),
-    district: z.string().min(1).optional(),
-    state: z.string().min(1).optional(),
-    pinCode: z.string().min(1).optional(),
+    documentNumber: z.string().trim().min(1).optional(),
+    documentUrl: z.string().trim().url().optional(),
   })
   .superRefine((data, ctx) => {
-    if (!data.documentNumber && !data.fileKey) {
+    if (!data.documentNumber && !data.documentUrl) {
       ctx.addIssue({
         code: 'custom',
         path: ['documentNumber'],
-        message: 'Either documentNumber or fileKey is required',
+        message: 'Either documentNumber or documentUrl is required',
       });
       return;
     }
@@ -38,10 +35,49 @@ const organizationDocumentSchema = z
     }
   });
 
+const organizationReviewSchema = z
+  .object({
+    step: z.literal('review_submit'),
+    companyLegalName: z.string().min(1),
+    contactPersonName: z.string().min(1),
+    operatingCity: z.string().min(1),
+    ownsFleet: z.boolean(),
+    fleetSize: z.number().int().positive().optional(),
+    referralCode: z.string().min(1).optional(),
+    registeredBusinessName: z.string().min(1),
+    registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format').optional(),
+    address: z.object({
+      addressLine1: z.string().min(1),
+      addressLine2: z.string().min(1).optional(),
+      city: z.string().min(1),
+      district: z.string().min(1),
+      state: z.string().min(1),
+      pinCode: z.string().min(1),
+    }),
+    documents: z.array(organizationDocumentSchema).min(1),
+  })
+  .superRefine((data, ctx) => {
+    if (data.ownsFleet && data.fleetSize === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fleetSize'],
+        message: 'fleetSize is required when ownsFleet is true',
+      });
+    }
+    const types = data.documents.map((document) => document.documentType);
+    if (new Set(types).size !== types.length) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documents'],
+        message: 'Each document type may only be submitted once',
+      });
+    }
+  });
+
 export const authValidators = {
   signup: z.object({
     body: z.object({
-      phoneNumber: z.string().min(10),
+      phoneNumber: z.string().trim().min(10),
     }),
   }),
   verifyOtp: z.object({
@@ -51,8 +87,22 @@ export const authValidators = {
   }),
   login: z.object({
     body: z.object({
-      email: z.string().email(),
+      phoneNumber: z.string().trim().min(10),
       password: z.string().min(1),
+    }),
+  }),
+  createPassword: z.object({
+    body: z.object({
+      password: passwordSchema,
+      confirmPassword: z.string().min(1),
+    }).superRefine((data, ctx) => {
+      if (data.password !== data.confirmPassword) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['confirmPassword'],
+          message: 'Passwords do not match',
+        });
+      }
     }),
   }),
   refresh: z.object({
@@ -68,55 +118,54 @@ export const authValidators = {
   createOrganization: z.object({
     body: z
       .object({
-        // Required on first-time submission (sets the org_admin's login credentials — see
-        // auth.service.ts's createOrganization), ignored on later profile updates. Kept optional
-        // here since tenantId (which distinguishes create from update) isn't in the request body
-        // at all — the required-on-create check has to live in the service layer.
-        email: z.string().email().optional(),
-        password: z.string().min(8).optional(),
-        name: z.string().min(1),
         companyLegalName: z.string().min(1),
-        orgAdminName: z.string().min(1),
-        operationalCity: z.string().min(1),
-        addressLine1: z.string().min(1),
-        addressLine2: z.string().min(1).optional(),
-        city: z.string().min(1),
-        district: z.string().min(1),
-        state: z.string().min(1),
-        hasOwnFleet: z.boolean(),
+        contactPersonName: z.string().min(1),
+        operatingCity: z.string().min(1),
+        ownsFleet: z.boolean(),
         fleetSize: z.number().int().positive().optional(),
-        documents: z.array(organizationDocumentSchema).optional(),
+        referralCode: z.string().min(1).optional(),
       })
       .superRefine((data, ctx) => {
-        if (data.hasOwnFleet) {
+        if (data.ownsFleet) {
           if (data.fleetSize === undefined) {
             ctx.addIssue({
               code: 'custom',
               path: ['fleetSize'],
-              message: 'fleetSize is required when hasOwnFleet is true',
+              message: 'fleetSize is required when ownsFleet is true',
             });
           }
-          return;
-        }
-
-        if (!data.documents || data.documents.length === 0) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['documents'],
-            message:
-              'At least one document (gst_certificate, pan, udyam, aadhaar, cin, or shop_establishment) is required when hasOwnFleet is false',
-          });
-          return;
-        }
-
-        const types = data.documents.map((document) => document.documentType);
-        if (new Set(types).size !== types.length) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['documents'],
-            message: 'Each document type may only be submitted once',
-          });
         }
       }),
+  }),
+  saveBusinessDetails: z.object({
+    body: z
+      .object({
+        registeredBusinessName: z.string().min(1),
+        registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format').optional(),
+        address: z.object({
+          addressLine1: z.string().min(1),
+          addressLine2: z.string().min(1).optional(),
+          city: z.string().min(1),
+          district: z.string().min(1),
+          state: z.string().min(1),
+          pinCode: z.string().min(1),
+        }),
+        documents: z.array(organizationDocumentSchema).optional(),
+      })
+      .superRefine((data, ctx) => {
+        if (data.documents) {
+          const types = data.documents.map((document) => document.documentType);
+          if (new Set(types).size !== types.length) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['documents'],
+              message: 'Each document type may only be submitted once',
+            });
+          }
+        }
+      }),
+  }),
+  submitOrganization: z.object({
+    body: organizationReviewSchema,
   }),
 };

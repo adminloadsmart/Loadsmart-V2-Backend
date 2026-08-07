@@ -1,6 +1,7 @@
 import { RequestHandler } from 'express';
 import { AuthenticationError } from '../errors';
 import { extractBearerToken, verifyToken } from '../utils/token';
+import { normalizePhoneNumber } from '../utils/phone-number';
 
 interface SignupTokenPayload {
   phoneNumber: string;
@@ -30,6 +31,6 @@ export const verifySignupToken: RequestHandler = (req, _res, next) => {
     throw new AuthenticationError('Invalid signup token');
   }
 
-  req.signupPayload = { phoneNumber: payload.phoneNumber };
+  req.signupPayload = { phoneNumber: normalizePhoneNumber(payload.phoneNumber) };
   next();
 };

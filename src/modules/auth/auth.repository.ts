@@ -2,6 +2,7 @@ import { DataSource, EntityManager, IsNull, MoreThan, Repository } from 'typeorm
 import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { LoginAttemptEntity } from './entities/login-attempt.entity';
+import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 
 export class AuthRepository {
     private readonly users: Repository<UserEntity>;
@@ -16,7 +17,7 @@ export class AuthRepository {
 
     // relations: { role: true } so callers always get a populated RoleEntity, never just a bare roleId.
     findUserByPhone(phoneNumber: string): Promise<UserEntity | null> {
-        return this.users.findOne({ where: { phoneNumber, deletedAt: IsNull() }, relations: { role: true } });
+        return this.users.findOne({ where: { phoneNumber: normalizePhoneNumber(phoneNumber), deletedAt: IsNull() }, relations: { role: true } });
     }
 
     findUserByEmail(email: string): Promise<UserEntity | null> {
@@ -38,7 +39,7 @@ export class AuthRepository {
     }, manager?: EntityManager): Promise<UserEntity> {
         const users = manager ? manager.getRepository(UserEntity) : this.users;
         const user = users.create({
-            phoneNumber: data.phoneNumber,
+            phoneNumber: normalizePhoneNumber(data.phoneNumber),
             tenantId: data.tenantId,
             roleId: data.roleId,
             email: data.email ?? null,
@@ -94,6 +95,11 @@ export class AuthRepository {
     async setUserCredentials(userId: string, data: { email: string; passwordHash: string }, manager?: EntityManager): Promise<void> {
         const users = manager ? manager.getRepository(UserEntity) : this.users;
         await users.update({ id: userId }, { email: data.email, passwordHash: data.passwordHash });
+    }
+
+    async setUserPassword(userId: string, passwordHash: string, manager?: EntityManager): Promise<void> {
+        const users = manager ? manager.getRepository(UserEntity) : this.users;
+        await users.update({ id: userId }, { passwordHash });
     }
 
     async createRefreshToken(data: { userId: string; tokenHash: string; expiresAt: Date }): Promise<RefreshTokenEntity> {

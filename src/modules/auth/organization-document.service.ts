@@ -16,13 +16,13 @@ export class OrganizationDocumentService {
 
   // Called from AuthService.createOrganization when hasOwnFleet is false and at least one
   // document was submitted — see auth.validators.ts for the "at least one required" rule.
-  async replaceDocuments(
+  async upsertDocuments(
     organizationId: string,
     actingUserId: string,
     documents: OrganizationDocumentInput[],
     manager?: EntityManager,
   ): Promise<OrganizationDocumentEntity[]> {
-    return this.organizationDocumentRepository.replace(organizationId, actingUserId, documents, manager);
+    return this.organizationDocumentRepository.upsert(organizationId, actingUserId, documents, manager);
   }
 
   // Called when hasOwnFleet flips to true — mirrors the old behavior of nulling out

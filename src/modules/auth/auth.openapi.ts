@@ -1,7 +1,6 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { authValidators } from './auth.validators';
-import { TAGS, authenticated, permissionGated, SuccessResponseSchema, errorContent, json } from '../../shared/openapi/core';
-import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
+import { TAGS, authenticated, SuccessResponseSchema, errorContent, json } from '../../shared/openapi/core';
 
 /**
  * OpenAPI docs for the auth module: registers every route in auth.routes.ts (public +
@@ -36,7 +35,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/signup`,
     tags: [TAGS.AUTH],
     operationId: 'auth.signup',
-    summary: 'Start signup with a phone number',
+    summary: 'Send OTP to a phone number',
     description:
       'Sends an OTP to the phone number and returns a short-lived signup token. Follow up with POST /auth/verify-otp. ' +
       'Repeat calls for the same phone number are subject to a short cooldown.',
@@ -44,7 +43,6 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: 'OTP sent — { signupToken, expiresIn, message }' },
       400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'A user with this phone number already exists', ...errorContent },
       429: { description: 'On cooldown for this phone number, or too many requests from this IP', ...errorContent },
     },
   });
@@ -54,15 +52,15 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/verify-otp`,
     tags: [TAGS.AUTH],
     operationId: 'auth.verifyOtp',
-    summary: 'Verify the signup OTP and obtain tokens',
+    summary: 'Verify the OTP and obtain tokens',
     description:
       'Requires the signup token returned by POST /auth/signup, sent via the Authorization header ' +
       '(checked by verifySignupToken before this handler runs) — not the main access/refresh pair. ' +
-      'On first verification, creates the user and a draft organization.',
+      'On first verification, creates the user if needed and returns onboarding state.',
     security: [{ [signupTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyOtp.shape.body) },
     responses: {
-      200: { description: 'Tokens issued — { accessToken, refreshToken }' },
+      200: { description: 'Tokens issued — includes user summary and onboarding state' },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid/expired signup token, invalid OTP, or too many incorrect attempts', ...errorContent },
       429: { description: 'Too many requests from this IP', ...errorContent },
@@ -74,16 +72,31 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/login`,
     tags: [TAGS.AUTH],
     operationId: 'auth.login',
-    summary: 'Log in with email + password',
+    summary: 'Log in with mobile number + password',
     request: { body: json(authValidators.login.shape.body) },
     responses: {
       200: {
         description:
-          'Tokens issued — { user: { id, fullName, email, phoneNumber, role, tenantId, coverage }, permissions, accessToken, refreshToken }',
+          'Tokens issued — includes user summary, permissions, accessToken, refreshToken, onboardingStatus, and nextStep',
       },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Invalid credentials, or too many recent failed attempts', ...errorContent },
       429: { description: 'Too many requests from this IP', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/password`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.createPassword',
+    ...authenticated('Create the caller\'s password after OTP login.'),
+    request: { body: json(authValidators.createPassword.shape.body) },
+    responses: {
+      200: { description: 'Password created' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      409: { description: 'Password already exists', ...errorContent },
     },
   });
 
@@ -148,32 +161,48 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organization`,
     tags: [TAGS.AUTH],
     operationId: 'auth.createOrganization',
-    ...permissionGated(
-      [ORGANIZATION_PROFILE_MANAGE],
-      "Create (first call) or update (subsequent calls) the caller's organization profile.\n\n" +
-        "On the first call — the caller has no organization yet — this creates it, sets the caller's " +
-        'login `email`/`password` (required on this call only — self-signup never captures them, this is ' +
-        'the only route that ever can), and returns a fresh `accessToken`/`refreshToken` pair alongside it, ' +
-        'since the token used to make this very request still carries a null tenant. On later calls, ' +
-        '`email`/`password` are ignored (not a change-credentials endpoint) and it just updates the existing ' +
-        'organization, returning it alone.\n\n' +
-        'Cross-field rules enforced server-side (not expressible in this schema): `fleetSize` is required when ' +
-        '`hasOwnFleet` is true; otherwise at least one `documents` entry is required — each entry is one of ' +
-        '`gst_certificate`, `pan`, `udyam`, `aadhaar`, `cin`, or `shop_establishment`, verified either by its ' +
-        'official `documentNumber` or by an uploaded file\'s `fileKey` (from a separate upload API).',
+    ...authenticated(
+      "Create (first call) or update (subsequent calls) the caller's company details. On the first call this creates the organization, attaches it to the caller, and returns a fresh token pair because the caller's access token still has a null tenant.",
     ),
     request: { body: json(authValidators.createOrganization.shape.body) },
     responses: {
       200: {
         description:
-          'Updated organization — `{ organization }`, or `{ organization, accessToken, refreshToken }` the first time',
+          'Updated organization, onboarding step, review data, and on the first call also a fresh accessToken/refreshToken pair',
       },
-      400: { description: 'Validation failed, or missing email/password on first-time creation', ...errorContent },
-      403: {
-        description: "Caller lacks organization.profile.manage, or the organization is rejected/suspended and can't be updated",
-        ...errorContent,
-      },
-      409: { description: 'email already belongs to another user (first-time creation only)', ...errorContent },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      403: { description: "The organization is rejected or suspended and can't be updated", ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organization/business`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.saveBusinessDetails',
+    ...authenticated('Save business details and document uploads for the caller\'s organization.'),
+    request: { body: json(authValidators.saveBusinessDetails.shape.body) },
+    responses: {
+      200: { description: 'Business details saved, including the current review payload' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      403: { description: "The organization is rejected or suspended and can't be updated", ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organization/submit`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.submitOrganization',
+    ...authenticated('Submit the organization for manual KYC review after allowing the caller to review and edit the final payload.'),
+    request: { body: json(authValidators.submitOrganization.shape.body) },
+    responses: {
+      200: { description: 'Organization submitted for review, with the updated review payload and current step returned' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      403: { description: "The organization is rejected or suspended and can't be updated", ...errorContent },
     },
   });
 }

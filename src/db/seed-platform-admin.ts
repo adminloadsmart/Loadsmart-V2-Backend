@@ -20,6 +20,7 @@ import { AppDataSource } from './data-source';
 import { UserEntity } from '../modules/auth/entities/user.entity';
 import { RoleEntity } from '../modules/roles/entities/role.entity';
 import { PLATFORM_ADMIN_ROLE } from '../shared/constants/roles';
+import { normalizePhoneNumber } from '../shared/utils/phone-number';
 
 function requiredEnv(key: string): string {
     const value = process.env[key];
@@ -28,7 +29,7 @@ function requiredEnv(key: string): string {
 }
 
 async function bootstrap(): Promise<void> {
-    const phoneNumber = requiredEnv('BOOTSTRAP_ADMIN_PHONE');
+    const phoneNumber = normalizePhoneNumber(requiredEnv('BOOTSTRAP_ADMIN_PHONE'));
     const email = requiredEnv('BOOTSTRAP_ADMIN_EMAIL');
     const password = requiredEnv('BOOTSTRAP_ADMIN_PASSWORD');
     const fullName = process.env.BOOTSTRAP_ADMIN_NAME ?? 'Platform Admin';

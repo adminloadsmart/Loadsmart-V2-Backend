@@ -21,6 +21,11 @@ export class AuthController {
     respond(res, user);
   };
 
+  createPassword = async (req: Request, res: Response) => {
+    const result = await this.authService.createPassword(req.user!, req.body);
+    respond(res, result);
+  };
+
   refresh = async (req: Request, res: Response) => {
     const tokens = await this.authService.refresh(req.body);
     respond(res, tokens);
@@ -47,6 +52,16 @@ export class AuthController {
 
   createOrganization = async (req: Request, res: Response) => {
     const result = await this.authService.createOrganization(req.user!.id, req.user!.tenantId, req.body);
+    respond(res, result);
+  };
+
+  saveBusinessDetails = async (req: Request, res: Response) => {
+    const result = await this.authService.saveBusinessDetails(req.user!, req.body);
+    respond(res, result);
+  };
+
+  submitOrganization = async (req: Request, res: Response) => {
+    const result = await this.authService.submitOrganization(req.user!, req.body);
     respond(res, result);
   };
 }
