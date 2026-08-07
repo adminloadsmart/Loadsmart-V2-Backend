@@ -30,3 +30,23 @@ export interface ListStaffInput extends PaginationInput {
   search?: string;
   role?: string;
 }
+
+export interface CreateReferralCodeInput {
+  code: string;
+  ownerUserId: string;
+  validFrom?: string;
+  validUntil?: string;
+}
+
+export interface ListReferralCodesInput extends PaginationInput {
+  ownerUserId?: string;
+  search?: string;
+}
+
+export type ReferralCodeParams = { referralCodeId: string };
+
+export interface UpdateReferralCodeInput {
+  ownerUserId?: string;
+  validFrom?: string;
+  validUntil?: string;
+}

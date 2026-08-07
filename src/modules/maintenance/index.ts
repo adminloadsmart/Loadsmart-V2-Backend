@@ -6,13 +6,16 @@ import { createMaintenanceRoutes } from './maintenance.routes';
 import { NotificationsGateway } from './gateways/notifications.gateway';
 
 export interface MaintenanceModuleDeps {
-    notificationsGateway: NotificationsGateway;
+  notificationsGateway: NotificationsGateway;
 }
 
-export function createMaintenanceModule(dataSource: DataSource, { notificationsGateway }: MaintenanceModuleDeps) {
-    const repository = new MaintenanceRepository(dataSource);
-    const service = new MaintenanceService(repository, notificationsGateway);
-    const controller = new MaintenanceController(service);
-    const router = createMaintenanceRoutes(controller);
-    return { service, router };
+export function createMaintenanceModule(
+  dataSource: DataSource,
+  { notificationsGateway }: MaintenanceModuleDeps,
+) {
+  const repository = new MaintenanceRepository(dataSource);
+  const service = new MaintenanceService(repository, notificationsGateway);
+  const controller = new MaintenanceController(service);
+  const router = createMaintenanceRoutes(controller);
+  return { service, router };
 }

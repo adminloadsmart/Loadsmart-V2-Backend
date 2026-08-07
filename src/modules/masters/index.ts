@@ -10,7 +10,7 @@ import { createMastersProtectedRoutes } from './masters.routes';
 
 export function createMastersModule(dataSource: DataSource) {
   const vehicleRepository = new VehicleRepository(dataSource);
-  const vehicleService = new VehicleService(vehicleRepository);
+  const vehicleService = new VehicleService(vehicleRepository, dataSource);
 
   const driverRepository = new DriverRepository(dataSource);
   const driverService = new DriverService(driverRepository, dataSource);

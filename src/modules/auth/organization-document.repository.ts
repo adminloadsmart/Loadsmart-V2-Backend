@@ -44,7 +44,11 @@ export class OrganizationDocumentRepository {
 
     const saved: OrganizationDocumentEntity[] = [];
     for (const document of documents) {
-      const existing = await this.findActiveByOrganizationAndType(organizationId, document.documentType, manager);
+      const existing = await this.findActiveByOrganizationAndType(
+        organizationId,
+        document.documentType,
+        manager,
+      );
       if (existing) {
         existing.documentNumber = document.documentNumber ?? null;
         existing.fileKey = document.documentUrl ?? null;
@@ -73,7 +77,11 @@ export class OrganizationDocumentRepository {
 
   // Soft-deletes every active document for the org — used when the user switches back to
   // a fleet-owned company and documents are no longer required.
-  async softDeleteAllActive(organizationId: string, actingUserId: string | null, manager?: EntityManager): Promise<void> {
+  async softDeleteAllActive(
+    organizationId: string,
+    actingUserId: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
     const repo = manager ? manager.getRepository(OrganizationDocumentEntity) : this.repo;
     await repo.update(
       { organizationId, deletedAt: IsNull() },
@@ -83,7 +91,11 @@ export class OrganizationDocumentRepository {
 
   async updateVerificationStatus(
     id: string,
-    data: { verificationStatus: DocumentVerificationStatus; verifiedAt: Date | null; updatedBy: string },
+    data: {
+      verificationStatus: DocumentVerificationStatus;
+      verifiedAt: Date | null;
+      updatedBy: string;
+    },
   ): Promise<OrganizationDocumentEntity | null> {
     await this.repo.update({ id }, data);
     return this.findActiveById(id);

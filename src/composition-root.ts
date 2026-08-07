@@ -38,7 +38,10 @@ export function buildContainer(dataSource: DataSource): Container {
   // JWT's `permissions` claim (see modules/auth/index.ts and modules/roles/index.ts).
   const roles = createRolesModule(dataSource, { auditService: audit.service });
 
-  const auth = createAuthModule(dataSource, { auditService: audit.service, roleService: roles.service });
+  const auth = createAuthModule(dataSource, {
+    auditService: audit.service,
+    roleService: roles.service,
+  });
   const authMiddleware = createAuth(auth.authRepository);
 
   // Reference data other modules read from — no cross-module deps of its own.
@@ -60,6 +63,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationService: auth.organizationService,
     organizationDocumentService: auth.organizationDocumentService,
     authService: auth.service,
+    referralCodeService: auth.referralCodeService,
     auditService: audit.service,
   });
 
@@ -70,12 +74,8 @@ export function buildContainer(dataSource: DataSource): Container {
     tenancyGateway: auth.tenancyGateway,
     authMiddleware,
     auditMiddleware,
-    publicRouters: [
-      { path: '/auth', router: auth.publicRouter },
-    ],
-    authenticatedRouters: [
-      { path: '/auth', router: auth.protectedRouter },
-    ],
+    publicRouters: [{ path: '/auth', router: auth.publicRouter }],
+    authenticatedRouters: [{ path: '/auth', router: auth.protectedRouter }],
     routers: [
       { path: '/roles', router: roles.router },
       { path: '/masters', router: masters.protectedRouter },

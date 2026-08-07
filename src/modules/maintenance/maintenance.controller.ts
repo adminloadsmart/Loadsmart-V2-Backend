@@ -1,7 +1,7 @@
 import { MaintenanceService } from './maintenance.service';
 
 export class MaintenanceController {
-    constructor(private readonly maintenanceService: MaintenanceService) { }
+  constructor(private readonly maintenanceService: MaintenanceService) {}
 
-    // TODO: endpoints
+  // TODO: endpoints
 }

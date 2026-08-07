@@ -1,5 +1,5 @@
 import { randomBytes, randomInt, randomUUID } from 'crypto';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
 import {
@@ -17,15 +17,11 @@ import { invalidateUserExistsCache } from '../../shared/utils/user-existence-cac
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { OrganizationService } from './organization.service';
 import { OrganizationDocumentService } from './organization-document.service';
-import {
-  ORGANIZATION_ONBOARDING_STEPS,
-  OrganizationEntity,
-  OrganizationOnboardingStep,
-  OrganizationStatus,
-} from './entities/organization.entity';
-import { OrganizationDocumentEntity, OrganizationDocumentInput } from './entities/organization-document.entity';
+import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
+import { OrganizationDocumentEntity } from './entities/organization-document.entity';
 import { isTenantAccessible } from './organization.constants';
 import { AuthRepository } from './auth.repository';
+import { ReferralCodeService } from './referral-code.service';
 import { RoleService } from '../roles/role.service';
 import { AuditService } from '../audit/audit.service';
 import { redisManager } from '../../db/redis';
@@ -75,9 +71,9 @@ type OrganizationProgress = {
   documents: OrganizationDocumentEntity[];
 };
 
-  type OrganizationReviewData = {
-    companyLegalName: string | null;
-    contactPersonName: string | null;
+type OrganizationReviewData = {
+  companyLegalName: string | null;
+  contactPersonName: string | null;
   operatingCity: string | null;
   ownsFleet: boolean | null;
   fleetSize: number | null;
@@ -92,19 +88,20 @@ type OrganizationProgress = {
     pinCode: string | null;
   };
   referralCode: string | null;
-    documents: Array<{
-      documentType: string;
-      documentNumber: string | null;
-      documentUrl: string | null;
-      isVaild: boolean;
-    }>;
-  };
+  documents: Array<{
+    documentType: string;
+    documentNumber: string | null;
+    documentUrl: string | null;
+    isVaild: boolean;
+  }>;
+};
 
 export class AuthService {
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
     private readonly dataSource: DataSource,
@@ -187,9 +184,8 @@ export class AuthService {
       user = await this.authRepository.createUser({ phoneNumber, tenantId: null, roleId });
     }
 
-     return this.issueTokenPairForUser(user);
+    return this.issueTokenPairForUser(user);
   }
-
   async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
     const current = await this.getUserById(user.id);
     if (current.passwordHash) {
@@ -224,8 +220,8 @@ export class AuthService {
     ]);
     if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
     if (existingByEmail) throw new ConflictError('A user with this email already exists');
-
-    const passwordHash = await bcrypt.hash(this.generatePassword(), 10);
+    const password = this.generatePassword();
+    const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.authRepository.createUser({
       phoneNumber: normalizedPhone,
       tenantId: null,
@@ -241,7 +237,14 @@ export class AuthService {
       userId: actingUser.id,
       action: 'STAFF_CREATED',
       resourceType: 'user',
-      newData: { id: user.id, fullName, phoneNumber: user.phoneNumber, email, role: role.name, coverage },
+      newData: {
+        id: user.id,
+        fullName,
+        phoneNumber: user.phoneNumber,
+        email,
+        role: role.name,
+        coverage,
+      },
     });
 
     for (const permissionId of new Set(permissionIds ?? [])) {
@@ -291,6 +294,10 @@ export class AuthService {
 
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
+    // Batched, not per-row — one extra query for the whole page, keyed by owner.
+    const codesByOwner = await this.referralCodeService.listByOwnerIds(
+      items.map((user) => user.id),
+    );
     return {
       items: items.map((user) => ({
         id: user.id,
@@ -299,6 +306,7 @@ export class AuthService {
         email: user.email,
         role: user.role.name,
         coverage: user.coverage,
+        referralCodes: codesByOwner.get(user.id) ?? [],
         createdAt: user.createdAt,
       })),
       page: input.page,
@@ -356,15 +364,23 @@ export class AuthService {
     return this.buildOrganizationResponse(organization, documents);
   }
 
-  async createOrganization(userId: string, tenantId: string | null, input: SaveCompanyDetailsInput) {
+  async createOrganization(
+    userId: string,
+    tenantId: string | null,
+    input: SaveCompanyDetailsInput,
+  ) {
+    const referralCodeId = input.referralCode
+      ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
+      : null;
+
     const profileData = {
       name: input.companyLegalName,
       companyLegalName: input.companyLegalName,
       orgAdminName: input.contactPersonName,
       operationalCity: input.operatingCity,
       hasOwnFleet: input.ownsFleet,
-      fleetSize: input.ownsFleet ? input.fleetSize ?? null : null,
-      referralCode: input.referralCode ?? null,
+      fleetSize: input.ownsFleet ? (input.fleetSize ?? null) : null,
+      referralCodeId,
     };
 
     if (tenantId) {
@@ -396,7 +412,12 @@ export class AuthService {
       );
       await this.authRepository.updateUserTenant(userId, organization.id, manager);
       const permissions = await this.roleService.getEffectivePermissions(userId);
-      const tokens = await this.issueTokenPair(userId, organization.id, ORG_ADMIN_ROLE, permissions);
+      const tokens = await this.issueTokenPair(
+        userId,
+        organization.id,
+        ORG_ADMIN_ROLE,
+        permissions,
+      );
       return { ...this.buildOrganizationResponse(updated, []), ...tokens };
     });
   }
@@ -433,7 +454,12 @@ export class AuthService {
       );
 
       const documents = input.documents?.length
-        ? await this.organizationDocumentService.upsertDocuments(user.tenantId!, user.id, input.documents, manager)
+        ? await this.organizationDocumentService.upsertDocuments(
+            user.tenantId!,
+            user.id,
+            input.documents,
+            manager,
+          )
         : await this.organizationDocumentService.listByOrganization(user.tenantId!);
 
       return this.buildOrganizationResponse(organization, documents);
@@ -444,6 +470,10 @@ export class AuthService {
     if (!user.tenantId) {
       throw new AuthorizationError('Missing organization context');
     }
+
+    const referralCodeId = input.referralCode
+      ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
+      : null;
 
     const current = await this.organizationService.getOrganizationStatus(user.tenantId);
     if (!isTenantAccessible(current.status)) {
@@ -461,8 +491,7 @@ export class AuthService {
           orgAdminName: input.contactPersonName,
           operationalCity: input.operatingCity,
           hasOwnFleet: input.ownsFleet,
-          fleetSize: input.ownsFleet ? input.fleetSize ?? null : null,
-          referralCode: input.referralCode ?? null,
+          fleetSize: input.ownsFleet ? (input.fleetSize ?? null) : null,
           registeredBusinessName: input.registeredBusinessName,
           registrationDate: input.registrationDate ?? null,
           addressLine1: input.address.addressLine1,
@@ -471,6 +500,7 @@ export class AuthService {
           district: input.address.district,
           state: input.address.state,
           pinCode: input.address.pinCode,
+          referralCodeId,
           status: current.status === 'draft' ? 'partial_pending' : current.status,
           onboardingStep: 'review_submit',
         },
@@ -511,20 +541,35 @@ export class AuthService {
     await redisManager.set(cooldownKey, '1', SIGNUP_RESEND_COOLDOWN_SECONDS);
 
     const otp = randomInt(100000, 1000000).toString();
-    await redisManager.set(this.otpRedisKey(phoneNumber), JSON.stringify({ phoneNumber, otp }), env.signupOtpTtlSeconds);
+    await redisManager.set(
+      this.otpRedisKey(phoneNumber),
+      JSON.stringify({ phoneNumber, otp }),
+      env.signupOtpTtlSeconds,
+    );
     await redisManager.delete(`${this.otpRedisKey(phoneNumber)}:attempts`);
   }
 
   private async loginWithPhone(phoneNumber: string, password: string, ipAddress: string | null) {
     const normalizedPhone = this.normalizePhone(phoneNumber);
-    const recentFailures = await this.authRepository.countRecentFailedAttempts(normalizedPhone, ipAddress, LOGIN_ATTEMPT_WINDOW_MS);
+    const recentFailures = await this.authRepository.countRecentFailedAttempts(
+      normalizedPhone,
+      ipAddress,
+      LOGIN_ATTEMPT_WINDOW_MS,
+    );
     if (recentFailures >= MAX_FAILED_ATTEMPTS) {
       throw new AuthenticationError('Too many failed login attempts, try again later');
     }
 
     const user = await this.authRepository.findUserByPhone(normalizedPhone);
-    const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-    await this.authRepository.recordLoginAttempt({ email: normalizedPhone, success: passwordMatches, ipAddress });
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    );
+    await this.authRepository.recordLoginAttempt({
+      email: normalizedPhone,
+      success: passwordMatches,
+      ipAddress,
+    });
 
     if (!user || !passwordMatches || !user.passwordHash) {
       throw new AuthenticationError('Invalid credentials');
@@ -586,11 +631,23 @@ export class AuthService {
     const onboardingStep = this.resolveOnboardingStep(organization, documents);
 
     if (organization.status === 'active') {
-      return { onboardingStatus: 'completed', onboardingStep: 'submitted', nextStep: 'submitted', organization, documents };
+      return {
+        onboardingStatus: 'completed',
+        onboardingStep: 'submitted',
+        nextStep: 'submitted',
+        organization,
+        documents,
+      };
     }
 
     if (organization.status === 'pending' || organization.submittedAt) {
-      return { onboardingStatus: 'submitted', onboardingStep: 'submitted', nextStep: 'submitted', organization, documents };
+      return {
+        onboardingStatus: 'submitted',
+        onboardingStep: 'submitted',
+        nextStep: 'submitted',
+        organization,
+        documents,
+      };
     }
 
     return {
@@ -602,7 +659,10 @@ export class AuthService {
     };
   }
 
-  private buildOrganizationResponse(organization: OrganizationEntity, documents: OrganizationDocumentEntity[]) {
+  private buildOrganizationResponse(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ) {
     const state = this.buildOnboardingState(organization, documents);
     return {
       ...state,
@@ -615,22 +675,22 @@ export class AuthService {
   private hasCompanyDetails(organization: OrganizationEntity): boolean {
     return Boolean(
       organization.companyLegalName &&
-        organization.orgAdminName &&
-        organization.operationalCity &&
-        organization.hasOwnFleet !== null &&
-        (organization.hasOwnFleet ? organization.fleetSize !== null : true),
+      organization.orgAdminName &&
+      organization.operationalCity &&
+      organization.hasOwnFleet !== null &&
+      (organization.hasOwnFleet ? organization.fleetSize !== null : true),
     );
   }
 
   private hasBusinessDetails(organization: OrganizationEntity): boolean {
     return Boolean(
       organization.registeredBusinessName &&
-        organization.registrationDate &&
-        organization.addressLine1 &&
-        organization.city &&
-        organization.district &&
-        organization.state &&
-        organization.pinCode,
+      organization.registrationDate &&
+      organization.addressLine1 &&
+      organization.city &&
+      organization.district &&
+      organization.state &&
+      organization.pinCode,
     );
   }
 
@@ -654,13 +714,20 @@ export class AuthService {
 
   private assertDocumentsReady(documents: OrganizationDocumentEntity[]): void {
     this.assertDocumentsPresent(documents);
-    const invalidDocuments = documents.filter((document) => !document.documentNumber && !document.fileKey);
+    const invalidDocuments = documents.filter(
+      (document) => !document.documentNumber && !document.fileKey,
+    );
     if (invalidDocuments.length > 0) {
-      throw new ValidationError('Each document must include either a document number or a document URL');
+      throw new ValidationError(
+        'Each document must include either a document number or a document URL',
+      );
     }
   }
 
-  private resolveOnboardingStep(organization: OrganizationEntity, documents: OrganizationDocumentEntity[]): OrganizationOnboardingStep {
+  private resolveOnboardingStep(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ): OrganizationOnboardingStep {
     if (organization.onboardingStep) {
       return organization.onboardingStep;
     }
@@ -679,21 +746,28 @@ export class AuthService {
     return 'review_submit';
   }
 
-  private advanceStepAfterCompanyDetails(currentStep: OrganizationOnboardingStep | null): OrganizationOnboardingStep {
+  private advanceStepAfterCompanyDetails(
+    currentStep: OrganizationOnboardingStep | null,
+  ): OrganizationOnboardingStep {
     if (currentStep === 'review_submit' || currentStep === 'submitted') {
       return currentStep;
     }
     return 'business_details';
   }
 
-  private advanceStepAfterBusinessDetails(currentStep: OrganizationOnboardingStep | null): OrganizationOnboardingStep {
+  private advanceStepAfterBusinessDetails(
+    currentStep: OrganizationOnboardingStep | null,
+  ): OrganizationOnboardingStep {
     if (currentStep === 'submitted') {
       return 'submitted';
     }
     return 'review_submit';
   }
 
-  private buildReviewData(organization: OrganizationEntity, documents: OrganizationDocumentEntity[]): OrganizationReviewData {
+  private buildReviewData(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ): OrganizationReviewData {
     return {
       companyLegalName: organization.companyLegalName,
       contactPersonName: organization.orgAdminName,
@@ -710,7 +784,7 @@ export class AuthService {
         state: organization.state,
         pinCode: organization.pinCode,
       },
-      referralCode: organization.referralCode,
+      referralCode: organization.referralCode?.code ?? null,
       documents: documents.map((document) => ({
         documentType: document.documentType,
         documentNumber: document.documentNumber,
@@ -734,14 +808,26 @@ export class AuthService {
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues
    *  a token pair for them — the common path used by verifyOtp/login/refresh. */
-  private async issueTokenPairForUser(user: { id: string; tenantId: string | null; role: { name: string } }) {
+  private async issueTokenPairForUser(user: {
+    id: string;
+    tenantId: string | null;
+    role: { name: string };
+  }) {
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     return this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
   }
 
-  private async issueTokenPair(userId: string, tenantId: string | null, role: string, permissions: string[]) {
+  private async issueTokenPair(
+    userId: string,
+    tenantId: string | null,
+    role: string,
+    permissions: string[],
+  ) {
     const jti = randomUUID();
-    const accessToken = signToken({ id: userId, tenantId, role, permissions, jti, purpose: 'access' }, env.accessTokenTtlSeconds);
+    const accessToken = signToken(
+      { id: userId, tenantId, role, permissions, jti, purpose: 'access' },
+      env.accessTokenTtlSeconds,
+    );
 
     const rawRefreshToken = randomBytes(40).toString('hex');
     await this.authRepository.createRefreshToken({

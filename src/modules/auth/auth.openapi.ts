@@ -1,6 +1,12 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { authValidators } from './auth.validators';
-import { TAGS, authenticated, SuccessResponseSchema, errorContent, json } from '../../shared/openapi/core';
+import {
+  TAGS,
+  authenticated,
+  SuccessResponseSchema,
+  errorContent,
+  json,
+} from '../../shared/openapi/core';
 
 /**
  * OpenAPI docs for the auth module: registers every route in auth.routes.ts (public +
@@ -25,7 +31,8 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     type: 'http',
     scheme: 'bearer',
     bearerFormat: 'JWT',
-    description: 'The short-lived signup token returned by POST /auth/signup. Send as `Authorization: Bearer <signupToken>`.',
+    description:
+      'The short-lived signup token returned by POST /auth/signup. Send as `Authorization: Bearer <signupToken>`.',
   });
 
   // --- Public ---
@@ -43,7 +50,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: 'OTP sent — { signupToken, expiresIn, message }' },
       400: { description: 'Validation failed', ...errorContent },
-      429: { description: 'On cooldown for this phone number, or too many requests from this IP', ...errorContent },
+      429: {
+        description: 'On cooldown for this phone number, or too many requests from this IP',
+        ...errorContent,
+      },
     },
   });
 
@@ -62,7 +72,11 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Tokens issued — includes user summary and onboarding state' },
       400: { description: 'Validation failed', ...errorContent },
-      401: { description: 'Missing/invalid/expired signup token, invalid OTP, or too many incorrect attempts', ...errorContent },
+      401: {
+        description:
+          'Missing/invalid/expired signup token, invalid OTP, or too many incorrect attempts',
+        ...errorContent,
+      },
       429: { description: 'Too many requests from this IP', ...errorContent },
     },
   });
@@ -80,7 +94,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
           'Tokens issued — includes user summary, permissions, accessToken, refreshToken, onboardingStatus, and nextStep',
       },
       400: { description: 'Validation failed', ...errorContent },
-      401: { description: 'Invalid credentials, or too many recent failed attempts', ...errorContent },
+      401: {
+        description: 'Invalid credentials, or too many recent failed attempts',
+        ...errorContent,
+      },
       429: { description: 'Too many requests from this IP', ...errorContent },
     },
   });
@@ -90,7 +107,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/password`,
     tags: [TAGS.AUTH],
     operationId: 'auth.createPassword',
-    ...authenticated('Create the caller\'s password after OTP login.'),
+    ...authenticated("Create the caller's password after OTP login."),
     request: { body: json(authValidators.createPassword.shape.body) },
     responses: {
       200: { description: 'Password created' },
@@ -135,7 +152,9 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/account`,
     tags: [TAGS.AUTH],
     operationId: 'auth.deleteAccount',
-    ...authenticated("Soft-delete the caller's own account and revoke all of their refresh tokens."),
+    ...authenticated(
+      "Soft-delete the caller's own account and revoke all of their refresh tokens.",
+    ),
     responses: {
       200: { description: 'Account deleted', ...json(SuccessResponseSchema) },
     },
@@ -152,7 +171,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     ),
     responses: {
       200: { description: 'Organization, or null if none exists yet' },
-      404: { description: 'Caller has a tenantId but no matching organization (data inconsistency)', ...errorContent },
+      404: {
+        description: 'Caller has a tenantId but no matching organization (data inconsistency)',
+        ...errorContent,
+      },
     },
   });
 
@@ -172,7 +194,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
       },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid access token', ...errorContent },
-      403: { description: "The organization is rejected or suspended and can't be updated", ...errorContent },
+      403: {
+        description: "The organization is rejected or suspended and can't be updated",
+        ...errorContent,
+      },
     },
   });
 
@@ -181,13 +206,16 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organization/business`,
     tags: [TAGS.AUTH],
     operationId: 'auth.saveBusinessDetails',
-    ...authenticated('Save business details and document uploads for the caller\'s organization.'),
+    ...authenticated("Save business details and document uploads for the caller's organization."),
     request: { body: json(authValidators.saveBusinessDetails.shape.body) },
     responses: {
       200: { description: 'Business details saved, including the current review payload' },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid access token', ...errorContent },
-      403: { description: "The organization is rejected or suspended and can't be updated", ...errorContent },
+      403: {
+        description: "The organization is rejected or suspended and can't be updated",
+        ...errorContent,
+      },
     },
   });
 
@@ -196,13 +224,21 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organization/submit`,
     tags: [TAGS.AUTH],
     operationId: 'auth.submitOrganization',
-    ...authenticated('Submit the organization for manual KYC review after allowing the caller to review and edit the final payload.'),
+    ...authenticated(
+      'Submit the organization for manual KYC review after allowing the caller to review and edit the final payload.',
+    ),
     request: { body: json(authValidators.submitOrganization.shape.body) },
     responses: {
-      200: { description: 'Organization submitted for review, with the updated review payload and current step returned' },
+      200: {
+        description:
+          'Organization submitted for review, with the updated review payload and current step returned',
+      },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid access token', ...errorContent },
-      403: { description: "The organization is rejected or suspended and can't be updated", ...errorContent },
+      403: {
+        description: "The organization is rejected or suspended and can't be updated",
+        ...errorContent,
+      },
     },
   });
 }

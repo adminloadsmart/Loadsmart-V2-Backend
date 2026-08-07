@@ -8,7 +8,7 @@ import {
 } from './entities/organization-document.entity';
 
 export class OrganizationDocumentService {
-  constructor(private readonly organizationDocumentRepository: OrganizationDocumentRepository) { }
+  constructor(private readonly organizationDocumentRepository: OrganizationDocumentRepository) {}
 
   async listByOrganization(organizationId: string): Promise<OrganizationDocumentEntity[]> {
     return this.organizationDocumentRepository.findActiveByOrganization(organizationId);
@@ -22,13 +22,26 @@ export class OrganizationDocumentService {
     documents: OrganizationDocumentInput[],
     manager?: EntityManager,
   ): Promise<OrganizationDocumentEntity[]> {
-    return this.organizationDocumentRepository.upsert(organizationId, actingUserId, documents, manager);
+    return this.organizationDocumentRepository.upsert(
+      organizationId,
+      actingUserId,
+      documents,
+      manager,
+    );
   }
 
   // Called when hasOwnFleet flips to true — mirrors the old behavior of nulling out
   // gstin/documentUrl in that case; a fleet-owning org doesn't need these documents tracked.
-  async clearDocuments(organizationId: string, actingUserId: string | null, manager?: EntityManager): Promise<void> {
-    return this.organizationDocumentRepository.softDeleteAllActive(organizationId, actingUserId, manager);
+  async clearDocuments(
+    organizationId: string,
+    actingUserId: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
+    return this.organizationDocumentRepository.softDeleteAllActive(
+      organizationId,
+      actingUserId,
+      manager,
+    );
   }
 
   // Platform-admin action (PATCH /admin/organizations/:organizationId/documents/:documentId) —
@@ -42,7 +55,9 @@ export class OrganizationDocumentService {
   ): Promise<OrganizationDocumentEntity> {
     const document = await this.organizationDocumentRepository.findActiveById(documentId);
     if (!document || document.organizationId !== organizationId) {
-      throw new NotFoundError(`Document ${documentId} not found for organization ${organizationId}`);
+      throw new NotFoundError(
+        `Document ${documentId} not found for organization ${organizationId}`,
+      );
     }
 
     const updated = await this.organizationDocumentRepository.updateVerificationStatus(documentId, {
@@ -51,7 +66,9 @@ export class OrganizationDocumentService {
       updatedBy: actingUserId,
     });
     if (!updated) {
-      throw new NotFoundError(`Document ${documentId} not found for organization ${organizationId}`);
+      throw new NotFoundError(
+        `Document ${documentId} not found for organization ${organizationId}`,
+      );
     }
     return updated;
   }

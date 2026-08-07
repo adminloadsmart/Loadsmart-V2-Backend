@@ -15,7 +15,11 @@ export async function getCachedUserExists(userId: string): Promise<boolean | nul
 
 export async function setCachedUserExists(userId: string, exists: boolean): Promise<void> {
   try {
-    await redisManager.set(`${CACHE_PREFIX}${userId}`, exists ? '1' : '0', env.userExistsCacheTtlSeconds);
+    await redisManager.set(
+      `${CACHE_PREFIX}${userId}`,
+      exists ? '1' : '0',
+      env.userExistsCacheTtlSeconds,
+    );
   } catch (err) {
     console.error('Failed to write user-exists cache', err);
   }

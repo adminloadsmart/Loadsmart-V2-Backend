@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { OrganizationEntity } from '../modules/auth/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../modules/auth/entities/organization-document.entity';
 import { UserEntity } from '../modules/auth/entities/user.entity';
+import { ReferralCodeEntity } from '../modules/auth/entities/referral-code.entity';
 import { RefreshTokenEntity } from '../modules/auth/entities/refresh-token.entity';
 import { LoginAttemptEntity } from '../modules/auth/entities/login-attempt.entity';
 import { RoleEntity } from '../modules/roles/entities/role.entity';
@@ -23,16 +24,23 @@ import { FleetDriverLinkEntity } from '../modules/masters/entities/fleet-driver-
 import { DriverDocumentEntity } from '../modules/masters/entities/driver-document.entity';
 import { DriverVerificationEntity } from '../modules/masters/entities/driver-verification.entity';
 import { DriverBankDetailsEntity } from '../modules/masters/entities/driver-bank-details.entity';
+import { VehicleOperationalStatusEntity } from '../modules/masters/entities/vehicle-operational-status.entity';
+import { VehicleVerificationSnapshotEntity } from '../modules/masters/entities/vehicle-verification-snapshot.entity';
+import { VehicleTelemetryMetaEntity } from '../modules/masters/entities/vehicle-telemetry-meta.entity';
+import { VehicleServiceUsageEntity } from '../modules/masters/entities/vehicle-service-usage.entity';
+import { DriverOperationalStatusEntity } from '../modules/masters/entities/driver-operational-status.entity';
+import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip-metrics.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
-  synchronize: true,          // off by default — see note below on when to flip this
+  synchronize: true, // off by default — see note below on when to flip this
   logging: env.nodeEnv === 'development',
   entities: [
     OrganizationEntity,
     OrganizationDocumentEntity,
     UserEntity,
+    ReferralCodeEntity,
     RefreshTokenEntity,
     LoginAttemptEntity,
     RoleEntity,
@@ -51,6 +59,12 @@ export const AppDataSource = new DataSource({
     DriverDocumentEntity,
     DriverVerificationEntity,
     DriverBankDetailsEntity,
-  ],     // every new module adds its entity here
+    VehicleOperationalStatusEntity,
+    VehicleVerificationSnapshotEntity,
+    VehicleTelemetryMetaEntity,
+    VehicleServiceUsageEntity,
+    DriverOperationalStatusEntity,
+    DriverTripMetricsEntity,
+  ], // every new module adds its entity here
   migrations: ['src/db/migrations/**/*.ts'],
 });

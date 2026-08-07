@@ -9,11 +9,20 @@ export const ORG_ADMIN_ROLE = 'org_admin';
 // matching role, without comparing against a raw string literal.
 export const ONLINE_KYC_DESK_ROLE = 'online_kyc_desk';
 export const OFFLINE_KYC_DESK_ROLE = 'offline_kyc_desk';
+// Named individually so admin.service.ts's referral-code owner assignment can validate the owner
+// actually holds this role, without comparing against a raw string literal — same reason
+// ONLINE_KYC_DESK_ROLE/OFFLINE_KYC_DESK_ROLE exist.
+export const SALES_ROLE = 'sales';
 
 // Roles a platform admin may hand a newly-created staff account (POST /admin/staff) — deliberately
 // excludes platform_admin (no minting new platform admins through a bulk staff form) and org_admin
 // (provisioned exclusively through self-signup).
-export const STAFF_ASSIGNABLE_ROLES = ['sales', ONLINE_KYC_DESK_ROLE, OFFLINE_KYC_DESK_ROLE, 'load_console'];
+export const STAFF_ASSIGNABLE_ROLES = [
+  SALES_ROLE,
+  ONLINE_KYC_DESK_ROLE,
+  OFFLINE_KYC_DESK_ROLE,
+  'load_console',
+];
 
 // Every role with scope: 'platform' in auth.roles — i.e. never tied to a tenant (tenantId is
 // always null for these). Used by tenant-scope.middleware.ts to exempt them from requiring a

@@ -8,7 +8,10 @@ const passwordSchema = z
   .refine((value) => /[a-z]/.test(value), 'Password must include at least one lowercase letter')
   .refine((value) => /[A-Z]/.test(value), 'Password must include at least one uppercase letter')
   .refine((value) => /[0-9]/.test(value), 'Password must include at least one number')
-  .refine((value) => /[^A-Za-z0-9]/.test(value), 'Password must include at least one special character');
+  .refine(
+    (value) => /[^A-Za-z0-9]/.test(value),
+    'Password must include at least one special character',
+  );
 
 const organizationDocumentSchema = z
   .object({
@@ -45,7 +48,10 @@ const organizationReviewSchema = z
     fleetSize: z.number().int().positive().optional(),
     referralCode: z.string().min(1).optional(),
     registeredBusinessName: z.string().min(1),
-    registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format').optional(),
+    registrationDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format')
+      .optional(),
     address: z.object({
       addressLine1: z.string().min(1),
       addressLine2: z.string().min(1).optional(),
@@ -92,18 +98,20 @@ export const authValidators = {
     }),
   }),
   createPassword: z.object({
-    body: z.object({
-      password: passwordSchema,
-      confirmPassword: z.string().min(1),
-    }).superRefine((data, ctx) => {
-      if (data.password !== data.confirmPassword) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['confirmPassword'],
-          message: 'Passwords do not match',
-        });
-      }
-    }),
+    body: z
+      .object({
+        password: passwordSchema,
+        confirmPassword: z.string().min(1),
+      })
+      .superRefine((data, ctx) => {
+        if (data.password !== data.confirmPassword) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['confirmPassword'],
+            message: 'Passwords do not match',
+          });
+        }
+      }),
   }),
   refresh: z.object({
     body: z.object({
@@ -141,7 +149,10 @@ export const authValidators = {
     body: z
       .object({
         registeredBusinessName: z.string().min(1),
-        registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format').optional(),
+        registrationDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format')
+          .optional(),
         address: z.object({
           addressLine1: z.string().min(1),
           addressLine2: z.string().min(1).optional(),

@@ -29,7 +29,12 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
     windowSeconds: env.verifyOtpRateLimitWindowSeconds,
   });
 
-  router.post('/signup', signupRateLimit, validate(authValidators.signup), asyncHandler(controller.signup));
+  router.post(
+    '/signup',
+    signupRateLimit,
+    validate(authValidators.signup),
+    asyncHandler(controller.signup),
+  );
   router.post(
     '/verify-otp',
     verifyOtpRateLimit,
@@ -37,7 +42,12 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
     verifySignupToken,
     asyncHandler(controller.verifyOtp),
   );
-  router.post('/login', loginRateLimit, validate(authValidators.login), asyncHandler(controller.login));
+  router.post(
+    '/login',
+    loginRateLimit,
+    validate(authValidators.login),
+    asyncHandler(controller.login),
+  );
   router.post('/refresh', validate(authValidators.refresh), asyncHandler(controller.refresh));
 
   return router;
@@ -49,10 +59,26 @@ export function createAuthProtectedRoutes(controller: AuthController): Router {
   router.post('/logout', validate(authValidators.logout), asyncHandler(controller.logout));
   router.delete('/account', asyncHandler(controller.deleteAccount));
   router.get('/organization', asyncHandler(controller.getOrganization));
-  router.post('/password', validate(authValidators.createPassword), asyncHandler(controller.createPassword));
-  router.post('/organization', validate(authValidators.createOrganization), asyncHandler(controller.createOrganization));
-  router.post('/organization/business', validate(authValidators.saveBusinessDetails), asyncHandler(controller.saveBusinessDetails));
-  router.post('/organization/submit', validate(authValidators.submitOrganization), asyncHandler(controller.submitOrganization));
+  router.post(
+    '/password',
+    validate(authValidators.createPassword),
+    asyncHandler(controller.createPassword),
+  );
+  router.post(
+    '/organization',
+    validate(authValidators.createOrganization),
+    asyncHandler(controller.createOrganization),
+  );
+  router.post(
+    '/organization/business',
+    validate(authValidators.saveBusinessDetails),
+    asyncHandler(controller.saveBusinessDetails),
+  );
+  router.post(
+    '/organization/submit',
+    validate(authValidators.submitOrganization),
+    asyncHandler(controller.submitOrganization),
+  );
 
   return router;
 }

@@ -13,7 +13,6 @@ export function verifyToken<T extends JwtPayload = JwtPayload>(token: string): T
   return jwt.verify(token, env.jwtSecret, { algorithms: ['HS256'] }) as T;
 }
 
-
 export function hashToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
