@@ -1,10 +1,14 @@
 import { OrganizationStatus } from '../../auth/entities/organization.entity';
 import { DocumentVerificationStatus } from '../../auth/entities/organization-document.entity';
+import { DateFilter } from '../../../shared/utils/date-filter';
 import { PaginationInput } from './admin.types';
 
 export interface ListOrganizationsInput extends PaginationInput {
   status?: OrganizationStatus;
   search?: string;
+  filter?: DateFilter;
+  from?: string;
+  to?: string;
 }
 
 export interface UpdateOrganizationInput {

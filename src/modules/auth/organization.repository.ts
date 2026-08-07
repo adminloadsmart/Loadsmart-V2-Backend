@@ -1,5 +1,6 @@
-import { DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
+import { DateFilter, resolveDateRange } from '../../shared/utils/date-filter';
 import { OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
 
 export class OrganizationRepository {
@@ -49,13 +50,18 @@ export class OrganizationRepository {
   async list(filters: {
     status?: OrganizationStatus;
     search?: string;
+    filter?: DateFilter;
+    from?: string;
+    to?: string;
     page: number;
     limit: number;
   }): Promise<{ items: OrganizationEntity[]; total: number }> {
-    const { status, search, page, limit } = filters;
+    const { status, search, filter, from, to, page, limit } = filters;
 
     const base: FindOptionsWhere<OrganizationEntity> = {};
     if (status) base.status = status;
+    const range = resolveDateRange(filter, from, to);
+    if (range) base.createdAt = Between(range.from, range.to);
 
     const where: FindOptionsWhere<OrganizationEntity>[] = search
       ? [

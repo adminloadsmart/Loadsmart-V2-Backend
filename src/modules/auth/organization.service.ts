@@ -1,5 +1,6 @@
 import { EntityManager } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
+import { DateFilter } from '../../shared/utils/date-filter';
 import { OrganizationRepository } from './organization.repository';
 import {
   OrganizationEntity,
@@ -32,6 +33,9 @@ export class OrganizationService {
   async listOrganizations(filters: {
     status?: OrganizationStatus;
     search?: string;
+    filter?: DateFilter;
+    from?: string;
+    to?: string;
     page: number;
     limit: number;
   }): Promise<{ items: OrganizationEntity[]; total: number }> {
