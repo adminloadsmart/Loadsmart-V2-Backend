@@ -1,7 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm';
 import { VehicleEntity } from './vehicle.entity';
 import { DriverEntity } from './driver.entity';
-import { FleetDriverLinkStatus } from '../utils/fleet-driver-link.type';
+import { FLEET_DRIVER_LINK_STATUSES, FleetDriverLinkStatus } from '../utils/fleet-driver-link.type';
 
 @Entity({ schema: 'masters', name: 'fleet_driver_links' })
 @Index('fleet_driver_links_tenant_id_idx', ['tenantId'])
@@ -37,7 +37,7 @@ export class FleetDriverLinkEntity {
     @Column({ name: 'linked_to', type: 'date', nullable: true })
     linkedTo!: string | null;
 
-    @Column({ type: 'enum', enum: ['active', 'ended'], default: 'active' })
+    @Column({ type: 'enum', enum: [...FLEET_DRIVER_LINK_STATUSES], default: 'active' })
     status!: FleetDriverLinkStatus;
 
     @Column({ name: 'created_by', type: 'uuid', nullable: true })

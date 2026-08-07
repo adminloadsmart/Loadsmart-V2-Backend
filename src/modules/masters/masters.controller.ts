@@ -242,4 +242,104 @@ export class MastersController {
     await this.fleetDriverLinkService.deleteLink(requireTenantId(req), req.user!.id, req.params.linkId);
     respond(res, { success: true });
   };
+
+  onboardVehicle = async (req: Request, res: Response) => {
+    const vehicle = await this.vehicleService.onboardVehicle(requireTenantId(req), req.user!.id, req.body);
+    respond(res, vehicle, 201);
+  };
+
+  getVehicleOperationalStatus = async (req: Request<VehicleParams>, res: Response) => {
+    const status = await this.vehicleService.getOperationalStatus(requireTenantId(req), req.params.vehicleId);
+    respond(res, status);
+  };
+
+  setVehicleOperationalStatus = async (req: Request<VehicleParams>, res: Response) => {
+    const status = await this.vehicleService.setOperationalStatus(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body,
+    );
+    respond(res, status);
+  };
+
+  getVehicleTelemetryMeta = async (req: Request<VehicleParams>, res: Response) => {
+    const meta = await this.vehicleService.getTelemetryMeta(requireTenantId(req), req.params.vehicleId);
+    respond(res, meta);
+  };
+
+  setVehicleTelemetryMeta = async (req: Request<VehicleParams>, res: Response) => {
+    const meta = await this.vehicleService.setTelemetryMeta(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body,
+    );
+    respond(res, meta);
+  };
+
+  getVehicleServiceUsage = async (req: Request<VehicleParams>, res: Response) => {
+    const usage = await this.vehicleService.getServiceUsage(requireTenantId(req), req.params.vehicleId);
+    respond(res, usage);
+  };
+
+  setVehicleServiceUsage = async (req: Request<VehicleParams>, res: Response) => {
+    const usage = await this.vehicleService.setServiceUsage(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body,
+    );
+    respond(res, usage);
+  };
+
+  recordVehicleVerification = async (req: Request<VehicleParams>, res: Response) => {
+    const snapshot = await this.vehicleService.recordVerification(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body,
+    );
+    respond(res, snapshot, 201);
+  };
+
+  listVehicleVerifications = async (req: Request<VehicleParams>, res: Response) => {
+    const snapshots = await this.vehicleService.listVerifications(requireTenantId(req), req.params.vehicleId);
+    respond(res, snapshots);
+  };
+
+  onboardDriver = async (req: Request, res: Response) => {
+    const driver = await this.driverService.onboardDriver(requireTenantId(req), req.user!.id, req.body);
+    respond(res, driver, 201);
+  };
+
+  getDriverOperationalStatus = async (req: Request<DriverParams>, res: Response) => {
+    const status = await this.driverService.getOperationalStatus(requireTenantId(req), req.params.driverId);
+    respond(res, status);
+  };
+
+  setDriverOperationalStatus = async (req: Request<DriverParams>, res: Response) => {
+    const status = await this.driverService.setOperationalStatus(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.driverId,
+      req.body,
+    );
+    respond(res, status);
+  };
+
+  recordDriverTripMetrics = async (req: Request<DriverParams>, res: Response) => {
+    const metrics = await this.driverService.recordTripMetrics(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.driverId,
+      req.body,
+    );
+    respond(res, metrics);
+  };
+
+  listDriverTripMetrics = async (req: Request<DriverParams>, res: Response) => {
+    const metrics = await this.driverService.listTripMetrics(requireTenantId(req), req.params.driverId);
+    respond(res, metrics);
+  };
 }

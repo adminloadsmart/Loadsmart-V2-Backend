@@ -440,4 +440,239 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
       404: { description: 'Link not found', ...errorContent },
     },
   });
+
+  // --- Vehicle onboarding ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/onboard`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.onboardVehicle',
+    ...write(
+      'Create a vehicle and every section of the "Add a vehicle" form in one transaction: ' +
+        'VAHAN verification (which folds registry expiry dates into the document rows), documents, ' +
+        'telemetry, service usage and operational status. The driver link stays a separate call.',
+    ),
+    request: { body: json(mastersValidators.onboardVehicle.shape.body) },
+    responses: {
+      201: { description: 'Created vehicle, with relations loaded' },
+      400: { description: 'Validation failed', ...errorContent },
+      409: { description: 'Registration number already in use', ...errorContent },
+    },
+  });
+
+  // --- Vehicle operational status ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/vehicles/{vehicleId}/operational-status`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getVehicleOperationalStatus',
+    ...authenticated("Get the vehicle's current operational status."),
+    request: { params: mastersValidators.getVehicleOperationalStatus.shape.params },
+    responses: {
+      200: { description: 'Operational status' },
+      404: { description: 'Vehicle not found, or no status recorded yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/vehicles/{vehicleId}/operational-status`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.setVehicleOperationalStatus',
+    ...write('Set the operational status. One row per vehicle — first call inserts, later calls overwrite.'),
+    request: {
+      params: mastersValidators.setVehicleOperationalStatus.shape.params,
+      body: json(mastersValidators.setVehicleOperationalStatus.shape.body),
+    },
+    responses: {
+      200: { description: 'Operational status' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  // --- Vehicle telemetry ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/vehicles/{vehicleId}/telemetry`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getVehicleTelemetryMeta',
+    ...authenticated('Get the GPS and EMI metadata for a vehicle.'),
+    request: { params: mastersValidators.getVehicleTelemetryMeta.shape.params },
+    responses: {
+      200: { description: 'Telemetry metadata' },
+      404: { description: 'Vehicle not found, or no telemetry recorded yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/vehicles/{vehicleId}/telemetry`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.setVehicleTelemetryMeta',
+    ...write('Set GPS and EMI metadata. One row per vehicle — first call inserts, later calls patch it.'),
+    request: {
+      params: mastersValidators.setVehicleTelemetryMeta.shape.params,
+      body: json(mastersValidators.setVehicleTelemetryMeta.shape.body),
+    },
+    responses: {
+      200: { description: 'Telemetry metadata' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  // --- Vehicle service & usage ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/vehicles/{vehicleId}/service-usage`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getVehicleServiceUsage',
+    ...authenticated('Get odometer, last service and last tyre change for a vehicle.'),
+    request: { params: mastersValidators.getVehicleServiceUsage.shape.params },
+    responses: {
+      200: { description: 'Service and usage' },
+      404: { description: 'Vehicle not found, or nothing recorded yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/vehicles/{vehicleId}/service-usage`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.setVehicleServiceUsage',
+    ...write('Set odometer, last service and last tyre change. Feeds the maintenance reminders.'),
+    request: {
+      params: mastersValidators.setVehicleServiceUsage.shape.params,
+      body: json(mastersValidators.setVehicleServiceUsage.shape.body),
+    },
+    responses: {
+      200: { description: 'Service and usage' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  // --- Vehicle verifications ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/{vehicleId}/verifications`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.recordVehicleVerification',
+    ...write(
+      'Record a VAHAN check. A verified result also upserts the Insurance/RC/Permit/PUC/Fitness ' +
+        'document rows from the supplied expiry dates, in the same transaction.',
+    ),
+    request: {
+      params: mastersValidators.recordVehicleVerification.shape.params,
+      body: json(mastersValidators.recordVehicleVerification.shape.body),
+    },
+    responses: {
+      201: { description: 'Created verification snapshot' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/vehicles/{vehicleId}/verifications`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listVehicleVerifications',
+    ...authenticated('List the VAHAN check history for a vehicle, most recent first.'),
+    request: { params: mastersValidators.listVehicleVerifications.shape.params },
+    responses: {
+      200: { description: 'Verification snapshots' },
+      404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  // --- Driver onboarding ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/onboard`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.onboardDriver',
+    ...write(
+      'Create a driver and every section of the "Add a driver" form in one transaction: Sarathi ' +
+        'verification, licence photos, bank details and operational status. The vehicle link stays ' +
+        'a separate call.',
+    ),
+    request: { body: json(mastersValidators.onboardDriver.shape.body) },
+    responses: {
+      201: { description: 'Created driver, with relations loaded' },
+      400: { description: 'Validation failed', ...errorContent },
+      409: { description: 'Phone number already in use', ...errorContent },
+    },
+  });
+
+  // --- Driver operational status ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/{driverId}/operational-status`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getDriverOperationalStatus',
+    ...authenticated("Get the driver's current operational status."),
+    request: { params: mastersValidators.getDriverOperationalStatus.shape.params },
+    responses: {
+      200: { description: 'Operational status' },
+      404: { description: 'Driver not found, or no status recorded yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/drivers/{driverId}/operational-status`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.setDriverOperationalStatus',
+    ...write('Set the operational status. One row per driver — first call inserts, later calls overwrite.'),
+    request: {
+      params: mastersValidators.setDriverOperationalStatus.shape.params,
+      body: json(mastersValidators.setDriverOperationalStatus.shape.body),
+    },
+    responses: {
+      200: { description: 'Operational status' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Driver not found', ...errorContent },
+    },
+  });
+
+  // --- Driver trip metrics ---
+
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/drivers/{driverId}/trip-metrics`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.recordDriverTripMetrics',
+    ...write('Record trip count and on-time percentage for a period. Re-reporting a period overwrites it.'),
+    request: {
+      params: mastersValidators.recordDriverTripMetrics.shape.params,
+      body: json(mastersValidators.recordDriverTripMetrics.shape.body),
+    },
+    responses: {
+      200: { description: 'Trip metrics for the period' },
+      400: { description: 'Validation failed, or periodEnd before periodStart', ...errorContent },
+      404: { description: 'Driver not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/{driverId}/trip-metrics`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listDriverTripMetrics',
+    ...authenticated('List trip metrics for a driver, most recent period first.'),
+    request: { params: mastersValidators.listDriverTripMetrics.shape.params },
+    responses: {
+      200: { description: 'Trip metrics' },
+      404: { description: 'Driver not found', ...errorContent },
+    },
+  });
 }

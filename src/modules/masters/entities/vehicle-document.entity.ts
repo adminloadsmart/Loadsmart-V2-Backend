@@ -1,6 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm';
 import { VehicleEntity } from './vehicle.entity';
-import { VehicleDocumentStatus, VehicleDocumentType } from '../utils/vehicle.type';
+import { VEHICLE_DOCUMENT_STATUSES, VEHICLE_DOCUMENT_TYPES, VehicleDocumentStatus, VehicleDocumentType } from '../utils/vehicle.type';
 
 @Entity({ schema: 'masters', name: 'vehicle_documents' })
 @Index('vehicle_documents_tenant_id_idx', ['tenantId'])
@@ -20,7 +20,11 @@ export class VehicleDocumentEntity {
     @JoinColumn({ name: 'vehicle_id' })
     vehicle!: VehicleEntity;
 
-    @Column({ name: 'document_type', type: 'enum', enum: ['rc', 'insurance', 'permit', 'puc', 'fitness'] })
+    @Column({
+        name: 'document_type',
+        type: 'enum',
+        enum: [...VEHICLE_DOCUMENT_TYPES],
+    })
     documentType!: VehicleDocumentType;
 
     @Column({ name: 'document_number', type: 'varchar', length: 50, nullable: true })
@@ -35,7 +39,7 @@ export class VehicleDocumentEntity {
     @Column({ name: 'file_url', type: 'text', nullable: true })
     fileUrl!: string | null;
 
-    @Column({ type: 'enum', enum: ['valid', 'expiring_soon', 'expired'], default: 'valid' })
+    @Column({ type: 'enum', enum: [...VEHICLE_DOCUMENT_STATUSES], default: 'valid' })
     status!: VehicleDocumentStatus;
 
     @Column({ name: 'created_by', type: 'uuid', nullable: true })

@@ -6,10 +6,27 @@ import {
   UpdateDateColumn,
   Index,
   OneToMany,
+  OneToOne,
 } from "typeorm";
 import { VehicleDocumentEntity } from "./vehicle-document.entity";
 import { FleetDriverLinkEntity } from "./fleet-driver-link.entity";
-import { VehicleOwnershipType, VehicleStatus } from "../utils/vehicle.type";
+import {
+  BODY_TYPES,
+  FUEL_TYPES,
+  OWNERSHIP_TYPES,
+  VEHICLE_STATUSES,
+  VEHICLE_TYPES,
+  VehicleBodyType,
+  VehicleFuelType,
+  VehicleOwnershipType,
+  VehicleStatus,
+  VehicleType,
+} from '../utils/vehicle.type';
+
+import { VehicleOperationalStatusEntity } from "./vehicle-operational-status.entity";
+import { VehicleTelemetryMetaEntity } from "./vehicle-telemetry-meta.entity";
+import { VehicleVerificationSnapshotEntity } from "./vehicle-verification-snapshot.entity";
+import { VehicleServiceUsageEntity } from "./vehicle-service-usage.entity";
 
 @Entity({ schema: "masters", name: "vehicles" })
 @Index("vehicles_tenant_id_idx", ["tenantId"])
@@ -28,14 +45,38 @@ export class VehicleEntity {
   @Column({ name: "registration_number", type: "varchar", length: 20 })
   registrationNumber!: string;
 
-  @Column({ name: "vehicle_type", type: "varchar", length: 50, nullable: true })
-  vehicleType!: string | null;
+  @Column({
+    name: "vehicle_type",
+    type: "enum",
+    enum: [...VEHICLE_TYPES],
+    nullable: true,
+  })
+  vehicleType!: VehicleType | null;
 
   @Column({ name: "make", type: "varchar", length: 50, nullable: true })
   make!: string | null;
 
   @Column({ name: "model", type: "varchar", length: 50, nullable: true })
   model!: string | null;
+
+  @Column({
+    name: "fuel_type",
+    type: "enum",
+    enum: [...FUEL_TYPES],
+    nullable: true,
+  })
+  fuelType!: VehicleFuelType | null;
+
+  @Column({
+    name: "body_type",
+    type: "enum",
+    enum: [...BODY_TYPES],
+    nullable: true,
+  })
+  bodyType!: VehicleBodyType | null;
+
+  @Column({ name: "wheel_count", type: "smallint", nullable: true })
+  wheelCount!: number | null;
 
   @Column({
     name: "capacity_tons",
@@ -49,14 +90,14 @@ export class VehicleEntity {
   @Column({
     name: "ownership_type",
     type: "enum",
-    enum: ["owned", "leased"],
+    enum: [...OWNERSHIP_TYPES],
     default: "owned",
   })
   ownershipType!: VehicleOwnershipType;
 
   @Column({
     type: "enum",
-    enum: ["active", "inactive", "under_maintenance"],
+    enum: [...VEHICLE_STATUSES],
     default: "active",
   })
   status!: VehicleStatus;
@@ -66,6 +107,18 @@ export class VehicleEntity {
 
   @OneToMany(() => FleetDriverLinkEntity, (link) => link.vehicle)
   driverLinks!: FleetDriverLinkEntity[];
+
+  @OneToOne(() => VehicleOperationalStatusEntity, (status) => status.vehicle)
+  operationalStatus!: VehicleOperationalStatusEntity;
+
+  @OneToOne(() => VehicleTelemetryMetaEntity, (meta) => meta.vehicle)
+  telemetryMeta!: VehicleTelemetryMetaEntity;
+
+  @OneToMany(() => VehicleVerificationSnapshotEntity, (snapshot) => snapshot.vehicle)
+  verificationSnapshots!: VehicleVerificationSnapshotEntity[];
+
+  @OneToOne(() => VehicleServiceUsageEntity, (usage) => usage.vehicle)
+  serviceUsage!: VehicleServiceUsageEntity;
 
   @Column({ name: "created_by", type: "uuid", nullable: true })
   createdBy!: string | null;

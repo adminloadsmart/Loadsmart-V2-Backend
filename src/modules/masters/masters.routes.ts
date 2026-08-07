@@ -18,6 +18,14 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   const canWrite = requirePermission(MASTERS_WRITE);
 
   router.post('/vehicles', canWrite, validate(mastersValidators.createVehicle), asyncHandler(controller.createVehicle));
+  // Backs the single "Save vehicle" button — whole form, one transaction. Declared before
+  // '/vehicles/:vehicleId' so the literal segment isn't captured as an id.
+  router.post(
+    '/vehicles/onboard',
+    canWrite,
+    validate(mastersValidators.onboardVehicle),
+    asyncHandler(controller.onboardVehicle),
+  );
   router.get('/vehicles', validate(mastersValidators.listVehicles), asyncHandler(controller.listVehicles));
   router.get('/vehicles/:vehicleId', validate(mastersValidators.getVehicle), asyncHandler(controller.getVehicle));
   router.patch(
@@ -58,6 +66,13 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   );
 
   router.post('/drivers', canWrite, validate(mastersValidators.createDriver), asyncHandler(controller.createDriver));
+  // Backs the single "Save driver" button — whole form, one transaction.
+  router.post(
+    '/drivers/onboard',
+    canWrite,
+    validate(mastersValidators.onboardDriver),
+    asyncHandler(controller.onboardDriver),
+  );
   router.get('/drivers', validate(mastersValidators.listDrivers), asyncHandler(controller.listDrivers));
   router.get('/drivers/:driverId', validate(mastersValidators.getDriver), asyncHandler(controller.getDriver));
   router.patch(
@@ -125,6 +140,78 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     canWrite,
     validate(mastersValidators.deleteDriverBankDetails),
     asyncHandler(controller.deleteDriverBankDetails),
+  );
+
+  router.get(
+    '/vehicles/:vehicleId/operational-status',
+    validate(mastersValidators.getVehicleOperationalStatus),
+    asyncHandler(controller.getVehicleOperationalStatus),
+  );
+  router.put(
+    '/vehicles/:vehicleId/operational-status',
+    canWrite,
+    validate(mastersValidators.setVehicleOperationalStatus),
+    asyncHandler(controller.setVehicleOperationalStatus),
+  );
+
+  router.get(
+    '/vehicles/:vehicleId/telemetry',
+    validate(mastersValidators.getVehicleTelemetryMeta),
+    asyncHandler(controller.getVehicleTelemetryMeta),
+  );
+  router.put(
+    '/vehicles/:vehicleId/telemetry',
+    canWrite,
+    validate(mastersValidators.setVehicleTelemetryMeta),
+    asyncHandler(controller.setVehicleTelemetryMeta),
+  );
+
+  router.get(
+    '/vehicles/:vehicleId/service-usage',
+    validate(mastersValidators.getVehicleServiceUsage),
+    asyncHandler(controller.getVehicleServiceUsage),
+  );
+  router.put(
+    '/vehicles/:vehicleId/service-usage',
+    canWrite,
+    validate(mastersValidators.setVehicleServiceUsage),
+    asyncHandler(controller.setVehicleServiceUsage),
+  );
+
+  router.post(
+    '/vehicles/:vehicleId/verifications',
+    canWrite,
+    validate(mastersValidators.recordVehicleVerification),
+    asyncHandler(controller.recordVehicleVerification),
+  );
+  router.get(
+    '/vehicles/:vehicleId/verifications',
+    validate(mastersValidators.listVehicleVerifications),
+    asyncHandler(controller.listVehicleVerifications),
+  );
+
+  router.get(
+    '/drivers/:driverId/operational-status',
+    validate(mastersValidators.getDriverOperationalStatus),
+    asyncHandler(controller.getDriverOperationalStatus),
+  );
+  router.put(
+    '/drivers/:driverId/operational-status',
+    canWrite,
+    validate(mastersValidators.setDriverOperationalStatus),
+    asyncHandler(controller.setDriverOperationalStatus),
+  );
+
+  router.put(
+    '/drivers/:driverId/trip-metrics',
+    canWrite,
+    validate(mastersValidators.recordDriverTripMetrics),
+    asyncHandler(controller.recordDriverTripMetrics),
+  );
+  router.get(
+    '/drivers/:driverId/trip-metrics',
+    validate(mastersValidators.listDriverTripMetrics),
+    asyncHandler(controller.listDriverTripMetrics),
   );
 
   router.post(
