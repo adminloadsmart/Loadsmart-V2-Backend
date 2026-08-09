@@ -58,26 +58,10 @@ export function createAuthProtectedRoutes(controller: AuthController): Router {
 
   router.post('/logout', validate(authValidators.logout), asyncHandler(controller.logout));
   router.delete('/account', asyncHandler(controller.deleteAccount));
-  router.get('/organization', asyncHandler(controller.getOrganization));
   router.post(
     '/password',
     validate(authValidators.createPassword),
     asyncHandler(controller.createPassword),
-  );
-  router.post(
-    '/organization',
-    validate(authValidators.createOrganization),
-    asyncHandler(controller.createOrganization),
-  );
-  router.post(
-    '/organization/business',
-    validate(authValidators.saveBusinessDetails),
-    asyncHandler(controller.saveBusinessDetails),
-  );
-  router.post(
-    '/organization/submit',
-    validate(authValidators.submitOrganization),
-    asyncHandler(controller.submitOrganization),
   );
 
   return router;

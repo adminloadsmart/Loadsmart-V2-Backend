@@ -5,7 +5,10 @@ import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
 
 import { createAuthModule } from './modules/auth';
-import { createOrganizationModule } from './modules/organization';
+import {
+  createOrganizationModule,
+  createOrganizationOnboardingRoutes,
+} from './modules/organization';
 import { createRolesModule } from './modules/roles';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
@@ -55,6 +58,12 @@ export function buildContainer(dataSource: DataSource): Container {
   });
   const authMiddleware = createAuth(auth.authRepository);
 
+  // The org onboarding router (GET/POST /auth/organization*) — built here, not alongside
+  // `organization` above, since it needs auth.service (createOrganization etc. also mutate the
+  // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
+  // before this was its own router — see modules/organization/organization.routes.ts.
+  const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
+
   // Reference data other modules read from — no cross-module deps of its own.
   const masters = createMastersModule(dataSource);
 
@@ -87,7 +96,10 @@ export function buildContainer(dataSource: DataSource): Container {
     authMiddleware,
     auditMiddleware,
     publicRouters: [{ path: '/auth', router: auth.publicRouter }],
-    authenticatedRouters: [{ path: '/auth', router: auth.protectedRouter }],
+    authenticatedRouters: [
+      { path: '/auth', router: auth.protectedRouter },
+      { path: '/auth', router: organizationOnboarding.router },
+    ],
     routers: [
       { path: '/roles', router: roles.router },
       { path: '/masters', router: masters.protectedRouter },
