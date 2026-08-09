@@ -1,6 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { mastersValidators } from './masters.validators';
 import { MASTERS_WRITE } from '../../shared/constants/permissions';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
   authenticated,
@@ -20,7 +21,7 @@ import {
  * description — except for the fixed `{ success: true }` shape on delete endpoints.
  */
 
-const BASE = '/masters'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/masters`; // absolute path — must match its mount in app.ts
 const write = (description: string) => permissionGated([MASTERS_WRITE], description);
 
 export function registerMastersOpenApi(registry: OpenAPIRegistry): void {

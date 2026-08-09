@@ -1,5 +1,6 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { roleValidators } from './role.validators';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
   authenticated,
@@ -19,7 +20,7 @@ import {
  * description instead.
  */
 
-const BASE = '/roles'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/roles`; // absolute path — must match its mount in app.ts
 
 export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
@@ -95,7 +96,7 @@ export function registerRoleOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'role.grantPermission',
     ...authenticated(
       'Grant a user an extra permission directly, on top of what their role already grants.\n\n' +
-        'Same scope/ownership rule as assigning a role — see PATCH /roles/users/{userId}/role.',
+        'Same scope/ownership rule as assigning a role — see PATCH /v1/roles/users/{userId}/role.',
     ),
     request: {
       params: roleValidators.grantPermission.shape.params,

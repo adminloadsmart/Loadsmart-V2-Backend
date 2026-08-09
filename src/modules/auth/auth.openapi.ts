@@ -1,5 +1,6 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { authValidators } from './auth.validators';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
   authenticated,
@@ -18,13 +19,13 @@ import {
  * except for the fixed `{ success: true }` shape on delete-style endpoints.
  */
 
-const BASE = '/auth'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/auth`; // absolute path — must match its mount in app.ts
 
 export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
   /**
    * A distinct scheme from the main bearerAuth: same transport (Authorization: Bearer <token>,
    * see signup-token.middleware.ts), but a short-lived, purpose-scoped JWT, not the access/
-   * refresh pair — only valid for POST /auth/verify-otp. Registered here (not core.ts) since
+   * refresh pair — only valid for POST /v1/auth/verify-otp. Registered here (not core.ts) since
    * it's a concept owned entirely by this module.
    */
   const signupTokenAuth = registry.registerComponent('securitySchemes', 'signupTokenAuth', {
@@ -32,7 +33,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     scheme: 'bearer',
     bearerFormat: 'JWT',
     description:
-      'The short-lived signup token returned by POST /auth/signup. Send as `Authorization: Bearer <signupToken>`.',
+      'The short-lived signup token returned by POST /v1/auth/signup. Send as `Authorization: Bearer <signupToken>`.',
   });
 
   // --- Public ---
@@ -44,7 +45,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'auth.signup',
     summary: 'Send OTP to a phone number',
     description:
-      'Sends an OTP to the phone number and returns a short-lived signup token. Follow up with POST /auth/verify-otp. ' +
+      'Sends an OTP to the phone number and returns a short-lived signup token. Follow up with POST /v1/auth/verify-otp. ' +
       'Repeat calls for the same phone number are subject to a short cooldown.',
     request: { body: json(authValidators.signup.shape.body) },
     responses: {
@@ -64,7 +65,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'auth.verifyOtp',
     summary: 'Verify the OTP and obtain tokens',
     description:
-      'Requires the signup token returned by POST /auth/signup, sent via the Authorization header ' +
+      'Requires the signup token returned by POST /v1/auth/signup, sent via the Authorization header ' +
       '(checked by verifySignupToken before this handler runs) — not the main access/refresh pair. ' +
       'On first verification, creates the user if needed and returns onboarding state.',
     security: [{ [signupTokenAuth.name]: [] }],

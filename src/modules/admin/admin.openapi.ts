@@ -1,6 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { adminValidators } from './admin.validators';
 import { ADMIN_ORGANIZATIONS_MANAGE } from '../../shared/constants/permissions';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import { TAGS, permissionGated, errorContent, json } from '../../shared/openapi/core';
 
 /**
@@ -9,7 +10,7 @@ import { TAGS, permissionGated, errorContent, json } from '../../shared/openapi/
  * so unlike masters.openapi.ts there's no plain `authenticated()` route in this module.
  */
 
-const BASE = '/admin'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/admin`; // absolute path — must match its mount in app.ts
 const adminOnly = (description: string) =>
   permissionGated([ADMIN_ORGANIZATIONS_MANAGE], description);
 
@@ -71,7 +72,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.verifyOrganizationDocument',
     ...adminOnly(
       "Verify or reject one of an organization's submitted documents (gst_certificate, pan, udyam, " +
-        'aadhaar, cin, or shop_establishment) — separate from PATCH /admin/organizations/{organizationId}, ' +
+        'aadhaar, cin, or shop_establishment) — separate from PATCH /v1/admin/organizations/{organizationId}, ' +
         "which only touches the organization's own status.",
     ),
     request: {
@@ -93,7 +94,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly(
       "Assign a staff member (must hold the online_kyc_desk role) as this organization's online " +
         'KYC reviewer. Record-keeping/routing only today — the assignee is not themselves granted ' +
-        'any access by this call; every /admin/* action still requires platform_admin.',
+        'any access by this call; every /v1/admin/* action still requires platform_admin.',
     ),
     request: {
       params: adminValidators.assignOnlineVerifier.shape.params,
@@ -217,13 +218,13 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
         '`roleId` must resolve to one of those four platform-scope roles — platform_admin and ' +
         "org_admin can't be assigned this way. The password is generated server-side (not admin-" +
         "supplied) and isn't returned in this response; the staff member logs in themselves via " +
-        'POST /auth/login once they have it through some other channel.\n\n' +
+        'POST /v1/auth/login once they have it through some other channel.\n\n' +
         'Optional `permissionIds` grants extra permissions on top of the role, in the same call ' +
-        "(each id from GET /roles/permissions?scope=platform — group by that response's `module` " +
+        "(each id from GET /v1/roles/permissions?scope=platform — group by that response's `module` " +
         'field to build a checklist). Not atomic with account creation: if one id in the list is ' +
         "invalid (wrong scope, or doesn't exist), the account is still created and any ids granted " +
         'before it stay granted — the error identifies which id failed so it can be retried alone ' +
-        'via POST /roles/users/{userId}/permissions. Response `permissions` is the final effective ' +
+        'via POST /v1/roles/users/{userId}/permissions. Response `permissions` is the final effective ' +
         'list (role ∪ granted), not just what this call added.',
     ),
     request: { body: json(adminValidators.createStaff.shape.body) },
@@ -264,7 +265,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.createReferralCode',
     ...adminOnly(
       'Create a referral code and assign it to a sales rep (ownerUserId must hold the sales role). ' +
-        "Shared with prospects, then redeemed at signup via POST /auth/organization's optional " +
+        "Shared with prospects, then redeemed at signup via POST /v1/auth/organization's optional " +
         'referralCode field to attribute the resulting organization to that rep. Both validFrom and ' +
         'validUntil are optional (open-ended if omitted) — see GET .../{referralCodeId} for how the ' +
         'computed status (upcoming/active/expired/revoked) is derived from them.',

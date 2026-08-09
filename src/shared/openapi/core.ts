@@ -28,7 +28,7 @@ const bearerAuth = registry.registerComponent('securitySchemes', 'bearerAuth', {
   scheme: 'bearer',
   bearerFormat: 'JWT',
   description:
-    'Obtain via POST /auth/login, /auth/verify-otp, or /auth/refresh. Send as `Authorization: Bearer <token>`.',
+    'Obtain via POST /v1/auth/login, /v1/auth/verify-otp, or /v1/auth/refresh. Send as `Authorization: Bearer <token>`.',
 });
 
 /**

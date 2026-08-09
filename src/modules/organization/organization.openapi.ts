@@ -1,17 +1,18 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { organizationValidators } from './organization.validators';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import { TAGS, authenticated, errorContent, json } from '../../shared/openapi/core';
 
 /**
- * OpenAPI docs for the org onboarding endpoints — GET/POST /auth/organization,
- * POST /auth/organization/business, POST /auth/organization/submit. Lives here (not
- * auth.openapi.ts) since the routes are org-owned, but BASE stays '/auth' and the tag stays
+ * OpenAPI docs for the org onboarding endpoints — GET/POST /v1/auth/organization,
+ * POST /v1/auth/organization/business, POST /v1/auth/organization/submit. Lives here (not
+ * auth.openapi.ts) since the routes are org-owned, but BASE stays '/v1/auth' and the tag stays
  * TAGS.AUTH: the URLs are deliberately unchanged (see modules/organization/index.ts's
  * createOrganizationOnboardingRoutes), and core.ts's tag convention mirrors mount paths, which
  * these still share with auth.openapi.ts's routes.
  */
 
-const BASE = '/auth'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/auth`; // absolute path — must match its mount in app.ts
 
 export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({

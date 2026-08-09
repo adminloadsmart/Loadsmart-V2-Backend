@@ -4,6 +4,7 @@ import express, { Express } from 'express';
 import helmet from 'helmet';
 import { Container } from './composition-root';
 import { env } from './config/env';
+import { API_VERSION_PREFIX } from './shared/constants/api';
 import { errorHandler } from './shared/middleware/error-handler.middleware';
 import { requestId } from './shared/middleware/request-id.middleware';
 import { createTenantScope } from './shared/middleware/tenant-scope.middleware';
@@ -37,9 +38,13 @@ export function createApp({
     app.use('/docs', createDocsRouter());
   }
 
-  // Also ahead of auth: you can't have a bearer token before /auth/login issues one.
+  // Also ahead of auth: you can't have a bearer token before /v1/auth/login issues one.
+  // Every module's routes are mounted under API_VERSION_PREFIX here — the single point where
+  // versioning is applied, so composition-root.ts's Container paths stay version-agnostic
+  // ('/auth', '/masters', ...) and each module's *.openapi.ts BASE constant is the only other
+  // place that needs to know about it (its registered paths must match these real mounts).
   for (const { path, router } of publicRouters) {
-    app.use(path, router);
+    app.use(`${API_VERSION_PREFIX}${path}`, router);
   }
 
   app.use(authMiddleware);
@@ -51,14 +56,14 @@ export function createApp({
   // Authenticated, but the caller may not have a tenant yet (or the route doesn't need one) —
   // see composition-root.ts's Container.authenticatedRouters for why this exists.
   for (const { path, router } of authenticatedRouters) {
-    app.use(path, router);
+    app.use(`${API_VERSION_PREFIX}${path}`, router);
   }
 
   app.use(createTenantScope(tenancyGateway));
   // require-permission.middleware's requirePermission(...) is applied per-route by each module, not globally.
 
   for (const { path, router } of routers) {
-    app.use(path, router);
+    app.use(`${API_VERSION_PREFIX}${path}`, router);
   }
 
   app.use(errorHandler);
