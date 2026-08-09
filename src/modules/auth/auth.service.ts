@@ -17,11 +17,7 @@ import { invalidateUserExistsCache } from '../../shared/utils/user-existence-cac
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
-import {
-  OrganizationEntity,
-  OrganizationOnboardingStep,
-} from '../organization/entities/organization.entity';
-import { OrganizationDocumentEntity } from '../organization/entities/organization-document.entity';
+import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { isTenantAccessible } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -51,6 +47,7 @@ import {
   SubmitOrganizationInput,
   OnboardingStatus,
   OnboardingStep,
+  OrganizationOnboardingProgress,
 } from '../organization/organization.types';
 import { UserEntity } from './entities/user.entity';
 
@@ -68,44 +65,12 @@ type AuthSession = {
   nextStep: OnboardingStep;
 };
 
-type OrganizationProgress = {
-  onboardingStatus: OnboardingStatus;
-  onboardingStep: OrganizationOnboardingStep;
-  nextStep: OnboardingStep;
-  organization: OrganizationEntity | null;
-  documents: OrganizationDocumentEntity[];
-};
-
-type OrganizationReviewData = {
-  companyLegalName: string | null;
-  contactPersonName: string | null;
-  operatingCity: string | null;
-  ownsFleet: boolean | null;
-  fleetSize: number | null;
-  registeredBusinessName: string | null;
-  registrationDate: string | null;
-  address: {
-    addressLine1: string | null;
-    addressLine2: string | null;
-    city: string | null;
-    district: string | null;
-    state: string | null;
-    pinCode: string | null;
-  };
-  referralCode: string | null;
-  documents: Array<{
-    documentType: string;
-    documentNumber: string | null;
-    documentUrl: string | null;
-    isVaild: boolean;
-  }>;
-};
-
 export class AuthService {
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly organizationOnboardingService: OrganizationOnboardingService,
     private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
@@ -366,7 +331,7 @@ export class AuthService {
       this.organizationService.getOrganizationStatus(tenantId),
       this.organizationDocumentService.listByOrganization(tenantId),
     ]);
-    return this.buildOrganizationResponse(organization, documents);
+    return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
   }
 
   async createOrganization(
@@ -396,13 +361,15 @@ export class AuthService {
       if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
         throw new AuthorizationError('Organization has already been submitted');
       }
-      const onboardingStep = this.advanceStepAfterCompanyDetails(current.onboardingStep);
+      const onboardingStep = this.organizationOnboardingService.nextStepAfterCompanyDetails(
+        current.onboardingStep,
+      );
 
       const [organization, documents] = await Promise.all([
         this.organizationService.updateOrganization(tenantId, { ...profileData, onboardingStep }),
         this.organizationDocumentService.listByOrganization(tenantId),
       ]);
-      return this.buildOrganizationResponse(organization, documents);
+      return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -423,7 +390,10 @@ export class AuthService {
         ORG_ADMIN_ROLE,
         permissions,
       );
-      return { ...this.buildOrganizationResponse(updated, []), ...tokens };
+      return {
+        ...this.organizationOnboardingService.buildOrganizationResponse(updated, []),
+        ...tokens,
+      };
     });
   }
 
@@ -453,7 +423,9 @@ export class AuthService {
           state: input.address.state,
           pinCode: input.address.pinCode,
           status: current.status === 'draft' ? 'partial_pending' : current.status,
-          onboardingStep: this.advanceStepAfterBusinessDetails(current.onboardingStep),
+          onboardingStep: this.organizationOnboardingService.nextStepAfterBusinessDetails(
+            current.onboardingStep,
+          ),
         },
         manager,
       );
@@ -467,7 +439,7 @@ export class AuthService {
           )
         : await this.organizationDocumentService.listByOrganization(user.tenantId!);
 
-      return this.buildOrganizationResponse(organization, documents);
+      return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     });
   }
 
@@ -519,9 +491,7 @@ export class AuthService {
         manager,
       );
 
-      this.assertCompanyDetailsComplete(organization);
-      this.assertBusinessDetailsComplete(organization);
-      this.assertDocumentsReady(documents);
+      this.organizationOnboardingService.assertReadyForSubmission(organization, documents);
 
       const submittedAt = organization.submittedAt ?? new Date();
       const updated = await this.organizationService.updateOrganization(
@@ -534,7 +504,7 @@ export class AuthService {
         manager,
       );
 
-      return this.buildOrganizationResponse(updated, documents);
+      return this.organizationOnboardingService.buildOrganizationResponse(updated, documents);
     });
   }
 
@@ -586,7 +556,7 @@ export class AuthService {
   private async buildAuthSession(user: UserEntity): Promise<AuthSession> {
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     const tokens = await this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
-    const progress = await this.getOrganizationProgress(user);
+    const progress = await this.getOnboardingProgress(user);
 
     return {
       ...tokens,
@@ -602,7 +572,12 @@ export class AuthService {
     };
   }
 
-  private async getOrganizationProgress(user: UserEntity): Promise<OrganizationProgress> {
+  // The no-tenantId branch (a brand new org_admin who hasn't created their org yet, vs. a
+  // brand new staff user for whom onboarding is meaningless) depends on the user's role, which
+  // organizationOnboardingService deliberately never sees — kept here rather than in the org
+  // module. Once a tenantId exists, the rest of the state machine is pure org/document data and
+  // delegates straight to organizationOnboardingService.getProgress.
+  private async getOnboardingProgress(user: UserEntity): Promise<OrganizationOnboardingProgress> {
     if (!user.tenantId) {
       return user.role.name === ORG_ADMIN_ROLE
         ? {
@@ -621,182 +596,7 @@ export class AuthService {
           };
     }
 
-    const [organization, documents] = await Promise.all([
-      this.organizationService.getOrganizationStatus(user.tenantId),
-      this.organizationDocumentService.listByOrganization(user.tenantId),
-    ]);
-
-    return this.buildOnboardingState(organization, documents);
-  }
-
-  private buildOnboardingState(
-    organization: OrganizationEntity,
-    documents: OrganizationDocumentEntity[],
-  ): OrganizationProgress {
-    const onboardingStep = this.resolveOnboardingStep(organization, documents);
-
-    if (organization.status === 'active') {
-      return {
-        onboardingStatus: 'completed',
-        onboardingStep: 'submitted',
-        nextStep: 'submitted',
-        organization,
-        documents,
-      };
-    }
-
-    if (organization.status === 'pending' || organization.submittedAt) {
-      return {
-        onboardingStatus: 'submitted',
-        onboardingStep: 'submitted',
-        nextStep: 'submitted',
-        organization,
-        documents,
-      };
-    }
-
-    return {
-      onboardingStatus: 'incomplete',
-      onboardingStep,
-      nextStep: onboardingStep,
-      organization,
-      documents,
-    };
-  }
-
-  private buildOrganizationResponse(
-    organization: OrganizationEntity,
-    documents: OrganizationDocumentEntity[],
-  ) {
-    const state = this.buildOnboardingState(organization, documents);
-    return {
-      ...state,
-      organization,
-      documents,
-      reviewData: this.buildReviewData(organization, documents),
-    };
-  }
-
-  private hasCompanyDetails(organization: OrganizationEntity): boolean {
-    return Boolean(
-      organization.companyLegalName &&
-      organization.orgAdminName &&
-      organization.operationalCity &&
-      organization.hasOwnFleet !== null &&
-      (organization.hasOwnFleet ? organization.fleetSize !== null : true),
-    );
-  }
-
-  private hasBusinessDetails(organization: OrganizationEntity): boolean {
-    return Boolean(
-      organization.registeredBusinessName &&
-      organization.registrationDate &&
-      organization.addressLine1 &&
-      organization.city &&
-      organization.district &&
-      organization.state &&
-      organization.pinCode,
-    );
-  }
-
-  private assertCompanyDetailsComplete(organization: OrganizationEntity): void {
-    if (!this.hasCompanyDetails(organization)) {
-      throw new ValidationError('Company details are incomplete');
-    }
-  }
-
-  private assertBusinessDetailsComplete(organization: OrganizationEntity): void {
-    if (!this.hasBusinessDetails(organization)) {
-      throw new ValidationError('Business details are incomplete');
-    }
-  }
-
-  private assertDocumentsPresent(documents: OrganizationDocumentEntity[]): void {
-    if (documents.length === 0) {
-      throw new ValidationError('At least one document is required before submission');
-    }
-  }
-
-  private assertDocumentsReady(documents: OrganizationDocumentEntity[]): void {
-    this.assertDocumentsPresent(documents);
-    const invalidDocuments = documents.filter(
-      (document) => !document.documentNumber && !document.fileKey,
-    );
-    if (invalidDocuments.length > 0) {
-      throw new ValidationError(
-        'Each document must include either a document number or a document URL',
-      );
-    }
-  }
-
-  private resolveOnboardingStep(
-    organization: OrganizationEntity,
-    documents: OrganizationDocumentEntity[],
-  ): OrganizationOnboardingStep {
-    if (organization.onboardingStep) {
-      return organization.onboardingStep;
-    }
-    if (organization.status === 'pending' || organization.submittedAt) {
-      return 'submitted';
-    }
-    if (!this.hasCompanyDetails(organization)) {
-      return 'company_details';
-    }
-    if (!this.hasBusinessDetails(organization)) {
-      return 'business_details';
-    }
-    if (!documents.length) {
-      return 'review_submit';
-    }
-    return 'review_submit';
-  }
-
-  private advanceStepAfterCompanyDetails(
-    currentStep: OrganizationOnboardingStep | null,
-  ): OrganizationOnboardingStep {
-    if (currentStep === 'review_submit' || currentStep === 'submitted') {
-      return currentStep;
-    }
-    return 'business_details';
-  }
-
-  private advanceStepAfterBusinessDetails(
-    currentStep: OrganizationOnboardingStep | null,
-  ): OrganizationOnboardingStep {
-    if (currentStep === 'submitted') {
-      return 'submitted';
-    }
-    return 'review_submit';
-  }
-
-  private buildReviewData(
-    organization: OrganizationEntity,
-    documents: OrganizationDocumentEntity[],
-  ): OrganizationReviewData {
-    return {
-      companyLegalName: organization.companyLegalName,
-      contactPersonName: organization.orgAdminName,
-      operatingCity: organization.operationalCity,
-      ownsFleet: organization.hasOwnFleet,
-      fleetSize: organization.fleetSize,
-      registeredBusinessName: organization.registeredBusinessName,
-      registrationDate: organization.registrationDate,
-      address: {
-        addressLine1: organization.addressLine1,
-        addressLine2: organization.addressLine2,
-        city: organization.city,
-        district: organization.district,
-        state: organization.state,
-        pinCode: organization.pinCode,
-      },
-      referralCode: organization.referralCode?.code ?? null,
-      documents: documents.map((document) => ({
-        documentType: document.documentType,
-        documentNumber: document.documentNumber,
-        documentUrl: document.fileKey,
-        isVaild: document.isVaild,
-      })),
-    };
+    return this.organizationOnboardingService.getProgress(user.tenantId);
   }
 
   private normalizePhone(phoneNumber: string): string {

@@ -50,6 +50,7 @@ export function buildContainer(dataSource: DataSource): Container {
     roleService: roles.service,
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
+    organizationOnboardingService: organization.organizationOnboardingService,
     referralCodeService: organization.referralCodeService,
   });
   const authMiddleware = createAuth(auth.authRepository);

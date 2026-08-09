@@ -11,7 +11,7 @@ import {
 import { OrganizationEntity } from './organization.entity';
 
 // A company can prove its identity through any one (or more) of these — see auth.validators.ts's
-// createOrganization and auth.constants.ts's DOCUMENT_NUMBER_REGEX for the per-type number format.
+// createOrganization and organization.constants.ts's DOCUMENT_NUMBER_REGEX for the per-type number format.
 export const ORGANIZATION_DOCUMENT_TYPES = [
   'gst_certificate',
   'pan',
