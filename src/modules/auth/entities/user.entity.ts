@@ -8,7 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { OrganizationEntity } from './organization.entity';
+import { OrganizationEntity } from '../../organization/entities/organization.entity';
 import { RoleEntity } from '../../roles/entities/role.entity';
 
 @Entity({ schema: 'auth', name: 'users' })

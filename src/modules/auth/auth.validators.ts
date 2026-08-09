@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { DOCUMENT_NUMBER_REGEX } from './auth.constants';
-import { ORGANIZATION_DOCUMENT_TYPES } from './entities/organization-document.entity';
+import { DOCUMENT_NUMBER_REGEX } from '../organization/organization.constants';
+import { ORGANIZATION_DOCUMENT_TYPES } from '../organization/entities/organization-document.entity';
 
 const passwordSchema = z
   .string()

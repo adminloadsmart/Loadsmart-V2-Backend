@@ -15,13 +15,16 @@ import { signToken, hashToken } from '../../shared/utils/token';
 import { blockToken } from '../../shared/utils/token-blocklist';
 import { invalidateUserExistsCache } from '../../shared/utils/user-existence-cache';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
-import { OrganizationService } from './organization.service';
-import { OrganizationDocumentService } from './organization-document.service';
-import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
-import { OrganizationDocumentEntity } from './entities/organization-document.entity';
-import { isTenantAccessible } from './organization.constants';
+import { OrganizationService } from '../organization/organization.service';
+import { OrganizationDocumentService } from '../organization/organization-document.service';
+import {
+  OrganizationEntity,
+  OrganizationOnboardingStep,
+} from '../organization/entities/organization.entity';
+import { OrganizationDocumentEntity } from '../organization/entities/organization-document.entity';
+import { isTenantAccessible } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
-import { ReferralCodeService } from './referral-code.service';
+import { ReferralCodeService } from '../organization/referral-code.service';
 import { RoleService } from '../roles/role.service';
 import { AuditService } from '../audit/audit.service';
 import { redisManager } from '../../db/redis';
@@ -40,13 +43,15 @@ import {
   LoginInput,
   RefreshInput,
   LogoutInput,
+  CreatePasswordInput,
+} from './auth.types';
+import {
   SaveCompanyDetailsInput,
   SaveBusinessDetailsInput,
   SubmitOrganizationInput,
-  CreatePasswordInput,
   OnboardingStatus,
   OnboardingStep,
-} from './auth.types';
+} from '../organization/organization.types';
 import { UserEntity } from './entities/user.entity';
 
 type AuthSession = {

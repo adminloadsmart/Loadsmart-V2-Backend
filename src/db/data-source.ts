@@ -2,10 +2,10 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { env } from '../config/env';
-import { OrganizationEntity } from '../modules/auth/entities/organization.entity';
-import { OrganizationDocumentEntity } from '../modules/auth/entities/organization-document.entity';
+import { OrganizationEntity } from '../modules/organization/entities/organization.entity';
+import { OrganizationDocumentEntity } from '../modules/organization/entities/organization-document.entity';
 import { UserEntity } from '../modules/auth/entities/user.entity';
-import { ReferralCodeEntity } from '../modules/auth/entities/referral-code.entity';
+import { ReferralCodeEntity } from '../modules/organization/entities/referral-code.entity';
 import { RefreshTokenEntity } from '../modules/auth/entities/refresh-token.entity';
 import { LoginAttemptEntity } from '../modules/auth/entities/login-attempt.entity';
 import { RoleEntity } from '../modules/roles/entities/role.entity';

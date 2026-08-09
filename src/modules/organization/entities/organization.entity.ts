@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { OrganizationDocumentEntity } from './organization-document.entity';
-import { UserEntity } from './user.entity';
+import { UserEntity } from '../../auth/entities/user.entity';
 import { ReferralCodeEntity } from './referral-code.entity';
 
 // Single source of truth for the status value set — reused by admin.validators.ts's zod schema

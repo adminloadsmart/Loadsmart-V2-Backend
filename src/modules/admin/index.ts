@@ -1,7 +1,7 @@
-import { OrganizationService } from '../auth/organization.service';
-import { OrganizationDocumentService } from '../auth/organization-document.service';
+import { OrganizationService } from '../organization/organization.service';
+import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { AuthService } from '../auth/auth.service';
-import { ReferralCodeService } from '../auth/referral-code.service';
+import { ReferralCodeService } from '../organization/referral-code.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';

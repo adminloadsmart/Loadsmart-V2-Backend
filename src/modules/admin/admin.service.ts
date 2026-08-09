@@ -1,7 +1,10 @@
-import { OrganizationService } from '../auth/organization.service';
-import { OrganizationDocumentService } from '../auth/organization-document.service';
+import { OrganizationService } from '../organization/organization.service';
+import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { AuthService } from '../auth/auth.service';
-import { ReferralCodeService, resolveReferralCodeStatus } from '../auth/referral-code.service';
+import {
+  ReferralCodeService,
+  resolveReferralCodeStatus,
+} from '../organization/referral-code.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';

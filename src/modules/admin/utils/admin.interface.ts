@@ -1,5 +1,5 @@
-import { OrganizationStatus } from '../../auth/entities/organization.entity';
-import { DocumentVerificationStatus } from '../../auth/entities/organization-document.entity';
+import { OrganizationStatus } from '../../organization/entities/organization.entity';
+import { DocumentVerificationStatus } from '../../organization/entities/organization-document.entity';
 import { DateFilter } from '../../../shared/utils/date-filter';
 import { PaginationInput } from './admin.types';
 

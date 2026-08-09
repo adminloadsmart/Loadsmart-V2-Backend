@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './admin.constants';
-import { ORGANIZATION_STATUSES } from '../auth/entities/organization.entity';
+import { ORGANIZATION_STATUSES } from '../organization/entities/organization.entity';
 import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
-import { REFERRAL_CODE_REGEX } from '../auth/auth.constants';
+import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
 
 const uuid = z.string().uuid();
