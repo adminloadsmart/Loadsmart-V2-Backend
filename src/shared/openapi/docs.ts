@@ -6,6 +6,7 @@ import { registerAuthOpenApi } from '../../modules/auth/auth.openapi';
 import { registerRoleOpenApi } from '../../modules/roles/role.openapi';
 import { registerMastersOpenApi } from '../../modules/masters/masters.openapi';
 import { registerAdminOpenApi } from '../../modules/admin/admin.openapi';
+import { registerDashboardsOpenApi } from '../../modules/dashboards/dashboards.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -19,9 +20,10 @@ const API_VERSION = '0.1.0';
 let cached: ReturnType<OpenApiGeneratorV31['generateDocument']> | undefined;
 
 /**
- * The exhaustive list of what's currently documented — auth, roles, masters, and admin are the
- * only modules with real routes/validators today. Explicit calls (not side-effect imports) so a
- * module that's forgotten here is a visible missing line, not a silently empty tag in the UI.
+ * The exhaustive list of what's currently documented — auth, roles, masters, admin, and
+ * dashboards are the only modules with real routes/validators today. Explicit calls (not
+ * side-effect imports) so a module that's forgotten here is a visible missing line, not a
+ * silently empty tag in the UI.
  * Future module: add its `register<Name>OpenApi(registry)` call here + a tag below.
  */
 function getOpenApiDocument() {
@@ -30,6 +32,7 @@ function getOpenApiDocument() {
     registerRoleOpenApi(registry);
     registerMastersOpenApi(registry);
     registerAdminOpenApi(registry);
+    registerDashboardsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -49,6 +52,10 @@ function getOpenApiDocument() {
         {
           name: TAGS.ADMIN,
           description: 'Platform-admin operations on organizations (status, document verification)',
+        },
+        {
+          name: TAGS.DASHBOARDS,
+          description: 'Cross-module read models for fleet dashboards (fleet activity summary)',
         },
       ],
     });

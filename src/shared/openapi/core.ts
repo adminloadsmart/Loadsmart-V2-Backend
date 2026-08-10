@@ -16,6 +16,7 @@ export const TAGS = {
   ROLES: 'roles',
   MASTERS: 'masters',
   ADMIN: 'admin',
+  DASHBOARDS: 'dashboards',
 } as const;
 
 /**

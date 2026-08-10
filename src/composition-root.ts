@@ -67,8 +67,8 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
   });
 
-  // Last — reads other modules' services directly (none wired yet).
-  const dashboards = createDashboardsModule();
+  // Last — reads other modules' services directly.
+  const dashboards = createDashboardsModule({ vehicleService: masters.vehicleService });
 
   return {
     tenancyGateway: auth.tenancyGateway,
