@@ -1,14 +1,13 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { authValidators } from './auth.validators';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
   authenticated,
-  permissionGated,
   SuccessResponseSchema,
   errorContent,
   json,
 } from '../../shared/openapi/core';
-import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
 
 /**
  * OpenAPI docs for the auth module: registers every route in auth.routes.ts (public +
@@ -20,13 +19,13 @@ import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions'
  * except for the fixed `{ success: true }` shape on delete-style endpoints.
  */
 
-const BASE = '/auth'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/auth`; // absolute path — must match its mount in app.ts
 
 export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
   /**
    * A distinct scheme from the main bearerAuth: same transport (Authorization: Bearer <token>,
    * see signup-token.middleware.ts), but a short-lived, purpose-scoped JWT, not the access/
-   * refresh pair — only valid for POST /auth/verify-otp. Registered here (not core.ts) since
+   * refresh pair — only valid for POST /v1/auth/verify-otp. Registered here (not core.ts) since
    * it's a concept owned entirely by this module.
    */
   const signupTokenAuth = registry.registerComponent('securitySchemes', 'signupTokenAuth', {
@@ -34,7 +33,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     scheme: 'bearer',
     bearerFormat: 'JWT',
     description:
-      'The short-lived signup token returned by POST /auth/signup. Send as `Authorization: Bearer <signupToken>`.',
+      'The short-lived signup token returned by POST /v1/auth/signup. Send as `Authorization: Bearer <signupToken>`.',
   });
 
   // --- Public ---
@@ -44,15 +43,14 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/signup`,
     tags: [TAGS.AUTH],
     operationId: 'auth.signup',
-    summary: 'Start signup with a phone number',
+    summary: 'Send OTP to a phone number',
     description:
-      'Sends an OTP to the phone number and returns a short-lived signup token. Follow up with POST /auth/verify-otp. ' +
+      'Sends an OTP to the phone number and returns a short-lived signup token. Follow up with POST /v1/auth/verify-otp. ' +
       'Repeat calls for the same phone number are subject to a short cooldown.',
     request: { body: json(authValidators.signup.shape.body) },
     responses: {
       201: { description: 'OTP sent — { signupToken, expiresIn, message }' },
       400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'A user with this phone number already exists', ...errorContent },
       429: {
         description: 'On cooldown for this phone number, or too many requests from this IP',
         ...errorContent,
@@ -65,15 +63,15 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/verify-otp`,
     tags: [TAGS.AUTH],
     operationId: 'auth.verifyOtp',
-    summary: 'Verify the signup OTP and obtain tokens',
+    summary: 'Verify the OTP and obtain tokens',
     description:
-      'Requires the signup token returned by POST /auth/signup, sent via the Authorization header ' +
+      'Requires the signup token returned by POST /v1/auth/signup, sent via the Authorization header ' +
       '(checked by verifySignupToken before this handler runs) — not the main access/refresh pair. ' +
-      'On first verification, creates the user and a draft organization.',
+      'On first verification, creates the user if needed and returns onboarding state.',
     security: [{ [signupTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyOtp.shape.body) },
     responses: {
-      200: { description: 'Tokens issued — { accessToken, refreshToken }' },
+      200: { description: 'Tokens issued — includes user summary and onboarding state' },
       400: { description: 'Validation failed', ...errorContent },
       401: {
         description:
@@ -89,12 +87,12 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/login`,
     tags: [TAGS.AUTH],
     operationId: 'auth.login',
-    summary: 'Log in with email + password',
+    summary: 'Log in with mobile number + password',
     request: { body: json(authValidators.login.shape.body) },
     responses: {
       200: {
         description:
-          'Tokens issued — { user: { id, fullName, email, phoneNumber, role, tenantId, coverage }, permissions, accessToken, refreshToken }',
+          'Tokens issued — includes user summary, permissions, accessToken, refreshToken, onboardingStatus, and nextStep',
       },
       400: { description: 'Validation failed', ...errorContent },
       401: {
@@ -102,6 +100,21 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         ...errorContent,
       },
       429: { description: 'Too many requests from this IP', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/password`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.createPassword',
+    ...authenticated("Create the caller's password after OTP login."),
+    request: { body: json(authValidators.createPassword.shape.body) },
+    responses: {
+      200: { description: 'Password created' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      409: { description: 'Password already exists', ...errorContent },
     },
   });
 
@@ -145,65 +158,6 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     ),
     responses: {
       200: { description: 'Account deleted', ...json(SuccessResponseSchema) },
-    },
-  });
-
-  registry.registerPath({
-    method: 'get',
-    path: `${BASE}/organization`,
-    tags: [TAGS.AUTH],
-    operationId: 'auth.getOrganization',
-    ...authenticated(
-      "Get the caller's tenant organization. Returns null if the caller hasn't completed their " +
-        'company profile yet (no organization exists for them).',
-    ),
-    responses: {
-      200: { description: 'Organization, or null if none exists yet' },
-      404: {
-        description: 'Caller has a tenantId but no matching organization (data inconsistency)',
-        ...errorContent,
-      },
-    },
-  });
-
-  registry.registerPath({
-    method: 'post',
-    path: `${BASE}/organization`,
-    tags: [TAGS.AUTH],
-    operationId: 'auth.createOrganization',
-    ...permissionGated(
-      [ORGANIZATION_PROFILE_MANAGE],
-      "Create (first call) or update (subsequent calls) the caller's organization profile.\n\n" +
-        "On the first call — the caller has no organization yet — this creates it, sets the caller's " +
-        'login `email`/`password` (required on this call only — self-signup never captures them, this is ' +
-        'the only route that ever can), and returns a fresh `accessToken`/`refreshToken` pair alongside it, ' +
-        'since the token used to make this very request still carries a null tenant. On later calls, ' +
-        '`email`/`password` are ignored (not a change-credentials endpoint) and it just updates the existing ' +
-        'organization, returning it alone.\n\n' +
-        'Cross-field rules enforced server-side (not expressible in this schema): `fleetSize` is required when ' +
-        '`hasOwnFleet` is true; otherwise at least one `documents` entry is required — each entry is one of ' +
-        '`gst_certificate`, `pan`, `udyam`, `aadhaar`, `cin`, or `shop_establishment`, verified either by its ' +
-        "official `documentNumber` or by an uploaded file's `fileKey` (from a separate upload API).",
-    ),
-    request: { body: json(authValidators.createOrganization.shape.body) },
-    responses: {
-      200: {
-        description:
-          'Updated organization — `{ organization }`, or `{ organization, accessToken, refreshToken }` the first time',
-      },
-      400: {
-        description: 'Validation failed, or missing email/password on first-time creation',
-        ...errorContent,
-      },
-      403: {
-        description:
-          "Caller lacks organization.profile.manage, or the organization is rejected/suspended and can't be updated",
-        ...errorContent,
-      },
-      409: {
-        description: 'email already belongs to another user (first-time creation only)',
-        ...errorContent,
-      },
     },
   });
 }

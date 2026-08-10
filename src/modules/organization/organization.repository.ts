@@ -1,5 +1,6 @@
-import { DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
+import { DateFilter, resolveDateRange } from '../../shared/utils/date-filter';
 import { OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
 
 export class OrganizationRepository {
@@ -15,7 +16,7 @@ export class OrganizationRepository {
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {
     const repo = manager ? manager.getRepository(OrganizationEntity) : this.repo;
-    const organization = repo.create({ name, status });
+    const organization = repo.create({ name, status, onboardingStep: 'company_details' });
     return repo.save(organization);
   }
 
@@ -23,10 +24,15 @@ export class OrganizationRepository {
     return this.repo.findOne({
       where: { id },
       relations: {
+        referralCode: true,
         onlineKycVerifier: true,
         physicalKycAgent: true,
       },
       select: {
+        referralCode: {
+          id: true,
+          code: true,
+        },
         onlineKycVerifier: {
           id: true,
           fullName: true,
@@ -44,13 +50,18 @@ export class OrganizationRepository {
   async list(filters: {
     status?: OrganizationStatus;
     search?: string;
+    filter?: DateFilter;
+    from?: string;
+    to?: string;
     page: number;
     limit: number;
   }): Promise<{ items: OrganizationEntity[]; total: number }> {
-    const { status, search, page, limit } = filters;
+    const { status, search, filter, from, to, page, limit } = filters;
 
     const base: FindOptionsWhere<OrganizationEntity> = {};
     if (status) base.status = status;
+    const range = resolveDateRange(filter, from, to);
+    if (range) base.createdAt = Between(range.from, range.to);
 
     const where: FindOptionsWhere<OrganizationEntity>[] = search
       ? [
@@ -75,8 +86,12 @@ export class OrganizationRepository {
       name: string;
       status: OrganizationStatus;
       companyLegalName: string | null;
+      registeredBusinessName: string | null;
       orgAdminName: string | null;
       operationalCity: string | null;
+      referralCodeId: string | null;
+      onboardingStep: import('./entities/organization.entity').OrganizationOnboardingStep | null;
+      registrationDate: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
       city: string | null;
@@ -87,7 +102,7 @@ export class OrganizationRepository {
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
       decisionReason: string | null;
-      referralCodeId: string | null;
+      submittedAt: Date | null;
     }>,
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {

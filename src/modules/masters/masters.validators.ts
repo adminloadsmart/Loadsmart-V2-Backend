@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -29,7 +30,6 @@ import {
 } from './utils/drivers.types';
 
 const uuid = z.string().uuid();
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date');
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
 

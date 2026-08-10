@@ -21,6 +21,11 @@ export class AuthController {
     respond(res, user);
   };
 
+  createPassword = async (req: Request, res: Response) => {
+    const result = await this.authService.createPassword(req.user!, req.body);
+    respond(res, result);
+  };
+
   refresh = async (req: Request, res: Response) => {
     const tokens = await this.authService.refresh(req.body);
     respond(res, tokens);
@@ -39,23 +44,5 @@ export class AuthController {
   deleteAccount = async (req: Request, res: Response) => {
     await this.authService.deleteAccount(req.user!);
     respond(res, { success: true });
-  };
-
-  getOrganization = async (req: Request, res: Response) => {
-    if (!req.user!.tenantId) {
-      respond(res, null); // hasn't completed their company profile yet — no organization exists
-      return;
-    }
-    const organization = await this.authService.getOrganization(req.user!.tenantId);
-    respond(res, organization);
-  };
-
-  createOrganization = async (req: Request, res: Response) => {
-    const result = await this.authService.createOrganization(
-      req.user!.id,
-      req.user!.tenantId,
-      req.body,
-    );
-    respond(res, result);
   };
 }

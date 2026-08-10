@@ -2,37 +2,36 @@ import { DataSource } from 'typeorm';
 import { TenancyGatewayLocal } from '../../shared/tenancy/tenancy.gateway.local';
 import { AuditService } from '../audit/audit.service';
 import { RoleService } from '../roles/role.service';
-import { OrganizationRepository } from './organization.repository';
-import { OrganizationService } from './organization.service';
-import { OrganizationDocumentRepository } from './organization-document.repository';
-import { OrganizationDocumentService } from './organization-document.service';
+import { OrganizationService } from '../organization/organization.service';
+import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
+import { ReferralCodeService } from '../organization/referral-code.service';
 import { AuthRepository } from './auth.repository';
-import { ReferralCodeRepository } from './referral-code.repository';
-import { ReferralCodeService } from './referral-code.service';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { createAuthPublicRoutes, createAuthProtectedRoutes } from './auth.routes';
 
 export function createAuthModule(
   dataSource: DataSource,
-  deps: { auditService: AuditService; roleService: RoleService },
+  deps: {
+    auditService: AuditService;
+    roleService: RoleService;
+    // Read from modules/organization/ directly — no gateway, per the pattern modules/admin/
+    // already uses for these same services (cross-tenant-capable read/write, not a
+    // producer/consumer integration between independently-owned domains).
+    organizationService: OrganizationService;
+    organizationDocumentService: OrganizationDocumentService;
+    organizationOnboardingService: OrganizationOnboardingService;
+    referralCodeService: ReferralCodeService;
+  },
 ) {
-  const organizationRepository = new OrganizationRepository(dataSource);
-  const organizationService = new OrganizationService(organizationRepository);
-
-  const organizationDocumentRepository = new OrganizationDocumentRepository(dataSource);
-  const organizationDocumentService = new OrganizationDocumentService(
-    organizationDocumentRepository,
-  );
-
   const repository = new AuthRepository(dataSource);
-  const referralCodeRepository = new ReferralCodeRepository(dataSource);
-  const referralCodeService = new ReferralCodeService(referralCodeRepository);
   const service = new AuthService(
     repository,
-    organizationService,
-    organizationDocumentService,
-    referralCodeService,
+    deps.organizationService,
+    deps.organizationDocumentService,
+    deps.organizationOnboardingService,
+    deps.referralCodeService,
     deps.roleService,
     deps.auditService,
     dataSource,
@@ -40,7 +39,7 @@ export function createAuthModule(
   const controller = new AuthController(service);
   const publicRouter = createAuthPublicRoutes(controller);
   const protectedRouter = createAuthProtectedRoutes(controller);
-  const tenancyGateway = new TenancyGatewayLocal(organizationService);
+  const tenancyGateway = new TenancyGatewayLocal(deps.organizationService);
 
   return {
     service,
@@ -48,8 +47,5 @@ export function createAuthModule(
     protectedRouter,
     tenancyGateway,
     authRepository: repository,
-    organizationService,
-    organizationDocumentService,
-    referralCodeService,
   };
 }

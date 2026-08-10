@@ -8,7 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { UserEntity } from './user.entity';
+import { UserEntity } from '../../auth/entities/user.entity';
 
 @Entity({ schema: 'auth', name: 'referral_codes' })
 @Index('referral_codes_code_unique', ['code'], { unique: true })

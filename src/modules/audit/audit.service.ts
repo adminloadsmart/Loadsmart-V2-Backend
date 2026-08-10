@@ -1,10 +1,11 @@
 import { AuditRepository } from './audit.repository';
+import { AuditAction, AuditResourceType } from './audit.types';
 
 export interface AuditLogInput {
   tenantId: string | null;
   userId: string | null;
-  action: string;
-  resourceType?: string | null;
+  action: AuditAction;
+  resourceType?: AuditResourceType | null;
   oldData?: Record<string, unknown> | null;
   newData?: Record<string, unknown> | null;
   ipAddress?: string | null;
@@ -22,6 +23,28 @@ export class AuditService {
       resource_type: entry.resourceType ?? null,
       old_data: entry.oldData ?? null,
       new_data: entry.newData ?? null,
+      ip_address: entry.ipAddress ?? null,
+      userAgent: entry.userAgent ?? null,
+    });
+  }
+
+  // Separate from log(): audit.middleware.ts's per-request access log stores the raw HTTP method
+  // and path, not a business action — an open-ended value by nature, unlike the AuditAction/
+  // AuditResourceType closed sets log() enforces, so it's kept off that stricter method instead of
+  // widening AuditLogInput's typing back to a plain string.
+  async logRequest(entry: {
+    tenantId: string | null;
+    userId: string | null;
+    method: string;
+    path: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }): Promise<void> {
+    await this.auditRepository.create({
+      tenantId: entry.tenantId,
+      userId: entry.userId,
+      action: entry.method,
+      resource_type: entry.path,
       ip_address: entry.ipAddress ?? null,
       userAgent: entry.userAgent ?? null,
     });

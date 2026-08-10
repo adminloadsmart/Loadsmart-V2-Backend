@@ -3,6 +3,7 @@ import swaggerUi from 'swagger-ui-express';
 import { OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
 import { registry, TAGS } from './core';
 import { registerAuthOpenApi } from '../../modules/auth/auth.openapi';
+import { registerOrganizationOnboardingOpenApi } from '../../modules/organization/organization.openapi';
 import { registerRoleOpenApi } from '../../modules/roles/role.openapi';
 import { registerMastersOpenApi } from '../../modules/masters/masters.openapi';
 import { registerAdminOpenApi } from '../../modules/admin/admin.openapi';
@@ -20,15 +21,17 @@ const API_VERSION = '0.1.0';
 let cached: ReturnType<OpenApiGeneratorV31['generateDocument']> | undefined;
 
 /**
- * The exhaustive list of what's currently documented — auth, roles, masters, admin, and
- * dashboards are the only modules with real routes/validators today. Explicit calls (not
- * side-effect imports) so a module that's forgotten here is a visible missing line, not a
- * silently empty tag in the UI.
+ * The exhaustive list of what's currently documented — auth, organization, roles, masters, and
+ * admin are the only modules with real routes/validators today. Explicit calls (not side-effect
+ * imports) so a module that's forgotten here is a visible missing line, not a silently empty tag
+ * in the UI. registerOrganizationOnboardingOpenApi stays under TAGS.AUTH (not its own tag/entry
+ * below) since its routes are still mounted at /auth — see organization.openapi.ts.
  * Future module: add its `register<Name>OpenApi(registry)` call here + a tag below.
  */
 function getOpenApiDocument() {
   if (!cached) {
     registerAuthOpenApi(registry);
+    registerOrganizationOnboardingOpenApi(registry);
     registerRoleOpenApi(registry);
     registerMastersOpenApi(registry);
     registerAdminOpenApi(registry);

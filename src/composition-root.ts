@@ -5,6 +5,10 @@ import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
 
 import { createAuthModule } from './modules/auth';
+import {
+  createOrganizationModule,
+  createOrganizationOnboardingRoutes,
+} from './modules/organization';
 import { createRolesModule } from './modules/roles';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
@@ -38,11 +42,27 @@ export function buildContainer(dataSource: DataSource): Container {
   // JWT's `permissions` claim (see modules/auth/index.ts and modules/roles/index.ts).
   const roles = createRolesModule(dataSource, { auditService: audit.service });
 
+  // No cross-module deps of its own — owns the organization/organization-document/referral-code
+  // schema. Built before auth: auth.service.ts orchestrates org onboarding on top of these
+  // services directly (see modules/auth/index.ts), the same "read another module's service
+  // directly, no gateway" pattern modules/admin/ already used for these when they lived in auth.
+  const organization = createOrganizationModule(dataSource);
+
   const auth = createAuthModule(dataSource, {
     auditService: audit.service,
     roleService: roles.service,
+    organizationService: organization.organizationService,
+    organizationDocumentService: organization.organizationDocumentService,
+    organizationOnboardingService: organization.organizationOnboardingService,
+    referralCodeService: organization.referralCodeService,
   });
   const authMiddleware = createAuth(auth.authRepository);
+
+  // The org onboarding router (GET/POST /auth/organization*) — built here, not alongside
+  // `organization` above, since it needs auth.service (createOrganization etc. also mutate the
+  // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
+  // before this was its own router — see modules/organization/organization.routes.ts.
+  const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
   // Reference data other modules read from — no cross-module deps of its own.
   const masters = createMastersModule(dataSource);
@@ -57,13 +77,14 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsGateway: new MaintenanceNotificationsGatewayLocal(notifications.service),
   });
 
-  // Reads auth's organizationService/organizationDocumentService and authService directly —
-  // cross-tenant ops, not a producer/consumer integration, so no gateway wrapper (see admin/index.ts).
+  // Reads organization's organizationService/organizationDocumentService/referralCodeService and
+  // auth's authService directly — cross-tenant ops, not a producer/consumer integration, so no
+  // gateway wrapper (see admin/index.ts).
   const admin = createAdminModule({
-    organizationService: auth.organizationService,
-    organizationDocumentService: auth.organizationDocumentService,
+    organizationService: organization.organizationService,
+    organizationDocumentService: organization.organizationDocumentService,
     authService: auth.service,
-    referralCodeService: auth.referralCodeService,
+    referralCodeService: organization.referralCodeService,
     auditService: audit.service,
   });
 
@@ -75,7 +96,10 @@ export function buildContainer(dataSource: DataSource): Container {
     authMiddleware,
     auditMiddleware,
     publicRouters: [{ path: '/auth', router: auth.publicRouter }],
-    authenticatedRouters: [{ path: '/auth', router: auth.protectedRouter }],
+    authenticatedRouters: [
+      { path: '/auth', router: auth.protectedRouter },
+      { path: '/auth', router: organizationOnboarding.router },
+    ],
     routers: [
       { path: '/roles', router: roles.router },
       { path: '/masters', router: masters.protectedRouter },

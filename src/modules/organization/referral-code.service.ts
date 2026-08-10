@@ -1,5 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
-import { REFERRAL_CODE_REGEX } from './auth.constants';
+import { REFERRAL_CODE_REGEX } from './organization.constants';
 import { ReferralCodeEntity } from './entities/referral-code.entity';
 import { ReferralCodeRepository } from './referral-code.repository';
 

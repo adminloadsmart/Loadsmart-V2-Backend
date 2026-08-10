@@ -1,7 +1,5 @@
 /* Service-layer inputs — shapes accepted by AuthService's methods. */
 
-import { OrganizationDocumentInput } from './entities/organization-document.entity';
-
 export interface SignupInput {
   phoneNumber: string;
 }
@@ -23,7 +21,7 @@ export interface CreateStaffInput {
 }
 
 export interface LoginInput {
-  email: string;
+  phoneNumber: string;
   password: string;
 }
 
@@ -40,24 +38,7 @@ export interface LogoutInput {
   exp?: number;
 }
 
-export interface CompleteCompanyProfileInput {
-  // Required on first-time submission only — see auth.service.ts's createOrganization.
-  email?: string;
-  password?: string;
-  name: string;
-  companyLegalName: string;
-  orgAdminName: string;
-  operationalCity: string;
-  addressLine1: string;
-  addressLine2?: string;
-  city: string;
-  district: string;
-  state: string;
-  hasOwnFleet: boolean;
-  fleetSize?: number;
-  documents?: OrganizationDocumentInput[];
-  // Optional — attributes this organization to a sales rep at signup only. Validated against
-  // ReferralCodeService.validateAndResolve; ignored on later profile updates (tenantId already
-  // present) since attribution is set once and never changed. See auth.service.ts's createOrganization.
-  referralCode?: string;
+export interface CreatePasswordInput {
+  password: string;
+  confirmPassword: string;
 }

@@ -1,8 +1,12 @@
-import { OrganizationService } from '../auth/organization.service';
-import { OrganizationDocumentService } from '../auth/organization-document.service';
+import { OrganizationService } from '../organization/organization.service';
+import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { AuthService } from '../auth/auth.service';
-import { ReferralCodeService, resolveReferralCodeStatus } from '../auth/referral-code.service';
+import {
+  ReferralCodeService,
+  resolveReferralCodeStatus,
+} from '../organization/referral-code.service';
 import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit.types';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, rethrow, ValidationError } from '../../shared/errors';
 import {
@@ -149,7 +153,11 @@ export class AdminService {
     actingUser: AuthenticatedUser,
     organizationId: string,
     userId: string,
-    opts: { role: string; field: 'onlineKycVerifierId' | 'physicalKycAgentId'; action: string },
+    opts: {
+      role: string;
+      field: 'onlineKycVerifierId' | 'physicalKycAgentId';
+      action: AuditAction;
+    },
   ) {
     try {
       const target = await this.authService.getUserById(userId);
@@ -251,7 +259,7 @@ export class AdminService {
     actingUser: AuthenticatedUser,
     organizationId: string,
     reason: string,
-    action: string,
+    action: AuditAction,
   ) {
     try {
       const organization = await this.organizationService.updateOrganization(organizationId, {

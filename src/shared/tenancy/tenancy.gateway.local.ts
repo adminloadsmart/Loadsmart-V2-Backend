@@ -1,6 +1,6 @@
 import { AuthorizationError } from '../errors';
-import { OrganizationService } from '../../modules/auth/organization.service';
-import { isTenantAccessible } from '../../modules/auth/organization.constants';
+import { OrganizationService } from '../../modules/organization/organization.service';
+import { isTenantAccessible } from '../../modules/organization/organization.constants';
 import { TenancyGateway } from './tenancy.gateway';
 
 export class TenancyGatewayLocal implements TenancyGateway {

@@ -23,11 +23,18 @@ export class OrganizationDocumentRepository {
     return this.repo.findOne({ where: { id, deletedAt: IsNull() } });
   }
 
-  // Soft-deletes any existing active row for this (organizationId, documentType), then inserts a
-  // fresh 'pending' one per submitted document — used on both first-time signup and later profile
-  // resubmission, so a resubmit always starts a new verification cycle rather than mutating
-  // whatever an admin may have already reviewed.
-  async replace(
+  async findActiveByOrganizationAndType(
+    organizationId: string,
+    documentType: OrganizationDocumentInput['documentType'],
+    manager?: EntityManager,
+  ): Promise<OrganizationDocumentEntity | null> {
+    const repo = manager ? manager.getRepository(OrganizationDocumentEntity) : this.repo;
+    return repo.findOne({ where: { organizationId, documentType, deletedAt: IsNull() } });
+  }
+
+  // Upserts a document type for an organization, preserving a single active row per type.
+  // This keeps the API idempotent while avoiding duplicate documents during repeated saves.
+  async upsert(
     organizationId: string,
     actingUserId: string,
     documents: OrganizationDocumentInput[],
@@ -35,36 +42,41 @@ export class OrganizationDocumentRepository {
   ): Promise<OrganizationDocumentEntity[]> {
     const repo = manager ? manager.getRepository(OrganizationDocumentEntity) : this.repo;
 
+    const saved: OrganizationDocumentEntity[] = [];
     for (const document of documents) {
-      await repo.update(
-        { organizationId, documentType: document.documentType, deletedAt: IsNull() },
-        { deletedAt: new Date(), updatedBy: actingUserId },
+      const existing = await this.findActiveByOrganizationAndType(
+        organizationId,
+        document.documentType,
+        manager,
       );
-    }
+      if (existing) {
+        existing.documentNumber = document.documentNumber ?? null;
+        existing.fileKey = document.documentUrl ?? null;
+        existing.verificationStatus = 'pending' as DocumentVerificationStatus;
+        existing.verifiedAt = null;
+        existing.updatedBy = actingUserId;
+        saved.push(await repo.save(existing));
+        continue;
+      }
 
-    const rows = repo.create(
-      documents.map((document) => ({
+      const row = repo.create({
         organizationId,
         documentType: document.documentType,
         documentNumber: document.documentNumber ?? null,
-        fileKey: document.fileKey ?? null,
-        registeredName: document.registeredName ?? null,
-        dob: document.dob ?? null,
-        addressLine1: document.addressLine1 ?? null,
-        addressLine2: document.addressLine2 ?? null,
-        city: document.city ?? null,
-        district: document.district ?? null,
-        state: document.state ?? null,
-        pinCode: document.pinCode ?? null,
+        fileKey: document.documentUrl ?? null,
         verificationStatus: 'pending' as DocumentVerificationStatus,
+        isVaild: false,
         createdBy: actingUserId,
-      })),
-    );
-    return repo.save(rows);
+        updatedBy: actingUserId,
+      });
+      saved.push(await repo.save(row));
+    }
+
+    return saved;
   }
 
-  // Soft-deletes every active document for the org — used when hasOwnFleet flips to true, mirroring
-  // the old behavior of nulling out gstin/documentUrl in that case.
+  // Soft-deletes every active document for the org — used when the user switches back to
+  // a fleet-owned company and documents are no longer required.
   async softDeleteAllActive(
     organizationId: string,
     actingUserId: string | null,

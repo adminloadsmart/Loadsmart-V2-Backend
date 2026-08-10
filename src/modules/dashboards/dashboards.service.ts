@@ -1,4 +1,5 @@
 import { rethrow } from '../../shared/errors';
+import { toDateString } from '../../shared/utils/date';
 import { VehicleService } from '../masters/vehicle.service';
 import { DEFAULT_RANGE_DAYS } from './dashboards.constants';
 import {
@@ -6,12 +7,6 @@ import {
   FleetActivityRangeInput,
   FleetActivitySummary,
 } from './utils/dashboards.interface';
-
-// Mirrors masters/utils/masters.types.ts's toDateString — duplicated locally rather than shared
-// across modules, following this codebase's existing per-module utility convention.
-function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
 
 /**
  * Composes read models directly via each module's index.ts — no owned schema, no gateways.

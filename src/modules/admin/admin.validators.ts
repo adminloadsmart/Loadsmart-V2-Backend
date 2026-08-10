@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './admin.constants';
-import { ORGANIZATION_STATUSES } from '../auth/entities/organization.entity';
+import { ORGANIZATION_STATUSES } from '../organization/entities/organization.entity';
 import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
-import { REFERRAL_CODE_REGEX } from '../auth/auth.constants';
+import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
+import { DATE_FILTERS } from '../../shared/utils/date-filter';
 
 const uuid = z.string().uuid();
 const organizationParams = z.object({ organizationId: uuid });
@@ -19,9 +20,29 @@ const pagination = z.object({
 
 export const adminValidators = {
   listOrganizations: z.object({
-    query: pagination.extend({
-      status: z.enum(ORGANIZATION_STATUSES).optional(),
-    }),
+    query: pagination
+      .extend({
+        status: z.enum(ORGANIZATION_STATUSES).optional(),
+        filter: z.enum(DATE_FILTERS).optional(),
+        from: isoDate.optional(),
+        to: isoDate.optional(),
+      })
+      .superRefine((data, ctx) => {
+        if (data.filter === 'custom' && (!data.from || !data.to)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['from'],
+            message: 'from and to are required when filter is custom',
+          });
+        }
+        if (data.from && data.to && data.from > data.to) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['to'],
+            message: 'to must be on/after from',
+          });
+        }
+      }),
   }),
   getOrganization: z.object({ params: organizationParams }),
 
