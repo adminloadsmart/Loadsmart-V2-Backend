@@ -4,7 +4,16 @@ export interface SignupInput {
   phoneNumber: string;
 }
 
+export interface RequestLoginOtpInput {
+  phoneNumber: string;
+}
+
 export interface VerifyOtpInput {
+  phoneNumber: string;
+  otp: string;
+}
+
+export interface VerifyLoginOtpInput {
   phoneNumber: string;
   otp: string;
 }

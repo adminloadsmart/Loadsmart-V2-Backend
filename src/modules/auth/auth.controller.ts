@@ -10,9 +10,20 @@ export class AuthController {
     respond(res, tokens, 201);
   };
 
+  requestLoginOtp = async (req: Request, res: Response) => {
+    const result = await this.authService.requestLoginOtp(req.body);
+    respond(res, result, 200);
+  };
+
   verifyOtp = async (req: Request, res: Response) => {
     const { phoneNumber } = req.signupPayload!;
     const tokens = await this.authService.verifyOtp({ phoneNumber, otp: req.body.otp });
+    respond(res, tokens);
+  };
+
+  verifyLoginOtp = async (req: Request, res: Response) => {
+    const { phoneNumber } = req.loginPayload!;
+    const tokens = await this.authService.verifyLoginOtp({ phoneNumber, otp: req.body.otp });
     respond(res, tokens);
   };
 

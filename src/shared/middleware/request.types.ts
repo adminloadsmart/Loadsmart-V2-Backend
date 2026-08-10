@@ -26,12 +26,17 @@ export interface SignupPayload {
   phoneNumber: string;
 }
 
+export interface LoginPayload {
+  phoneNumber: string;
+}
+
 declare global {
   namespace Express {
     interface Request {
       id: string;
       user?: AuthenticatedUser;
       signupPayload?: SignupPayload;
+      loginPayload?: LoginPayload;
       // The validate() middleware's coerced/defaulted query result — NOT req.query. Express 5
       // made req.query a read-only getter that re-parses the raw URL on every access, so mutating
       // it in place (the old Express 4 approach) silently no-ops; see validate.middleware.ts.

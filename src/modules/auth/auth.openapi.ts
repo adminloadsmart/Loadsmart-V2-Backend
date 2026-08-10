@@ -35,6 +35,13 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     description:
       'The short-lived signup token returned by POST /v1/auth/signup. Send as `Authorization: Bearer <signupToken>`.',
   });
+  const loginTokenAuth = registry.registerComponent('securitySchemes', 'loginTokenAuth', {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+    description:
+      'The short-lived login token returned by POST /v1/auth/login/otp/request. Send as `Authorization: Bearer <loginToken>`.',
+  });
 
   // --- Public ---
 
@@ -84,10 +91,52 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/login/otp/request`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.requestLoginOtp',
+    summary: 'Send an OTP for passwordless login',
+    description:
+      'Sends a short-lived OTP to an existing user and returns a purpose-scoped login token. ' +
+      'Follow up with POST /v1/auth/login/otp/verify using the returned token in the Authorization header.',
+    request: { body: json(authValidators.requestLoginOtp.shape.body) },
+    responses: {
+      200: { description: 'OTP sent — { loginToken, expiresIn, message }' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Unable to send OTP for this account', ...errorContent },
+      429: { description: 'Too many requests from this IP', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/login/otp/verify`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.verifyLoginOtp',
+    summary: 'Verify the OTP and obtain tokens for login',
+    description:
+      'Requires the login token returned by POST /v1/auth/login/otp/request, sent via the Authorization header. ' +
+      'On success, returns the normal access/refresh token pair plus the user session payload.',
+    security: [{ [loginTokenAuth.name]: [] }],
+    request: { body: json(authValidators.verifyLoginOtp.shape.body) },
+    responses: {
+      200: { description: 'Tokens issued — includes user summary and onboarding state' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: {
+        description:
+          'Missing/invalid/expired login token, invalid OTP, or too many incorrect attempts',
+        ...errorContent,
+      },
+      429: { description: 'Too many requests from this IP', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/login`,
     tags: [TAGS.AUTH],
     operationId: 'auth.login',
     summary: 'Log in with mobile number + password',
+    description: 'Traditional password-based login. Use the OTP endpoints for passwordless login.',
     request: { body: json(authValidators.login.shape.body) },
     responses: {
       200: {

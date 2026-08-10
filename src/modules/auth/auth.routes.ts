@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
 import { verifySignupToken } from '../../shared/middleware/signup-token.middleware';
+import { verifyLoginToken } from '../../shared/middleware/login-token.middleware';
 import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
 import { env } from '../../config/env';
 import { AuthController } from './auth.controller';
@@ -23,6 +24,16 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
     limit: env.loginRateLimitMax,
     windowSeconds: env.loginRateLimitWindowSeconds,
   });
+  const requestLoginOtpRateLimit = createIpRateLimit({
+    keyPrefix: 'login-otp-request',
+    limit: env.loginOtpRequestRateLimitMax,
+    windowSeconds: env.loginOtpRequestRateLimitWindowSeconds,
+  });
+  const verifyLoginOtpRateLimit = createIpRateLimit({
+    keyPrefix: 'login-otp-verify',
+    limit: env.loginOtpVerifyRateLimitMax,
+    windowSeconds: env.loginOtpVerifyRateLimitWindowSeconds,
+  });
   const verifyOtpRateLimit = createIpRateLimit({
     keyPrefix: 'verify-otp',
     limit: env.verifyOtpRateLimitMax,
@@ -41,6 +52,19 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
     validate(authValidators.verifyOtp),
     verifySignupToken,
     asyncHandler(controller.verifyOtp),
+  );
+  router.post(
+    '/login/otp/request',
+    requestLoginOtpRateLimit,
+    validate(authValidators.requestLoginOtp),
+    asyncHandler(controller.requestLoginOtp),
+  );
+  router.post(
+    '/login/otp/verify',
+    verifyLoginOtpRateLimit,
+    validate(authValidators.verifyLoginOtp),
+    verifyLoginToken,
+    asyncHandler(controller.verifyLoginOtp),
   );
   router.post(
     '/login',
