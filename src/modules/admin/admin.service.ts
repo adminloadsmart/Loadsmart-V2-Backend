@@ -1,5 +1,7 @@
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
+import { OrganizationJourneyStage } from '../organization/entities/organization.entity';
 import { AuthService } from '../auth/auth.service';
 import {
   ReferralCodeService,
@@ -32,6 +34,7 @@ export class AdminService {
   constructor(
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly organizationJourneyStageService: OrganizationJourneyStageService,
     private readonly authService: AuthService,
     private readonly referralCodeService: ReferralCodeService,
     private readonly auditService: AuditService,
@@ -48,11 +51,12 @@ export class AdminService {
 
   async getOrganization(organizationId: string) {
     try {
-      const [organization, documents] = await Promise.all([
+      const [organization, documents, journeyStageHistory] = await Promise.all([
         this.organizationService.getOrganizationStatus(organizationId),
         this.organizationDocumentService.listByOrganization(organizationId),
+        this.organizationJourneyStageService.getTrail(organizationId),
       ]);
-      return { ...organization, documents };
+      return { ...organization, documents, journeyStageHistory };
     } catch (error) {
       rethrow(error, 'Failed to get organization');
     }
@@ -127,6 +131,7 @@ export class AdminService {
         role: ONLINE_KYC_DESK_ROLE,
         field: 'onlineKycVerifierId',
         action: 'ONLINE_KYC_VERIFIER_ASSIGNED',
+        journeyStage: 'online_kyc',
       });
     } catch (error) {
       rethrow(error, 'Failed to assign online verifier');
@@ -143,6 +148,7 @@ export class AdminService {
         role: OFFLINE_KYC_DESK_ROLE,
         field: 'physicalKycAgentId',
         action: 'PHYSICAL_KYC_AGENT_ASSIGNED',
+        journeyStage: 'physical_kyc',
       });
     } catch (error) {
       rethrow(error, 'Failed to assign physical agent');
@@ -157,6 +163,7 @@ export class AdminService {
       role: string;
       field: 'onlineKycVerifierId' | 'physicalKycAgentId';
       action: AuditAction;
+      journeyStage: OrganizationJourneyStage;
     },
   ) {
     try {
@@ -165,16 +172,22 @@ export class AdminService {
         throw new ValidationError(`User ${userId} does not have the "${opts.role}" role`);
       }
 
-      const organization = await this.organizationService.updateOrganization(organizationId, {
+      await this.organizationService.updateOrganization(organizationId, {
         [opts.field]: userId,
       });
+
+      const organization = await this.organizationJourneyStageService.recordTransition(
+        organizationId,
+        opts.journeyStage,
+        actingUser.id,
+      );
 
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
         action: opts.action,
         resourceType: 'organization',
-        newData: { [opts.field]: userId },
+        newData: { [opts.field]: userId, journeyStage: organization.journeyStage },
       });
 
       return organization;
@@ -199,17 +212,23 @@ export class AdminService {
         );
       }
 
-      const organization = await this.organizationService.updateOrganization(organizationId, {
+      await this.organizationService.updateOrganization(organizationId, {
         status: 'active',
         decisionReason: null,
       });
+
+      const organization = await this.organizationJourneyStageService.recordTransition(
+        organizationId,
+        'approved',
+        actingUser.id,
+      );
 
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
         action: 'ORGANIZATION_APPROVED',
         resourceType: 'organization',
-        newData: { status: 'active' },
+        newData: { status: 'active', journeyStage: organization.journeyStage },
       });
 
       return organization;
@@ -262,17 +281,23 @@ export class AdminService {
     action: AuditAction,
   ) {
     try {
-      const organization = await this.organizationService.updateOrganization(organizationId, {
+      await this.organizationService.updateOrganization(organizationId, {
         status: 'rejected',
         decisionReason: reason,
       });
+
+      const organization = await this.organizationJourneyStageService.recordTransition(
+        organizationId,
+        'rejected',
+        actingUser.id,
+      );
 
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
         action,
         resourceType: 'organization',
-        newData: { status: 'rejected', reason },
+        newData: { status: 'rejected', reason, journeyStage: organization.journeyStage },
       });
 
       return organization;

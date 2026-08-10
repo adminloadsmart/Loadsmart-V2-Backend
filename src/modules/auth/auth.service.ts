@@ -18,6 +18,7 @@ import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
+import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { isTenantAccessible } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -74,6 +75,7 @@ export class AuthService {
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
     private readonly organizationOnboardingService: OrganizationOnboardingService,
+    private readonly organizationJourneyStageService: OrganizationJourneyStageService,
     private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
@@ -540,7 +542,7 @@ export class AuthService {
       this.organizationOnboardingService.assertReadyForSubmission(organization, documents);
 
       const submittedAt = organization.submittedAt ?? new Date();
-      const updated = await this.organizationService.updateOrganization(
+      await this.organizationService.updateOrganization(
         user.tenantId!,
         {
           status: 'pending',
@@ -550,7 +552,14 @@ export class AuthService {
         manager,
       );
 
-      return this.organizationOnboardingService.buildOrganizationResponse(updated, documents);
+      const withStage = await this.organizationJourneyStageService.recordTransition(
+        user.tenantId!,
+        'application_submitted',
+        user.id,
+        manager,
+      );
+
+      return this.organizationOnboardingService.buildOrganizationResponse(withStage, documents);
     });
   }
 

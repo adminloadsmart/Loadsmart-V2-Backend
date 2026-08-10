@@ -1,7 +1,11 @@
 import { Between, DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
 import { DateFilter, resolveDateRange } from '../../shared/utils/date-filter';
-import { OrganizationEntity, OrganizationStatus } from './entities/organization.entity';
+import {
+  OrganizationEntity,
+  OrganizationJourneyStage,
+  OrganizationStatus,
+} from './entities/organization.entity';
 
 export class OrganizationRepository {
   private readonly repo: Repository<OrganizationEntity>;
@@ -20,8 +24,9 @@ export class OrganizationRepository {
     return repo.save(organization);
   }
 
-  async findById(id: string): Promise<OrganizationEntity | null> {
-    return this.repo.findOne({
+  async findById(id: string, manager?: EntityManager): Promise<OrganizationEntity | null> {
+    const repo = manager ? manager.getRepository(OrganizationEntity) : this.repo;
+    return repo.findOne({
       where: { id },
       relations: {
         referralCode: true,
@@ -49,6 +54,7 @@ export class OrganizationRepository {
 
   async list(filters: {
     status?: OrganizationStatus;
+    journeyStage?: OrganizationJourneyStage;
     search?: string;
     filter?: DateFilter;
     from?: string;
@@ -56,10 +62,11 @@ export class OrganizationRepository {
     page: number;
     limit: number;
   }): Promise<{ items: OrganizationEntity[]; total: number }> {
-    const { status, search, filter, from, to, page, limit } = filters;
+    const { status, journeyStage, search, filter, from, to, page, limit } = filters;
 
     const base: FindOptionsWhere<OrganizationEntity> = {};
     if (status) base.status = status;
+    if (journeyStage) base.journeyStage = journeyStage;
     const range = resolveDateRange(filter, from, to);
     if (range) base.createdAt = Between(range.from, range.to);
 
@@ -103,6 +110,7 @@ export class OrganizationRepository {
       physicalKycAgentId: string | null;
       decisionReason: string | null;
       submittedAt: Date | null;
+      journeyStage: OrganizationJourneyStage | null;
     }>,
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {
