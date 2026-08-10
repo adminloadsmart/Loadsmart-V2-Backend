@@ -1,4 +1,4 @@
-import { randomBytes, randomInt, randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { DataSource } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
@@ -35,7 +35,9 @@ import {
 import { ORG_ADMIN_ROLE, STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import {
   SignupInput,
+  RequestLoginOtpInput,
   VerifyOtpInput,
+  VerifyLoginOtpInput,
   CreateStaffInput,
   LoginInput,
   RefreshInput,
@@ -156,6 +158,50 @@ export class AuthService {
 
     return this.issueTokenPairForUser(user);
   }
+
+  async requestLoginOtp(input: RequestLoginOtpInput) {
+    const phoneNumber = this.normalizePhone(input.phoneNumber);
+    const user = await this.authRepository.findUserByPhone(phoneNumber);
+    if (!user) {
+      throw new AuthenticationError('Unable to send OTP');
+    }
+
+    const loginToken = await this.requestOtpCode({
+      phoneNumber,
+      purpose: 'login',
+      ttlSeconds: env.loginOtpTtlSeconds,
+      cooldownSeconds: env.loginOtpResendCooldownSeconds,
+      otpLabel: 'login',
+    });
+
+    return {
+      loginToken,
+      expiresIn: env.loginOtpTtlSeconds,
+      message: `OTP sent to ${phoneNumber}`,
+    };
+  }
+
+  async verifyLoginOtp(input: VerifyLoginOtpInput) {
+    const { phoneNumber, otp } = input;
+
+    await this.verifyOtpCode({
+      phoneNumber,
+      otp,
+      purpose: 'login',
+      ttlSeconds: env.loginOtpTtlSeconds,
+      invalidOtpMessage: 'Invalid OTP',
+      expiredMessage: 'OTP expired, please request a new login OTP',
+      tooManyAttemptsMessage: 'Too many incorrect attempts, please request a new login OTP',
+    });
+
+    const user = await this.authRepository.findUserByPhone(phoneNumber);
+    if (!user) {
+      throw new AuthenticationError('Invalid or expired login OTP');
+    }
+
+    return this.issueTokenPairForUser(user);
+  }
+
   async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
     const current = await this.getUserById(user.id);
     if (current.passwordHash) {
@@ -508,20 +554,72 @@ export class AuthService {
     });
   }
 
-  private async requestOtp(phoneNumber: string) {
-    const cooldownKey = `signup:${phoneNumber}:cooldown`;
+  private async requestOtpCode(input: {
+    phoneNumber: string;
+    purpose: 'signup' | 'login';
+    ttlSeconds: number;
+    cooldownSeconds: number;
+    otpLabel: string;
+  }) {
+    const { phoneNumber, purpose, ttlSeconds, cooldownSeconds, otpLabel } = input;
+    const cooldownKey = this.otpCooldownKey(purpose, phoneNumber);
     if (await redisManager.get(cooldownKey)) {
       throw new RateLimitError('Please wait before requesting another OTP');
     }
-    await redisManager.set(cooldownKey, '1', SIGNUP_RESEND_COOLDOWN_SECONDS);
+    await redisManager.set(cooldownKey, '1', cooldownSeconds);
 
-    const otp = randomInt(100000, 1000000).toString();
+    // The app still has no SMS/email delivery integration, so both OTP flows use a fixed code.
+    const otp = SIGNUP_STATIC_OTP;
     await redisManager.set(
-      this.otpRedisKey(phoneNumber),
+      this.otpRedisKey(purpose, phoneNumber),
       JSON.stringify({ phoneNumber, otp }),
-      env.signupOtpTtlSeconds,
+      ttlSeconds,
     );
-    await redisManager.delete(`${this.otpRedisKey(phoneNumber)}:attempts`);
+    await redisManager.delete(this.otpAttemptsKey(purpose, phoneNumber));
+    return signToken({ phoneNumber, purpose: otpLabel }, ttlSeconds);
+  }
+
+  private async verifyOtpCode(input: {
+    phoneNumber: string;
+    otp: string;
+    purpose: 'signup' | 'login';
+    ttlSeconds: number;
+    invalidOtpMessage: string;
+    expiredMessage: string;
+    tooManyAttemptsMessage: string;
+  }) {
+    const {
+      phoneNumber,
+      otp,
+      purpose,
+      ttlSeconds,
+      invalidOtpMessage,
+      expiredMessage,
+      tooManyAttemptsMessage,
+    } = input;
+
+    const redisKey = this.otpRedisKey(purpose, phoneNumber);
+    const attemptsKey = this.otpAttemptsKey(purpose, phoneNumber);
+
+    const stored = await redisManager.get(redisKey);
+    if (!stored) {
+      throw new AuthenticationError(expiredMessage);
+    }
+
+    const attempts = await redisManager.incr(attemptsKey, ttlSeconds);
+    if (attempts > MAX_OTP_ATTEMPTS) {
+      await redisManager.delete(redisKey);
+      await redisManager.delete(attemptsKey);
+      throw new AuthenticationError(tooManyAttemptsMessage);
+    }
+
+    const { otp: storedOtp } = JSON.parse(stored) as { phoneNumber: string; otp: string };
+    if (otp !== storedOtp) {
+      throw new AuthenticationError(invalidOtpMessage);
+    }
+
+    await redisManager.delete(redisKey);
+    await redisManager.delete(attemptsKey);
   }
 
   private async loginWithPhone(phoneNumber: string, password: string, ipAddress: string | null) {
@@ -607,8 +705,16 @@ export class AuthService {
     return normalized;
   }
 
-  private otpRedisKey(phoneNumber: string): string {
-    return `signup:${phoneNumber}`;
+  private otpRedisKey(purpose: 'signup' | 'login', phoneNumber: string): string {
+    return `${purpose}:${phoneNumber}`;
+  }
+
+  private otpAttemptsKey(purpose: 'signup' | 'login', phoneNumber: string): string {
+    return `${this.otpRedisKey(purpose, phoneNumber)}:attempts`;
+  }
+
+  private otpCooldownKey(purpose: 'signup' | 'login', phoneNumber: string): string {
+    return `${this.otpRedisKey(purpose, phoneNumber)}:cooldown`;
   }
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues

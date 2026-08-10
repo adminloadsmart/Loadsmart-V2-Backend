@@ -17,7 +17,17 @@ export const authValidators = {
       phoneNumber: z.string().trim().min(10),
     }),
   }),
+  requestLoginOtp: z.object({
+    body: z.object({
+      phoneNumber: z.string().trim().min(10),
+    }),
+  }),
   verifyOtp: z.object({
+    body: z.object({
+      otp: z.string().length(4, 'OTP must be 4 digits long'),
+    }),
+  }),
+  verifyLoginOtp: z.object({
     body: z.object({
       otp: z.string().length(4, 'OTP must be 4 digits long'),
     }),
