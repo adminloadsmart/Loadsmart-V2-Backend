@@ -37,6 +37,11 @@ export class AuthController {
     respond(res, result);
   };
 
+  me = async (req: Request, res: Response) => {
+    const profile = await this.authService.getProfile(req.user!.id);
+    respond(res, profile);
+  };
+
   refresh = async (req: Request, res: Response) => {
     const tokens = await this.authService.refresh(req.body);
     respond(res, tokens);

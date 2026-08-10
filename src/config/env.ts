@@ -15,6 +15,10 @@ function numberWithDefault(key: string, defaultValue: number): number {
 
 const nodeEnv = process.env.NODE_ENV ?? 'development';
 const jwtSecret = required('JWT_SECRET');
+const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const MIN_JWT_SECRET_LENGTH = 32;
 if (jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
   const message = `JWT_SECRET is only ${jwtSecret.length} chars — should be at least ${MIN_JWT_SECRET_LENGTH} for a symmetric HMAC secret`;
@@ -28,6 +32,7 @@ if (jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
 export const env = {
   nodeEnv,
   port: Number(process.env.PORT ?? 4000),
+  corsOrigins,
   databaseUrl: required('DATABASE_URL'),
   jwtSecret,
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',

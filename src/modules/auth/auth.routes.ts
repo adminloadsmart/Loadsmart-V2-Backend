@@ -80,6 +80,7 @@ export function createAuthPublicRoutes(controller: AuthController): Router {
 export function createAuthProtectedRoutes(controller: AuthController): Router {
   const router = Router();
 
+  router.get('/me', asyncHandler(controller.me));
   router.post('/logout', validate(authValidators.logout), asyncHandler(controller.logout));
   router.delete('/account', asyncHandler(controller.deleteAccount));
   router.post(

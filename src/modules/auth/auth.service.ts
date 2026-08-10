@@ -57,6 +57,7 @@ import { UserEntity } from './entities/user.entity';
 type AuthSession = {
   accessToken: string;
   refreshToken: string;
+  role: string;
   permissions: string[];
   user: {
     id: string;
@@ -199,7 +200,7 @@ export class AuthService {
       throw new AuthenticationError('Invalid or expired login OTP');
     }
 
-    return this.issueTokenPairForUser(user);
+    return this.buildAuthSession(user);
   }
 
   async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
@@ -212,6 +213,23 @@ export class AuthService {
     await this.authRepository.setUserPassword(current.id, passwordHash);
 
     return { success: true, hasPassword: true };
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.getUserById(userId);
+    return {
+      id: user.id,
+      tenantId: user.tenantId,
+      fullName: user.fullName,
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      role: user.role.name,
+      coverage: user.coverage,
+      permissions: await this.roleService.getEffectivePermissions(user.id),
+      hasPassword: Boolean(user.passwordHash),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
   /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
@@ -658,6 +676,7 @@ export class AuthService {
 
     return {
       ...tokens,
+      role: user.role.name,
       permissions,
       user: {
         id: user.id,

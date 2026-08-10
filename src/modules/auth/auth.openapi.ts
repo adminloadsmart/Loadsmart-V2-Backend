@@ -119,7 +119,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     security: [{ [loginTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyLoginOtp.shape.body) },
     responses: {
-      200: { description: 'Tokens issued — includes user summary and onboarding state' },
+      200: {
+        description:
+          'Tokens issued — includes role, permissions, user summary, and onboarding state',
+      },
       400: { description: 'Validation failed', ...errorContent },
       401: {
         description:
@@ -141,7 +144,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          'Tokens issued — includes user summary, permissions, accessToken, refreshToken, onboardingStatus, and nextStep',
+          'Tokens issued — includes role, permissions, user summary, accessToken, refreshToken, onboardingStatus, and nextStep',
       },
       400: { description: 'Validation failed', ...errorContent },
       401: {
@@ -183,6 +186,19 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
   });
 
   // --- Protected ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/me`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.me',
+    ...authenticated("Get the caller's current profile details."),
+    responses: {
+      200: { description: 'Current user profile' },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      404: { description: 'User not found', ...errorContent },
+    },
+  });
 
   registry.registerPath({
     method: 'post',
