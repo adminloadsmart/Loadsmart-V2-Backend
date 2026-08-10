@@ -35,10 +35,15 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organizations/{organizationId}`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.getOrganization',
-    ...adminOnly('Get a single organization by id, regardless of tenant.'),
+    ...adminOnly(
+      'Get a single organization by id, regardless of tenant. Includes its documents and full ' +
+        'journey-stage history — application_submitted → online_kyc → physical_kyc → approved/' +
+        'rejected, oldest first, with who caused each transition and when. The listing endpoint ' +
+        "above only exposes the org's current stage, not this history.",
+    ),
     request: { params: adminValidators.getOrganization.shape.params },
     responses: {
-      200: { description: 'Organization detail' },
+      200: { description: 'Organization detail, including documents and journeyStageHistory' },
       404: { description: 'Organization not found', ...errorContent },
     },
   });

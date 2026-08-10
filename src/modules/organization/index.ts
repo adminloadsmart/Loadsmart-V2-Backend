@@ -4,6 +4,8 @@ import { OrganizationService } from './organization.service';
 import { OrganizationDocumentRepository } from './organization-document.repository';
 import { OrganizationDocumentService } from './organization-document.service';
 import { OrganizationOnboardingService } from './organization-onboarding.service';
+import { OrganizationJourneyStageHistoryRepository } from './organization-journey-stage-history.repository';
+import { OrganizationJourneyStageService } from './organization-journey-stage.service';
 import { ReferralCodeRepository } from './referral-code.repository';
 import { ReferralCodeService } from './referral-code.service';
 import { OrganizationController } from './organization.controller';
@@ -31,6 +33,14 @@ export function createOrganizationModule(dataSource: DataSource) {
     organizationDocumentService,
   );
 
+  const organizationJourneyStageHistoryRepository = new OrganizationJourneyStageHistoryRepository(
+    dataSource,
+  );
+  const organizationJourneyStageService = new OrganizationJourneyStageService(
+    organizationService,
+    organizationJourneyStageHistoryRepository,
+  );
+
   const referralCodeRepository = new ReferralCodeRepository(dataSource);
   const referralCodeService = new ReferralCodeService(referralCodeRepository);
 
@@ -38,6 +48,7 @@ export function createOrganizationModule(dataSource: DataSource) {
     organizationService,
     organizationDocumentService,
     organizationOnboardingService,
+    organizationJourneyStageService,
     referralCodeService,
   };
 }
