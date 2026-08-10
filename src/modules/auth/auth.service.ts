@@ -156,7 +156,18 @@ export class AuthService {
     let user = await this.authRepository.findUserByPhone(phoneNumber);
     if (!user) {
       const roleId = await this.roleService.findRoleIdByName(ORG_ADMIN_ROLE);
-      user = await this.authRepository.createUser({ phoneNumber, tenantId: null, roleId });
+      const password = this.generatePassword();
+      const passwordHash = await bcrypt.hash(password, 10);
+      user = await this.authRepository.createUser({
+        phoneNumber,
+        tenantId: null,
+        roleId,
+        passwordHash,
+      });
+
+      if (env.nodeEnv === 'development') {
+        console.log(`[development] Generated signup password for ${phoneNumber}: ${password}`);
+      }
     }
 
     return this.issueTokenPairForUser(user);
@@ -679,6 +690,8 @@ export class AuthService {
   }
 
   private async buildAuthSession(user: UserEntity): Promise<AuthSession> {
+    await this.assertOrganizationActiveForLogin(user);
+
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     const tokens = await this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
     const progress = await this.getOnboardingProgress(user);
@@ -696,6 +709,25 @@ export class AuthService {
       onboardingStep: progress.onboardingStep,
       nextStep: progress.nextStep,
     };
+  }
+
+  private async assertOrganizationActiveForLogin(user: UserEntity): Promise<void> {
+    // A new org admin has no organization yet and must be allowed to log in to complete
+    // onboarding. Once an organization exists, org admins may log in only after approval.
+    if (user.role.name !== ORG_ADMIN_ROLE || !user.tenantId) return;
+
+    const organization = await this.organizationService.getOrganizationStatus(user.tenantId);
+    if (organization.status !== 'active') {
+      const messages = {
+        pending: 'Organization verification is pending. Please wait.',
+        partial_pending: 'Organization verification is pending. Please wait.',
+        draft: 'Please complete your organization verification to continue.',
+        rejected: 'Organization verification was rejected.',
+        suspended: 'Organization access is suspended.',
+      } as const;
+
+      throw new AuthorizationError(messages[organization.status]);
+    }
   }
 
   // The no-tenantId branch (a brand new org_admin who hasn't created their org yet, vs. a

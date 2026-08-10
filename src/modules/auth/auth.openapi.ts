@@ -129,6 +129,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
           'Missing/invalid/expired login token, invalid OTP, or too many incorrect attempts',
         ...errorContent,
       },
+      403: { description: 'Organization is not active', ...errorContent },
       429: { description: 'Too many requests from this IP', ...errorContent },
     },
   });
@@ -151,6 +152,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         description: 'Invalid credentials, or too many recent failed attempts',
         ...errorContent,
       },
+      403: { description: 'Organization is not active', ...errorContent },
       429: { description: 'Too many requests from this IP', ...errorContent },
     },
   });
