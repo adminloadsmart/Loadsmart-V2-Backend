@@ -30,6 +30,7 @@ import { VehicleTelemetryMetaEntity } from '../modules/masters/entities/vehicle-
 import { VehicleServiceUsageEntity } from '../modules/masters/entities/vehicle-service-usage.entity';
 import { DriverOperationalStatusEntity } from '../modules/masters/entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip-metrics.entity';
+import { TruckTypeEntity } from '../modules/masters/entities/truck-type.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -65,6 +66,7 @@ export const AppDataSource = new DataSource({
     VehicleServiceUsageEntity,
     DriverOperationalStatusEntity,
     DriverTripMetricsEntity,
+    TruckTypeEntity,
   ], // every new module adds its entity here
   migrations: ['src/db/migrations/**/*.ts'],
 });

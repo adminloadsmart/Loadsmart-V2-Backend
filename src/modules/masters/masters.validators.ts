@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -13,7 +14,6 @@ import {
   VEHICLE_DOCUMENT_TYPES,
   VEHICLE_OPERATIONAL_STATUSES,
   VEHICLE_STATUSES,
-  VEHICLE_TYPES,
   VEHICLE_VERIFICATION_STATUSES,
   VEHICLE_VERIFICATION_TYPES,
   WHEEL_COUNTS,
@@ -29,7 +29,6 @@ import {
 } from './utils/drivers.types';
 
 const uuid = z.string().uuid();
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date');
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
 
@@ -48,6 +47,7 @@ const driverBankDetailsParams = z.object({
   bankDetailsId: uuid,
 });
 const linkParams = z.object({ linkId: uuid });
+const truckTypeParams = z.object({ truckTypeId: uuid });
 
 /**
  * Number plates are typed as they appear on the vehicle — "KA01 AB 1234", sometimes lowercase — so
@@ -81,9 +81,7 @@ const wheelCount = z
 /** Shared by `createVehicle` and the section-1 fields of `onboardVehicle`. */
 const vehicleCoreFields = {
   registrationNumber,
-  vehicleType: z.enum(VEHICLE_TYPES).optional(),
-  make: z.string().min(1).max(50).optional(),
-  model: z.string().min(1).max(50).optional(),
+  truckTypeId: uuid.optional(),
   fuelType: z.enum(FUEL_TYPES).optional(),
   bodyType: z.enum(BODY_TYPES).optional(),
   wheelCount: wheelCount.optional(),
@@ -201,6 +199,12 @@ const vehicleVerificationBody = z.object({
 });
 
 export const mastersValidators = {
+  listTruckTypes: z.object({}),
+  createTruckType: z.object({
+    body: z.object({ name: z.string().trim().min(1).max(100) }),
+  }),
+  deleteTruckType: z.object({ params: truckTypeParams }),
+
   createVehicle: z.object({
     body: z.object(vehicleCoreFields),
   }),
@@ -226,9 +230,7 @@ export const mastersValidators = {
     params: vehicleParams,
     body: z
       .object({
-        vehicleType: z.enum(VEHICLE_TYPES).optional(),
-        make: z.string().min(1).max(50).optional(),
-        model: z.string().min(1).max(50).optional(),
+        truckTypeId: uuid.optional(),
         fuelType: z.enum(FUEL_TYPES).optional(),
         bodyType: z.enum(BODY_TYPES).optional(),
         wheelCount: wheelCount.optional(),

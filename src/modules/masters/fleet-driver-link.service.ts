@@ -1,10 +1,10 @@
 import { DataSource } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { toDateString } from '../../shared/utils/date';
 import { FleetDriverLinkEntity } from './entities/fleet-driver-link.entity';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { VehicleService } from './vehicle.service';
 import { DriverService } from './driver.service';
-import { toDateString } from './utils/masters.types';
 import { LinkDriverInput } from './utils/fleet-driver-link.interface';
 
 export class FleetDriverLinkService {

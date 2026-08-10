@@ -6,21 +6,48 @@ import {
   DriverDocumentParams,
   DriverParams,
   LinkParams,
+  TruckTypeParams,
   VehicleDocumentParams,
   VehicleParams,
 } from './utils/masters.interface';
 import { ListVehiclesInput } from './utils/vehicle.interface';
 import { ListDriversInput } from './utils/drivers.interface';
+import { CreateTruckTypeInput } from './utils/truck-type.interface';
 import { VehicleService } from './vehicle.service';
 import { DriverService } from './driver.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
+import { TruckTypeService } from './truck-type.service';
 
 export class MastersController {
   constructor(
     private readonly vehicleService: VehicleService,
     private readonly driverService: DriverService,
     private readonly fleetDriverLinkService: FleetDriverLinkService,
+    private readonly truckTypeService: TruckTypeService,
   ) {}
+
+  listTruckTypes = async (req: Request, res: Response) => {
+    const truckTypes = await this.truckTypeService.listTruckTypes(requireTenantId(req));
+    respond(res, truckTypes);
+  };
+
+  createTruckType = async (req: Request, res: Response) => {
+    const truckType = await this.truckTypeService.createTruckType(
+      requireTenantId(req),
+      req.user!.id,
+      req.body as CreateTruckTypeInput,
+    );
+    respond(res, truckType, 201);
+  };
+
+  deleteTruckType = async (req: Request<TruckTypeParams>, res: Response) => {
+    await this.truckTypeService.deleteTruckType(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.truckTypeId,
+    );
+    respond(res, { success: true });
+  };
 
   createVehicle = async (req: Request, res: Response) => {
     const vehicle = await this.vehicleService.createVehicle(

@@ -7,6 +7,7 @@ import { registerOrganizationOnboardingOpenApi } from '../../modules/organizatio
 import { registerRoleOpenApi } from '../../modules/roles/role.openapi';
 import { registerMastersOpenApi } from '../../modules/masters/masters.openapi';
 import { registerAdminOpenApi } from '../../modules/admin/admin.openapi';
+import { registerDashboardsOpenApi } from '../../modules/dashboards/dashboards.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -34,6 +35,7 @@ function getOpenApiDocument() {
     registerRoleOpenApi(registry);
     registerMastersOpenApi(registry);
     registerAdminOpenApi(registry);
+    registerDashboardsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -53,6 +55,10 @@ function getOpenApiDocument() {
         {
           name: TAGS.ADMIN,
           description: 'Platform-admin operations on organizations (status, document verification)',
+        },
+        {
+          name: TAGS.DASHBOARDS,
+          description: 'Cross-module read models for fleet dashboards (fleet activity summary)',
         },
       ],
     });

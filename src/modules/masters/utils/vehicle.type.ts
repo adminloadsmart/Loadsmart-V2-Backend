@@ -4,25 +4,11 @@
  * schema in masters.validators.ts — so the three can never drift apart.
  */
 
-/**
- * The fixed set of vehicle types the fleet supports. Rated tonnage is indicative only — the
- * per-vehicle figure lives in `capacityTons`.
- */
-export const VEHICLE_TYPES = [
-  '32ft_multi_axle',
-  '32ft_single_axle',
-  '24ft_open_10_wheel',
-  '22ft_closed',
-  '20ft_flat_bed',
-  '17ft_open_6_wheel',
-] as const;
-export type VehicleType = (typeof VEHICLE_TYPES)[number];
-
 /** Fuel the vehicle runs on. */
 export const FUEL_TYPES = ['diesel', 'petrol', 'cng', 'electric'] as const;
 export type VehicleFuelType = (typeof FUEL_TYPES)[number];
 
-/** Body style, independent of `VEHICLE_TYPES` — a 32ft chassis can be open or closed. */
+/** Body style, independent of truck type (see TruckTypeEntity) — a 32ft chassis can be open or closed. */
 export const BODY_TYPES = ['open', 'closed', 'flat_bed', 'container', 'low_bed'] as const;
 export type VehicleBodyType = (typeof BODY_TYPES)[number];
 

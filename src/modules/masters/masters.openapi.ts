@@ -25,6 +25,52 @@ const BASE = `${API_VERSION_PREFIX}/masters`; // absolute path — must match it
 const write = (description: string) => permissionGated([MASTERS_WRITE], description);
 
 export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
+  // --- Truck types ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/truck-types`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listTruckTypes',
+    ...authenticated(
+      "List the tenant's truck types (Settings → Truck Types), each with how many vehicles " +
+        'currently use it.',
+    ),
+    responses: {
+      200: { description: 'Truck types, each with a vehicleCount' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/truck-types`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.createTruckType',
+    ...write(
+      'Create a truck type for the tenant — the exhaustive master vehicles.truckTypeId references.',
+    ),
+    request: { body: json(mastersValidators.createTruckType.shape.body) },
+    responses: {
+      201: { description: 'Created truck type' },
+      400: { description: 'Validation failed', ...errorContent },
+      409: { description: 'A truck type with this name already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/truck-types/{truckTypeId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.deleteTruckType',
+    ...write('Soft-delete a truck type. Blocked while any vehicle still references it.'),
+    request: { params: mastersValidators.deleteTruckType.shape.params },
+    responses: {
+      200: { description: 'Deleted', ...json(SuccessResponseSchema) },
+      404: { description: 'Truck type not found', ...errorContent },
+      409: { description: 'Still referenced by one or more vehicles', ...errorContent },
+    },
+  });
+
   // --- Vehicles ---
 
   registry.registerPath({
