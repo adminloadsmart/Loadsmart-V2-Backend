@@ -29,6 +29,7 @@ import {
   MAX_FAILED_ATTEMPTS,
   MAX_OTP_ATTEMPTS,
   SIGNUP_RESEND_COOLDOWN_SECONDS,
+  SIGNUP_STATIC_OTP,
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
 import { ORG_ADMIN_ROLE, STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
@@ -86,15 +87,16 @@ export class AuthService {
     }
 
     // Independent of the OTP's own TTL — without this, repeat calls for the same phone number
-    // each overwrite the OTP and (once real SMS delivery is wired up per the TODO below) resend
-    // an SMS with no cooldown, an SMS-bombing vector even within a single OTP's validity window.
+    // each overwrite the OTP and (once real SMS delivery is wired up, see SIGNUP_STATIC_OTP)
+    // resend an SMS with no cooldown, an SMS-bombing vector even within a single OTP's validity window.
     const cooldownKey = `signup:${phoneNumber}:cooldown`;
     if (await redisManager.get(cooldownKey)) {
       throw new RateLimitError('Please wait before requesting another OTP');
     }
     await redisManager.set(cooldownKey, '1', SIGNUP_RESEND_COOLDOWN_SECONDS);
 
-    const otp = randomInt(100000, 1000000).toString();
+    // const otp = randomInt(100000, 1000000).toString();
+    const otp = SIGNUP_STATIC_OTP;
     await redisManager.set(
       `signup:${phoneNumber}`,
       JSON.stringify({ phoneNumber, otp }),
@@ -103,11 +105,9 @@ export class AuthService {
     // A fresh OTP always gets a fresh guess budget — otherwise a stale counter from a previous
     // OTP cycle would unfairly shrink this one's.
     await redisManager.delete(`signup:${phoneNumber}:attempts`);
-
-    if (env.nodeEnv !== 'production') {
-      console.log(`OTP for ${phoneNumber}: ${otp}`); // TODO: replace with real SMS/email delivery once notifications module is wired up
-    }
-
+    //  if (env.nodeEnv !== 'production') {
+    //     console.log(`OTP for ${phoneNumber}: ${otp}`); // TODO: replace with real SMS/email delivery once notifications module is wired up
+    //   }
     const signupToken = signToken({ phoneNumber, purpose: 'signup' }, env.signupOtpTtlSeconds);
 
     return {

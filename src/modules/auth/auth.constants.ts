@@ -3,6 +3,11 @@ export const MAX_FAILED_ATTEMPTS = 5;
 export const MAX_OTP_ATTEMPTS = 5;
 export const SIGNUP_RESEND_COOLDOWN_SECONDS = 30;
 
+// TODO: replace with real SMS/email delivery once notifications module is wired up — until then
+// every signup OTP is this fixed value instead of a random one, since there's no channel to
+// deliver a random one through.
+export const SIGNUP_STATIC_OTP = '1234';
+
 // A precomputed bcrypt hash of an arbitrary fixed string (cost 10, matching every real hash in
 // this app — see auth.service.ts's createStaffUser/createOrganization). login() compares against
 // this when no real user/passwordHash exists, purely so the bcrypt.compare cost — and therefore

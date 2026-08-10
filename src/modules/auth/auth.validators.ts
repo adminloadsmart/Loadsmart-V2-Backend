@@ -19,7 +19,7 @@ export const authValidators = {
   }),
   verifyOtp: z.object({
     body: z.object({
-      otp: z.string().length(6),
+      otp: z.string().length(4, 'OTP must be 4 digits long'),
     }),
   }),
   login: z.object({
