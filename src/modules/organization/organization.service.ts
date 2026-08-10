@@ -4,6 +4,7 @@ import { DateFilter } from '../../shared/utils/date-filter';
 import { OrganizationRepository } from './organization.repository';
 import {
   OrganizationEntity,
+  OrganizationJourneyStage,
   OrganizationOnboardingStep,
   OrganizationStatus,
 } from './entities/organization.entity';
@@ -24,14 +25,18 @@ export class OrganizationService {
     return this.organizationRepository.create(name, status, manager);
   }
 
-  async getOrganizationStatus(organizationId: string): Promise<OrganizationEntity> {
-    const organization = await this.organizationRepository.findById(organizationId);
+  async getOrganizationStatus(
+    organizationId: string,
+    manager?: EntityManager,
+  ): Promise<OrganizationEntity> {
+    const organization = await this.organizationRepository.findById(organizationId, manager);
     if (!organization) throw new NotFoundError(`Organization ${organizationId} not found`);
     return organization;
   }
 
   async listOrganizations(filters: {
     status?: OrganizationStatus;
+    journeyStage?: OrganizationJourneyStage;
     search?: string;
     filter?: DateFilter;
     from?: string;
@@ -66,6 +71,7 @@ export class OrganizationService {
       physicalKycAgentId: string | null;
       decisionReason: string | null;
       submittedAt: Date | null;
+      journeyStage: OrganizationJourneyStage | null;
     }>,
     manager?: EntityManager,
   ): Promise<OrganizationEntity> {

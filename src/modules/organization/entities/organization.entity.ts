@@ -33,6 +33,21 @@ export const ORGANIZATION_ONBOARDING_STEPS = [
 ] as const;
 export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[number];
 
+// Where the org is in the post-submission KYC review pipeline — distinct from `status` (coarse
+// lifecycle/access-control) and `onboardingStep` (pre-submission wizard progress, freezes at
+// 'submitted'). Null until submitOrganization runs; advanced automatically by
+// OrganizationJourneyStageService.recordTransition as a side effect of submit/assign/approve/
+// reject — see organization-journey-stage.service.ts. Same single-source-of-truth convention as
+// the two enums above.
+export const ORGANIZATION_JOURNEY_STAGES = [
+  'application_submitted',
+  'online_kyc',
+  'physical_kyc',
+  'approved',
+  'rejected',
+] as const;
+export type OrganizationJourneyStage = (typeof ORGANIZATION_JOURNEY_STAGES)[number];
+
 @Entity({ schema: 'auth', name: 'organizations' })
 export class OrganizationEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -124,6 +139,16 @@ export class OrganizationEntity {
   // Set by reject/deny (why this decision was made), cleared by approve.
   @Column({ name: 'decision_reason', type: 'varchar', nullable: true })
   decisionReason!: string | null;
+
+  // Current value only — see organization-journey-stage-history.entity.ts for the full trail of
+  // every stage this org has passed through.
+  @Column({
+    name: 'journey_stage',
+    type: 'enum',
+    enum: ORGANIZATION_JOURNEY_STAGES,
+    nullable: true,
+  })
+  journeyStage!: OrganizationJourneyStage | null;
 
   @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
   submittedAt!: Date | null;

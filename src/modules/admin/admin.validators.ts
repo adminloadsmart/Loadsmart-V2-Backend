@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './admin.constants';
-import { ORGANIZATION_STATUSES } from '../organization/entities/organization.entity';
+import {
+  ORGANIZATION_JOURNEY_STAGES,
+  ORGANIZATION_STATUSES,
+} from '../organization/entities/organization.entity';
 import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
@@ -23,6 +26,7 @@ export const adminValidators = {
     query: pagination
       .extend({
         status: z.enum(ORGANIZATION_STATUSES).optional(),
+        journeyStage: z.enum(ORGANIZATION_JOURNEY_STAGES).optional(),
         filter: z.enum(DATE_FILTERS).optional(),
         from: isoDate.optional(),
         to: isoDate.optional(),
