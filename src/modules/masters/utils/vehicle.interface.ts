@@ -7,7 +7,6 @@ import {
   VehicleOperationalStatus,
   VehicleOwnershipType,
   VehicleStatus,
-  VehicleType,
   VehicleVerificationStatus,
   VehicleVerificationType,
 } from './vehicle.type';
@@ -16,9 +15,7 @@ import {
 
 export interface CreateVehicleInput {
   registrationNumber: string;
-  vehicleType?: VehicleType;
-  make?: string;
-  model?: string;
+  truckTypeId?: string;
   fuelType?: VehicleFuelType;
   bodyType?: VehicleBodyType;
   wheelCount?: number;
@@ -27,9 +24,7 @@ export interface CreateVehicleInput {
 }
 
 export interface UpdateVehicleInput {
-  vehicleType?: VehicleType;
-  make?: string;
-  model?: string;
+  truckTypeId?: string;
   fuelType?: VehicleFuelType;
   bodyType?: VehicleBodyType;
   wheelCount?: number;
@@ -73,9 +68,7 @@ export interface UpdateVehicleDocumentInput {
 export interface CreateVehicleData {
   tenantId: string;
   registrationNumber: string;
-  vehicleType: VehicleType | null;
-  make: string | null;
-  model: string | null;
+  truckTypeId: string | null;
   fuelType: VehicleFuelType | null;
   bodyType: VehicleBodyType | null;
   wheelCount: number | null;
@@ -85,9 +78,7 @@ export interface CreateVehicleData {
 }
 
 export interface UpdateVehicleData {
-  vehicleType?: VehicleType | null;
-  make?: string | null;
-  model?: string | null;
+  truckTypeId?: string | null;
   fuelType?: VehicleFuelType | null;
   bodyType?: VehicleBodyType | null;
   wheelCount?: number | null;

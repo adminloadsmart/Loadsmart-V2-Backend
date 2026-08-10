@@ -5,22 +5,23 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
   OneToMany,
   OneToOne,
 } from 'typeorm';
 import { VehicleDocumentEntity } from './vehicle-document.entity';
 import { FleetDriverLinkEntity } from './fleet-driver-link.entity';
+import { TruckTypeEntity } from './truck-type.entity';
 import {
   BODY_TYPES,
   FUEL_TYPES,
   OWNERSHIP_TYPES,
   VEHICLE_STATUSES,
-  VEHICLE_TYPES,
   VehicleBodyType,
   VehicleFuelType,
   VehicleOwnershipType,
   VehicleStatus,
-  VehicleType,
 } from '../utils/vehicle.type';
 
 import { VehicleOperationalStatusEntity } from './vehicle-operational-status.entity';
@@ -44,19 +45,15 @@ export class VehicleEntity {
   @Column({ name: 'registration_number', type: 'varchar', length: 20 })
   registrationNumber!: string;
 
-  @Column({
-    name: 'vehicle_type',
-    type: 'enum',
-    enum: [...VEHICLE_TYPES],
+  @Column({ name: 'truck_type_id', type: 'uuid', nullable: true })
+  truckTypeId!: string | null;
+
+  @ManyToOne(() => TruckTypeEntity, (truckType) => truckType.vehicles, {
     nullable: true,
+    onDelete: 'RESTRICT',
   })
-  vehicleType!: VehicleType | null;
-
-  @Column({ name: 'make', type: 'varchar', length: 50, nullable: true })
-  make!: string | null;
-
-  @Column({ name: 'model', type: 'varchar', length: 50, nullable: true })
-  model!: string | null;
+  @JoinColumn({ name: 'truck_type_id' })
+  truckType!: TruckTypeEntity | null;
 
   @Column({
     name: 'fuel_type',
