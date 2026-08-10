@@ -1,10 +1,14 @@
-import { OrganizationStatus } from '../../organization/entities/organization.entity';
+import {
+  OrganizationJourneyStage,
+  OrganizationStatus,
+} from '../../organization/entities/organization.entity';
 import { DocumentVerificationStatus } from '../../organization/entities/organization-document.entity';
 import { DateFilter } from '../../../shared/utils/date-filter';
 import { PaginationInput } from './admin.types';
 
 export interface ListOrganizationsInput extends PaginationInput {
   status?: OrganizationStatus;
+  journeyStage?: OrganizationJourneyStage;
   search?: string;
   filter?: DateFilter;
   from?: string;

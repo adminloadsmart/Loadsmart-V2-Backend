@@ -8,6 +8,7 @@ import { VehicleTelemetryMetaEntity } from './entities/vehicle-telemetry-meta.en
 import { VehicleVerificationSnapshotEntity } from './entities/vehicle-verification-snapshot.entity';
 import { VehicleDocumentStatus, VehicleDocumentType } from './utils/vehicle.type';
 import { VehicleRepository } from './vehicle.repository';
+import { TruckTypeService } from './truck-type.service';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './masters.constants';
 import { Paginated, paginate } from './utils/masters.types';
 import {
@@ -40,6 +41,7 @@ export function resolveDocumentStatus(expiryDate: string | null): VehicleDocumen
 export class VehicleService {
   constructor(
     private readonly vehicleRepository: VehicleRepository,
+    private readonly truckTypeService: TruckTypeService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -62,13 +64,15 @@ export class VehicleService {
         );
       }
 
+      if (input.truckTypeId) {
+        await this.truckTypeService.assertTruckTypeExists(tenantId, input.truckTypeId);
+      }
+
       return await this.vehicleRepository.create(
         {
           tenantId,
           registrationNumber,
-          vehicleType: input.vehicleType ?? null,
-          make: input.make ?? null,
-          model: input.model ?? null,
+          truckTypeId: input.truckTypeId ?? null,
           fuelType: input.fuelType ?? null,
           bodyType: input.bodyType ?? null,
           wheelCount: input.wheelCount ?? null,
@@ -113,6 +117,10 @@ export class VehicleService {
   ): Promise<VehicleEntity> {
     try {
       await this.assertVehicleExists(tenantId, vehicleId);
+
+      if (input.truckTypeId) {
+        await this.truckTypeService.assertTruckTypeExists(tenantId, input.truckTypeId);
+      }
 
       const vehicle = await this.vehicleRepository.update(tenantId, vehicleId, {
         ...input,

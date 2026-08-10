@@ -5,6 +5,7 @@ import { RoleService } from '../roles/role.service';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
+import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
@@ -22,6 +23,7 @@ export function createAuthModule(
     organizationService: OrganizationService;
     organizationDocumentService: OrganizationDocumentService;
     organizationOnboardingService: OrganizationOnboardingService;
+    organizationJourneyStageService: OrganizationJourneyStageService;
     referralCodeService: ReferralCodeService;
   },
 ) {
@@ -31,6 +33,7 @@ export function createAuthModule(
     deps.organizationService,
     deps.organizationDocumentService,
     deps.organizationOnboardingService,
+    deps.organizationJourneyStageService,
     deps.referralCodeService,
     deps.roleService,
     deps.auditService,

@@ -17,6 +17,25 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   // Reads are open to any authenticated member of the tenant; writes are restricted below.
   const canWrite = requirePermission(MASTERS_WRITE);
 
+  // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
+  router.get(
+    '/truck-types',
+    validate(mastersValidators.listTruckTypes),
+    asyncHandler(controller.listTruckTypes),
+  );
+  router.post(
+    '/truck-types',
+    canWrite,
+    validate(mastersValidators.createTruckType),
+    asyncHandler(controller.createTruckType),
+  );
+  router.delete(
+    '/truck-types/:truckTypeId',
+    canWrite,
+    validate(mastersValidators.deleteTruckType),
+    asyncHandler(controller.deleteTruckType),
+  );
+
   router.post(
     '/vehicles',
     canWrite,

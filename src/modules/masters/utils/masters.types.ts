@@ -18,8 +18,3 @@ export function paginate<T>(
 ): Paginated<T> {
   return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
 }
-
-/** Postgres `date` columns round-trip as 'YYYY-MM-DD' strings, so dates stay strings end to end. */
-export function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}

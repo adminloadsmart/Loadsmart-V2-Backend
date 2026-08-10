@@ -54,7 +54,7 @@ export class VehicleRepository {
   findByIdWithRelations(tenantId: string, id: string): Promise<VehicleEntity | null> {
     return this.vehicles.findOne({
       where: { id, tenantId, deletedAt: IsNull() },
-      relations: { documents: true, driverLinks: { driver: true } },
+      relations: { documents: true, driverLinks: { driver: true }, truckType: true },
     });
   }
 
@@ -76,17 +76,13 @@ export class VehicleRepository {
     // The fleet list filters on the satellite row ("In use" / "Idle"), not the lifecycle status.
     if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
 
-    // Search spans two columns, so it becomes two OR'd where-clauses rather than one.
-    const where: FindOptionsWhere<VehicleEntity>[] = search
-      ? [
-          { ...base, registrationNumber: ILike(`%${search}%`) },
-          { ...base, model: ILike(`%${search}%`) },
-        ]
-      : [base];
+    const where: FindOptionsWhere<VehicleEntity> = search
+      ? { ...base, registrationNumber: ILike(`%${search}%`) }
+      : base;
 
     const [items, total] = await this.vehicles.findAndCount({
       where,
-      relations: { operationalStatus: true },
+      relations: { operationalStatus: true, truckType: true },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

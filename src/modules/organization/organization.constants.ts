@@ -1,4 +1,4 @@
-import { OrganizationStatus } from './entities/organization.entity';
+import { OrganizationJourneyStage, OrganizationStatus } from './entities/organization.entity';
 
 // Allow-list, not deny-list: onboarding states (pending/partial_pending/draft) must stay
 // accessible — the org still needs to hit POST /auth/organization to finish its profile. Only
@@ -13,6 +13,30 @@ export const TENANT_ACCESSIBLE_STATUSES: readonly OrganizationStatus[] = [
 
 export function isTenantAccessible(status: OrganizationStatus): boolean {
   return TENANT_ACCESSIBLE_STATUSES.includes(status);
+}
+
+// Ordering for OrganizationJourneyStageService.recordTransition's forward-only guard.
+// approved/rejected are terminal decisions, ranked equal-highest so either always wins regardless
+// of current stage (mirrors how `status` is already set unconditionally by approve/reject today).
+const JOURNEY_STAGE_ORDER: Record<OrganizationJourneyStage, number> = {
+  application_submitted: 0,
+  online_kyc: 1,
+  physical_kyc: 2,
+  approved: 3,
+  rejected: 3,
+};
+
+// onlineKycVerifierId/physicalKycAgentId are two independent assignment fields that can be set in
+// either order, so assigning the online verifier *after* the physical agent must not regress the
+// stage from 'physical_kyc' back to 'online_kyc' — the assignment itself still succeeds either
+// way, only the stage advance is guarded here.
+export function nextJourneyStage(
+  current: OrganizationJourneyStage | null,
+  target: OrganizationJourneyStage,
+): OrganizationJourneyStage {
+  if (target === 'approved' || target === 'rejected') return target;
+  if (!current) return target;
+  return JOURNEY_STAGE_ORDER[target] > JOURNEY_STAGE_ORDER[current] ? target : current;
 }
 
 // Per-type format check for a submitted organization document's `documentNumber` — see

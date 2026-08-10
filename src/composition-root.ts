@@ -54,6 +54,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
     organizationOnboardingService: organization.organizationOnboardingService,
+    organizationJourneyStageService: organization.organizationJourneyStageService,
     referralCodeService: organization.referralCodeService,
   });
   const authMiddleware = createAuth(auth.authRepository);
@@ -83,13 +84,14 @@ export function buildContainer(dataSource: DataSource): Container {
   const admin = createAdminModule({
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
+    organizationJourneyStageService: organization.organizationJourneyStageService,
     authService: auth.service,
     referralCodeService: organization.referralCodeService,
     auditService: audit.service,
   });
 
-  // Last — reads other modules' services directly (none wired yet).
-  const dashboards = createDashboardsModule();
+  // Last — reads other modules' services directly.
+  const dashboards = createDashboardsModule({ vehicleService: masters.vehicleService });
 
   return {
     tenancyGateway: auth.tenancyGateway,
