@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../shared/utils/date';
-import {
-  DEFAULT_PAGE,
-  DEFAULT_PAGE_SIZE,
-  IFSC_REGEX,
-  MAX_PAGE_SIZE,
-  REGISTRATION_NUMBER_REGEX,
-} from './masters.constants';
+import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import { IFSC_REGEX, REGISTRATION_NUMBER_REGEX } from './masters.constants';
 import {
   BODY_TYPES,
   FUEL_TYPES,
@@ -31,12 +26,6 @@ import {
 const uuid = z.string().uuid();
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
-
-const pagination = z.object({
-  page: z.coerce.number().int().positive().default(DEFAULT_PAGE),
-  limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
-  search: z.string().min(1).optional(),
-});
 
 const vehicleParams = z.object({ vehicleId: uuid });
 const vehicleDocumentParams = z.object({ vehicleId: uuid, documentId: uuid });

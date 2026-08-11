@@ -33,13 +33,19 @@ import {
   SIGNUP_STATIC_OTP,
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
-import { ORG_ADMIN_ROLE, STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import {
+  ORG_ADMIN_ROLE,
+  STAFF_ASSIGNABLE_ROLES,
+  ORG_ASSIGNABLE_ROLES,
+} from '../../shared/constants/roles';
 import {
   SignupInput,
   RequestLoginOtpInput,
   VerifyOtpInput,
   VerifyLoginOtpInput,
   CreateStaffInput,
+  InviteOrganizationUserInput,
+  ListOrganizationUsersInput,
   LoginInput,
   RefreshInput,
   LogoutInput,
@@ -307,6 +313,88 @@ export class AuthService {
       coverage: user.coverage,
       permissions: await this.roleService.getEffectivePermissions(user.id),
       createdAt: user.createdAt,
+    };
+  }
+
+  /** Org admin invites a teammate into their own org (Settings → Users & Roles) — the
+   *  organization-scope counterpart to createStaffUser above. Phone only, no email. Unlike staff
+   *  creation there's no separate delivery channel (SMS/email) yet for the generated password, so
+   *  it's returned once in the response for the admin to share manually — a gap worth closing
+   *  once notifications wiring exists, same as staff creation already has.
+   *
+   *  organization.routes.ts already gates the caller via requirePermission(ORGANIZATION_PROFILE_MANAGE),
+   *  which only org_admin holds — the role check here is belt-and-suspenders for any future caller
+   *  of this service method that bypasses the route; the tenantId check is load-bearing, since
+   *  requirePermission has no notion of tenant context and platform_admin's bypass would otherwise
+   *  reach here with a null tenantId. */
+  async inviteOrganizationUser(actingUser: AuthenticatedUser, input: InviteOrganizationUserInput) {
+    if (actingUser.role !== ORG_ADMIN_ROLE || !actingUser.tenantId) {
+      throw new AuthorizationError('Only an org admin can invite teammates');
+    }
+    const { fullName, phoneNumber, roleId } = input;
+
+    const role = await this.roleService.getRoleById(roleId);
+    if (!ORG_ASSIGNABLE_ROLES.includes(role.name)) {
+      throw new ValidationError(
+        `Role "${role.name}" cannot be assigned through an org invite — must be one of: ${ORG_ASSIGNABLE_ROLES.join(', ')}`,
+      );
+    }
+
+    const normalizedPhone = this.normalizePhone(phoneNumber);
+    const existingByPhone = await this.authRepository.findUserByPhone(normalizedPhone);
+    if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
+
+    const password = this.generatePassword();
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await this.authRepository.createUser({
+      phoneNumber: normalizedPhone,
+      tenantId: actingUser.tenantId,
+      roleId,
+      email: null,
+      passwordHash,
+      fullName,
+      coverage: null,
+    });
+
+    await this.auditService.log({
+      tenantId: actingUser.tenantId,
+      userId: actingUser.id,
+      action: 'ORG_USER_INVITED',
+      resourceType: 'user',
+      newData: { id: user.id, fullName, phoneNumber: user.phoneNumber, role: role.name },
+    });
+
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      phoneNumber: user.phoneNumber,
+      role: user.role.name,
+      temporaryPassword: password,
+      permissions: await this.roleService.getEffectivePermissions(user.id),
+      createdAt: user.createdAt,
+    };
+  }
+
+  async listOrganizationUsers(actingUser: AuthenticatedUser, input: ListOrganizationUsersInput) {
+    if (!actingUser.tenantId) {
+      throw new AuthorizationError('This resource requires an organization context');
+    }
+    const { items, total } = await this.authRepository.listOrganizationUsers(
+      actingUser.tenantId,
+      input,
+    );
+    return {
+      items: items.map((user) => ({
+        id: user.id,
+        fullName: user.fullName,
+        phoneNumber: user.phoneNumber,
+        role: user.role.name,
+        createdAt: user.createdAt,
+      })),
+      page: input.page,
+      limit: input.limit,
+      total,
+      totalPages: Math.ceil(total / input.limit),
     };
   }
 

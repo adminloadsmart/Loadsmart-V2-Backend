@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './admin.constants';
 import {
   ORGANIZATION_JOURNEY_STAGES,
   ORGANIZATION_STATUSES,
@@ -7,6 +6,7 @@ import {
 import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
+import { paginationQuery as pagination } from '../../shared/validators/pagination';
 
 const uuid = z.string().uuid();
 const organizationParams = z.object({ organizationId: uuid });
@@ -14,12 +14,6 @@ const organizationDocumentParams = organizationParams.extend({ documentId: uuid 
 const decisionReasonBody = z.object({ reason: z.string().min(1) });
 const referralCodeParams = z.object({ referralCodeId: uuid });
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be in YYYY-MM-DD format');
-
-const pagination = z.object({
-  page: z.coerce.number().int().positive().default(DEFAULT_PAGE),
-  limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
-  search: z.string().min(1).optional(),
-});
 
 export const adminValidators = {
   listOrganizations: z.object({

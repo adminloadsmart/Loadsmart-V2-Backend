@@ -1,4 +1,12 @@
-import { DataSource, EntityManager, IsNull, MoreThan, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  ILike,
+  IsNull,
+  MoreThan,
+  Repository,
+} from 'typeorm';
 import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { LoginAttemptEntity } from './entities/login-attempt.entity';
@@ -93,6 +101,40 @@ export class AuthRepository {
     }
 
     const [items, total] = await qb.getManyAndCount();
+    return { items, total };
+  }
+
+  // Organization-scope counterpart to listStaffUsers above — every user (org_admin plus invited
+  // teammates) belonging to one tenant, for Settings → Users & Roles.
+  async listOrganizationUsers(
+    tenantId: string,
+    filters: { search?: string; role?: string; page: number; limit: number },
+  ): Promise<{ items: UserEntity[]; total: number }> {
+    const { search, role, page, limit } = filters;
+
+    const base: FindOptionsWhere<UserEntity> = {
+      tenantId,
+      deletedAt: IsNull(),
+      role: { scope: 'organization', ...(role ? { name: role } : {}) },
+    };
+
+    // Search spans two columns, so it becomes two OR'd where-clauses rather than one — same
+    // approach driver.repository.ts's list() uses.
+    const where: FindOptionsWhere<UserEntity>[] = search
+      ? [
+          { ...base, fullName: ILike(`%${search}%`) },
+          { ...base, phoneNumber: ILike(`%${search}%`) },
+        ]
+      : [base];
+
+    const [items, total] = await this.users.findAndCount({
+      where,
+      relations: { role: true },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
     return { items, total };
   }
 
