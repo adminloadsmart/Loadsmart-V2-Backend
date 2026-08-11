@@ -43,6 +43,11 @@ export class OrganizationService {
     to?: string;
     page: number;
     limit: number;
+    // Role-scoping for online_kyc_desk/offline_kyc_desk — see AdminService.listOrganizations,
+    // which is the only caller that ever sets these (platform_admin's calls leave them undefined).
+    onlineKycVerifierId?: string;
+    physicalKycAgentId?: string;
+    onlineKycCompleted?: boolean;
   }): Promise<{ items: OrganizationEntity[]; total: number }> {
     return this.organizationRepository.list(filters);
   }
@@ -69,6 +74,8 @@ export class OrganizationService {
       fleetSize: number | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
+      onlineKycCompletedAt: Date | null;
+      physicalKycApprovedAt: Date | null;
       decisionReason: string | null;
       submittedAt: Date | null;
       journeyStage: OrganizationJourneyStage | null;
