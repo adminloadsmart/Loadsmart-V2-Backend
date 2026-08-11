@@ -240,8 +240,10 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     validate(mastersValidators.getDriverOperationalStatus),
     asyncHandler(controller.getDriverOperationalStatus),
   );
-  router.put(
-    '/drivers/:driverId/operational-status',
+  // "My Drivers" status dropdown (On trip / Active / On leave); one row per driver, so the first
+  // call inserts and later calls overwrite it.
+  router.patch(
+    '/drivers/:driverId/status',
     canWrite,
     validate(mastersValidators.setDriverOperationalStatus),
     asyncHandler(controller.setDriverOperationalStatus),

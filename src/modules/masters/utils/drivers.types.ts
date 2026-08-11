@@ -5,7 +5,7 @@
  */
 
 /** Lifecycle state of the driver record, distinct from their live `operationalStatus`. */
-export const DRIVER_STATUSES = ['active', 'inactive', 'blacklisted'] as const;
+export const DRIVER_STATUSES = ['active', 'inactive', 'on_trip', 'on_leave'] as const;
 export type DriverStatus = (typeof DRIVER_STATUSES)[number];
 
 /** Licence photos captured on the manual Sarathi route. */

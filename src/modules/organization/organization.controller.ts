@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import { AuthService } from '../auth/auth.service';
+import { InviteOrganizationUserInput, ListOrganizationUsersInput } from '../auth/auth.types';
 
 // The org onboarding endpoints — GET/POST /auth/organization, POST /auth/organization/business,
 // POST /auth/organization/submit. Kept mounted under /auth (see modules/organization/index.ts's
@@ -39,5 +40,21 @@ export class OrganizationController {
   submitOrganization = async (req: Request, res: Response) => {
     const result = await this.authService.submitOrganization(req.user!, req.body);
     respond(res, result);
+  };
+
+  inviteUser = async (req: Request, res: Response) => {
+    const user = await this.authService.inviteOrganizationUser(
+      req.user!,
+      req.body as InviteOrganizationUserInput,
+    );
+    respond(res, user, 201);
+  };
+
+  listUsers = async (req: Request, res: Response) => {
+    const users = await this.authService.listOrganizationUsers(
+      req.user!,
+      req.validatedQuery as ListOrganizationUsersInput,
+    );
+    respond(res, users);
   };
 }

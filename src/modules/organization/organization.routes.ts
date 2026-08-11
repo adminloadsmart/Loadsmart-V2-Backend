@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
+import { requirePermission } from '../../shared/middleware/require-permission.middleware';
+import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
 import { OrganizationController } from './organization.controller';
 import { organizationValidators } from './organization.validators';
 
@@ -27,6 +29,25 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
     '/organization/submit',
     validate(organizationValidators.submitOrganization),
     asyncHandler(controller.submitOrganization),
+  );
+
+  // Settings → Users & Roles. Gated the same way admin.routes.ts gates POST/GET /admin/staff —
+  // requirePermission fails fast at the route instead of only 403ing deep inside the service.
+  // ORGANIZATION_PROFILE_MANAGE is seeded onto org_admin only (see db/seed-roles.ts), so this is
+  // functionally an org-admin-only gate today; auth.service.ts's inviteOrganizationUser/
+  // listOrganizationUsers still assert actingUser.tenantId is real as a second, cheaper check —
+  // requirePermission has no notion of tenant context, only of permission membership.
+  router.post(
+    '/organization/users',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    validate(organizationValidators.inviteOrganizationUser),
+    asyncHandler(controller.inviteUser),
+  );
+  router.get(
+    '/organization/users',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    validate(organizationValidators.listOrganizationUsers),
+    asyncHandler(controller.listUsers),
   );
 
   return router;

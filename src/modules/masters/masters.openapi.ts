@@ -694,12 +694,13 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
-    method: 'put',
-    path: `${BASE}/drivers/{driverId}/operational-status`,
+    method: 'patch',
+    path: `${BASE}/drivers/{driverId}/status`,
     tags: [TAGS.MASTERS],
-    operationId: 'masters.setDriverOperationalStatus',
+    operationId: 'masters.updateDriverStatus',
     ...write(
-      'Set the operational status. One row per driver — first call inserts, later calls overwrite.',
+      'Set the operational status backing the My Drivers status dropdown (On trip / Active / On ' +
+        'leave). One row per driver — first call inserts, later calls overwrite.',
     ),
     request: {
       params: mastersValidators.setDriverOperationalStatus.shape.params,

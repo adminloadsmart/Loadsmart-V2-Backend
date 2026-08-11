@@ -1,7 +1,14 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { organizationValidators } from './organization.validators';
 import { API_VERSION_PREFIX } from '../../shared/constants/api';
-import { TAGS, authenticated, errorContent, json } from '../../shared/openapi/core';
+import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
+import {
+  TAGS,
+  authenticated,
+  permissionGated,
+  errorContent,
+  json,
+} from '../../shared/openapi/core';
 
 /**
  * OpenAPI docs for the org onboarding endpoints — GET/POST /v1/auth/organization,
@@ -13,6 +20,10 @@ import { TAGS, authenticated, errorContent, json } from '../../shared/openapi/co
  */
 
 const BASE = `${API_VERSION_PREFIX}/auth`; // absolute path — must match its mount in app.ts
+// ORGANIZATION_PROFILE_MANAGE is seeded onto org_admin only (see db/seed-roles.ts) — same
+// permissionGated pattern admin.openapi.ts uses for its adminOnly routes.
+const orgAdminOnly = (description: string) =>
+  permissionGated([ORGANIZATION_PROFILE_MANAGE], description);
 
 export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
@@ -94,6 +105,46 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
         description: "The organization is rejected or suspended and can't be updated",
         ...errorContent,
       },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organization/users`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.inviteOrganizationUser',
+    ...orgAdminOnly(
+      'Org admin invites a teammate into their own org (Settings → Users & Roles) with one ' +
+        'of the 4 assignable roles: Sales/CS, Dispatch, Documents/Ops, Finance/Accounts. Phone ' +
+        'only, no email. Returns a one-time temporaryPassword for the admin to share manually.',
+    ),
+    request: { body: json(organizationValidators.inviteOrganizationUser.shape.body) },
+    responses: {
+      201: { description: 'Created user, with a one-time temporaryPassword' },
+      400: {
+        description: 'Validation failed, or role is not one of the 4 assignable roles',
+        ...errorContent,
+      },
+      403: { description: 'Caller is not an org admin', ...errorContent },
+      409: { description: 'A user with this phone number already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/users`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.listOrganizationUsers',
+    ...orgAdminOnly(
+      "List the caller's own org's teammates (org_admin plus invited users), paginated and " +
+        'optionally filtered by role.',
+    ),
+    request: { query: organizationValidators.listOrganizationUsers.shape.query },
+    responses: {
+      200: {
+        description: 'Paginated org users — { data: { items, page, limit, total, totalPages } }',
+      },
+      403: { description: 'Caller has no organization context yet', ...errorContent },
     },
   });
 }

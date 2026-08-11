@@ -30,4 +30,23 @@ export const STAFF_ASSIGNABLE_ROLES = [
 // staff roles get exactly the permissions their role_permissions row grants, no superuser bypass.
 export const PLATFORM_SCOPE_ROLES = [PLATFORM_ADMIN_ROLE, ...STAFF_ASSIGNABLE_ROLES];
 
+// Named individually so listOrganizationUsers/inviteOrganizationUser can validate an assignment
+// target without comparing against a raw string literal — same reason ONLINE_KYC_DESK_ROLE etc.
+// are named above. Display labels (Settings → Users & Roles): "Sales / CS", "Dispatch",
+// "Documents / Ops", "Finance / Accounts" — the frontend's concern, not encoded here.
+export const SALES_CS_ROLE = 'sales_cs';
+export const DISPATCH_ROLE = 'dispatch';
+export const DOCUMENTS_OPS_ROLE = 'documents_ops';
+export const FINANCE_ACCOUNTS_ROLE = 'finance_accounts';
+
+// Roles an org admin may hand a teammate invited into their own org (POST
+// /auth/organization/users) — deliberately excludes org_admin itself (provisioned exclusively
+// through self-signup, same reasoning STAFF_ASSIGNABLE_ROLES excludes platform_admin/org_admin).
+export const ORG_ASSIGNABLE_ROLES = [
+  SALES_CS_ROLE,
+  DISPATCH_ROLE,
+  DOCUMENTS_OPS_ROLE,
+  FINANCE_ACCOUNTS_ROLE,
+];
+
 export type Role = string;

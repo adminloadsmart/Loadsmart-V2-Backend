@@ -29,6 +29,21 @@ export interface CreateStaffInput {
   permissionIds?: string[];
 }
 
+// Org admin inviting a teammate into their own org — the organization-scope counterpart to
+// CreateStaffInput. Phone only, no email: see auth.service.ts's inviteOrganizationUser.
+export interface InviteOrganizationUserInput {
+  fullName: string;
+  phoneNumber: string;
+  roleId: string;
+}
+
+export interface ListOrganizationUsersInput {
+  search?: string;
+  role?: string;
+  page: number;
+  limit: number;
+}
+
 export interface LoginInput {
   phoneNumber: string;
   password: string;

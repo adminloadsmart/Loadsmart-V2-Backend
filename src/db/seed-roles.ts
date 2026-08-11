@@ -29,12 +29,23 @@ import {
   KYC_OFFLINE_REJECT,
   LOADS_CONSOLE_ACCESS,
   SALES_LEADS_MANAGE,
+  REQUISITIONS_MANAGE,
+  DISPATCH_PLANNING_MANAGE,
+  LOADS_DOCUMENTS_MANAGE,
+  PAYMENTS_MANAGE,
   CUSTOMERS_CREATE,
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
   CUSTOMERS_APPROVE,
 } from '../shared/constants/permissions';
-import { PLATFORM_ADMIN_ROLE, ORG_ADMIN_ROLE } from '../shared/constants/roles';
+import {
+  PLATFORM_ADMIN_ROLE,
+  ORG_ADMIN_ROLE,
+  SALES_CS_ROLE,
+  DISPATCH_ROLE,
+  DOCUMENTS_OPS_ROLE,
+  FINANCE_ACCOUNTS_ROLE,
+} from '../shared/constants/roles';
 
 const PERMISSIONS: { key: string; module: string; scope: PermissionScope; description: string }[] =
   [
@@ -93,6 +104,31 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       description: 'Manage sales leads',
     },
     {
+      key: REQUISITIONS_MANAGE,
+      module: 'loads',
+      scope: 'organization',
+      description: 'Manage load requisitions (PRD §6 Requisition stage)',
+    },
+    {
+      key: DISPATCH_PLANNING_MANAGE,
+      module: 'loads',
+      scope: 'organization',
+      description:
+        'Manage dispatch planning and load assignment (PRD §6 Planning/Assignment stage)',
+    },
+    {
+      key: LOADS_DOCUMENTS_MANAGE,
+      module: 'loads',
+      scope: 'organization',
+      description: 'Manage loading documents and E-POD (PRD §6 Loading & Docs / E-POD stage)',
+    },
+    {
+      key: PAYMENTS_MANAGE,
+      module: 'payments',
+      scope: 'organization',
+      description: 'Manage advance/balance payments (PRD §7 Billing & Payments)',
+    },
+    {
       key: CUSTOMERS_CREATE,
       module: 'customers',
       scope: 'organization',
@@ -147,6 +183,14 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       CUSTOMERS_APPROVE,
     ],
   },
+  // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
+  // Roles. Permission keys are forward-looking: the Load module (PRD §6) and Payments module
+  // (PRD §7) that actually enforce them don't exist yet — same "seeded ahead of the module"
+  // situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
+  { name: SALES_CS_ROLE, scope: 'organization', permissionKeys: [REQUISITIONS_MANAGE] },
+  { name: DISPATCH_ROLE, scope: 'organization', permissionKeys: [DISPATCH_PLANNING_MANAGE] },
+  { name: DOCUMENTS_OPS_ROLE, scope: 'organization', permissionKeys: [LOADS_DOCUMENTS_MANAGE] },
+  { name: FINANCE_ACCOUNTS_ROLE, scope: 'organization', permissionKeys: [PAYMENTS_MANAGE] },
 ];
 
 async function seed(): Promise<void> {
