@@ -22,13 +22,17 @@ export class AdminController {
 
   listOrganizations = async (req: Request, res: Response) => {
     const organizations = await this.adminService.listOrganizations(
+      req.user!,
       req.validatedQuery as ListOrganizationsInput,
     );
     respond(res, organizations);
   };
 
   getOrganization = async (req: Request<OrganizationParams>, res: Response) => {
-    const organization = await this.adminService.getOrganization(req.params.organizationId);
+    const organization = await this.adminService.getOrganization(
+      req.user!,
+      req.params.organizationId,
+    );
     respond(res, organization);
   };
 
@@ -69,6 +73,22 @@ export class AdminController {
     respond(res, organization);
   };
 
+  completeOnlineKyc = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.completeOnlineKyc(
+      req.user!,
+      req.params.organizationId,
+    );
+    respond(res, organization);
+  };
+
+  approvePhysicalKyc = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.approvePhysicalKyc(
+      req.user!,
+      req.params.organizationId,
+    );
+    respond(res, organization);
+  };
+
   approveOrganization = async (req: Request<OrganizationParams>, res: Response) => {
     const organization = await this.adminService.approveOrganization(
       req.user!,
@@ -97,6 +117,7 @@ export class AdminController {
 
   getOrganizationAuditTrail = async (req: Request<OrganizationParams>, res: Response) => {
     const trail = await this.adminService.getOrganizationAuditTrail(
+      req.user!,
       req.params.organizationId,
       req.validatedQuery as { page: number; limit: number },
     );
