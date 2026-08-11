@@ -8,6 +8,7 @@ import { registerRoleOpenApi } from '../../modules/roles/role.openapi';
 import { registerMastersOpenApi } from '../../modules/masters/masters.openapi';
 import { registerAdminOpenApi } from '../../modules/admin/admin.openapi';
 import { registerDashboardsOpenApi } from '../../modules/dashboards/dashboards.openapi';
+import { registerCustomersOpenApi } from '../../modules/customers/customer.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -36,6 +37,7 @@ function getOpenApiDocument() {
     registerMastersOpenApi(registry);
     registerAdminOpenApi(registry);
     registerDashboardsOpenApi(registry);
+    registerCustomersOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -60,6 +62,7 @@ function getOpenApiDocument() {
           name: TAGS.DASHBOARDS,
           description: 'Cross-module read models for fleet dashboards (fleet activity summary)',
         },
+        { name: TAGS.CUSTOMERS, description: 'Tenant customer management' },
       ],
     });
   }

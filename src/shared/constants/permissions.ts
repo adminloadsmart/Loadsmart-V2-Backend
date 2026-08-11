@@ -27,3 +27,7 @@ export const REQUISITIONS_MANAGE = 'requisitions.manage'; // sales_cs — §6 Re
 export const DISPATCH_PLANNING_MANAGE = 'dispatch.planning.manage'; // dispatch — §6 Planning/Assignment
 export const LOADS_DOCUMENTS_MANAGE = 'loads.documents.manage'; // documents_ops — §6 Loading/E-POD
 export const PAYMENTS_MANAGE = 'payments.manage'; // finance_accounts — §7 Advance/Balance
+export const CUSTOMERS_CREATE = 'customers.create';
+export const CUSTOMERS_READ = 'customers.read';
+export const CUSTOMERS_WRITE = 'customers.write';
+export const CUSTOMERS_APPROVE = 'customers.approve';

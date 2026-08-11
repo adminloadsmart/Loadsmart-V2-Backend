@@ -18,6 +18,7 @@ import { createMaintenanceModule } from './modules/maintenance';
 import { createAuditModule } from './modules/audit';
 import { createAdminModule } from './modules/admin';
 import { createDashboardsModule } from './modules/dashboards';
+import { createCustomersModule } from './modules/customers';
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 
@@ -92,6 +93,7 @@ export function buildContainer(dataSource: DataSource): Container {
 
   // Last — reads other modules' services directly.
   const dashboards = createDashboardsModule({ vehicleService: masters.vehicleService });
+  const customers = createCustomersModule(dataSource, audit.service);
 
   return {
     tenancyGateway: auth.tenancyGateway,
@@ -111,6 +113,7 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/maintenance', router: maintenance.router },
       { path: '/admin', router: admin.router },
       { path: '/dashboards', router: dashboards.router },
+      { path: '/customers', router: customers.router },
     ],
   };
 }
