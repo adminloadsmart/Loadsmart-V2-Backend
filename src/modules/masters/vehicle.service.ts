@@ -9,6 +9,7 @@ import { VehicleVerificationSnapshotEntity } from './entities/vehicle-verificati
 import { VehicleDocumentStatus, VehicleDocumentType } from './utils/vehicle.type';
 import { VehicleRepository } from './vehicle.repository';
 import { TruckTypeService } from './truck-type.service';
+import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './masters.constants';
 import { Paginated, paginate } from './utils/masters.types';
 import {
@@ -42,6 +43,7 @@ export class VehicleService {
   constructor(
     private readonly vehicleRepository: VehicleRepository,
     private readonly truckTypeService: TruckTypeService,
+    private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -528,6 +530,7 @@ export class VehicleService {
         serviceUsage,
         documents,
         operationalStatus,
+        driverLink,
         ...vehicleInput
       } = input;
 
@@ -599,6 +602,18 @@ export class VehicleService {
           },
           manager,
         );
+
+        // Same transaction as the vehicle itself, so a driver picked at onboarding time (e.g. not
+        // active, or already linked elsewhere) rolls the whole vehicle creation back too.
+        if (driverLink) {
+          await this.fleetDriverLinkService.linkDriver(
+            tenantId,
+            actorId,
+            vehicle.id,
+            driverLink,
+            manager,
+          );
+        }
 
         return vehicle.id;
       });

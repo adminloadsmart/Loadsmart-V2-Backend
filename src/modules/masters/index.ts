@@ -16,18 +16,25 @@ export function createMastersModule(dataSource: DataSource) {
   const truckTypeService = new TruckTypeService(truckTypeRepository);
 
   const vehicleRepository = new VehicleRepository(dataSource);
-  const vehicleService = new VehicleService(vehicleRepository, truckTypeService, dataSource);
-
   const driverRepository = new DriverRepository(dataSource);
-  const driverService = new DriverService(driverRepository, dataSource);
 
+  // Built on the repositories (not VehicleService/DriverService) so it has no dependency on
+  // VehicleService — which itself depends on this service to link a driver during onboarding.
   const fleetDriverLinkRepository = new FleetDriverLinkRepository(dataSource);
   const fleetDriverLinkService = new FleetDriverLinkService(
     fleetDriverLinkRepository,
-    vehicleService,
-    driverService,
+    vehicleRepository,
+    driverRepository,
     dataSource,
   );
+
+  const vehicleService = new VehicleService(
+    vehicleRepository,
+    truckTypeService,
+    fleetDriverLinkService,
+    dataSource,
+  );
+  const driverService = new DriverService(driverRepository, dataSource);
 
   const controller = new MastersController(
     vehicleService,

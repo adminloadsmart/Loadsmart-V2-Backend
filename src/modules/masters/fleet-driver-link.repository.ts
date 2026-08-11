@@ -29,8 +29,10 @@ export class FleetDriverLinkRepository {
     tenantId: string,
     vehicleId: string,
     driverId: string,
+    manager?: EntityManager,
   ): Promise<FleetDriverLinkEntity | null> {
-    return this.links.findOneBy({
+    const links = manager ? manager.getRepository(FleetDriverLinkEntity) : this.links;
+    return links.findOneBy({
       tenantId,
       vehicleId,
       driverId,

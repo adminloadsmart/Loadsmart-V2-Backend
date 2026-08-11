@@ -1,4 +1,5 @@
 import { PaginationInput } from './masters.types';
+import { LinkDriverInput } from './fleet-driver-link.interface';
 import {
   VehicleBodyType,
   VehicleDocumentStatus,
@@ -247,8 +248,10 @@ export interface UpdateVehicleServiceUsageData {
  * The whole "Add a vehicle" form in one request. Every section past the first is optional, and the
  * service applies them in a single transaction so a failure late on cannot leave a half-built vehicle.
  *
- * The driver link is deliberately not here: it spans the driver aggregate and is owned by
- * FleetDriverLinkService, so it stays a separate `POST /vehicles/:vehicleId/drivers` call.
+ * `driverLink` is optional because a vehicle can be onboarded before any driver is assigned; when
+ * present, VehicleService hands it to FleetDriverLinkService.linkDriver inside the same transaction,
+ * so the vehicle and its driver link succeed or fail together. The same link can also be made (or
+ * changed) later via a standalone `POST /vehicles/:vehicleId/drivers` call.
  */
 export interface OnboardVehicleInput extends CreateVehicleInput {
   verification?: RecordVehicleVerificationInput;
@@ -256,4 +259,5 @@ export interface OnboardVehicleInput extends CreateVehicleInput {
   serviceUsage?: SetVehicleServiceUsageInput;
   documents?: AddVehicleDocumentInput[];
   operationalStatus?: SetVehicleOperationalStatusInput;
+  driverLink?: LinkDriverInput;
 }

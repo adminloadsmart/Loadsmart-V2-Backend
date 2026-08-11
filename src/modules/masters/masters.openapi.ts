@@ -513,7 +513,10 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     ...write(
       'Create a vehicle and every section of the "Add a vehicle" form in one transaction: ' +
         'VAHAN verification (which folds registry expiry dates into the document rows), documents, ' +
-        'telemetry, service usage and operational status. The driver link stays a separate call.',
+        'telemetry, service usage, operational status, and an optional driver link. When ' +
+        'driverLink is given it is applied in the same transaction, so the vehicle and its driver ' +
+        'link succeed or fail together; the link can also be made or changed later via ' +
+        'POST /vehicles/{vehicleId}/drivers.',
     ),
     request: { body: json(mastersValidators.onboardVehicle.shape.body) },
     responses: {

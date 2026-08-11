@@ -1,29 +1,43 @@
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { toDateString } from '../../shared/utils/date';
 import { FleetDriverLinkEntity } from './entities/fleet-driver-link.entity';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
-import { VehicleService } from './vehicle.service';
-import { DriverService } from './driver.service';
+import { VehicleRepository } from './vehicle.repository';
+import { DriverRepository } from './driver.repository';
 import { LinkDriverInput } from './utils/fleet-driver-link.interface';
 
+/**
+ * Depends on the vehicle/driver repositories rather than their services: VehicleService.onboardVehicle
+ * calls into this service to link a driver inside the same transaction (see its `driverLink` handling),
+ * so this can't depend back on VehicleService without a constructor cycle. The existence checks below
+ * are the same ones VehicleService/DriverService would otherwise have done on our behalf.
+ */
 export class FleetDriverLinkService {
   constructor(
     private readonly linkRepository: FleetDriverLinkRepository,
-    private readonly vehicleService: VehicleService,
-    private readonly driverService: DriverService,
+    private readonly vehicleRepository: VehicleRepository,
+    private readonly driverRepository: DriverRepository,
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Pass `outerManager` to run inside a caller's transaction (e.g. vehicle onboarding), so the link
+   * commits or rolls back with the rest of that unit of work instead of as its own transaction.
+   */
   async linkDriver(
     tenantId: string,
     actorId: string,
     vehicleId: string,
     input: LinkDriverInput,
+    outerManager?: EntityManager,
   ): Promise<FleetDriverLinkEntity> {
     try {
-      await this.vehicleService.assertVehicleExists(tenantId, vehicleId);
-      const driver = await this.driverService.assertDriverExists(tenantId, input.driverId);
+      const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, outerManager);
+      if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
+
+      const driver = await this.driverRepository.findById(tenantId, input.driverId, outerManager);
+      if (!driver) throw new NotFoundError(`Driver ${input.driverId} not found`);
 
       if (driver.status !== 'active') {
         throw new ValidationError(
@@ -35,6 +49,7 @@ export class FleetDriverLinkService {
         tenantId,
         vehicleId,
         input.driverId,
+        outerManager,
       );
       if (existing) {
         throw new ConflictError('This driver is already assigned to the vehicle');
@@ -43,7 +58,7 @@ export class FleetDriverLinkService {
       const isPrimary = input.isPrimary ?? true;
       const linkedFrom = input.linkedFrom ?? toDateString(new Date());
 
-      return await this.dataSource.transaction(async (manager) => {
+      const run = async (manager: EntityManager) => {
         // At most one primary driver per vehicle, so the incoming primary demotes the incumbent.
         if (isPrimary) {
           await this.linkRepository.demoteOtherPrimaryLinks(
@@ -66,7 +81,9 @@ export class FleetDriverLinkService {
           },
           manager,
         );
-      });
+      };
+
+      return outerManager ? await run(outerManager) : await this.dataSource.transaction(run);
     } catch (error) {
       rethrow(error, 'Failed to link driver to vehicle');
     }
@@ -74,7 +91,8 @@ export class FleetDriverLinkService {
 
   async listVehicleLinks(tenantId: string, vehicleId: string): Promise<FleetDriverLinkEntity[]> {
     try {
-      await this.vehicleService.assertVehicleExists(tenantId, vehicleId);
+      const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId);
+      if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
       return await this.linkRepository.listByVehicle(tenantId, vehicleId);
     } catch (error) {
       rethrow(error, 'Failed to list vehicle links');
@@ -83,7 +101,8 @@ export class FleetDriverLinkService {
 
   async listDriverLinks(tenantId: string, driverId: string): Promise<FleetDriverLinkEntity[]> {
     try {
-      await this.driverService.assertDriverExists(tenantId, driverId);
+      const driver = await this.driverRepository.findById(tenantId, driverId);
+      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
       return await this.linkRepository.listByDriver(tenantId, driverId);
     } catch (error) {
       rethrow(error, 'Failed to list driver links');

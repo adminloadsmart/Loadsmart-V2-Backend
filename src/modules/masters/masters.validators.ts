@@ -99,6 +99,12 @@ const vehicleServiceUsageBody = z.object({
   lastTyreChangeDate: isoDate.optional(),
 });
 
+const driverLinkBody = z.object({
+  driverId: uuid,
+  isPrimary: z.boolean().optional(),
+  linkedFrom: isoDate.optional(),
+});
+
 const vehicleDocumentBody = z.object({
   documentType: z.enum(VEHICLE_DOCUMENT_TYPES),
   documentNumber: z.string().min(1).max(50).optional(),
@@ -206,6 +212,7 @@ export const mastersValidators = {
       serviceUsage: vehicleServiceUsageBody.optional(),
       documents: z.array(vehicleDocumentBody).max(20).optional(),
       operationalStatus: vehicleOperationalStatusBody.optional(),
+      driverLink: driverLinkBody.optional(),
     }),
   }),
   listVehicles: z.object({
