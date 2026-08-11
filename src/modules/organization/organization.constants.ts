@@ -21,9 +21,11 @@ export function isTenantAccessible(status: OrganizationStatus): boolean {
 const JOURNEY_STAGE_ORDER: Record<OrganizationJourneyStage, number> = {
   application_submitted: 0,
   online_kyc: 1,
-  physical_kyc: 2,
-  approved: 3,
-  rejected: 3,
+  online_kyc_completed: 2,
+  physical_kyc: 3,
+  final_approval: 4,
+  approved: 5,
+  rejected: 5,
 };
 
 // onlineKycVerifierId/physicalKycAgentId are two independent assignment fields that can be set in
