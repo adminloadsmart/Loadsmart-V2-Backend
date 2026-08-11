@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { DOCUMENT_NUMBER_REGEX } from './organization.constants';
 import { ORGANIZATION_DOCUMENT_TYPES } from './entities/organization-document.entity';
+import { ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { paginationQuery as pagination } from '../../shared/validators/pagination';
+
+const uuid = z.string().uuid();
 
 const organizationDocumentSchema = z
   .object({
@@ -125,5 +129,21 @@ export const organizationValidators = {
   }),
   submitOrganization: z.object({
     body: organizationReviewSchema,
+  }),
+
+  // Settings → Users & Roles "Invite a teammate". roleId is just a uuid here — the actual
+  // ORG_ASSIGNABLE_ROLES membership check happens service-side (auth.service.ts's
+  // inviteOrganizationUser), same as admin.validators.ts's createStaff/STAFF_ASSIGNABLE_ROLES.
+  inviteOrganizationUser: z.object({
+    body: z.object({
+      fullName: z.string().min(1),
+      phoneNumber: z.string().min(10),
+      roleId: uuid,
+    }),
+  }),
+  // role narrows to a specific teammate role for the table's filter — same enum the invite
+  // roleId is ultimately validated against.
+  listOrganizationUsers: z.object({
+    query: pagination.extend({ role: z.enum(ORG_ASSIGNABLE_ROLES).optional() }),
   }),
 };

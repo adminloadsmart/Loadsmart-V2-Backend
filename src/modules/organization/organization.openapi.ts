@@ -96,4 +96,44 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
       },
     },
   });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organization/users`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.inviteOrganizationUser',
+    ...authenticated(
+      'Org admin invites a teammate into their own org (Settings → Users & Roles) with one ' +
+        'of the 4 assignable roles: Sales/CS, Dispatch, Documents/Ops, Finance/Accounts. Phone ' +
+        'only, no email. Returns a one-time temporaryPassword for the admin to share manually.',
+    ),
+    request: { body: json(organizationValidators.inviteOrganizationUser.shape.body) },
+    responses: {
+      201: { description: 'Created user, with a one-time temporaryPassword' },
+      400: {
+        description: 'Validation failed, or role is not one of the 4 assignable roles',
+        ...errorContent,
+      },
+      403: { description: 'Caller is not an org admin', ...errorContent },
+      409: { description: 'A user with this phone number already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/users`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.listOrganizationUsers',
+    ...authenticated(
+      "List the caller's own org's teammates (org_admin plus invited users), paginated and " +
+        'optionally filtered by role.',
+    ),
+    request: { query: organizationValidators.listOrganizationUsers.shape.query },
+    responses: {
+      200: {
+        description: 'Paginated org users — { data: { items, page, limit, total, totalPages } }',
+      },
+      403: { description: 'Caller has no organization context yet', ...errorContent },
+    },
+  });
 }

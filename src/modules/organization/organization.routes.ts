@@ -29,5 +29,20 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
     asyncHandler(controller.submitOrganization),
   );
 
+  // Settings → Users & Roles. Org-admin-only (enforced service-side, not by a route-level
+  // permission — see auth.service.ts's inviteOrganizationUser), same reasoning role.service.ts's
+  // assertCanManage already uses a hardcoded ORG_ADMIN_ROLE check for this kind of
+  // authority-over-other-users action instead of a dedicated permission key.
+  router.post(
+    '/organization/users',
+    validate(organizationValidators.inviteOrganizationUser),
+    asyncHandler(controller.inviteUser),
+  );
+  router.get(
+    '/organization/users',
+    validate(organizationValidators.listOrganizationUsers),
+    asyncHandler(controller.listUsers),
+  );
+
   return router;
 }

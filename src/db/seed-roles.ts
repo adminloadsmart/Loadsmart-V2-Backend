@@ -30,7 +30,14 @@ import {
   LOADS_CONSOLE_ACCESS,
   SALES_LEADS_MANAGE,
 } from '../shared/constants/permissions';
-import { PLATFORM_ADMIN_ROLE, ORG_ADMIN_ROLE } from '../shared/constants/roles';
+import {
+  PLATFORM_ADMIN_ROLE,
+  ORG_ADMIN_ROLE,
+  SALES_CS_ROLE,
+  DISPATCH_ROLE,
+  DOCUMENTS_OPS_ROLE,
+  FINANCE_ACCOUNTS_ROLE,
+} from '../shared/constants/roles';
 
 const PERMISSIONS: { key: string; module: string; scope: PermissionScope; description: string }[] =
   [
@@ -112,6 +119,14 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
     scope: 'organization',
     permissionKeys: [ORGANIZATION_PROFILE_MANAGE, MASTERS_WRITE],
   },
+  // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
+  // Roles. No permissionKeys yet: their real access (requisition, dispatch/planning, loading
+  // docs, advance/balance payments — PRD §6) belongs to the Load module, which doesn't exist yet.
+  // Attach real permission keys here once those endpoints are built.
+  { name: SALES_CS_ROLE, scope: 'organization', permissionKeys: [] },
+  { name: DISPATCH_ROLE, scope: 'organization', permissionKeys: [] },
+  { name: DOCUMENTS_OPS_ROLE, scope: 'organization', permissionKeys: [] },
+  { name: FINANCE_ACCOUNTS_ROLE, scope: 'organization', permissionKeys: [] },
 ];
 
 async function seed(): Promise<void> {

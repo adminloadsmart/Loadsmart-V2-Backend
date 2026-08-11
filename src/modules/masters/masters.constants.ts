@@ -1,7 +1,3 @@
-export const DEFAULT_PAGE = 1;
-export const DEFAULT_PAGE_SIZE = 20;
-export const MAX_PAGE_SIZE = 100;
-
 /** A vehicle document flips to `expiring_soon` this many days before its expiry date. */
 export const DOCUMENT_EXPIRING_SOON_DAYS = 30;
 
