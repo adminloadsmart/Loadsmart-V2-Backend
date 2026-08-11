@@ -17,3 +17,7 @@ export const KYC_OFFLINE_VERIFY = 'kyc.offline.verify';
 export const KYC_OFFLINE_REJECT = 'kyc.offline.reject';
 export const LOADS_CONSOLE_ACCESS = 'loads.console.access';
 export const SALES_LEADS_MANAGE = 'sales.leads.manage';
+export const CUSTOMERS_CREATE = 'customers.create';
+export const CUSTOMERS_READ = 'customers.read';
+export const CUSTOMERS_WRITE = 'customers.write';
+export const CUSTOMERS_APPROVE = 'customers.approve';

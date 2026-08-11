@@ -29,6 +29,10 @@ import {
   KYC_OFFLINE_REJECT,
   LOADS_CONSOLE_ACCESS,
   SALES_LEADS_MANAGE,
+  CUSTOMERS_CREATE,
+  CUSTOMERS_READ,
+  CUSTOMERS_WRITE,
+  CUSTOMERS_APPROVE,
 } from '../shared/constants/permissions';
 import { PLATFORM_ADMIN_ROLE, ORG_ADMIN_ROLE } from '../shared/constants/roles';
 
@@ -88,6 +92,30 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'platform',
       description: 'Manage sales leads',
     },
+    {
+      key: CUSTOMERS_CREATE,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Create customers',
+    },
+    {
+      key: CUSTOMERS_READ,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Read customers',
+    },
+    {
+      key: CUSTOMERS_WRITE,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Edit customers',
+    },
+    {
+      key: CUSTOMERS_APPROVE,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Approve customers',
+    },
   ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -95,7 +123,7 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
 // permission key is added.
 const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
-  { name: 'sales', scope: 'platform', permissionKeys: [SALES_LEADS_MANAGE] },
+  { name: 'sales', scope: 'organization', permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE] },
   {
     name: 'online_kyc_desk',
     scope: 'platform',
@@ -110,7 +138,14 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: ORG_ADMIN_ROLE,
     scope: 'organization',
-    permissionKeys: [ORGANIZATION_PROFILE_MANAGE, MASTERS_WRITE],
+    permissionKeys: [
+      ORGANIZATION_PROFILE_MANAGE,
+      MASTERS_WRITE,
+      CUSTOMERS_CREATE,
+      CUSTOMERS_READ,
+      CUSTOMERS_WRITE,
+      CUSTOMERS_APPROVE,
+    ],
   },
 ];
 

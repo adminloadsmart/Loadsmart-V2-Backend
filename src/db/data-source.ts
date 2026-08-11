@@ -1,6 +1,7 @@
 // src/db/data-source.ts
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
+import { Client } from 'pg';
 import { env } from '../config/env';
 import { OrganizationEntity } from '../modules/organization/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../modules/organization/entities/organization-document.entity';
@@ -32,6 +33,8 @@ import { VehicleServiceUsageEntity } from '../modules/masters/entities/vehicle-s
 import { DriverOperationalStatusEntity } from '../modules/masters/entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip-metrics.entity';
 import { TruckTypeEntity } from '../modules/masters/entities/truck-type.entity';
+import { CustomerEntity } from '../modules/customers/entities/customer.entity';
+import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -69,6 +72,8 @@ export const AppDataSource = new DataSource({
     DriverOperationalStatusEntity,
     DriverTripMetricsEntity,
     TruckTypeEntity,
+    CustomerEntity,
+    CustomerDeliveryPointEntity,
   ], // every new module adds its entity here
   migrations: ['src/db/migrations/**/*.ts'],
 });

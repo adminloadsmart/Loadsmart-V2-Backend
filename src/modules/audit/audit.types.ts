@@ -22,6 +22,9 @@ export const AUDIT_ACTIONS = [
   'ROLE_ASSIGNED',
   'PERMISSION_GRANTED',
   'PERMISSION_REVOKED',
+  'CUSTOMER_CREATED',
+  'CUSTOMER_UPDATED',
+  'CUSTOMER_APPROVED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -30,5 +33,6 @@ export const AUDIT_RESOURCE_TYPES = [
   'organization_document',
   'referral_code',
   'user',
+  'customer',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

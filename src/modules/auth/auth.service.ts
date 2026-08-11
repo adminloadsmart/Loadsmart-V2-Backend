@@ -33,7 +33,7 @@ import {
   SIGNUP_STATIC_OTP,
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
-import { ORG_ADMIN_ROLE, STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { ORG_ADMIN_ROLE, SALES_ROLE, STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import {
   SignupInput,
   RequestLoginOtpInput,
@@ -259,6 +259,9 @@ export class AuthService {
         `Role "${role.name}" cannot be assigned through staff creation — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
       );
     }
+    if (role.name === SALES_ROLE && !actingUser.tenantId) {
+      throw new AuthorizationError('A sales user must be created within an organization context');
+    }
 
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const [existingByPhone, existingByEmail] = await Promise.all([
@@ -271,7 +274,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.authRepository.createUser({
       phoneNumber: normalizedPhone,
-      tenantId: null,
+      tenantId: role.name === SALES_ROLE ? actingUser.tenantId : null,
       roleId,
       email,
       passwordHash,
