@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { env } from '../config/env';
 import { OrganizationEntity } from '../modules/organization/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../modules/organization/entities/organization-document.entity';
+import { OrganizationJourneyStageHistoryEntity } from '../modules/organization/entities/organization-journey-stage-history.entity';
 import { UserEntity } from '../modules/auth/entities/user.entity';
 import { ReferralCodeEntity } from '../modules/organization/entities/referral-code.entity';
 import { RefreshTokenEntity } from '../modules/auth/entities/refresh-token.entity';
@@ -40,6 +41,7 @@ export const AppDataSource = new DataSource({
   entities: [
     OrganizationEntity,
     OrganizationDocumentEntity,
+    OrganizationJourneyStageHistoryEntity,
     UserEntity,
     ReferralCodeEntity,
     RefreshTokenEntity,

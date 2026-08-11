@@ -1,9 +1,19 @@
-import { Between, DataSource, EntityManager, FindOptionsWhere, ILike, Repository } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  ILike,
+  IsNull,
+  Not,
+  Repository,
+} from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
 import { DateFilter, resolveDateRange } from '../../shared/utils/date-filter';
 import {
   OrganizationEntity,
   OrganizationJourneyStage,
+  OrganizationOnboardingStep,
   OrganizationStatus,
 } from './entities/organization.entity';
 
@@ -61,12 +71,32 @@ export class OrganizationRepository {
     to?: string;
     page: number;
     limit: number;
+    // Role-scoping — see AdminService.listOrganizations, the only caller that sets these (for
+    // online_kyc_desk/offline_kyc_desk callers; platform_admin leaves them undefined).
+    onlineKycVerifierId?: string;
+    physicalKycAgentId?: string;
+    onlineKycCompleted?: boolean;
   }): Promise<{ items: OrganizationEntity[]; total: number }> {
-    const { status, journeyStage, search, filter, from, to, page, limit } = filters;
+    const {
+      status,
+      journeyStage,
+      search,
+      filter,
+      from,
+      to,
+      page,
+      limit,
+      onlineKycVerifierId,
+      physicalKycAgentId,
+      onlineKycCompleted,
+    } = filters;
 
     const base: FindOptionsWhere<OrganizationEntity> = {};
     if (status) base.status = status;
     if (journeyStage) base.journeyStage = journeyStage;
+    if (onlineKycVerifierId) base.onlineKycVerifierId = onlineKycVerifierId;
+    if (physicalKycAgentId) base.physicalKycAgentId = physicalKycAgentId;
+    if (onlineKycCompleted) base.onlineKycCompletedAt = Not(IsNull());
     const range = resolveDateRange(filter, from, to);
     if (range) base.createdAt = Between(range.from, range.to);
 
@@ -97,7 +127,7 @@ export class OrganizationRepository {
       orgAdminName: string | null;
       operationalCity: string | null;
       referralCodeId: string | null;
-      onboardingStep: import('./entities/organization.entity').OrganizationOnboardingStep | null;
+      onboardingStep: OrganizationOnboardingStep | null;
       registrationDate: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
@@ -108,6 +138,8 @@ export class OrganizationRepository {
       fleetSize: number | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
+      onlineKycCompletedAt: Date | null;
+      physicalKycApprovedAt: Date | null;
       decisionReason: string | null;
       submittedAt: Date | null;
       journeyStage: OrganizationJourneyStage | null;

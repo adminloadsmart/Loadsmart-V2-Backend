@@ -78,6 +78,12 @@ export const adminValidators = {
     body: z.object({ userId: uuid }),
   }),
 
+  // Param-only, same shape as approveOrganization below — the online reviewer's handover and the
+  // physical agent's approval, respectively. See admin.service.ts's completeOnlineKyc/
+  // approvePhysicalKyc for the gates each enforces.
+  completeOnlineKyc: z.object({ params: organizationParams }),
+  approvePhysicalKyc: z.object({ params: organizationParams }),
+
   approveOrganization: z.object({ params: organizationParams }),
   // Reason is mandatory on both — Reject's is meant to be one of the frontend's canned template
   // strings, Deny's free text, but that distinction is a frontend concern; the schema just
