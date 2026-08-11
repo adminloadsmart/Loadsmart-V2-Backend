@@ -320,7 +320,13 @@ export class AuthService {
    *  organization-scope counterpart to createStaffUser above. Phone only, no email. Unlike staff
    *  creation there's no separate delivery channel (SMS/email) yet for the generated password, so
    *  it's returned once in the response for the admin to share manually — a gap worth closing
-   *  once notifications wiring exists, same as staff creation already has. */
+   *  once notifications wiring exists, same as staff creation already has.
+   *
+   *  organization.routes.ts already gates the caller via requirePermission(ORGANIZATION_PROFILE_MANAGE),
+   *  which only org_admin holds — the role check here is belt-and-suspenders for any future caller
+   *  of this service method that bypasses the route; the tenantId check is load-bearing, since
+   *  requirePermission has no notion of tenant context and platform_admin's bypass would otherwise
+   *  reach here with a null tenantId. */
   async inviteOrganizationUser(actingUser: AuthenticatedUser, input: InviteOrganizationUserInput) {
     if (actingUser.role !== ORG_ADMIN_ROLE || !actingUser.tenantId) {
       throw new AuthorizationError('Only an org admin can invite teammates');
