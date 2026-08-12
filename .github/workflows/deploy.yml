@@ -30,17 +30,23 @@ jobs:
 
   deploy-staging:
     needs: build
-    runs-on: [self-hosted, staging]
+    runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/staging'
 
     steps:
-      - name: Deploy on staging server
-        run: |
-          cd /var/www/loadsmart/loadsmart_backend/Loadsmart-V2-Backend
-          git pull origin staging
-          npm ci
-          npm run build
-          pm2 restart loadsmart_backend
+      - name: Deploy to staging server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST_STAGING }}
+          username: ${{ secrets.SSH_USER_STAGING }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          port: ${{ secrets.SSH_PORT_STAGING || 22 }}
+          script: |
+            cd /var/www/loadsmart/loadsmart_backend/Loadsmart-V2-Backend
+            git pull origin staging
+            npm ci
+            npm run build
+            pm2 restart loadsmart_backend
 
   deploy-production:
     needs: build
