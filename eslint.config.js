@@ -120,7 +120,10 @@ module.exports = tseslint.config(
       // which isn't available here — see the top-of-file note. Enabling either without
       // it makes ESLint crash outright (confirmed). Revisit alongside recommendedTypeChecked.
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       // Global namespace augmentation (declare global { namespace Express { ... } }) is the
       // only way to extend a third-party ambient global like Express's Request — there's no
       // ES2015-module equivalent for that, so `declare`d namespaces are exempted.
