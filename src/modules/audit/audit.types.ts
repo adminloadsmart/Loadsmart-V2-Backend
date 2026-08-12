@@ -27,6 +27,7 @@ export const AUDIT_ACTIONS = [
   'CUSTOMER_BULK_IMPORTED',
   'CUSTOMER_UPDATED',
   'CUSTOMER_APPROVED',
+  'CUSTOMER_DELETED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

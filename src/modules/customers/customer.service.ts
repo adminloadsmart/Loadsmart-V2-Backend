@@ -119,4 +119,24 @@ export class CustomerService {
       rethrow(error, 'Failed to approve customer');
     }
   }
+
+  async delete(tenantId: string, actorId: string, role: string, id: string): Promise<void> {
+    try {
+      this.assertRole(role, [ORG_ADMIN_ROLE]);
+      const deleted = await this.dataSource.transaction((manager) =>
+        this.repository.softDelete(tenantId, id, actorId, manager),
+      );
+      if (!deleted) throw new NotFoundError(`Customer ${id} not found`);
+
+      await this.audit.log({
+        tenantId,
+        userId: actorId,
+        action: 'CUSTOMER_DELETED',
+        resourceType: 'customer',
+        oldData: { id },
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to delete customer');
+    }
+  }
 }
