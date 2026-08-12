@@ -6,13 +6,7 @@ import {
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
 } from '../../shared/constants/permissions';
-import {
-  TAGS,
-  authenticated,
-  errorContent,
-  json,
-  permissionGated,
-} from '../../shared/openapi/core';
+import { TAGS, errorContent, json, permissionGated } from '../../shared/openapi/core';
 import { customerValidators } from './customer.validators';
 
 const BASE = `${API_VERSION_PREFIX}/customers`;
