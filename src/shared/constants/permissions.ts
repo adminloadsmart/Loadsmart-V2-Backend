@@ -31,3 +31,7 @@ export const CUSTOMERS_CREATE = 'customers.create';
 export const CUSTOMERS_READ = 'customers.read';
 export const CUSTOMERS_WRITE = 'customers.write';
 export const CUSTOMERS_APPROVE = 'customers.approve';
+
+// Approve/reject a pending vehicle or driver created by a non-org-admin (currently: dispatch).
+// Org_admin only — same one-key-per-module shape as MASTERS_WRITE, not split per entity.
+export const MASTERS_APPROVE = 'masters.approve';

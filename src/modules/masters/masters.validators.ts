@@ -241,6 +241,11 @@ export const mastersValidators = {
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteVehicle: z.object({ params: vehicleParams }),
+  approveVehicle: z.object({ params: vehicleParams }),
+  rejectVehicle: z.object({
+    params: vehicleParams,
+    body: z.object({ reason: z.string().trim().min(1) }),
+  }),
 
   getVehicleServiceUsage: z.object({ params: vehicleParams }),
   setVehicleServiceUsage: z.object({
@@ -304,6 +309,11 @@ export const mastersValidators = {
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteDriver: z.object({ params: driverParams }),
+  approveDriver: z.object({ params: driverParams }),
+  rejectDriver: z.object({
+    params: driverParams,
+    body: z.object({ reason: z.string().trim().min(1) }),
+  }),
 
   addDriverDocument: z.object({
     params: driverParams,

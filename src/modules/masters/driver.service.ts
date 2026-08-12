@@ -1,5 +1,7 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
+import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import { AuditService } from '../audit/audit.service';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverDocumentEntity } from './entities/driver-document.entity';
 import { DriverVerificationEntity } from './entities/driver-verification.entity';
@@ -27,6 +29,7 @@ export class DriverService {
     private readonly driverRepository: DriverRepository,
     private readonly dataSource: DataSource,
     private readonly sarathiClient: SarathiClient,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -44,10 +47,16 @@ export class DriverService {
     }
   }
 
-  /** Only called internally, by onboardDriver — there is no standalone create-driver route. */
+  /**
+   * Only called internally, by onboardDriver — there is no standalone create-driver route.
+   * org_admin's own driver lands `active` immediately; dispatch's (the only other role
+   * masters.routes.ts's canWrite gate admits) lands `pending` until an org_admin reviews it via
+   * approveDriver/rejectDriver.
+   */
   private async createDriver(
     tenantId: string,
     actorId: string,
+    actorRole: string,
     input: CreateDriverInput,
     manager?: EntityManager,
   ): Promise<DriverEntity> {
@@ -57,6 +66,8 @@ export class DriverService {
         throw new ConflictError('A driver with this phone number already exists');
       }
 
+      const autoApproved = actorRole === ORG_ADMIN_ROLE;
+
       return await this.driverRepository.create(
         {
           tenantId,
@@ -65,6 +76,9 @@ export class DriverService {
           licenseNumber: input.licenseNumber?.toUpperCase() ?? null,
           licenseExpiry: input.licenseExpiry ?? null,
           dateOfJoining: input.dateOfJoining ?? null,
+          status: autoApproved ? 'active' : 'pending',
+          approvedBy: autoApproved ? actorId : null,
+          approvedAt: autoApproved ? new Date() : null,
           createdBy: actorId,
         },
         manager,
@@ -455,13 +469,14 @@ export class DriverService {
   async onboardDriver(
     tenantId: string,
     actorId: string,
+    actorRole: string,
     input: OnboardDriverInput,
   ): Promise<DriverEntity> {
     try {
       const { verification, bankDetails, documents, operationalStatus, ...driverInput } = input;
 
       const driverId = await this.dataSource.transaction(async (manager) => {
-        const driver = await this.createDriver(tenantId, actorId, driverInput, manager);
+        const driver = await this.createDriver(tenantId, actorId, actorRole, driverInput, manager);
 
         if (verification) {
           await this.recordVerification(tenantId, actorId, driver.id, verification, manager);
@@ -533,6 +548,62 @@ export class DriverService {
       return driver;
     } catch (error) {
       rethrow(error, 'Failed to verify driver exists');
+    }
+  }
+
+  /** Approves a driver dispatch added — see createDriver's pending/active split. */
+  async approveDriver(tenantId: string, actorId: string, driverId: string): Promise<DriverEntity> {
+    try {
+      const existing = await this.assertDriverExists(tenantId, driverId);
+      if (existing.status !== 'pending') {
+        throw new ConflictError('Only a pending driver can be approved');
+      }
+
+      const driver = await this.driverRepository.approve(tenantId, driverId, actorId);
+      if (!driver) throw new ConflictError('Driver approval failed');
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'DRIVER_APPROVED',
+        resourceType: 'driver',
+        oldData: { id: driverId, status: 'pending' },
+        newData: { id: driverId, status: 'active', approvedBy: actorId },
+      });
+
+      return driver;
+    } catch (error) {
+      rethrow(error, 'Failed to approve driver');
+    }
+  }
+
+  async rejectDriver(
+    tenantId: string,
+    actorId: string,
+    driverId: string,
+    reason: string,
+  ): Promise<DriverEntity> {
+    try {
+      const existing = await this.assertDriverExists(tenantId, driverId);
+      if (existing.status !== 'pending') {
+        throw new ConflictError('Only a pending driver can be rejected');
+      }
+
+      const driver = await this.driverRepository.reject(tenantId, driverId, actorId, reason);
+      if (!driver) throw new ConflictError('Driver rejection failed');
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'DRIVER_REJECTED',
+        resourceType: 'driver',
+        oldData: { id: driverId, status: 'pending' },
+        newData: { id: driverId, status: 'rejected', rejectionReason: reason },
+      });
+
+      return driver;
+    } catch (error) {
+      rethrow(error, 'Failed to reject driver');
     }
   }
 }

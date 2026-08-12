@@ -5,7 +5,7 @@ import { requirePermission } from '../../shared/middleware/require-permission.mi
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
 import { MastersController } from './masters.controller';
 import { mastersValidators } from './masters.validators';
-import { MASTERS_WRITE } from '../../shared/constants/permissions';
+import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 
 export function createMastersProtectedRoutes(controller: MastersController): Router {
   const router = Router();
@@ -16,6 +16,8 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
 
   // Reads are open to any authenticated member of the tenant; writes are restricted below.
   const canWrite = requirePermission(MASTERS_WRITE);
+  // Approve/reject a pending vehicle or driver — org_admin only (see db/seed-roles.ts).
+  const canApprove = requirePermission(MASTERS_APPROVE);
 
   // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
   router.get(
@@ -65,6 +67,21 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     canWrite,
     validate(mastersValidators.deleteVehicle),
     asyncHandler(controller.deleteVehicle),
+  );
+
+  // Settings → Approvals. Only a `pending` vehicle (added by dispatch) can be approved/rejected —
+  // org_admin's own onboardVehicle calls land `active` immediately and never need this.
+  router.patch(
+    '/vehicles/:vehicleId/approve',
+    canApprove,
+    validate(mastersValidators.approveVehicle),
+    asyncHandler(controller.approveVehicle),
+  );
+  router.patch(
+    '/vehicles/:vehicleId/reject',
+    canApprove,
+    validate(mastersValidators.rejectVehicle),
+    asyncHandler(controller.rejectVehicle),
   );
 
   router.post(
@@ -128,6 +145,21 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     canWrite,
     validate(mastersValidators.deleteDriver),
     asyncHandler(controller.deleteDriver),
+  );
+
+  // Settings → Approvals. Only a `pending` driver (added by dispatch) can be approved/rejected —
+  // org_admin's own onboardDriver calls land `active` immediately and never need this.
+  router.patch(
+    '/drivers/:driverId/approve',
+    canApprove,
+    validate(mastersValidators.approveDriver),
+    asyncHandler(controller.approveDriver),
+  );
+  router.patch(
+    '/drivers/:driverId/reject',
+    canApprove,
+    validate(mastersValidators.rejectDriver),
+    asyncHandler(controller.rejectDriver),
   );
 
   router.post(

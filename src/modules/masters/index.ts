@@ -10,8 +10,9 @@ import { TruckTypeRepository } from './truck-type.repository';
 import { TruckTypeService } from './truck-type.service';
 import { MastersController } from './masters.controller';
 import { createMastersProtectedRoutes } from './masters.routes';
+import { AuditService } from '../audit/audit.service';
 
-export function createMastersModule(dataSource: DataSource) {
+export function createMastersModule(dataSource: DataSource, deps: { auditService: AuditService }) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
   const truckTypeRepository = new TruckTypeRepository(dataSource);
   const truckTypeService = new TruckTypeService(truckTypeRepository);
@@ -34,9 +35,15 @@ export function createMastersModule(dataSource: DataSource) {
     truckTypeService,
     fleetDriverLinkService,
     dataSource,
+    deps.auditService,
   );
   const sarathiClient = new SarathiClient();
-  const driverService = new DriverService(driverRepository, dataSource, sarathiClient);
+  const driverService = new DriverService(
+    driverRepository,
+    dataSource,
+    sarathiClient,
+    deps.auditService,
+  );
 
   const controller = new MastersController(
     vehicleService,

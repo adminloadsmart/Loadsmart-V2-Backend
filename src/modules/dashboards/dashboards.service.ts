@@ -1,12 +1,22 @@
 import { rethrow } from '../../shared/errors';
 import { toDateString } from '../../shared/utils/date';
+import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { VehicleService } from '../masters/vehicle.service';
+import { DriverService } from '../masters/driver.service';
+import { CustomerService } from '../customers/customer.service';
 import { DEFAULT_RANGE_DAYS } from './dashboards.constants';
 import {
   FleetActivityDateRange,
   FleetActivityRangeInput,
   FleetActivitySummary,
+  ListPendingApprovalsResult,
+  PendingApprovalItem,
 } from './utils/dashboards.interface';
+
+// Cap per type, not a real cross-type paginator — approval queues are small in practice, and
+// correctly merging three independently-paginated lists into one ordered page is a lot of
+// machinery for a queue this size. Revisit if that assumption stops holding.
+const MAX_PENDING_PER_TYPE = 100;
 
 /**
  * Composes read models directly via each module's index.ts — no owned schema, no gateways.
@@ -15,7 +25,11 @@ import {
  * until those modules gain dated distance/cost/earning records to aggregate over a range.
  */
 export class DashboardsService {
-  constructor(private readonly vehicleService: VehicleService) {}
+  constructor(
+    private readonly vehicleService: VehicleService,
+    private readonly driverService: DriverService,
+    private readonly customerService: CustomerService,
+  ) {}
 
   async getFleetActivity(
     tenantId: string,
@@ -67,6 +81,62 @@ export class DashboardsService {
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch fleet activity');
+    }
+  }
+
+  /** Settings → Approvals — every pending customer/vehicle/driver for the tenant, in one list. */
+  async listPendingApprovals(
+    tenantId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ListPendingApprovalsResult> {
+    try {
+      const [customers, vehicles, drivers] = await Promise.all([
+        this.customerService.list(tenantId, actingUser.role, {
+          page: 1,
+          limit: MAX_PENDING_PER_TYPE,
+          status: 'pending',
+        }),
+        this.vehicleService.listVehicles(tenantId, {
+          page: 1,
+          limit: MAX_PENDING_PER_TYPE,
+          status: 'pending',
+        }),
+        this.driverService.listDrivers(tenantId, {
+          page: 1,
+          limit: MAX_PENDING_PER_TYPE,
+          status: 'pending',
+        }),
+      ]);
+
+      const items: PendingApprovalItem[] = [
+        ...customers.items.map((customer) => ({
+          type: 'customer' as const,
+          id: customer.id,
+          label: customer.name,
+          requestedBy: customer.createdBy,
+          requestedAt: customer.createdAt,
+        })),
+        ...vehicles.items.map((vehicle) => ({
+          type: 'vehicle' as const,
+          id: vehicle.id,
+          label: vehicle.registrationNumber,
+          requestedBy: vehicle.createdBy,
+          requestedAt: vehicle.createdAt,
+        })),
+        ...drivers.items.map((driver) => ({
+          type: 'driver' as const,
+          id: driver.id,
+          label: driver.fullName,
+          requestedBy: driver.createdBy,
+          requestedAt: driver.createdAt,
+        })),
+      ];
+
+      items.sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
+
+      return { items, total: items.length };
+    } catch (error) {
+      rethrow(error, 'Failed to list pending approvals');
     }
   }
 

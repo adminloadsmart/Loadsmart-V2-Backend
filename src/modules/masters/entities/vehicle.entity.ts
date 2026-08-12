@@ -98,6 +98,16 @@ export class VehicleEntity {
   })
   status!: VehicleStatus;
 
+  @Column({ name: 'approved_by', type: 'uuid', nullable: true })
+  approvedBy!: string | null;
+
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt!: Date | null;
+
+  // Set by reject, cleared by approve — mirrors CustomerEntity.rejectionReason.
+  @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
+  rejectionReason!: string | null;
+
   @OneToMany(() => VehicleDocumentEntity, (document) => document.vehicle)
   documents!: VehicleDocumentEntity[];
 

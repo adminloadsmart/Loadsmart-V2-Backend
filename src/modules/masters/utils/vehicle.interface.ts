@@ -77,6 +77,9 @@ export interface CreateVehicleData {
   wheelCount: number | null;
   capacityTons: string | null;
   ownershipType: VehicleOwnershipType;
+  status: VehicleStatus;
+  approvedBy: string | null;
+  approvedAt: Date | null;
   createdBy: string | null;
 }
 
