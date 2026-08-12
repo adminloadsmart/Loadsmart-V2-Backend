@@ -89,6 +89,95 @@ export class FleetDriverLinkService {
     }
   }
 
+  /**
+   * Backs the "Linked driver" dropdown on the edit-vehicle form: idempotently makes `driverId` the
+   * vehicle's primary driver. If a different driver currently holds the primary slot, that link is
+   * ended (not deleted — the assignment history stays); if `driverId` already is the primary driver,
+   * this is a no-op. Pass `outerManager` to run inside VehicleService.updateVehicle's transaction, so
+   * the field changes and the driver swap commit or roll back together.
+   */
+  async setPrimaryDriver(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    driverId: string,
+    outerManager?: EntityManager,
+  ): Promise<FleetDriverLinkEntity> {
+    try {
+      const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, outerManager);
+      if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
+
+      const driver = await this.driverRepository.findById(tenantId, driverId, outerManager);
+      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
+
+      if (driver.status !== 'active') {
+        throw new ValidationError(
+          `Driver ${driver.id} is ${driver.status} and cannot be assigned to a vehicle`,
+        );
+      }
+
+      const run = async (manager: EntityManager) => {
+        const currentPrimary = await this.linkRepository.findActivePrimaryLink(
+          tenantId,
+          vehicleId,
+          manager,
+        );
+
+        if (currentPrimary?.driverId === driverId) {
+          return currentPrimary;
+        }
+
+        if (currentPrimary) {
+          await this.linkRepository.update(
+            tenantId,
+            currentPrimary.id,
+            {
+              status: 'ended',
+              isPrimary: false,
+              linkedTo: toDateString(new Date()),
+              updatedBy: actorId,
+            },
+            manager,
+          );
+        }
+
+        // The incoming driver might already hold a non-primary link on this vehicle (a co-driver
+        // being promoted) — reuse that row instead of creating a duplicate active link.
+        const existingSecondary = await this.linkRepository.findActiveLink(
+          tenantId,
+          vehicleId,
+          driverId,
+          manager,
+        );
+        if (existingSecondary) {
+          const promoted = await this.linkRepository.update(
+            tenantId,
+            existingSecondary.id,
+            { isPrimary: true, updatedBy: actorId },
+            manager,
+          );
+          return promoted!;
+        }
+
+        return this.linkRepository.create(
+          {
+            tenantId,
+            vehicleId,
+            driverId,
+            isPrimary: true,
+            linkedFrom: toDateString(new Date()),
+            createdBy: actorId,
+          },
+          manager,
+        );
+      };
+
+      return outerManager ? await run(outerManager) : await this.dataSource.transaction(run);
+    } catch (error) {
+      rethrow(error, 'Failed to set primary driver');
+    }
+  }
+
   async listVehicleLinks(tenantId: string, vehicleId: string): Promise<FleetDriverLinkEntity[]> {
     try {
       const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId);

@@ -377,6 +377,11 @@ export class MastersController {
     respond(res, snapshots);
   };
 
+  verifyDriverDl = async (req: Request, res: Response) => {
+    const result = await this.driverService.checkDrivingLicence(req.body.licenseNumber);
+    respond(res, result);
+  };
+
   onboardDriver = async (req: Request, res: Response) => {
     const driver = await this.driverService.onboardDriver(
       requireTenantId(req),

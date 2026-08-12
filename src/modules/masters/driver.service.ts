@@ -9,6 +9,7 @@ import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverBankVerificationStatus } from './utils/drivers.types';
 import { DriverRepository } from './driver.repository';
 import { Paginated, paginate } from './utils/masters.types';
+import { SarathiClient, SarathiDrivingLicenceResult } from './sarathi.client';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
@@ -25,7 +26,23 @@ export class DriverService {
   constructor(
     private readonly driverRepository: DriverRepository,
     private readonly dataSource: DataSource,
+    private readonly sarathiClient: SarathiClient,
   ) {}
+
+  /**
+   * Preflight check used by the "Verify the driving licence" step of the Add-a-driver form,
+   * before the driver record exists — so this never touches `driverRepository`. The caller (the
+   * onboarding form) decides what to do with the result: bundle it into `onboardDriver.verification`
+   * on `verified`, or switch to the manual-entry fields (photo uploads + typed-in details) and submit
+   * that instead on `manual_review`.
+   */
+  async checkDrivingLicence(licenseNumber: string): Promise<SarathiDrivingLicenceResult> {
+    try {
+      return await this.sarathiClient.lookupDrivingLicence(licenseNumber);
+    } catch (error) {
+      rethrow(error, 'Failed to check driving licence against Sarathi');
+    }
+  }
 
   /** Only called internally, by onboardDriver — there is no standalone create-driver route. */
   private async createDriver(

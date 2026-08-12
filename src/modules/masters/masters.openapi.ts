@@ -105,7 +105,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.updateVehicle',
-    ...write('Update one or more fields on a vehicle.'),
+    ...write(
+      'Update one or more fields on a vehicle. Passing driverId re-links that driver as the ' +
+        "vehicle's primary driver in the same request, ending whichever link previously held " +
+        'that slot.',
+    ),
     request: {
       params: mastersValidators.updateVehicle.shape.params,
       body: json(mastersValidators.updateVehicle.shape.body),
@@ -634,6 +638,24 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   // --- Driver onboarding ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/verify-dl`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyDriverDl',
+    ...write(
+      'Check a driving licence against the Sarathi registry before the driver record exists — ' +
+        'step 2 of the "Add a driver" form. No SARATHI_API_KEY is configured yet, so every check ' +
+        'currently returns manual_review; the form falls back to photo uploads and typed-in details, ' +
+        'which get submitted as part of drivers/onboard.',
+    ),
+    request: { body: json(mastersValidators.verifyDriverDl.shape.body) },
+    responses: {
+      200: { description: 'verified (with registry fields) or manual_review' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
 
   registry.registerPath({
     method: 'post',

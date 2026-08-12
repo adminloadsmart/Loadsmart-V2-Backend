@@ -98,9 +98,11 @@ export class VehicleRepository {
     tenantId: string,
     id: string,
     data: UpdateVehicleData,
+    manager?: EntityManager,
   ): Promise<VehicleEntity | null> {
-    await this.vehicles.update({ id, tenantId, deletedAt: IsNull() }, data);
-    return this.findById(tenantId, id);
+    const vehicles = manager ? manager.getRepository(VehicleEntity) : this.vehicles;
+    await vehicles.update({ id, tenantId, deletedAt: IsNull() }, data);
+    return this.findById(tenantId, id, manager);
   }
 
   async softDelete(tenantId: string, id: string, deletedBy: string | null): Promise<void> {

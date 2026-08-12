@@ -3,6 +3,7 @@ import { VehicleRepository } from './vehicle.repository';
 import { VehicleService } from './vehicle.service';
 import { DriverRepository } from './driver.repository';
 import { DriverService } from './driver.service';
+import { SarathiClient } from './sarathi.client';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeRepository } from './truck-type.repository';
@@ -34,7 +35,8 @@ export function createMastersModule(dataSource: DataSource) {
     fleetDriverLinkService,
     dataSource,
   );
-  const driverService = new DriverService(driverRepository, dataSource);
+  const sarathiClient = new SarathiClient();
+  const driverService = new DriverService(driverRepository, dataSource, sarathiClient);
 
   const controller = new MastersController(
     vehicleService,

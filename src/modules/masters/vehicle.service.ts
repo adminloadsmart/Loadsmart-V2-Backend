@@ -119,19 +119,45 @@ export class VehicleService {
     input: UpdateVehicleInput,
   ): Promise<VehicleEntity> {
     try {
-      await this.assertVehicleExists(tenantId, vehicleId);
+      const { driverId, ...fields } = input;
 
-      if (input.truckTypeId) {
-        await this.truckTypeService.assertTruckTypeExists(tenantId, input.truckTypeId);
+      if (fields.truckTypeId) {
+        await this.truckTypeService.assertTruckTypeExists(tenantId, fields.truckTypeId);
       }
 
-      const vehicle = await this.vehicleRepository.update(tenantId, vehicleId, {
-        ...input,
-        capacityTons: input.capacityTons === undefined ? undefined : String(input.capacityTons),
-        updatedBy: actorId,
+      return await this.dataSource.transaction(async (manager) => {
+        await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+        if (Object.keys(fields).length > 0) {
+          await this.vehicleRepository.update(
+            tenantId,
+            vehicleId,
+            {
+              ...fields,
+              capacityTons:
+                fields.capacityTons === undefined ? undefined : String(fields.capacityTons),
+              updatedBy: actorId,
+            },
+            manager,
+          );
+        }
+
+        // Selecting a driver on the edit-vehicle form re-links them as primary, in the same
+        // transaction as the field changes above — see FleetDriverLinkService.setPrimaryDriver.
+        if (driverId) {
+          await this.fleetDriverLinkService.setPrimaryDriver(
+            tenantId,
+            actorId,
+            vehicleId,
+            driverId,
+            manager,
+          );
+        }
+
+        const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
+        if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
+        return vehicle;
       });
-      if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
-      return vehicle;
     } catch (error) {
       rethrow(error, 'Failed to update vehicle');
     }

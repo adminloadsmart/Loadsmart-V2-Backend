@@ -91,6 +91,15 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     asyncHandler(controller.deleteVehicleDocument),
   );
 
+  // Step-2 preflight for "Add a driver" — checks a licence before the driver exists, so it has no
+  // :driverId param. Declared before '/drivers/onboard' for the same reason as vehicles/onboard.
+  router.post(
+    '/drivers/verify-dl',
+    canWrite,
+    validate(mastersValidators.verifyDriverDl),
+    asyncHandler(controller.verifyDriverDl),
+  );
+
   // Backs the single "Save driver" button — whole form, one transaction.
   router.post(
     '/drivers/onboard',

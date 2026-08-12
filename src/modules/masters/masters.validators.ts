@@ -126,6 +126,10 @@ const driverCoreFields = {
   dateOfJoining: isoDate.optional(),
 };
 
+const driverVerifyDlBody = z.object({
+  licenseNumber,
+});
+
 const driverVerificationBody = z.object({
   verificationType: z.enum(DRIVER_VERIFICATION_TYPES),
   verificationStatus: z.enum(DRIVER_VERIFICATION_STATUSES),
@@ -230,6 +234,9 @@ export const mastersValidators = {
         capacityTons: z.number().positive().max(9999).optional(),
         ownershipType: z.enum(OWNERSHIP_TYPES).optional(),
         status: z.enum(VEHICLE_STATUSES).optional(),
+        // Selecting a driver from the edit-vehicle dropdown re-links it as the vehicle's primary
+        // driver, in the same transaction as any other field changes here — see setPrimaryDriver.
+        driverId: uuid.optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
@@ -261,6 +268,11 @@ export const mastersValidators = {
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteVehicleDocument: z.object({ params: vehicleDocumentParams }),
+
+  /**
+   * Preflight check for step 2 of "Add a driver", before the driver exists — no driverId param.
+   */
+  verifyDriverDl: z.object({ body: driverVerifyDlBody }),
 
   /** The whole "Add a driver" form in one request. */
   onboardDriver: z.object({

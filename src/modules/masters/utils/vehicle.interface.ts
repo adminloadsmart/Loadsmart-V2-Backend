@@ -32,6 +32,8 @@ export interface UpdateVehicleInput {
   capacityTons?: number;
   ownershipType?: VehicleOwnershipType;
   status?: VehicleStatus;
+  /** Re-links this driver as the vehicle's primary driver — see FleetDriverLinkService.setPrimaryDriver. */
+  driverId?: string;
 }
 
 export interface ListVehiclesInput extends PaginationInput {
