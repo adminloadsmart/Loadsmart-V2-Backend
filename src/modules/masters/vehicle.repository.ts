@@ -54,7 +54,12 @@ export class VehicleRepository {
   findByIdWithRelations(tenantId: string, id: string): Promise<VehicleEntity | null> {
     return this.vehicles.findOne({
       where: { id, tenantId, deletedAt: IsNull() },
-      relations: { documents: true, driverLinks: { driver: true }, truckType: true },
+      relations: {
+        documents: true,
+        driverLinks: { driver: true },
+        truckType: true,
+        telemetryMeta: true,
+      },
     });
   }
 
@@ -85,7 +90,13 @@ export class VehicleRepository {
       // driverLinks carries the full assignment history per vehicle (small — see findActiveLink),
       // with the driver relation so the fleet table can show the linked driver's name, not just
       // their id. Callers pick out the active/primary link themselves, same shape as GET /vehicles/:id.
-      relations: { operationalStatus: true, truckType: true, driverLinks: { driver: true } },
+      // telemetryMeta carries EMI + GPS fields (section 4 of the vehicle form) for the same reason.
+      relations: {
+        operationalStatus: true,
+        truckType: true,
+        driverLinks: { driver: true },
+        telemetryMeta: true,
+      },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

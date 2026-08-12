@@ -92,7 +92,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',
-    ...authenticated('Get a single vehicle, including its documents and linked drivers.'),
+    ...authenticated(
+      'Get a single vehicle, including its documents, linked drivers, and telemetry (EMI + GPS).',
+    ),
     request: { params: mastersValidators.getVehicle.shape.params },
     responses: {
       200: { description: 'Vehicle detail' },
