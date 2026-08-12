@@ -31,3 +31,6 @@ export const CUSTOMERS_CREATE = 'customers.create';
 export const CUSTOMERS_READ = 'customers.read';
 export const CUSTOMERS_WRITE = 'customers.write';
 export const CUSTOMERS_APPROVE = 'customers.approve';
+export const FILES_UPLOAD = 'storage.files.upload';
+export const FILES_READ = 'storage.files.read';
+export const FILES_DELETE = 'storage.files.delete';

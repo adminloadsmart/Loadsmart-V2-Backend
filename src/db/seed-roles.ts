@@ -37,6 +37,9 @@ import {
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
   CUSTOMERS_APPROVE,
+  FILES_UPLOAD,
+  FILES_READ,
+  FILES_DELETE,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -152,6 +155,24 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Approve customers',
     },
+    {
+      key: FILES_UPLOAD,
+      module: 'storage',
+      scope: 'organization',
+      description: 'Initiate and confirm file uploads',
+    },
+    {
+      key: FILES_READ,
+      module: 'storage',
+      scope: 'organization',
+      description: 'Read file metadata and obtain download URLs',
+    },
+    {
+      key: FILES_DELETE,
+      module: 'storage',
+      scope: 'organization',
+      description: 'Delete files',
+    },
   ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -181,6 +202,9 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,
       CUSTOMERS_APPROVE,
+      FILES_UPLOAD,
+      FILES_READ,
+      FILES_DELETE,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &

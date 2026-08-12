@@ -35,6 +35,7 @@ import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip
 import { TruckTypeEntity } from '../modules/masters/entities/truck-type.entity';
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
+import { FileEntity } from '../modules/storage/entities/file.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -74,6 +75,7 @@ export const AppDataSource = new DataSource({
     TruckTypeEntity,
     CustomerEntity,
     CustomerDeliveryPointEntity,
+    FileEntity,
   ], // every new module adds its entity here
   migrations: ['src/db/migrations/**/*.ts'],
 });
