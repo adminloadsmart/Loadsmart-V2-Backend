@@ -30,6 +30,10 @@ export class RoleService {
     return role.id;
   }
 
+  async findRoleByName(name: string): Promise<RoleEntity | null> {
+    return this.roleRepository.findRoleByName(name);
+  }
+
   /** Used by auth.service.ts's createStaffUser to resolve + validate the role a platform admin
    *  is assigning to a new staff account. */
   async getRoleById(id: string): Promise<RoleEntity> {

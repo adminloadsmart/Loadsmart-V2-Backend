@@ -97,6 +97,8 @@ export const adminValidators = {
       permissionIds: z.array(uuid).optional(),
     }),
   }),
+  commitStaffImport: z.object({ body: z.object({ importId: uuid }) }),
+  getStaffImport: z.object({ params: z.object({ importId: uuid }) }),
   // role narrows to eligible staff for the KYC assignment dropdowns (see auth.repository.ts's
   // listStaffUsers) — same enum the staff-creation roleId is ultimately validated against.
   listStaff: z.object({

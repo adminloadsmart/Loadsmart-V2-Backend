@@ -7,6 +7,11 @@ import { AuditService } from '../audit/audit.service';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { createAdminRoutes } from './admin.routes';
+import { DataSource } from 'typeorm';
+import { RoleService } from '../roles/role.service';
+import { StaffImportRepository } from './staff-import.repository';
+import { StaffImportService } from './staff-import.service';
+import { StaffImportController } from './staff-import.controller';
 
 export function createAdminModule(deps: {
   organizationService: OrganizationService;
@@ -15,6 +20,8 @@ export function createAdminModule(deps: {
   authService: AuthService;
   referralCodeService: ReferralCodeService;
   auditService: AuditService;
+  dataSource: DataSource;
+  roleService: RoleService;
 }) {
   const service = new AdminService(
     deps.organizationService,
@@ -24,8 +31,16 @@ export function createAdminModule(deps: {
     deps.referralCodeService,
     deps.auditService,
   );
+  const staffImportService = new StaffImportService(
+    new StaffImportRepository(deps.dataSource),
+    deps.authService,
+    deps.roleService,
+    deps.auditService,
+    deps.dataSource,
+  );
+  const staffImportController = new StaffImportController(staffImportService);
   const controller = new AdminController(service);
-  const router = createAdminRoutes(controller);
+  const router = createAdminRoutes(controller, staffImportController);
 
   return { router };
 }

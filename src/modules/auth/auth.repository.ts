@@ -3,6 +3,7 @@ import {
   EntityManager,
   FindOptionsWhere,
   ILike,
+  In,
   IsNull,
   MoreThan,
   Repository,
@@ -37,6 +38,15 @@ export class AuthRepository {
 
   findUserById(id: string): Promise<UserEntity | null> {
     return this.users.findOne({ where: { id, deletedAt: IsNull() }, relations: { role: true } });
+  }
+
+  findUsersByPhoneOrEmail(phoneNumbers: string[], emails: string[]): Promise<UserEntity[]> {
+    return this.users.find({
+      where: [
+        { phoneNumber: In(phoneNumbers), deletedAt: IsNull() },
+        { email: In(emails), deletedAt: IsNull() },
+      ],
+    });
   }
 
   async createUser(

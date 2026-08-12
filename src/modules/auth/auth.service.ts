@@ -252,6 +252,10 @@ export class AuthService {
     };
   }
 
+  findExistingStaffContacts(phoneNumbers: string[], emails: string[]) {
+    return this.authRepository.findUsersByPhoneOrEmail(phoneNumbers, emails);
+  }
+
   /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
    *  user-creation path that isn't self-service. Unlike self-signup, phone ownership is never
    *  proven via OTP here, so both phone and email get pre-checked for collisions. The admin sets

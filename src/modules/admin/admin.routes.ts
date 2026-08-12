@@ -11,6 +11,9 @@ import {
 } from '../../shared/constants/permissions';
 import { AdminController } from './admin.controller';
 import { adminValidators } from './admin.validators';
+import multer from 'multer';
+import { StaffImportController } from './staff-import.controller';
+import { ValidationError } from '../../shared/errors';
 
 // Per-route permission groups — this module is no longer platform_admin-only across the board.
 // online_kyc_desk/offline_kyc_desk are let in on the routes relevant to their KYC track (still
@@ -33,8 +36,26 @@ const offlineVerify = [ADMIN_ORGANIZATIONS_MANAGE, KYC_OFFLINE_VERIFY];
 const eitherReject = [ADMIN_ORGANIZATIONS_MANAGE, KYC_ONLINE_REJECT, KYC_OFFLINE_REJECT];
 const adminOnly = [ADMIN_ORGANIZATIONS_MANAGE]; // only platform_admin actually holds this key
 
-export function createAdminRoutes(controller: AdminController): Router {
+export function createAdminRoutes(
+  controller: AdminController,
+  staffImportController: StaffImportController,
+): Router {
   const router = Router();
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    fileFilter: (_req, file, callback) => {
+      if (
+        file.mimetype !== 'text/csv' &&
+        file.mimetype !== 'application/csv' &&
+        !file.originalname.toLowerCase().endsWith('.csv')
+      ) {
+        callback(new ValidationError('Only CSV files are supported'));
+        return;
+      }
+      callback(null, true);
+    },
+  });
 
   router.get(
     '/organizations',
@@ -135,6 +156,24 @@ export function createAdminRoutes(controller: AdminController): Router {
     requirePermission(...adminOnly),
     validate(adminValidators.listStaff),
     asyncHandler(controller.listStaff),
+  );
+  router.post(
+    '/staff/import/preview',
+    requirePermission(...adminOnly),
+    upload.single('file'),
+    asyncHandler(staffImportController.preview),
+  );
+  router.post(
+    '/staff/import/commit',
+    requirePermission(...adminOnly),
+    validate(adminValidators.commitStaffImport),
+    asyncHandler(staffImportController.commit),
+  );
+  router.get(
+    '/staff/import/:importId',
+    requirePermission(...adminOnly),
+    validate(adminValidators.getStaffImport),
+    asyncHandler(staffImportController.get),
   );
 
   router.post(

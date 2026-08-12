@@ -89,6 +89,8 @@ export function buildContainer(dataSource: DataSource): Container {
     authService: auth.service,
     referralCodeService: organization.referralCodeService,
     auditService: audit.service,
+    dataSource,
+    roleService: roles.service,
   });
 
   // Last — reads other modules' services directly.

@@ -359,6 +359,49 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/staff/import/preview`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.previewStaffImport',
+    ...adminOnly(
+      'Upload a CSV and preview smart column mapping and row-level validation. No users are created.',
+    ),
+    responses: {
+      200: { description: 'Import preview with mapping, summary, and row errors' },
+      400: { description: 'Invalid CSV or ambiguous/missing columns', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/staff/import/commit`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.commitStaffImport',
+    ...adminOnly(
+      'Commit a previously previewed staff CSV. Valid rows are created through the normal staff service.',
+    ),
+    request: { body: json(adminValidators.commitStaffImport.shape.body) },
+    responses: {
+      200: { description: 'Import result with per-row success/failure status' },
+      404: { description: 'Import not found', ...errorContent },
+      409: { description: 'No valid rows or import already processing', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/staff/import/{importId}`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.getStaffImport',
+    ...adminOnly('Get the status and row-level results for a staff import.'),
+    request: { params: adminValidators.getStaffImport.shape.params },
+    responses: {
+      200: { description: 'Staff import status and results' },
+      404: { description: 'Import not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/referral-codes`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.createReferralCode',
