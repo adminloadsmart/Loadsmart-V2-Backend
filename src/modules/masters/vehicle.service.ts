@@ -47,7 +47,8 @@ export class VehicleService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async createVehicle(
+  /** Only called internally, by onboardVehicle — there is no standalone create-vehicle route. */
+  private async createVehicle(
     tenantId: string,
     actorId: string,
     input: CreateVehicleInput,

@@ -27,7 +27,8 @@ export class DriverService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async createDriver(
+  /** Only called internally, by onboardDriver — there is no standalone create-driver route. */
+  private async createDriver(
     tenantId: string,
     actorId: string,
     input: CreateDriverInput,

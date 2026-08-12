@@ -49,15 +49,6 @@ export class MastersController {
     respond(res, { success: true });
   };
 
-  createVehicle = async (req: Request, res: Response) => {
-    const vehicle = await this.vehicleService.createVehicle(
-      requireTenantId(req),
-      req.user!.id,
-      req.body,
-    );
-    respond(res, vehicle, 201);
-  };
-
   listVehicles = async (req: Request, res: Response) => {
     const vehicles = await this.vehicleService.listVehicles(
       requireTenantId(req),
@@ -130,15 +121,6 @@ export class MastersController {
       req.params.documentId,
     );
     respond(res, { success: true });
-  };
-
-  createDriver = async (req: Request, res: Response) => {
-    const driver = await this.driverService.createDriver(
-      requireTenantId(req),
-      req.user!.id,
-      req.body,
-    );
-    respond(res, driver, 201);
   };
 
   listDrivers = async (req: Request, res: Response) => {

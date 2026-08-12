@@ -36,12 +36,6 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     asyncHandler(controller.deleteTruckType),
   );
 
-  router.post(
-    '/vehicles',
-    canWrite,
-    validate(mastersValidators.createVehicle),
-    asyncHandler(controller.createVehicle),
-  );
   // Backs the single "Save vehicle" button — whole form, one transaction. Declared before
   // '/vehicles/:vehicleId' so the literal segment isn't captured as an id.
   router.post(
@@ -97,12 +91,6 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     asyncHandler(controller.deleteVehicleDocument),
   );
 
-  router.post(
-    '/drivers',
-    canWrite,
-    validate(mastersValidators.createDriver),
-    asyncHandler(controller.createDriver),
-  );
   // Backs the single "Save driver" button — whole form, one transaction.
   router.post(
     '/drivers/onboard',

@@ -200,9 +200,6 @@ export const mastersValidators = {
   }),
   deleteTruckType: z.object({ params: truckTypeParams }),
 
-  createVehicle: z.object({
-    body: z.object(vehicleCoreFields),
-  }),
   /** The whole "Add a vehicle" form in one request. */
   onboardVehicle: z.object({
     body: z.object({
@@ -265,9 +262,6 @@ export const mastersValidators = {
   }),
   deleteVehicleDocument: z.object({ params: vehicleDocumentParams }),
 
-  createDriver: z.object({
-    body: z.object(driverCoreFields),
-  }),
   /** The whole "Add a driver" form in one request. */
   onboardDriver: z.object({
     body: z.object({

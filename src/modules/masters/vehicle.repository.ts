@@ -82,7 +82,10 @@ export class VehicleRepository {
 
     const [items, total] = await this.vehicles.findAndCount({
       where,
-      relations: { operationalStatus: true, truckType: true },
+      // driverLinks carries the full assignment history per vehicle (small — see findActiveLink),
+      // with the driver relation so the fleet table can show the linked driver's name, not just
+      // their id. Callers pick out the active/primary link themselves, same shape as GET /vehicles/:id.
+      relations: { operationalStatus: true, truckType: true, driverLinks: { driver: true } },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

@@ -74,20 +74,6 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   // --- Vehicles ---
 
   registry.registerPath({
-    method: 'post',
-    path: `${BASE}/vehicles`,
-    tags: [TAGS.MASTERS],
-    operationId: 'masters.createVehicle',
-    ...write('Create a new vehicle for the tenant.'),
-    request: { body: json(mastersValidators.createVehicle.shape.body) },
-    responses: {
-      201: { description: 'Created vehicle' },
-      400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'Registration number already in use', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
     method: 'get',
     path: `${BASE}/vehicles`,
     tags: [TAGS.MASTERS],
@@ -205,20 +191,6 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   // --- Drivers ---
-
-  registry.registerPath({
-    method: 'post',
-    path: `${BASE}/drivers`,
-    tags: [TAGS.MASTERS],
-    operationId: 'masters.createDriver',
-    ...write('Create a new driver for the tenant.'),
-    request: { body: json(mastersValidators.createDriver.shape.body) },
-    responses: {
-      201: { description: 'Created driver' },
-      400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'Phone number already in use', ...errorContent },
-    },
-  });
 
   registry.registerPath({
     method: 'get',
