@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../masters/masters.constants';
+import { paginationQuery } from '../../shared/validators/pagination';
 import { CUSTOMER_STATUSES } from './utils/customer.status';
 
 const uuid = z.string().uuid();
@@ -23,12 +23,7 @@ const params = z.object({ customerId: uuid });
 export const customerValidators = {
   create: z.object({ body: z.object(fields).strict() }),
   list: z.object({
-    query: z.object({
-      page: z.coerce.number().int().positive().default(DEFAULT_PAGE),
-      limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
-      search: z.string().trim().min(1).optional(),
-      status: z.enum(CUSTOMER_STATUSES).optional(),
-    }),
+    query: paginationQuery.extend({ status: z.enum(CUSTOMER_STATUSES).optional() }),
   }),
   get: z.object({ params }),
   update: z.object({
