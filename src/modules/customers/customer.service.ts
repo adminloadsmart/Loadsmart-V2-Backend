@@ -14,7 +14,13 @@ export class CustomerService {
   private assertRole(role: string, allowed: string[]) {
     if (!allowed.includes(role)) throw new AuthorizationError('Not authorized to manage customers');
   }
-  async create(tenantId: string, actorId: string, role: string, input: CreateCustomerInput) {
+  async create(
+    tenantId: string,
+    actorId: string,
+    role: string,
+    input: CreateCustomerInput,
+    source: 'manual' | 'csv_import' = 'manual',
+  ) {
     try {
       this.assertRole(role, [ORG_ADMIN_ROLE, SALES_ROLE]);
       const status = role === ORG_ADMIN_ROLE ? 'active' : 'pending';
@@ -29,7 +35,12 @@ export class CustomerService {
         userId: actorId,
         action: 'CUSTOMER_CREATED',
         resourceType: 'customer',
-        newData: { id: customer.id, status: customer.status, name: customer.name },
+        newData: {
+          id: customer.id,
+          status: customer.status,
+          name: customer.name,
+          source,
+        },
       });
       return customer;
     } catch (error) {
@@ -106,6 +117,26 @@ export class CustomerService {
       return value;
     } catch (error) {
       rethrow(error, 'Failed to approve customer');
+    }
+  }
+
+  async delete(tenantId: string, actorId: string, role: string, id: string): Promise<void> {
+    try {
+      this.assertRole(role, [ORG_ADMIN_ROLE]);
+      const deleted = await this.dataSource.transaction((manager) =>
+        this.repository.softDelete(tenantId, id, actorId, manager),
+      );
+      if (!deleted) throw new NotFoundError(`Customer ${id} not found`);
+
+      await this.audit.log({
+        tenantId,
+        userId: actorId,
+        action: 'CUSTOMER_DELETED',
+        resourceType: 'customer',
+        oldData: { id },
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to delete customer');
     }
   }
 }

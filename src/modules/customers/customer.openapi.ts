@@ -8,7 +8,7 @@ import {
 } from '../../shared/constants/permissions';
 import {
   TAGS,
-  authenticated,
+  SuccessResponseSchema,
   errorContent,
   json,
   permissionGated,
@@ -86,6 +86,18 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Approved customer' },
       404: { description: 'Customer not found', ...errorContent },
       409: { description: 'Invalid status transition', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/delete/{customer_id}`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.delete',
+    ...permissionGated([CUSTOMERS_WRITE], 'Soft-delete a tenant-scoped customer. ORG_ADMIN only.'),
+    request: { params: customerValidators.delete.shape.params },
+    responses: {
+      200: { description: 'Customer deleted', ...json(SuccessResponseSchema) },
+      404: { description: 'Customer not found', ...errorContent },
     },
   });
 }

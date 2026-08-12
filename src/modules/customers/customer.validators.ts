@@ -20,6 +20,7 @@ const fields = {
   rateContract: z.string().trim().max(255).optional(),
 };
 const params = z.object({ customerId: uuid });
+const deleteParams = z.object({ customer_id: uuid });
 export const customerValidators = {
   create: z.object({ body: z.object(fields).strict() }),
   list: z.object({
@@ -41,4 +42,5 @@ export const customerValidators = {
       .strict(),
   }),
   approve: z.object({ params }),
+  delete: z.object({ params: deleteParams }),
 };

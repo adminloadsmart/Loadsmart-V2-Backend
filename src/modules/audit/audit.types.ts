@@ -24,8 +24,10 @@ export const AUDIT_ACTIONS = [
   'PERMISSION_GRANTED',
   'PERMISSION_REVOKED',
   'CUSTOMER_CREATED',
+  'CUSTOMER_BULK_IMPORTED',
   'CUSTOMER_UPDATED',
   'CUSTOMER_APPROVED',
+  'CUSTOMER_DELETED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

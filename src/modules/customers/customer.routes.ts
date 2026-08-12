@@ -45,5 +45,11 @@ export function createCustomerRoutes(controller: CustomerController): Router {
     validate(customerValidators.approve),
     asyncHandler(controller.approve),
   );
+  router.delete(
+    '/delete/:customer_id',
+    requirePermission(CUSTOMERS_WRITE),
+    validate(customerValidators.delete),
+    asyncHandler(controller.delete),
+  );
   return router;
 }
