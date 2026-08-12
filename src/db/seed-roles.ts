@@ -1,19 +1,21 @@
 // One-off seed script for the fixed roles/permissions catalog (see
-// modules/roles/entities/role.entity.ts). Run by hand after `synchronize: true` has created the
-// auth.permissions/roles/role_permissions/user_permissions tables — there is no TypeORM
-// migration for this (schema stays on synchronize per project decision). Safe to re-run: every
-// permission/role is upserted by its unique key/name, and each role's permission set is fully
-// replaced (not appended to) on every run.
+// modules/roles/entities/role.entity.ts). Schema is created by TypeORM migrations (see
+// db/migrations/) on any deployed server — `synchronize` is dev-only now (data-source.ts). This
+// script just seeds data into the auth.permissions/roles/role_permissions/user_permissions
+// tables once they exist. Safe to re-run: every permission/role is upserted by its unique
+// key/name, and each role's permission set is fully replaced (not appended to) on every run.
+// Auto-run on every deploy — see .github/workflows/deploy.yml.
 //
 // IMPORTANT — run this before anyone signs up: verifyOtp resolves the org_admin role by name at
 // signup time and fails if it isn't seeded yet.
 //
 // If auth.users already has rows from before this change, roleId is a NOT NULL column with no
 // backfill path here (see RBAC plan's "remove all data" decision) — clear auth.users (and its
-// dependents: refresh_tokens, login_attempts) manually first, or `synchronize` will fail trying
-// to add the column.
+// dependents: refresh_tokens, login_attempts) manually first.
 //
-// Usage: npm run seed:roles
+// Usage: npm run seed:roles (or, since ts-node is currently broken against this repo's
+// typescript version — see docs/rbac.md §8 — `npm run build && node -r reflect-metadata
+// dist/db/seed-roles.js`)
 
 import 'reflect-metadata';
 import { AppDataSource } from './data-source';

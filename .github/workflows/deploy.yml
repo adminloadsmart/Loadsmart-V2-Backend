@@ -42,10 +42,15 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
           port: ${{ secrets.SSH_PORT_STAGING || 22 }}
           script: |
+            set -e
             cd /var/www/loadsmart/loadsmart_backend/Loadsmart-V2-Backend
             git pull origin staging
             npm ci
+            rm -rf dist
             npm run build
+            node ./node_modules/typeorm/cli.js migration:run -d dist/db/data-source.js
+            node -r reflect-metadata dist/db/seed-roles.js
+            node -r reflect-metadata dist/db/seed-platform-admin.js
             pm2 restart loadsmart_backend
 
   deploy-production:
@@ -62,8 +67,13 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY_PROD }}
           port: ${{ secrets.SSH_PORT_PROD || 22 }}
           script: |
+            set -e
             cd /path/to/production/app # TODO: replace with the real deploy path on the production server
             git pull origin main
             npm ci
+            rm -rf dist
             npm run build
+            node ./node_modules/typeorm/cli.js migration:run -d dist/db/data-source.js
+            node -r reflect-metadata dist/db/seed-roles.js
+            node -r reflect-metadata dist/db/seed-platform-admin.js
             pm2 restart loadsmart_backend
