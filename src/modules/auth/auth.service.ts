@@ -35,6 +35,7 @@ import {
 } from './auth.constants';
 import {
   ORG_ADMIN_ROLE,
+  SALES_ROLE,
   STAFF_ASSIGNABLE_ROLES,
   ORG_ASSIGNABLE_ROLES,
 } from '../../shared/constants/roles';
@@ -265,6 +266,9 @@ export class AuthService {
         `Role "${role.name}" cannot be assigned through staff creation — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
       );
     }
+    if (role.name === SALES_ROLE && !actingUser.tenantId) {
+      throw new AuthorizationError('A sales user must be created within an organization context');
+    }
 
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const [existingByPhone, existingByEmail] = await Promise.all([
@@ -277,7 +281,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.authRepository.createUser({
       phoneNumber: normalizedPhone,
-      tenantId: null,
+      tenantId: role.name === SALES_ROLE ? actingUser.tenantId : null,
       roleId,
       email,
       passwordHash,
@@ -801,11 +805,12 @@ export class AuthService {
 
   private async assertOrganizationActiveForLogin(user: UserEntity): Promise<void> {
     // A new org admin has no organization yet and must be allowed to log in to complete
-    // onboarding. Once an organization exists, org admins may log in only after approval.
+    // onboarding. Existing org admins may log in while their organization is still in draft or
+    // after it has been approved and marked active.
     if (user.role.name !== ORG_ADMIN_ROLE || !user.tenantId) return;
 
     const organization = await this.organizationService.getOrganizationStatus(user.tenantId);
-    if (organization.status !== 'active') {
+    if (organization.status !== 'active' && organization.status !== 'draft') {
       const messages = {
         pending: 'Organization verification is pending. Please wait.',
         partial_pending: 'Organization verification is pending. Please wait.',

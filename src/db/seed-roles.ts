@@ -33,6 +33,10 @@ import {
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
   PAYMENTS_MANAGE,
+  CUSTOMERS_CREATE,
+  CUSTOMERS_READ,
+  CUSTOMERS_WRITE,
+  CUSTOMERS_APPROVE,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -124,6 +128,30 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Manage advance/balance payments (PRD §7 Billing & Payments)',
     },
+    {
+      key: CUSTOMERS_CREATE,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Create customers',
+    },
+    {
+      key: CUSTOMERS_READ,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Read customers',
+    },
+    {
+      key: CUSTOMERS_WRITE,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Edit customers',
+    },
+    {
+      key: CUSTOMERS_APPROVE,
+      module: 'customers',
+      scope: 'organization',
+      description: 'Approve customers',
+    },
   ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -131,7 +159,7 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
 // permission key is added.
 const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
-  { name: 'sales', scope: 'platform', permissionKeys: [SALES_LEADS_MANAGE] },
+  { name: 'sales', scope: 'organization', permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE] },
   {
     name: 'online_kyc_desk',
     scope: 'platform',
@@ -146,7 +174,14 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: ORG_ADMIN_ROLE,
     scope: 'organization',
-    permissionKeys: [ORGANIZATION_PROFILE_MANAGE, MASTERS_WRITE],
+    permissionKeys: [
+      ORGANIZATION_PROFILE_MANAGE,
+      MASTERS_WRITE,
+      CUSTOMERS_CREATE,
+      CUSTOMERS_READ,
+      CUSTOMERS_WRITE,
+      CUSTOMERS_APPROVE,
+    ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
   // Roles. Permission keys are forward-looking: the Load module (PRD §6) and Payments module
