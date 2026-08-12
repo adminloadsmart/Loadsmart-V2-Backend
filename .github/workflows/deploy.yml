@@ -1,0 +1,69 @@
+name: Node.js CI
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Lint
+        run: npm run lint
+
+      - name: Build Project
+        run: npm run build
+
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/staging'
+
+    steps:
+      - name: Deploy to staging server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST_STAGING }}
+          username: ${{ secrets.SSH_USER_STAGING }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          port: ${{ secrets.SSH_PORT_STAGING || 22 }}
+          script: |
+            cd /var/www/loadsmart/loadsmart_backend/Loadsmart-V2-Backend
+            git pull origin staging
+            npm ci
+            npm run build
+            pm2 restart loadsmart_backend
+
+  deploy-production:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST_PROD }}
+          username: ${{ secrets.SSH_USER_PROD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_PROD }}
+          port: ${{ secrets.SSH_PORT_PROD || 22 }}
+          script: |
+            cd /path/to/production/app # TODO: replace with the real deploy path on the production server
+            git pull origin main
+            npm ci
+            npm run build
+            pm2 restart loadsmart_backend

@@ -1,7 +1,6 @@
 // src/db/data-source.ts
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
-import { Client } from 'pg';
 import { env } from '../config/env';
 import { OrganizationEntity } from '../modules/organization/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../modules/organization/entities/organization-document.entity';
