@@ -682,7 +682,6 @@ export class AuthService {
       orgAdminName: input.contactPersonName,
       operationalCity: input.operatingCity,
       hasOwnFleet: input.ownsFleet,
-      fleetSize: input.ownsFleet ? (input.fleetSize ?? null) : null,
       referralCodeId,
     };
 
@@ -748,7 +747,6 @@ export class AuthService {
         user.tenantId!,
         {
           registeredBusinessName: input.registeredBusinessName,
-          registrationDate: input.registrationDate ?? null,
           addressLine1: input.address.addressLine1,
           addressLine2: input.address.addressLine2 ?? null,
           city: input.address.city,
@@ -801,9 +799,7 @@ export class AuthService {
           orgAdminName: input.contactPersonName,
           operationalCity: input.operatingCity,
           hasOwnFleet: input.ownsFleet,
-          fleetSize: input.ownsFleet ? (input.fleetSize ?? null) : null,
           registeredBusinessName: input.registeredBusinessName,
-          registrationDate: input.registrationDate ?? null,
           addressLine1: input.address.addressLine1,
           addressLine2: input.address.addressLine2 ?? null,
           city: input.address.city,

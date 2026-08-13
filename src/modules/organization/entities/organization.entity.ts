@@ -85,9 +85,6 @@ export class OrganizationEntity {
   })
   onboardingStep!: OrganizationOnboardingStep | null;
 
-  @Column({ name: 'registration_date', type: 'date', nullable: true })
-  registrationDate!: string | null;
-
   @Column({ name: 'address_line_1', type: 'varchar', nullable: true })
   addressLine1!: string | null;
 
@@ -108,9 +105,6 @@ export class OrganizationEntity {
 
   @Column({ name: 'has_own_fleet', type: 'boolean', nullable: true })
   hasOwnFleet!: boolean | null;
-
-  @Column({ name: 'fleet_size', type: 'int', nullable: true })
-  fleetSize!: number | null;
 
   @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
   documents!: OrganizationDocumentEntity[];

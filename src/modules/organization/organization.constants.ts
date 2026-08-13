@@ -46,8 +46,6 @@ export function nextJourneyStage(
 // number format (state-specific), so it's validated as a non-empty string only (null here means
 // "no regex check").
 export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-export const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-export const AADHAAR_REGEX = /^[2-9][0-9]{11}$/;
 export const CIN_REGEX = /^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/;
 export const UDYAM_REGEX = /^UDYAM-[A-Z]{2}-[0-9]{2}-[0-9]{7}$/;
 
@@ -56,9 +54,7 @@ export const DOCUMENT_NUMBER_REGEX: Record<
   RegExp | null
 > = {
   gst_certificate: GSTIN_REGEX,
-  pan: PAN_REGEX,
   udyam: UDYAM_REGEX,
-  aadhaar: AADHAAR_REGEX,
   cin: CIN_REGEX,
   shop_establishment: null,
 };
