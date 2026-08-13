@@ -21,7 +21,7 @@ export interface VerifyLoginOtpInput {
 export interface CreateStaffInput {
   fullName: string;
   phoneNumber: string;
-  email: string;
+  email?: string;
   roleId: string;
   coverage: string;
   // Extra permissions granted on top of whatever roleId already grants — see

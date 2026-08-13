@@ -39,6 +39,9 @@ import {
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
   CUSTOMERS_APPROVE,
+  FILES_UPLOAD,
+  FILES_READ,
+  FILES_DELETE,
   MASTERS_APPROVE,
 } from '../shared/constants/permissions';
 import {
@@ -156,6 +159,24 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       description: 'Approve customers',
     },
     {
+      key: FILES_UPLOAD,
+      module: 'storage',
+      scope: 'organization',
+      description: 'Initiate and confirm file uploads',
+    },
+    {
+      key: FILES_READ,
+      module: 'storage',
+      scope: 'organization',
+      description: 'Read file metadata and obtain download URLs',
+    },
+    {
+      key: FILES_DELETE,
+      module: 'storage',
+      scope: 'organization',
+      description: 'Delete files',
+    },
+    {
       key: MASTERS_APPROVE,
       module: 'masters',
       scope: 'organization',
@@ -168,18 +189,26 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
 // permission key is added.
 const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
-  { name: 'sales', scope: 'organization', permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE] },
+  {
+    name: 'sales',
+    scope: 'organization',
+    permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+  },
   {
     name: 'online_kyc_desk',
     scope: 'platform',
-    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT],
+    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, FILES_READ, FILES_UPLOAD],
   },
   {
     name: 'offline_kyc_desk',
     scope: 'platform',
-    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT],
+    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT, FILES_READ, FILES_UPLOAD],
   },
-  { name: 'load_console', scope: 'platform', permissionKeys: [LOADS_CONSOLE_ACCESS] },
+  {
+    name: 'load_console',
+    scope: 'platform',
+    permissionKeys: [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD],
+  },
   {
     name: ORG_ADMIN_ROLE,
     scope: 'organization',
@@ -191,6 +220,9 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,
       CUSTOMERS_APPROVE,
+      FILES_UPLOAD,
+      FILES_READ,
+      FILES_DELETE,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
@@ -204,22 +236,28 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: SALES_CS_ROLE,
     scope: 'organization',
-    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_CREATE],
+    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
   },
   {
     name: DISPATCH_ROLE,
     scope: 'organization',
-    permissionKeys: [DISPATCH_PLANNING_MANAGE, CUSTOMERS_CREATE, MASTERS_WRITE],
+    permissionKeys: [
+      DISPATCH_PLANNING_MANAGE,
+      CUSTOMERS_CREATE,
+      MASTERS_WRITE,
+      FILES_READ,
+      FILES_UPLOAD,
+    ],
   },
   {
     name: DOCUMENTS_OPS_ROLE,
     scope: 'organization',
-    permissionKeys: [LOADS_DOCUMENTS_MANAGE, CUSTOMERS_CREATE],
+    permissionKeys: [LOADS_DOCUMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
   },
   {
     name: FINANCE_ACCOUNTS_ROLE,
     scope: 'organization',
-    permissionKeys: [PAYMENTS_MANAGE, CUSTOMERS_CREATE],
+    permissionKeys: [PAYMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
   },
 ];
 
