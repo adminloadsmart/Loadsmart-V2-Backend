@@ -119,15 +119,13 @@ export class OrganizationOnboardingService {
       organization.companyLegalName &&
       organization.orgAdminName &&
       organization.operationalCity &&
-      organization.hasOwnFleet !== null &&
-      (organization.hasOwnFleet ? organization.fleetSize !== null : true),
+      organization.hasOwnFleet !== null,
     );
   }
 
   private hasBusinessDetails(organization: OrganizationEntity): boolean {
     return Boolean(
       organization.registeredBusinessName &&
-      organization.registrationDate &&
       organization.addressLine1 &&
       organization.city &&
       organization.district &&
@@ -197,9 +195,7 @@ export class OrganizationOnboardingService {
       contactPersonName: organization.orgAdminName,
       operatingCity: organization.operationalCity,
       ownsFleet: organization.hasOwnFleet,
-      fleetSize: organization.fleetSize,
       registeredBusinessName: organization.registeredBusinessName,
-      registrationDate: organization.registrationDate,
       address: {
         addressLine1: organization.addressLine1,
         addressLine2: organization.addressLine2,

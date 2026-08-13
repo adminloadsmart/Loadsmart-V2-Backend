@@ -115,8 +115,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.verifyOrganizationDocument',
     ...onlineReview(
-      "Verify or reject one of an organization's submitted documents (gst_certificate, pan, udyam, " +
-        'aadhaar, cin, or shop_establishment) — separate from PATCH /v1/admin/organizations/{organizationId}, ' +
+      "Verify or reject one of an organization's submitted documents (gst_certificate, udyam, cin, " +
+        'or shop_establishment) — separate from PATCH /v1/admin/organizations/{organizationId}, ' +
         "which only touches the organization's own status. Callable by platform_admin or the org's " +
         'assigned online_kyc_desk reviewer only.',
     ),

@@ -14,13 +14,11 @@ export interface SaveCompanyDetailsInput {
   contactPersonName: string;
   operatingCity: string;
   ownsFleet: boolean;
-  fleetSize?: number;
   referralCode?: string;
 }
 
 export interface SaveBusinessDetailsInput {
   registeredBusinessName: string;
-  registrationDate?: string;
   address: {
     addressLine1: string;
     addressLine2?: string;
@@ -38,10 +36,8 @@ export interface SubmitOrganizationInput {
   contactPersonName: string;
   operatingCity: string;
   ownsFleet: boolean;
-  fleetSize?: number;
   referralCode?: string;
   registeredBusinessName: string;
-  registrationDate?: string;
   address: {
     addressLine1: string;
     addressLine2?: string;
@@ -70,9 +66,7 @@ export type OrganizationReviewData = {
   contactPersonName: string | null;
   operatingCity: string | null;
   ownsFleet: boolean | null;
-  fleetSize: number | null;
   registeredBusinessName: string | null;
-  registrationDate: string | null;
   address: {
     addressLine1: string | null;
     addressLine2: string | null;

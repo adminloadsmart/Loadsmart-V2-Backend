@@ -14,9 +14,7 @@ import { OrganizationEntity } from './organization.entity';
 // createOrganization and organization.constants.ts's DOCUMENT_NUMBER_REGEX for the per-type number format.
 export const ORGANIZATION_DOCUMENT_TYPES = [
   'gst_certificate',
-  'pan',
   'udyam',
-  'aadhaar',
   'cin',
   'shop_establishment',
 ] as const;
@@ -30,9 +28,9 @@ export type DocumentVerificationStatus = 'pending' | 'verified' | 'invalid';
 // Shape accepted by AuthService.createOrganization / OrganizationDocumentService / Repository —
 // a single submitted document, verified either by number or by an uploaded file's storage key.
 // registeredName/dob/address are self-declared as printed on that specific document (e.g. GST
-// legal name & registered address, PAN/Aadhaar holder name & DOB) — later cross-checked against
+// legal name & registered address) — later cross-checked against
 // the gov-API response once that integration exists. Not every type uses every field (e.g. `dob`
-// only makes sense for individual-linked documents like PAN/Aadhaar) — none are enforced required.
+// only makes sense for individual-linked documents) — none are enforced required.
 export interface OrganizationDocumentInput {
   documentType: OrganizationDocumentType;
   documentNumber?: string;
