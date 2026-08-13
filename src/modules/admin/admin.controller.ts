@@ -13,8 +13,9 @@ import {
   UpdateOrganizationInput,
   UpdateReferralCodeInput,
   VerifyOrganizationDocumentInput,
+  StaffParams,
 } from './utils/admin.interface';
-import { CreateStaffInput } from '../auth/auth.types';
+import { CreateStaffInput, UpdateStaffInput } from '../auth/auth.types';
 import { AdminService } from './admin.service';
 
 export class AdminController {
@@ -132,6 +133,20 @@ export class AdminController {
   listStaff = async (req: Request, res: Response) => {
     const staff = await this.adminService.listStaff(req.validatedQuery as ListStaffInput);
     respond(res, staff);
+  };
+
+  updateStaff = async (req: Request<StaffParams>, res: Response) => {
+    const staff = await this.adminService.updateStaff(
+      req.user!,
+      req.params.staffId,
+      req.body as UpdateStaffInput,
+    );
+    respond(res, staff);
+  };
+
+  deleteStaff = async (req: Request<StaffParams>, res: Response) => {
+    await this.adminService.deleteStaff(req.user!, req.params.staffId);
+    respond(res, { success: true });
   };
 
   createReferralCode = async (req: Request, res: Response) => {
