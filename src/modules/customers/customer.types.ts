@@ -36,3 +36,7 @@ export interface ListCustomersInput {
 export interface CustomerParams {
   customerId: string;
 }
+
+export interface DeleteCustomerParams {
+  customer_id: string;
+}
