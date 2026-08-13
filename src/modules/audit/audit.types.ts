@@ -26,6 +26,11 @@ export const AUDIT_ACTIONS = [
   'CUSTOMER_CREATED',
   'CUSTOMER_UPDATED',
   'CUSTOMER_APPROVED',
+  'CUSTOMER_REJECTED',
+  'VEHICLE_APPROVED',
+  'VEHICLE_REJECTED',
+  'DRIVER_APPROVED',
+  'DRIVER_REJECTED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -35,5 +40,7 @@ export const AUDIT_RESOURCE_TYPES = [
   'referral_code',
   'user',
   'customer',
+  'vehicle',
+  'driver',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

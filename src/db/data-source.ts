@@ -1,7 +1,6 @@
 // src/db/data-source.ts
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
-import { Client } from 'pg';
 import { env } from '../config/env';
 import { OrganizationEntity } from '../modules/organization/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../modules/organization/entities/organization-document.entity';
@@ -40,7 +39,7 @@ import { FileEntity } from '../modules/storage/entities/file.entity';
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
-  synchronize: true, // off by default — see note below on when to flip this
+  synchronize: !['staging', 'production'].includes(env.nodeEnv), // off on real servers, on everywhere else (local/dev/test) — see docs/rbac.md §9
   logging: env.nodeEnv === 'development',
   entities: [
     OrganizationEntity,
@@ -77,5 +76,8 @@ export const AppDataSource = new DataSource({
     CustomerDeliveryPointEntity,
     FileEntity,
   ], // every new module adds its entity here
-  migrations: ['src/db/migrations/**/*.ts'],
+  // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
+  // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,
+  // __dirname = dist/db, matches the tsc-compiled .js migrations).
+  migrations: [`${__dirname}/migrations/*.{js,ts}`],
 });

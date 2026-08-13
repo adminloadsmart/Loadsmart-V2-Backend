@@ -45,5 +45,11 @@ export function createCustomerRoutes(controller: CustomerController): Router {
     validate(customerValidators.approve),
     asyncHandler(controller.approve),
   );
+  router.patch(
+    '/:customerId/reject',
+    requirePermission(CUSTOMERS_APPROVE),
+    validate(customerValidators.reject),
+    asyncHandler(controller.reject),
+  );
   return router;
 }

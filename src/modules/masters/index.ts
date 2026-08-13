@@ -3,30 +3,46 @@ import { VehicleRepository } from './vehicle.repository';
 import { VehicleService } from './vehicle.service';
 import { DriverRepository } from './driver.repository';
 import { DriverService } from './driver.service';
+import { SarathiClient } from './sarathi.client';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeRepository } from './truck-type.repository';
 import { TruckTypeService } from './truck-type.service';
 import { MastersController } from './masters.controller';
 import { createMastersProtectedRoutes } from './masters.routes';
+import { AuditService } from '../audit/audit.service';
 
-export function createMastersModule(dataSource: DataSource) {
+export function createMastersModule(dataSource: DataSource, deps: { auditService: AuditService }) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
   const truckTypeRepository = new TruckTypeRepository(dataSource);
   const truckTypeService = new TruckTypeService(truckTypeRepository);
 
   const vehicleRepository = new VehicleRepository(dataSource);
-  const vehicleService = new VehicleService(vehicleRepository, truckTypeService, dataSource);
-
   const driverRepository = new DriverRepository(dataSource);
-  const driverService = new DriverService(driverRepository, dataSource);
 
+  // Built on the repositories (not VehicleService/DriverService) so it has no dependency on
+  // VehicleService — which itself depends on this service to link a driver during onboarding.
   const fleetDriverLinkRepository = new FleetDriverLinkRepository(dataSource);
   const fleetDriverLinkService = new FleetDriverLinkService(
     fleetDriverLinkRepository,
-    vehicleService,
-    driverService,
+    vehicleRepository,
+    driverRepository,
     dataSource,
+  );
+
+  const vehicleService = new VehicleService(
+    vehicleRepository,
+    truckTypeService,
+    fleetDriverLinkService,
+    dataSource,
+    deps.auditService,
+  );
+  const sarathiClient = new SarathiClient();
+  const driverService = new DriverService(
+    driverRepository,
+    dataSource,
+    sarathiClient,
+    deps.auditService,
   );
 
   const controller = new MastersController(

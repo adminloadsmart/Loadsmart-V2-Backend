@@ -25,6 +25,10 @@ export interface FileParams {
   fileId: string;
 }
 
+export interface GetByKeyQuery {
+  key: string;
+}
+
 // The subset of the caller's identity storage.service.get() needs to decide which repository
 // lookup to run — see storage.service.ts's platform_admin bypass.
 export interface FileAccessActor {

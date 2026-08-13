@@ -1,19 +1,21 @@
 // One-off seed script for the fixed roles/permissions catalog (see
-// modules/roles/entities/role.entity.ts). Run by hand after `synchronize: true` has created the
-// auth.permissions/roles/role_permissions/user_permissions tables — there is no TypeORM
-// migration for this (schema stays on synchronize per project decision). Safe to re-run: every
-// permission/role is upserted by its unique key/name, and each role's permission set is fully
-// replaced (not appended to) on every run.
+// modules/roles/entities/role.entity.ts). Schema is created by TypeORM migrations (see
+// db/migrations/) on any deployed server — `synchronize` is dev-only now (data-source.ts). This
+// script just seeds data into the auth.permissions/roles/role_permissions/user_permissions
+// tables once they exist. Safe to re-run: every permission/role is upserted by its unique
+// key/name, and each role's permission set is fully replaced (not appended to) on every run.
+// Auto-run on every deploy — see .github/workflows/deploy.yml.
 //
 // IMPORTANT — run this before anyone signs up: verifyOtp resolves the org_admin role by name at
 // signup time and fails if it isn't seeded yet.
 //
 // If auth.users already has rows from before this change, roleId is a NOT NULL column with no
 // backfill path here (see RBAC plan's "remove all data" decision) — clear auth.users (and its
-// dependents: refresh_tokens, login_attempts) manually first, or `synchronize` will fail trying
-// to add the column.
+// dependents: refresh_tokens, login_attempts) manually first.
 //
-// Usage: npm run seed:roles
+// Usage: npm run seed:roles (or, since ts-node is currently broken against this repo's
+// typescript version — see docs/rbac.md §8 — `npm run build && node -r reflect-metadata
+// dist/db/seed-roles.js`)
 
 import 'reflect-metadata';
 import { AppDataSource } from './data-source';
@@ -40,6 +42,7 @@ import {
   FILES_UPLOAD,
   FILES_READ,
   FILES_DELETE,
+  MASTERS_APPROVE,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -173,6 +176,12 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Delete files',
     },
+    {
+      key: MASTERS_APPROVE,
+      module: 'masters',
+      scope: 'organization',
+      description: 'Approve/reject vehicles and drivers created pending admin approval',
+    },
   ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -180,24 +189,33 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
 // permission key is added.
 const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
-  { name: 'sales', scope: 'organization', permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE] },
+  {
+    name: 'sales',
+    scope: 'organization',
+    permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+  },
   {
     name: 'online_kyc_desk',
     scope: 'platform',
-    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT],
+    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, FILES_READ, FILES_UPLOAD],
   },
   {
     name: 'offline_kyc_desk',
     scope: 'platform',
-    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT],
+    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT, FILES_READ, FILES_UPLOAD],
   },
-  { name: 'load_console', scope: 'platform', permissionKeys: [LOADS_CONSOLE_ACCESS] },
+  {
+    name: 'load_console',
+    scope: 'platform',
+    permissionKeys: [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD],
+  },
   {
     name: ORG_ADMIN_ROLE,
     scope: 'organization',
     permissionKeys: [
       ORGANIZATION_PROFILE_MANAGE,
       MASTERS_WRITE,
+      MASTERS_APPROVE,
       CUSTOMERS_CREATE,
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,
@@ -208,13 +226,39 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
-  // Roles. Permission keys are forward-looking: the Load module (PRD §6) and Payments module
-  // (PRD §7) that actually enforce them don't exist yet — same "seeded ahead of the module"
-  // situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
-  { name: SALES_CS_ROLE, scope: 'organization', permissionKeys: [REQUISITIONS_MANAGE] },
-  { name: DISPATCH_ROLE, scope: 'organization', permissionKeys: [DISPATCH_PLANNING_MANAGE] },
-  { name: DOCUMENTS_OPS_ROLE, scope: 'organization', permissionKeys: [LOADS_DOCUMENTS_MANAGE] },
-  { name: FINANCE_ACCOUNTS_ROLE, scope: 'organization', permissionKeys: [PAYMENTS_MANAGE] },
+  // Roles. All 4 can request a new customer (CUSTOMERS_CREATE — customer.service.ts's create()
+  // auto-approves for org_admin, leaves everyone else 'pending' for CUSTOMERS_APPROVE to review).
+  // Only dispatch also gets MASTERS_WRITE: it's the sole non-admin role allowed to add a vehicle
+  // or driver at all (masters.routes.ts's canWrite gate), same pending-approval treatment.
+  // Beyond that, permission keys are forward-looking: the Load module (PRD §6) and Payments
+  // module (PRD §7) that actually enforce them don't exist yet — same "seeded ahead of the
+  // module" situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
+  {
+    name: SALES_CS_ROLE,
+    scope: 'organization',
+    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+  },
+  {
+    name: DISPATCH_ROLE,
+    scope: 'organization',
+    permissionKeys: [
+      DISPATCH_PLANNING_MANAGE,
+      CUSTOMERS_CREATE,
+      MASTERS_WRITE,
+      FILES_READ,
+      FILES_UPLOAD,
+    ],
+  },
+  {
+    name: DOCUMENTS_OPS_ROLE,
+    scope: 'organization',
+    permissionKeys: [LOADS_DOCUMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+  },
+  {
+    name: FINANCE_ACCOUNTS_ROLE,
+    scope: 'organization',
+    permissionKeys: [PAYMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+  },
 ];
 
 async function seed(): Promise<void> {

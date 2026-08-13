@@ -113,6 +113,34 @@ export class DriverRepository {
     );
   }
 
+  /** Only a `pending` driver (dispatch's own onboardDriver call) can be approved. */
+  async approve(tenantId: string, id: string, actorId: string): Promise<DriverEntity | null> {
+    const result = await this.drivers.update(
+      { id, tenantId, status: 'pending', deletedAt: IsNull() },
+      {
+        status: 'active',
+        approvedBy: actorId,
+        approvedAt: new Date(),
+        rejectionReason: null,
+        updatedBy: actorId,
+      },
+    );
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+
+  async reject(
+    tenantId: string,
+    id: string,
+    actorId: string,
+    reason: string,
+  ): Promise<DriverEntity | null> {
+    const result = await this.drivers.update(
+      { id, tenantId, status: 'pending', deletedAt: IsNull() },
+      { status: 'rejected', rejectionReason: reason, updatedBy: actorId },
+    );
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+
   async createDocument(
     data: CreateDriverDocumentData,
     manager?: EntityManager,

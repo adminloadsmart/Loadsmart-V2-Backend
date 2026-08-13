@@ -10,7 +10,7 @@ export class StorageRepository {
   }
 
   create(
-    tenantId: string,
+    tenantId: string | null,
     uploadedBy: string,
     purpose: UploadPurpose,
     key: string,
@@ -37,10 +37,31 @@ export class StorageRepository {
     return this.files.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
   }
 
-  // No tenant filter — used only by the service's platform_admin read bypass. Never call this
-  // from a write path or expose it to a normal tenant-scoped caller.
+  // No tenant filter — used only by the service's platform-scope-role read bypass (get()). Never
+  // call this from a write path or expose it to a normal tenant-scoped caller — it can return
+  // any tenant's file.
   findByIdAny(id: string) {
     return this.files.findOne({ where: { id, deletedAt: IsNull() } });
+  }
+
+  // Tenant-less counterpart to findById/markConfirmed — matches tenant_id IS NULL specifically,
+  // never a real tenant's row. Used only by the service's tenant-less confirmUpload path (a
+  // platform-scope caller or a pre-org-creation org_admin confirming its own tenant-less
+  // upload). Unlike findByIdAny, this can never surface a real tenant's file.
+  findByNullTenant(id: string) {
+    return this.files.findOne({ where: { id, tenantId: IsNull(), deletedAt: IsNull() } });
+  }
+
+  // key-based counterpart to findById/findByIdAny — for a caller that only has the S3 object
+  // key on hand (e.g. organization_documents.file_key), not the file's own id. `key` has a
+  // unique index (files_key_idx), so at most one row can ever match.
+  findByKey(tenantId: string, key: string) {
+    return this.files.findOne({ where: { key, tenantId, deletedAt: IsNull() } });
+  }
+
+  // No tenant filter — same scope/caution as findByIdAny, just keyed by `key` instead of `id`.
+  findByKeyAny(key: string) {
+    return this.files.findOne({ where: { key, deletedAt: IsNull() } });
   }
 
   async markConfirmed(tenantId: string, id: string, sizeBytes: number) {
@@ -49,6 +70,14 @@ export class StorageRepository {
       { status: 'confirmed', sizeBytes, confirmedAt: new Date() },
     );
     return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+
+  async markConfirmedByNullTenant(id: string, sizeBytes: number) {
+    const result = await this.files.update(
+      { id, tenantId: IsNull(), status: 'pending' },
+      { status: 'confirmed', sizeBytes, confirmedAt: new Date() },
+    );
+    return result.affected === 1 ? this.findByNullTenant(id) : null;
   }
 
   async softDelete(tenantId: string, id: string): Promise<boolean> {

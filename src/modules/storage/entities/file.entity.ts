@@ -15,7 +15,11 @@ import { UploadPurpose, UPLOAD_PURPOSES } from '../storage.constants';
 @Index('files_key_idx', ['key'], { unique: true })
 export class FileEntity {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'tenant_id', type: 'uuid' }) tenantId!: string;
+  // Nullable: a platform-scope caller (sales/online_kyc_desk/offline_kyc_desk/load_console — see
+  // PLATFORM_SCOPE_ROLES) has no tenant of its own. Such a file is never re-attributed to a
+  // tenant later; see storage.repository.ts's findByNullTenant/markConfirmedByNullTenant for the
+  // matching tenant-less lookup/update paths, scoped only to rows with tenant_id IS NULL.
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true }) tenantId!: string | null;
   @Column({ name: 'uploaded_by', type: 'uuid' }) uploadedBy!: string;
   @Column({ type: 'enum', enum: [...UPLOAD_PURPOSES] }) purpose!: UploadPurpose;
   @Column({ type: 'text' }) key!: string;

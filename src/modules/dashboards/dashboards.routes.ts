@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
+import { requirePermission } from '../../shared/middleware/require-permission.middleware';
+import { CUSTOMERS_APPROVE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 import { DashboardsController } from './dashboards.controller';
 import { dashboardsValidators } from './dashboards.validators';
 
@@ -17,6 +19,14 @@ export function createDashboardsRoutes(controller: DashboardsController): Router
     '/fleet-activity',
     validate(dashboardsValidators.getFleetActivity),
     asyncHandler(controller.getFleetActivity),
+  );
+
+  // Settings → Approvals. Either permission grants visibility — both are org_admin-only today
+  // (see db/seed-roles.ts), matching who can act on what this endpoint lists.
+  router.get(
+    '/pending-approvals',
+    requirePermission(CUSTOMERS_APPROVE, MASTERS_APPROVE),
+    asyncHandler(controller.listPendingApprovals),
   );
 
   return router;

@@ -99,6 +99,12 @@ const vehicleServiceUsageBody = z.object({
   lastTyreChangeDate: isoDate.optional(),
 });
 
+const driverLinkBody = z.object({
+  driverId: uuid,
+  isPrimary: z.boolean().optional(),
+  linkedFrom: isoDate.optional(),
+});
+
 const vehicleDocumentBody = z.object({
   documentType: z.enum(VEHICLE_DOCUMENT_TYPES),
   documentNumber: z.string().min(1).max(50).optional(),
@@ -119,6 +125,10 @@ const driverCoreFields = {
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
 };
+
+const driverVerifyDlBody = z.object({
+  licenseNumber,
+});
 
 const driverVerificationBody = z.object({
   verificationType: z.enum(DRIVER_VERIFICATION_TYPES),
@@ -194,9 +204,6 @@ export const mastersValidators = {
   }),
   deleteTruckType: z.object({ params: truckTypeParams }),
 
-  createVehicle: z.object({
-    body: z.object(vehicleCoreFields),
-  }),
   /** The whole "Add a vehicle" form in one request. */
   onboardVehicle: z.object({
     body: z.object({
@@ -206,6 +213,7 @@ export const mastersValidators = {
       serviceUsage: vehicleServiceUsageBody.optional(),
       documents: z.array(vehicleDocumentBody).max(20).optional(),
       operationalStatus: vehicleOperationalStatusBody.optional(),
+      driverLink: driverLinkBody.optional(),
     }),
   }),
   listVehicles: z.object({
@@ -226,10 +234,18 @@ export const mastersValidators = {
         capacityTons: z.number().positive().max(9999).optional(),
         ownershipType: z.enum(OWNERSHIP_TYPES).optional(),
         status: z.enum(VEHICLE_STATUSES).optional(),
+        // Selecting a driver from the edit-vehicle dropdown re-links it as the vehicle's primary
+        // driver, in the same transaction as any other field changes here — see setPrimaryDriver.
+        driverId: uuid.optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteVehicle: z.object({ params: vehicleParams }),
+  approveVehicle: z.object({ params: vehicleParams }),
+  rejectVehicle: z.object({
+    params: vehicleParams,
+    body: z.object({ reason: z.string().trim().min(1) }),
+  }),
 
   getVehicleServiceUsage: z.object({ params: vehicleParams }),
   setVehicleServiceUsage: z.object({
@@ -258,9 +274,11 @@ export const mastersValidators = {
   }),
   deleteVehicleDocument: z.object({ params: vehicleDocumentParams }),
 
-  createDriver: z.object({
-    body: z.object(driverCoreFields),
-  }),
+  /**
+   * Preflight check for step 2 of "Add a driver", before the driver exists — no driverId param.
+   */
+  verifyDriverDl: z.object({ body: driverVerifyDlBody }),
+
   /** The whole "Add a driver" form in one request. */
   onboardDriver: z.object({
     body: z.object({
@@ -291,6 +309,11 @@ export const mastersValidators = {
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteDriver: z.object({ params: driverParams }),
+  approveDriver: z.object({ params: driverParams }),
+  rejectDriver: z.object({
+    params: driverParams,
+    body: z.object({ reason: z.string().trim().min(1) }),
+  }),
 
   addDriverDocument: z.object({
     params: driverParams,

@@ -1,5 +1,7 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
+import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import { AuditService } from '../audit/audit.service';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleServiceUsageEntity } from './entities/vehicle-service-usage.entity';
 import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
@@ -9,6 +11,7 @@ import { VehicleVerificationSnapshotEntity } from './entities/vehicle-verificati
 import { VehicleDocumentStatus, VehicleDocumentType } from './utils/vehicle.type';
 import { VehicleRepository } from './vehicle.repository';
 import { TruckTypeService } from './truck-type.service';
+import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './masters.constants';
 import { Paginated, paginate } from './utils/masters.types';
 import {
@@ -42,12 +45,21 @@ export class VehicleService {
   constructor(
     private readonly vehicleRepository: VehicleRepository,
     private readonly truckTypeService: TruckTypeService,
+    private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly dataSource: DataSource,
+    private readonly auditService: AuditService,
   ) {}
 
-  async createVehicle(
+  /**
+   * Only called internally, by onboardVehicle — there is no standalone create-vehicle route.
+   * org_admin's own vehicle lands `active` immediately; dispatch's (the only other role
+   * masters.routes.ts's canWrite gate admits) lands `pending` until an org_admin reviews it via
+   * approveVehicle/rejectVehicle.
+   */
+  private async createVehicle(
     tenantId: string,
     actorId: string,
+    actorRole: string,
     input: CreateVehicleInput,
     manager?: EntityManager,
   ): Promise<VehicleEntity> {
@@ -68,6 +80,8 @@ export class VehicleService {
         await this.truckTypeService.assertTruckTypeExists(tenantId, input.truckTypeId);
       }
 
+      const autoApproved = actorRole === ORG_ADMIN_ROLE;
+
       return await this.vehicleRepository.create(
         {
           tenantId,
@@ -78,6 +92,9 @@ export class VehicleService {
           wheelCount: input.wheelCount ?? null,
           capacityTons: input.capacityTons === undefined ? null : String(input.capacityTons),
           ownershipType: input.ownershipType ?? 'owned',
+          status: autoApproved ? 'active' : 'pending',
+          approvedBy: autoApproved ? actorId : null,
+          approvedAt: autoApproved ? new Date() : null,
           createdBy: actorId,
         },
         manager,
@@ -116,19 +133,45 @@ export class VehicleService {
     input: UpdateVehicleInput,
   ): Promise<VehicleEntity> {
     try {
-      await this.assertVehicleExists(tenantId, vehicleId);
+      const { driverId, ...fields } = input;
 
-      if (input.truckTypeId) {
-        await this.truckTypeService.assertTruckTypeExists(tenantId, input.truckTypeId);
+      if (fields.truckTypeId) {
+        await this.truckTypeService.assertTruckTypeExists(tenantId, fields.truckTypeId);
       }
 
-      const vehicle = await this.vehicleRepository.update(tenantId, vehicleId, {
-        ...input,
-        capacityTons: input.capacityTons === undefined ? undefined : String(input.capacityTons),
-        updatedBy: actorId,
+      return await this.dataSource.transaction(async (manager) => {
+        await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+        if (Object.keys(fields).length > 0) {
+          await this.vehicleRepository.update(
+            tenantId,
+            vehicleId,
+            {
+              ...fields,
+              capacityTons:
+                fields.capacityTons === undefined ? undefined : String(fields.capacityTons),
+              updatedBy: actorId,
+            },
+            manager,
+          );
+        }
+
+        // Selecting a driver on the edit-vehicle form re-links them as primary, in the same
+        // transaction as the field changes above — see FleetDriverLinkService.setPrimaryDriver.
+        if (driverId) {
+          await this.fleetDriverLinkService.setPrimaryDriver(
+            tenantId,
+            actorId,
+            vehicleId,
+            driverId,
+            manager,
+          );
+        }
+
+        const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
+        if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
+        return vehicle;
       });
-      if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
-      return vehicle;
     } catch (error) {
       rethrow(error, 'Failed to update vehicle');
     }
@@ -519,6 +562,7 @@ export class VehicleService {
   async onboardVehicle(
     tenantId: string,
     actorId: string,
+    actorRole: string,
     input: OnboardVehicleInput,
   ): Promise<VehicleEntity> {
     try {
@@ -528,11 +572,18 @@ export class VehicleService {
         serviceUsage,
         documents,
         operationalStatus,
+        driverLink,
         ...vehicleInput
       } = input;
 
       const vehicleId = await this.dataSource.transaction(async (manager) => {
-        const vehicle = await this.createVehicle(tenantId, actorId, vehicleInput, manager);
+        const vehicle = await this.createVehicle(
+          tenantId,
+          actorId,
+          actorRole,
+          vehicleInput,
+          manager,
+        );
 
         if (verification) {
           await this.recordVerification(tenantId, actorId, vehicle.id, verification, manager);
@@ -600,6 +651,18 @@ export class VehicleService {
           manager,
         );
 
+        // Same transaction as the vehicle itself, so a driver picked at onboarding time (e.g. not
+        // active, or already linked elsewhere) rolls the whole vehicle creation back too.
+        if (driverLink) {
+          await this.fleetDriverLinkService.linkDriver(
+            tenantId,
+            actorId,
+            vehicle.id,
+            driverLink,
+            manager,
+          );
+        }
+
         return vehicle.id;
       });
 
@@ -625,6 +688,66 @@ export class VehicleService {
       return vehicle;
     } catch (error) {
       rethrow(error, 'Failed to verify vehicle exists');
+    }
+  }
+
+  /** Approves a vehicle dispatch added — see createVehicle's pending/active split. */
+  async approveVehicle(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+  ): Promise<VehicleEntity> {
+    try {
+      const existing = await this.assertVehicleExists(tenantId, vehicleId);
+      if (existing.status !== 'pending') {
+        throw new ConflictError('Only a pending vehicle can be approved');
+      }
+
+      const vehicle = await this.vehicleRepository.approve(tenantId, vehicleId, actorId);
+      if (!vehicle) throw new ConflictError('Vehicle approval failed');
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'VEHICLE_APPROVED',
+        resourceType: 'vehicle',
+        oldData: { id: vehicleId, status: 'pending' },
+        newData: { id: vehicleId, status: 'active', approvedBy: actorId },
+      });
+
+      return vehicle;
+    } catch (error) {
+      rethrow(error, 'Failed to approve vehicle');
+    }
+  }
+
+  async rejectVehicle(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    reason: string,
+  ): Promise<VehicleEntity> {
+    try {
+      const existing = await this.assertVehicleExists(tenantId, vehicleId);
+      if (existing.status !== 'pending') {
+        throw new ConflictError('Only a pending vehicle can be rejected');
+      }
+
+      const vehicle = await this.vehicleRepository.reject(tenantId, vehicleId, actorId, reason);
+      if (!vehicle) throw new ConflictError('Vehicle rejection failed');
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'VEHICLE_REJECTED',
+        resourceType: 'vehicle',
+        oldData: { id: vehicleId, status: 'pending' },
+        newData: { id: vehicleId, status: 'rejected', rejectionReason: reason },
+      });
+
+      return vehicle;
+    } catch (error) {
+      rethrow(error, 'Failed to reject vehicle');
     }
   }
 }

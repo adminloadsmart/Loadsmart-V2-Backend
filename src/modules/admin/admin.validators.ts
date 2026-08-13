@@ -91,7 +91,7 @@ export const adminValidators = {
     body: z.object({
       fullName: z.string().min(1),
       phoneNumber: z.string().min(10),
-      email: z.string().email(),
+      email: z.string().email().optional(),
       roleId: uuid,
       coverage: z.string().min(1),
       permissionIds: z.array(uuid).optional(),

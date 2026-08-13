@@ -273,7 +273,9 @@ export class AuthService {
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const [existingByPhone, existingByEmail] = await Promise.all([
       this.authRepository.findUserByPhone(normalizedPhone),
-      this.authRepository.findUserByEmail(email),
+      // findUserByEmail's `where` drops undefined values entirely, so it must be skipped rather
+      // than called with an undefined email — otherwise it'd match any active user.
+      email ? this.authRepository.findUserByEmail(email) : Promise.resolve(null),
     ]);
     if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
     if (existingByEmail) throw new ConflictError('A user with this email already exists');

@@ -68,7 +68,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
   // Reference data other modules read from — no cross-module deps of its own.
-  const masters = createMastersModule(dataSource);
+  const masters = createMastersModule(dataSource, { auditService: audit.service });
 
   // Producers first — no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
@@ -96,9 +96,16 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
   });
 
-  // Last — reads other modules' services directly.
-  const dashboards = createDashboardsModule({ vehicleService: masters.vehicleService });
+  // No cross-module deps of its own — built before dashboards, which reads its service directly
+  // (Settings → Approvals aggregates pending customers alongside pending vehicles/drivers).
   const customers = createCustomersModule(dataSource, audit.service);
+
+  // Last — reads other modules' services directly.
+  const dashboards = createDashboardsModule({
+    vehicleService: masters.vehicleService,
+    driverService: masters.driverService,
+    customerService: customers.service,
+  });
 
   return {
     tenancyGateway: auth.tenancyGateway,

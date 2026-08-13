@@ -17,5 +17,6 @@ export const storageValidators = {
   }),
   confirmUpload: z.object({ params }),
   get: z.object({ params }),
+  getByKey: z.object({ query: z.object({ key: z.string().trim().min(1) }) }),
   remove: z.object({ params }),
 };
