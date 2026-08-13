@@ -6,8 +6,36 @@ import { requireTenant } from '../../shared/middleware/require-tenant.middleware
 import { MastersController } from './masters.controller';
 import { mastersValidators } from './masters.validators';
 import { MASTERS_WRITE } from '../../shared/constants/permissions';
+import multer, { FileFilterCallback } from 'multer';
+import { ValidationError } from '../../shared/errors';
+import { TransporterImportController } from './transporter-import.controller';
 
-export function createMastersProtectedRoutes(controller: MastersController): Router {
+const transporterCsvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback: FileFilterCallback) => {
+    if (!file.originalname.toLowerCase().endsWith('.csv'))
+      callback(new Error('Only .csv files are accepted'));
+    else callback(null, true);
+  },
+});
+
+function requireTransporterCsvFile(
+  req: Parameters<import('express').RequestHandler>[0],
+  _res: Parameters<import('express').RequestHandler>[1],
+  next: Parameters<import('express').RequestHandler>[2],
+) {
+  if (!req.file) {
+    next(new ValidationError('A CSV file is required in the "file" form field'));
+    return;
+  }
+  next();
+}
+
+export function createMastersProtectedRoutes(
+  controller: MastersController,
+  transporterImportController: TransporterImportController,
+): Router {
   const router = Router();
 
   // Tenant-owned resources only — no platform-scope caller (platform_admin/staff) has any
@@ -40,6 +68,13 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     '/transporters',
     validate(mastersValidators.createTransporter),
     asyncHandler(controller.createTransporter),
+  );
+  router.post(
+    '/transporters/import',
+    requirePermission(MASTERS_WRITE),
+    transporterCsvUpload.single('file'),
+    requireTransporterCsvFile,
+    asyncHandler(transporterImportController.import),
   );
   router.get(
     '/transporters',

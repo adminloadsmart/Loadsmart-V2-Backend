@@ -106,6 +106,34 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/transporters/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importTransportersCsv',
+    ...write('Bulk upload transporters from a CSV file. Organization admin only.'),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: { type: 'string', format: 'binary', description: 'CSV file, maximum 5 MB.' },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Import completed with a row-level result report' },
+      400: { description: 'Invalid CSV or missing file', ...errorContent },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/transporters/{transporterId}`,
     tags: [TAGS.MASTERS],

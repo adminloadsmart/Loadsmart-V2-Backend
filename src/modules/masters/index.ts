@@ -12,6 +12,8 @@ import { createMastersProtectedRoutes } from './masters.routes';
 import { AuditService } from '../audit/audit.service';
 import { TransporterRepository } from './transporter.repository';
 import { TransporterService } from './transporter.service';
+import { TransporterImportService } from './transporter-import.service';
+import { TransporterImportController } from './transporter-import.controller';
 
 export function createMastersModule(
   dataSource: DataSource,
@@ -25,6 +27,11 @@ export function createMastersModule(
     transporterRepository,
     dependencies.auditService,
   );
+  const transporterImportService = new TransporterImportService(
+    transporterService,
+    dependencies.auditService,
+  );
+  const transporterImportController = new TransporterImportController(transporterImportService);
 
   const vehicleRepository = new VehicleRepository(dataSource);
   const vehicleService = new VehicleService(vehicleRepository, truckTypeService, dataSource);
@@ -47,7 +54,7 @@ export function createMastersModule(
     truckTypeService,
     transporterService,
   );
-  const protectedRouter = createMastersProtectedRoutes(controller);
+  const protectedRouter = createMastersProtectedRoutes(controller, transporterImportController);
 
   return {
     vehicleService,

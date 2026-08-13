@@ -31,6 +31,7 @@ export const AUDIT_ACTIONS = [
   'TRANSPORTER_CREATED',
   'TRANSPORTER_UPDATED',
   'TRANSPORTER_DELETED',
+  'TRANSPORTER_BULK_IMPORTED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
