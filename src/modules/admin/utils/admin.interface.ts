@@ -58,3 +58,5 @@ export interface UpdateReferralCodeInput {
   validFrom?: string;
   validUntil?: string;
 }
+
+export type StaffParams = { staffId: string };

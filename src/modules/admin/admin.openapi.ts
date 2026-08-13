@@ -353,7 +353,66 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { query: adminValidators.listStaff.shape.query },
     responses: {
-      200: { description: 'Paginated staff — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description:
+          'Paginated staff — { data: { items, page, limit, total, totalPages } }. Each item ' +
+          "includes signupCount (orgs onboarded via the staff member's referral codes) and " +
+          'workload (orgs currently assigned to them for KYC review, not yet completed).',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/staff/{staffId}`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.updateStaff',
+    ...adminOnly(
+      "Update an existing staff account's profile fields, role, and/or direct permission grants " +
+        "— all fields optional, only what's provided is changed. `roleId` follows the same " +
+        'staff-assignable rule as POST /v1/admin/staff. `permissionIds`, when provided, replaces ' +
+        "the full set of the staff member's direct grants (missing ids get revoked, new ones " +
+        'granted) — omit it to leave direct grants untouched. A caller cannot change their own ' +
+        'role or permissions through this endpoint (still may edit their own profile fields).',
+    ),
+    request: {
+      params: adminValidators.updateStaff.shape.params,
+      body: json(adminValidators.updateStaff.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated staff account' },
+      400: { description: 'Validation failed, or roleId is not staff-assignable', ...errorContent },
+      403: {
+        description: 'Attempted to change your own role/permissions, or a scope mismatch',
+        ...errorContent,
+      },
+      404: { description: 'Staff member, role, or a permissionId not found', ...errorContent },
+      409: { description: 'Phone number or email already in use', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/staff/{staffId}`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.deleteStaff',
+    ...adminOnly(
+      'Deactivate a staff account (soft delete) — restricted to roles provisioned through this ' +
+        'surface (sales, online/offline KYC desk, load console); platform_admin/org_admin accounts ' +
+        "aren't deprovisioned this way. Rejected while the staff member still has unfinished KYC " +
+        'review work assigned to them — reassign those organizations first. A caller cannot delete ' +
+        'their own account through this endpoint.',
+    ),
+    request: { params: adminValidators.deleteStaff.shape.params },
+    responses: {
+      200: { description: '{ success: true }' },
+      400: { description: 'Role is not staff-assignable', ...errorContent },
+      403: { description: 'Attempted to delete your own account', ...errorContent },
+      404: { description: 'Staff member not found', ...errorContent },
+      409: {
+        description: 'Staff member still has unfinished KYC review assignments',
+        ...errorContent,
+      },
     },
   });
 

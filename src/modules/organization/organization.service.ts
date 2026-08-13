@@ -88,4 +88,12 @@ export class OrganizationService {
   countByReferralCodeId(referralCodeId: string): Promise<number> {
     return this.organizationRepository.countByReferralCodeId(referralCodeId);
   }
+
+  countActiveByReferralCodeOwnerIds(ownerUserIds: string[]): Promise<Map<string, number>> {
+    return this.organizationRepository.countActiveByReferralCodeOwnerIds(ownerUserIds);
+  }
+
+  countPendingKycAssignmentsByStaffIds(staffIds: string[]): Promise<Map<string, number>> {
+    return this.organizationRepository.countPendingKycAssignmentsByStaffIds(staffIds);
+  }
 }

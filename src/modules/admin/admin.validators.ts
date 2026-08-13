@@ -10,6 +10,7 @@ import { paginationQuery as pagination } from '../../shared/validators/paginatio
 
 const uuid = z.string().uuid();
 const organizationParams = z.object({ organizationId: uuid });
+const staffParams = z.object({ staffId: uuid });
 const organizationDocumentParams = organizationParams.extend({ documentId: uuid });
 const decisionReasonBody = z.object({ reason: z.string().min(1) });
 const referralCodeParams = z.object({ referralCodeId: uuid });
@@ -97,6 +98,21 @@ export const adminValidators = {
       permissionIds: z.array(uuid).optional(),
     }),
   }),
+
+  updateStaff: z.object({
+    params: staffParams,
+    body: z.object({
+      fullName: z.string().min(1).optional(),
+      phoneNumber: z.string().min(10).optional(),
+      email: z.string().email().optional(),
+      roleId: uuid.optional(),
+      coverage: z.string().min(1).optional(),
+      permissionIds: z.array(uuid).optional(),
+    }),
+  }),
+
+  deleteStaff: z.object({ params: staffParams }),
+
   // role narrows to eligible staff for the KYC assignment dropdowns (see auth.repository.ts's
   // listStaffUsers) — same enum the staff-creation roleId is ultimately validated against.
   listStaff: z.object({
