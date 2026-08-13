@@ -37,6 +37,12 @@ const driverBankDetailsParams = z.object({
 });
 const linkParams = z.object({ linkId: uuid });
 const truckTypeParams = z.object({ truckTypeId: uuid });
+const transporterParams = z.object({ transporterId: uuid });
+const transporterFields = {
+  name: z.string().trim().min(1).max(150),
+  rate: z.string().trim().min(1).max(100),
+  creditDays: z.number().int().nonnegative().max(36500),
+};
 
 /**
  * Number plates are typed as they appear on the vehicle — "KA01 AB 1234", sometimes lowercase — so
@@ -207,6 +213,17 @@ export const mastersValidators = {
     body: z.object({ name: z.string().trim().min(1).max(100) }),
   }),
   deleteTruckType: z.object({ params: truckTypeParams }),
+  createTransporter: z.object({ body: z.object(transporterFields).strict() }),
+  listTransporters: z.object({ query: pagination }),
+  updateTransporter: z.object({
+    params: transporterParams,
+    body: z
+      .object(transporterFields)
+      .partial()
+      .strict()
+      .refine((value) => Object.keys(value).length > 0, 'At least one field is required'),
+  }),
+  deleteTransporter: z.object({ params: transporterParams }),
 
   /** The whole "Add a vehicle" form in one request. */
   onboardVehicle: z.object({

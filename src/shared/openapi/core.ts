@@ -18,6 +18,7 @@ export const TAGS = {
   ADMIN: 'admin',
   DASHBOARDS: 'dashboards',
   CUSTOMERS: 'customers',
+  STORAGE: 'files',
 } as const;
 
 /**

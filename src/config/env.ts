@@ -60,6 +60,10 @@ export const env = {
   verifyOtpRateLimitWindowSeconds: numberWithDefault('VERIFY_OTP_RATE_LIMIT_WINDOW_SECONDS', 300),
   signupRateLimitMax: numberWithDefault('SIGNUP_RATE_LIMIT_MAX', 20),
   signupRateLimitWindowSeconds: numberWithDefault('SIGNUP_RATE_LIMIT_WINDOW_SECONDS', 300),
+  awsRegion: required('AWS_REGION'),
+  s3Bucket: required('S3_BUCKET'),
+  s3AccessKeyId: required('S3_ACCESS_KEY_ID'),
+  s3SecretAccessKey: required('S3_SECRET_ACCESS_KEY'),
   // Throttles POST /drivers/verify-dl — it fans out to IDfy's paid Sarathi lookup.
   driverVerifyDlRateLimitMax: numberWithDefault('DRIVER_VERIFY_DL_RATE_LIMIT_MAX', 3),
   driverVerifyDlRateLimitWindowSeconds: numberWithDefault(
