@@ -11,7 +11,7 @@ import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverBankVerificationStatus } from './utils/drivers.types';
 import { DriverRepository } from './driver.repository';
 import { Paginated, paginate } from './utils/masters.types';
-import { SarathiClient, SarathiDrivingLicenceResult } from './sarathi.client';
+import { SarathiClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,

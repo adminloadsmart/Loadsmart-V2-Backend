@@ -1,4 +1,4 @@
-import { env } from '../../config/env';
+import { env } from '../config/env';
 
 /**
  * Result of a driving-licence lookup against the Sarathi registry. `manual_review` covers "registry

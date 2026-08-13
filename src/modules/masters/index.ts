@@ -3,7 +3,6 @@ import { VehicleRepository } from './vehicle.repository';
 import { VehicleService } from './vehicle.service';
 import { DriverRepository } from './driver.repository';
 import { DriverService } from './driver.service';
-import { SarathiClient } from './sarathi.client';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeRepository } from './truck-type.repository';
@@ -17,6 +16,7 @@ import { TransporterRepository } from './transporter.repository';
 import { TransporterService } from './transporter.service';
 import { TransporterImportService } from './transporter-import.service';
 import { TransporterImportController } from './transporter-import.controller';
+import { SarathiClient } from '../../adapters/sarathi.client';
 
 export function createMastersModule(dataSource: DataSource, deps: { auditService: AuditService }) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
