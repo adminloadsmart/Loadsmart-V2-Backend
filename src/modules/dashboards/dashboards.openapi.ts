@@ -1,13 +1,15 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { dashboardsValidators } from './dashboards.validators';
-import { TAGS, authenticated, errorContent } from '../../shared/openapi/core';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
+import { CUSTOMERS_APPROVE, MASTERS_APPROVE } from '../../shared/constants/permissions';
+import { TAGS, authenticated, permissionGated, errorContent } from '../../shared/openapi/core';
 
 /**
  * OpenAPI docs for the dashboards module: registers every route in dashboards.routes.ts, in the
  * same order, under the `dashboards` tag. See masters.openapi.ts for the pattern this follows.
  */
 
-const BASE = '/dashboards'; // absolute path — must match its mount in composition-root.ts
+const BASE = `${API_VERSION_PREFIX}/dashboards`; // absolute path — must match its mount in app.ts
 
 export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
@@ -24,6 +26,22 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Fleet activity summary' },
       400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/pending-approvals`,
+    tags: [TAGS.DASHBOARDS],
+    operationId: 'dashboards.listPendingApprovals',
+    ...permissionGated(
+      [CUSTOMERS_APPROVE, MASTERS_APPROVE],
+      'Settings → Approvals: every pending customer, vehicle, and driver for the tenant in one ' +
+        'list, newest first. Read-only — approve/reject each item on its own endpoint ' +
+        '(PATCH /customers/{id}/approve|reject, PATCH /masters/vehicles|drivers/{id}/approve|reject).',
+    ),
+    responses: {
+      200: { description: 'Pending approvals — { data: { items, total } }' },
     },
   });
 }

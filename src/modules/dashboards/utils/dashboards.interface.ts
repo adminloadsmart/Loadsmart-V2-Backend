@@ -31,3 +31,21 @@ export interface FleetActivitySummary {
   maintenanceCost: null;
   fleetPnl: null;
 }
+
+export type PendingApprovalType = 'customer' | 'vehicle' | 'driver';
+
+/** One row per pending customer/vehicle/driver, normalized to a common shape for Settings →
+ *  Approvals — approve/reject still happen on each type's own endpoint (PATCH /customers/{id}/
+ *  approve|reject, PATCH /masters/vehicles|drivers/{id}/approve|reject); this is read-only. */
+export interface PendingApprovalItem {
+  type: PendingApprovalType;
+  id: string;
+  label: string;
+  requestedBy: string | null;
+  requestedAt: Date;
+}
+
+export interface ListPendingApprovalsResult {
+  items: PendingApprovalItem[];
+  total: number;
+}

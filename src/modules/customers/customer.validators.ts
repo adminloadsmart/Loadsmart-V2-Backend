@@ -42,5 +42,6 @@ export const customerValidators = {
       .strict(),
   }),
   approve: z.object({ params }),
+  reject: z.object({ params, body: z.object({ reason: z.string().trim().min(1) }) }),
   delete: z.object({ params: deleteParams }),
 };

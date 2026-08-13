@@ -51,6 +51,17 @@ export class CustomerController {
         (req.params as unknown as CustomerParams).customerId,
       ),
     );
+  reject = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.service.reject(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        (req.params as unknown as CustomerParams).customerId,
+        (req.body as { reason: string }).reason,
+      ),
+    );
   delete = async (req: Request, res: Response) => {
     await this.service.delete(
       requireTenantId(req),

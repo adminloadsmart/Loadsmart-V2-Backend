@@ -1,6 +1,6 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { mastersValidators } from './masters.validators';
-import { MASTERS_WRITE } from '../../shared/constants/permissions';
+import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
@@ -23,6 +23,7 @@ import {
 
 const BASE = `${API_VERSION_PREFIX}/masters`; // absolute path — must match its mount in app.ts
 const write = (description: string) => permissionGated([MASTERS_WRITE], description);
+const approve = (description: string) => permissionGated([MASTERS_APPROVE], description);
 
 export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   // --- Truck types ---
@@ -169,20 +170,6 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   // --- Vehicles ---
 
   registry.registerPath({
-    method: 'post',
-    path: `${BASE}/vehicles`,
-    tags: [TAGS.MASTERS],
-    operationId: 'masters.createVehicle',
-    ...write('Create a new vehicle for the tenant.'),
-    request: { body: json(mastersValidators.createVehicle.shape.body) },
-    responses: {
-      201: { description: 'Created vehicle' },
-      400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'Registration number already in use', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
     method: 'get',
     path: `${BASE}/vehicles`,
     tags: [TAGS.MASTERS],
@@ -201,7 +188,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',
-    ...authenticated('Get a single vehicle, including its documents and linked drivers.'),
+    ...authenticated(
+      'Get a single vehicle, including its documents, linked drivers, and telemetry (EMI + GPS).',
+    ),
     request: { params: mastersValidators.getVehicle.shape.params },
     responses: {
       200: { description: 'Vehicle detail' },
@@ -214,7 +203,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.updateVehicle',
-    ...write('Update one or more fields on a vehicle.'),
+    ...write(
+      'Update one or more fields on a vehicle. Passing driverId re-links that driver as the ' +
+        "vehicle's primary driver in the same request, ending whichever link previously held " +
+        'that slot.',
+    ),
     request: {
       params: mastersValidators.updateVehicle.shape.params,
       body: json(mastersValidators.updateVehicle.shape.body),
@@ -236,6 +229,40 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Deleted', ...json(SuccessResponseSchema) },
       404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/vehicles/{vehicleId}/approve`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.approveVehicle',
+    ...approve(
+      'Approve a pending vehicle (added by dispatch — see onboardVehicle). Settings → Approvals. ' +
+        'org_admin only.',
+    ),
+    request: { params: mastersValidators.approveVehicle.shape.params },
+    responses: {
+      200: { description: 'Approved vehicle' },
+      404: { description: 'Vehicle not found', ...errorContent },
+      409: { description: 'Vehicle is not pending', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/vehicles/{vehicleId}/reject`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.rejectVehicle',
+    ...approve('Reject a pending vehicle with a mandatory reason. org_admin only.'),
+    request: {
+      params: mastersValidators.rejectVehicle.shape.params,
+      body: json(mastersValidators.rejectVehicle.shape.body),
+    },
+    responses: {
+      200: { description: 'Rejected vehicle' },
+      400: { description: 'Validation failed (reason required)', ...errorContent },
+      404: { description: 'Vehicle not found', ...errorContent },
+      409: { description: 'Vehicle is not pending', ...errorContent },
     },
   });
 
@@ -302,20 +329,6 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   // --- Drivers ---
 
   registry.registerPath({
-    method: 'post',
-    path: `${BASE}/drivers`,
-    tags: [TAGS.MASTERS],
-    operationId: 'masters.createDriver',
-    ...write('Create a new driver for the tenant.'),
-    request: { body: json(mastersValidators.createDriver.shape.body) },
-    responses: {
-      201: { description: 'Created driver' },
-      400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'Phone number already in use', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
     method: 'get',
     path: `${BASE}/drivers`,
     tags: [TAGS.MASTERS],
@@ -371,6 +384,40 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Deleted', ...json(SuccessResponseSchema) },
       404: { description: 'Driver not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/drivers/{driverId}/approve`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.approveDriver',
+    ...approve(
+      'Approve a pending driver (added by dispatch — see onboardDriver). Settings → Approvals. ' +
+        'org_admin only.',
+    ),
+    request: { params: mastersValidators.approveDriver.shape.params },
+    responses: {
+      200: { description: 'Approved driver' },
+      404: { description: 'Driver not found', ...errorContent },
+      409: { description: 'Driver is not pending', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/drivers/{driverId}/reject`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.rejectDriver',
+    ...approve('Reject a pending driver with a mandatory reason. org_admin only.'),
+    request: {
+      params: mastersValidators.rejectDriver.shape.params,
+      body: json(mastersValidators.rejectDriver.shape.body),
+    },
+    responses: {
+      200: { description: 'Rejected driver' },
+      400: { description: 'Validation failed (reason required)', ...errorContent },
+      404: { description: 'Driver not found', ...errorContent },
+      409: { description: 'Driver is not pending', ...errorContent },
     },
   });
 
@@ -608,7 +655,12 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     ...write(
       'Create a vehicle and every section of the "Add a vehicle" form in one transaction: ' +
         'VAHAN verification (which folds registry expiry dates into the document rows), documents, ' +
-        'telemetry, service usage and operational status. The driver link stays a separate call.',
+        'telemetry, service usage, operational status, and an optional driver link. When ' +
+        'driverLink is given it is applied in the same transaction, so the vehicle and its driver ' +
+        'link succeed or fail together; the link can also be made or changed later via ' +
+        'POST /vehicles/{vehicleId}/drivers. Only org_admin and dispatch may call this at all — ' +
+        "org_admin's vehicle is created `active` immediately; dispatch's is created `pending` " +
+        'until an org_admin approves or rejects it via PATCH .../approve|reject.',
     ),
     request: { body: json(mastersValidators.onboardVehicle.shape.body) },
     responses: {
@@ -757,13 +809,33 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/drivers/verify-dl`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyDriverDl',
+    ...write(
+      'Check a driving licence against the Sarathi registry before the driver record exists — ' +
+        'step 2 of the "Add a driver" form. No SARATHI_API_KEY is configured yet, so every check ' +
+        'currently returns manual_review; the form falls back to photo uploads and typed-in details, ' +
+        'which get submitted as part of drivers/onboard.',
+    ),
+    request: { body: json(mastersValidators.verifyDriverDl.shape.body) },
+    responses: {
+      200: { description: 'verified (with registry fields) or manual_review' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/drivers/onboard`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.onboardDriver',
     ...write(
       'Create a driver and every section of the "Add a driver" form in one transaction: Sarathi ' +
         'verification, licence photos, bank details and operational status. The vehicle link stays ' +
-        'a separate call.',
+        "a separate call. Only org_admin and dispatch may call this at all — org_admin's driver " +
+        "is created `active` immediately; dispatch's is created `pending` until an org_admin " +
+        'approves or rejects it via PATCH .../approve|reject.',
     ),
     request: { body: json(mastersValidators.onboardDriver.shape.body) },
     responses: {

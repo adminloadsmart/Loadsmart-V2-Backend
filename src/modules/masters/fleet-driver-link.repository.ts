@@ -29,12 +29,29 @@ export class FleetDriverLinkRepository {
     tenantId: string,
     vehicleId: string,
     driverId: string,
+    manager?: EntityManager,
   ): Promise<FleetDriverLinkEntity | null> {
-    return this.links.findOneBy({
+    const links = manager ? manager.getRepository(FleetDriverLinkEntity) : this.links;
+    return links.findOneBy({
       tenantId,
       vehicleId,
       driverId,
       status: 'active',
+      deletedAt: IsNull(),
+    });
+  }
+
+  findActivePrimaryLink(
+    tenantId: string,
+    vehicleId: string,
+    manager?: EntityManager,
+  ): Promise<FleetDriverLinkEntity | null> {
+    const links = manager ? manager.getRepository(FleetDriverLinkEntity) : this.links;
+    return links.findOneBy({
+      tenantId,
+      vehicleId,
+      status: 'active',
+      isPrimary: true,
       deletedAt: IsNull(),
     });
   }

@@ -20,8 +20,20 @@ export type VehicleWheelCount = (typeof WHEEL_COUNTS)[number];
 export const OWNERSHIP_TYPES = ['owned', 'leased', 'attached'] as const;
 export type VehicleOwnershipType = (typeof OWNERSHIP_TYPES)[number];
 
-/** Lifecycle state of the vehicle record, distinct from its live `operationalStatus`. */
-export const VEHICLE_STATUSES = ['active', 'inactive', 'under_maintenance'] as const;
+/**
+ * Lifecycle state of the vehicle record, distinct from its live `operationalStatus`. `pending`/
+ * `rejected` back the approval flow: org_admin's own onboardVehicle calls land straight on
+ * `active`; dispatch's (the only other role allowed to add a vehicle — see masters.routes.ts's
+ * canWrite gate) land on `pending` until an org_admin approves or rejects via
+ * PATCH /vehicles/{id}/approve|reject.
+ */
+export const VEHICLE_STATUSES = [
+  'active',
+  'inactive',
+  'under_maintenance',
+  'pending',
+  'rejected',
+] as const;
 export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
 
 /**

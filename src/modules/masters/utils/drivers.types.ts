@@ -4,8 +4,21 @@
  * schema in masters.validators.ts — so the three can never drift apart.
  */
 
-/** Lifecycle state of the driver record, distinct from their live `operationalStatus`. */
-export const DRIVER_STATUSES = ['active', 'inactive', 'on_trip', 'on_leave'] as const;
+/**
+ * Lifecycle state of the driver record, distinct from their live `operationalStatus`. `pending`/
+ * `rejected` back the approval flow: org_admin's own onboardDriver calls land straight on
+ * `active`; dispatch's (the only other role allowed to add a driver — see masters.routes.ts's
+ * canWrite gate) land on `pending` until an org_admin approves or rejects via
+ * PATCH /drivers/{id}/approve|reject.
+ */
+export const DRIVER_STATUSES = [
+  'active',
+  'inactive',
+  'on_trip',
+  'on_leave',
+  'pending',
+  'rejected',
+] as const;
 export type DriverStatus = (typeof DRIVER_STATUSES)[number];
 
 /** Licence photos captured on the manual Sarathi route. */
