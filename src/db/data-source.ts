@@ -35,6 +35,7 @@ import { TruckTypeEntity } from '../modules/masters/entities/truck-type.entity';
 import { TransporterEntity } from '../modules/masters/entities/transporter.entity';
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
+import { FileEntity } from '../modules/storage/entities/file.entity';
 import { CustomerImportEntity } from '../modules/customers/entities/customer-import.entity';
 
 export const AppDataSource = new DataSource({
@@ -76,6 +77,7 @@ export const AppDataSource = new DataSource({
     TransporterEntity,
     CustomerEntity,
     CustomerDeliveryPointEntity,
+    FileEntity,
     CustomerImportEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,

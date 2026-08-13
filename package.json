@@ -30,6 +30,9 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
+    "@aws-sdk/client-s3": "^3.1108.0",
+    "@aws-sdk/s3-presigned-post": "^3.1108.0",
+    "@aws-sdk/s3-request-presigner": "^3.1108.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
