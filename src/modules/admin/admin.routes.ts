@@ -132,7 +132,7 @@ export function createAdminRoutes(controller: AdminController): Router {
   );
   router.get(
     '/staff',
-    requirePermission(...adminOnly),
+    requirePermission(...anyReviewer),
     validate(adminValidators.listStaff),
     asyncHandler(controller.listStaff),
   );
