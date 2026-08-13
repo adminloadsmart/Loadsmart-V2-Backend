@@ -13,10 +13,16 @@ import {
 import { ListVehiclesInput } from './utils/vehicle.interface';
 import { ListDriversInput } from './utils/drivers.interface';
 import { CreateTruckTypeInput } from './utils/truck-type.interface';
+import {
+  CreateLoadingPointInput,
+  ListLoadingPointsInput,
+  UpdateLoadingPointInput,
+} from './utils/loading-point.interface';
 import { VehicleService } from './vehicle.service';
 import { DriverService } from './driver.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeService } from './truck-type.service';
+import { LoadingPointService } from './loading-point.service';
 import { TransporterService } from './transporter.service';
 import { ListTransportersInput } from './utils/transporter.interface';
 
@@ -26,6 +32,7 @@ export class MastersController {
     private readonly driverService: DriverService,
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly truckTypeService: TruckTypeService,
+    private readonly loadingPointService: LoadingPointService,
     private readonly transporterService: TransporterService,
   ) {}
 
@@ -48,6 +55,70 @@ export class MastersController {
       requireTenantId(req),
       req.user!.id,
       req.params.truckTypeId,
+    );
+    respond(res, { success: true });
+  };
+
+  listLoadingPoints = async (req: Request, res: Response) => {
+    const loadingPoints = await this.loadingPointService.list(
+      requireTenantId(req),
+      req.validatedQuery as ListLoadingPointsInput,
+    );
+    respond(res, loadingPoints);
+  };
+
+  getLoadingPoint = async (req: Request, res: Response) => {
+    const loadingPoint = await this.loadingPointService.get(
+      requireTenantId(req),
+      req.params.loadingPointId as string,
+    );
+    respond(res, loadingPoint);
+  };
+
+  createLoadingPoint = async (req: Request, res: Response) => {
+    const loadingPoint = await this.loadingPointService.create(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      req.body as CreateLoadingPointInput,
+    );
+    respond(res, loadingPoint, 201);
+  };
+
+  updateLoadingPoint = async (req: Request, res: Response) => {
+    const loadingPoint = await this.loadingPointService.update(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadingPointId as string,
+      req.body as UpdateLoadingPointInput,
+    );
+    respond(res, loadingPoint);
+  };
+
+  approveLoadingPoint = async (req: Request, res: Response) => {
+    const loadingPoint = await this.loadingPointService.approve(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadingPointId as string,
+    );
+    respond(res, loadingPoint);
+  };
+
+  rejectLoadingPoint = async (req: Request, res: Response) => {
+    const loadingPoint = await this.loadingPointService.reject(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadingPointId as string,
+      (req.body as { reason: string }).reason,
+    );
+    respond(res, loadingPoint);
+  };
+
+  deleteLoadingPoint = async (req: Request, res: Response) => {
+    await this.loadingPointService.delete(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadingPointId as string,
     );
     respond(res, { success: true });
   };
@@ -202,6 +273,7 @@ export class MastersController {
     const document = await this.driverService.addDocument(
       requireTenantId(req),
       req.user!.id,
+      req.user!.role,
       req.params.driverId,
       req.body,
     );
@@ -211,6 +283,7 @@ export class MastersController {
   listDriverDocuments = async (req: Request<DriverParams>, res: Response) => {
     const documents = await this.driverService.listDocuments(
       requireTenantId(req),
+      req.user!.role,
       req.params.driverId,
     );
     respond(res, documents);
@@ -442,7 +515,10 @@ export class MastersController {
   };
 
   verifyDriverDl = async (req: Request, res: Response) => {
-    const result = await this.driverService.checkDrivingLicence(req.body.licenseNumber);
+    const result = await this.driverService.checkDrivingLicence(
+      req.body.licenseNumber,
+      req.body.dateOfBirth,
+    );
     respond(res, result);
   };
 

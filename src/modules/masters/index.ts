@@ -3,11 +3,12 @@ import { VehicleRepository } from './vehicle.repository';
 import { VehicleService } from './vehicle.service';
 import { DriverRepository } from './driver.repository';
 import { DriverService } from './driver.service';
-import { SarathiClient } from './sarathi.client';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeRepository } from './truck-type.repository';
 import { TruckTypeService } from './truck-type.service';
+import { LoadingPointRepository } from './loading-point.repository';
+import { LoadingPointService } from './loading-point.service';
 import { MastersController } from './masters.controller';
 import { createMastersProtectedRoutes } from './masters.routes';
 import { AuditService } from '../audit/audit.service';
@@ -15,8 +16,13 @@ import { TransporterRepository } from './transporter.repository';
 import { TransporterService } from './transporter.service';
 import { TransporterImportService } from './transporter-import.service';
 import { TransporterImportController } from './transporter-import.controller';
+import { SarathiClient } from '../../adapters/sarathi.client';
+import { StorageService } from '../storage/storage.service';
 
-export function createMastersModule(dataSource: DataSource, deps: { auditService: AuditService }) {
+export function createMastersModule(
+  dataSource: DataSource,
+  deps: { auditService: AuditService; storageService: StorageService },
+) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
   const truckTypeRepository = new TruckTypeRepository(dataSource);
   const truckTypeService = new TruckTypeService(truckTypeRepository);
@@ -27,6 +33,8 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     deps.auditService,
   );
   const transporterImportController = new TransporterImportController(transporterImportService);
+  const loadingPointRepository = new LoadingPointRepository(dataSource);
+  const loadingPointService = new LoadingPointService(loadingPointRepository, deps.auditService);
 
   const vehicleRepository = new VehicleRepository(dataSource);
   const driverRepository = new DriverRepository(dataSource);
@@ -54,6 +62,7 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     dataSource,
     sarathiClient,
     deps.auditService,
+    deps.storageService,
   );
 
   const controller = new MastersController(
@@ -61,6 +70,7 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     driverService,
     fleetDriverLinkService,
     truckTypeService,
+    loadingPointService,
     transporterService,
   );
   const protectedRouter = createMastersProtectedRoutes(controller, transporterImportController);
@@ -70,6 +80,7 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     driverService,
     fleetDriverLinkService,
     truckTypeService,
+    loadingPointService,
     transporterService,
     protectedRouter,
   };
