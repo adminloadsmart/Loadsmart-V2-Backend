@@ -54,7 +54,8 @@ function getOpenApiDocument() {
         { name: TAGS.ROLES, description: 'Role assignment and permission grants for users' },
         {
           name: TAGS.MASTERS,
-          description: 'Vehicles, drivers, documents, verifications, and fleet-driver links',
+          description:
+            'Vehicles, drivers, loading points, documents, verifications, and fleet-driver links',
         },
         {
           name: TAGS.ADMIN,

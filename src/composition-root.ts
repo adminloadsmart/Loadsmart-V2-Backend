@@ -67,17 +67,21 @@ export function buildContainer(dataSource: DataSource): Container {
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
-  // Reference data other modules read from — no cross-module deps of its own.
-  const masters = createMastersModule(dataSource, { auditService: audit.service });
+  // Standalone — no cross-module deps of its own. Built before masters: driver.service.ts injects
+  // storage.service directly to validate/resolve the driving-licence front/back photos uploaded
+  // through the manual-Sarathi-review route (see modules/masters/driver.service.ts).
+  const storage = createStorageModule(dataSource);
+
+  // Reference data other modules read from.
+  const masters = createMastersModule(dataSource, {
+    auditService: audit.service,
+    storageService: storage.service,
+  });
 
   // Producers first — no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
   const notifications = createNotificationsModule(dataSource);
   const payments = createPaymentsModule(dataSource);
-  // Standalone — no cross-module deps of its own, built early so future consumers
-  // (organization/masters document flows) can be wired to storage.service directly once that
-  // follow-up work happens.
-  const storage = createStorageModule(dataSource);
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs.
   const maintenance = createMaintenanceModule(dataSource, {

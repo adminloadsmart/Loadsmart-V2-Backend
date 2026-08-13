@@ -34,6 +34,8 @@ export const AUDIT_ACTIONS = [
   'VEHICLE_REJECTED',
   'DRIVER_APPROVED',
   'DRIVER_REJECTED',
+  'LOADING_POINT_APPROVED',
+  'LOADING_POINT_REJECTED',
   'CUSTOMER_DELETED',
   'TRANSPORTER_CREATED',
   'TRANSPORTER_UPDATED',
@@ -50,6 +52,7 @@ export const AUDIT_RESOURCE_TYPES = [
   'customer',
   'vehicle',
   'driver',
+  'loading_point',
   'transporter',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

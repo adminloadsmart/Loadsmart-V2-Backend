@@ -130,10 +130,14 @@ const driverCoreFields = {
   licenseNumber: licenseNumber.optional(),
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
+  dateOfBirth: isoDate.optional(),
 };
 
+/** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
+ * driving-licence lookup without it, so there's no point accepting the call without one. */
 const driverVerifyDlBody = z.object({
   licenseNumber,
+  dateOfBirth: isoDate,
 });
 
 const driverVerificationBody = z.object({
@@ -167,6 +171,8 @@ const driverBankDetailsBody = z.object({
 
 const driverDocumentBody = z.object({
   documentType: z.enum(DRIVER_DOCUMENT_TYPES),
+  // The storage `key` from a confirmed POST /files upload (purpose `masters/driver`), not an
+  // arbitrary URL — driver.service.ts's assertDriverDlUpload rejects anything else.
   fileUrl: z.string().min(1),
   verificationSource: z.enum(DRIVER_DOCUMENT_VERIFICATION_SOURCES).optional(),
 });
@@ -321,6 +327,7 @@ export const mastersValidators = {
         licenseNumber: licenseNumber.optional(),
         licenseExpiry: isoDate.optional(),
         dateOfJoining: isoDate.optional(),
+        dateOfBirth: isoDate.optional(),
         status: z.enum(DRIVER_STATUSES).optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),

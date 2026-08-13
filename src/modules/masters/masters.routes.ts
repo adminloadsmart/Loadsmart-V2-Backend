@@ -3,8 +3,11 @@ import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../shared/middleware/require-permission.middleware';
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
+import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
+import { env } from '../../config/env';
 import { MastersController } from './masters.controller';
 import { mastersValidators } from './masters.validators';
+import { loadingPointValidators } from './loading-point.validators';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 import multer, { FileFilterCallback } from 'multer';
 import { ValidationError } from '../../shared/errors';
@@ -46,6 +49,13 @@ export function createMastersProtectedRoutes(
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle or driver — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
+  // Throttles POST /drivers/verify-dl — it fans out to IDfy's paid Sarathi lookup. Same
+  // createIpRateLimit + env-driven limit/window pattern as auth.routes.ts.
+  const verifyDriverDlRateLimit = createIpRateLimit({
+    keyPrefix: 'verify-dl',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
 
   // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
   router.get(
@@ -64,6 +74,48 @@ export function createMastersProtectedRoutes(
     canWrite,
     validate(mastersValidators.deleteTruckType),
     asyncHandler(controller.deleteTruckType),
+  );
+
+  // Settings → Loading Points — origins used by dispatch and load creation.
+  router.post(
+    '/loading-points',
+    canWrite,
+    validate(loadingPointValidators.create),
+    asyncHandler(controller.createLoadingPoint),
+  );
+  router.get(
+    '/loading-points',
+    validate(loadingPointValidators.list),
+    asyncHandler(controller.listLoadingPoints),
+  );
+  router.get(
+    '/loading-points/:loadingPointId',
+    validate(loadingPointValidators.get),
+    asyncHandler(controller.getLoadingPoint),
+  );
+  router.patch(
+    '/loading-points/:loadingPointId',
+    canWrite,
+    validate(loadingPointValidators.update),
+    asyncHandler(controller.updateLoadingPoint),
+  );
+  router.patch(
+    '/loading-points/:loadingPointId/approve',
+    canApprove,
+    validate(loadingPointValidators.approve),
+    asyncHandler(controller.approveLoadingPoint),
+  );
+  router.patch(
+    '/loading-points/:loadingPointId/reject',
+    canApprove,
+    validate(loadingPointValidators.reject),
+    asyncHandler(controller.rejectLoadingPoint),
+  );
+  router.delete(
+    '/loading-points/:loadingPointId',
+    canWrite,
+    validate(loadingPointValidators.delete),
+    asyncHandler(controller.deleteLoadingPoint),
   );
 
   router.post(
@@ -168,6 +220,7 @@ export function createMastersProtectedRoutes(
   // :driverId param. Declared before '/drivers/onboard' for the same reason as vehicles/onboard.
   router.post(
     '/drivers/verify-dl',
+    verifyDriverDlRateLimit,
     canWrite,
     validate(mastersValidators.verifyDriverDl),
     asyncHandler(controller.verifyDriverDl),
