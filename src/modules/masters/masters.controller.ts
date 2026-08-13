@@ -469,7 +469,10 @@ export class MastersController {
   };
 
   verifyDriverDl = async (req: Request, res: Response) => {
-    const result = await this.driverService.checkDrivingLicence(req.body.licenseNumber);
+    const result = await this.driverService.checkDrivingLicence(
+      req.body.licenseNumber,
+      req.body.dateOfBirth,
+    );
     respond(res, result);
   };
 

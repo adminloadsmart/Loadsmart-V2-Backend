@@ -39,9 +39,12 @@ export class DriverService {
    * on `verified`, or switch to the manual-entry fields (photo uploads + typed-in details) and submit
    * that instead on `manual_review`.
    */
-  async checkDrivingLicence(licenseNumber: string): Promise<SarathiDrivingLicenceResult> {
+  async checkDrivingLicence(
+    licenseNumber: string,
+    dateOfBirth: string,
+  ): Promise<SarathiDrivingLicenceResult> {
     try {
-      return await this.sarathiClient.lookupDrivingLicence(licenseNumber);
+      return await this.sarathiClient.lookupDrivingLicence(licenseNumber, dateOfBirth);
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
     }
@@ -76,6 +79,7 @@ export class DriverService {
           licenseNumber: input.licenseNumber?.toUpperCase() ?? null,
           licenseExpiry: input.licenseExpiry ?? null,
           dateOfJoining: input.dateOfJoining ?? null,
+          dateOfBirth: input.dateOfBirth ?? null,
           status: autoApproved ? 'active' : 'pending',
           approvedBy: autoApproved ? actorId : null,
           approvedAt: autoApproved ? new Date() : null,

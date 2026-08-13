@@ -3,6 +3,8 @@ import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../shared/middleware/require-permission.middleware';
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
+import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
+import { env } from '../../config/env';
 import { MastersController } from './masters.controller';
 import { mastersValidators } from './masters.validators';
 import { loadingPointValidators } from './loading-point.validators';
@@ -19,6 +21,13 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle or driver — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
+  // Throttles POST /drivers/verify-dl — it fans out to IDfy's paid Sarathi lookup. Same
+  // createIpRateLimit + env-driven limit/window pattern as auth.routes.ts.
+  const verifyDriverDlRateLimit = createIpRateLimit({
+    keyPrefix: 'verify-dl',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
 
   // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
   router.get(
@@ -155,6 +164,7 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   // :driverId param. Declared before '/drivers/onboard' for the same reason as vehicles/onboard.
   router.post(
     '/drivers/verify-dl',
+    verifyDriverDlRateLimit,
     canWrite,
     validate(mastersValidators.verifyDriverDl),
     asyncHandler(controller.verifyDriverDl),

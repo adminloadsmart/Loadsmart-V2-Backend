@@ -16,6 +16,7 @@ export interface CreateDriverInput {
   licenseNumber?: string;
   licenseExpiry?: string;
   dateOfJoining?: string;
+  dateOfBirth?: string;
 }
 
 export interface UpdateDriverInput {
@@ -23,6 +24,7 @@ export interface UpdateDriverInput {
   licenseNumber?: string;
   licenseExpiry?: string;
   dateOfJoining?: string;
+  dateOfBirth?: string;
   status?: DriverStatus;
 }
 
@@ -78,6 +80,7 @@ export interface CreateDriverData {
   licenseNumber: string | null;
   licenseExpiry: string | null;
   dateOfJoining: string | null;
+  dateOfBirth: string | null;
   status: DriverStatus;
   approvedBy: string | null;
   approvedAt: Date | null;
@@ -90,6 +93,7 @@ export interface UpdateDriverData {
   licenseVerified?: boolean;
   licenseExpiry?: string | null;
   dateOfJoining?: string | null;
+  dateOfBirth?: string | null;
   status?: DriverStatus;
   updatedBy?: string | null;
 }

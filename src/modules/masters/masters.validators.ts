@@ -124,10 +124,14 @@ const driverCoreFields = {
   licenseNumber: licenseNumber.optional(),
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
+  dateOfBirth: isoDate.optional(),
 };
 
+/** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
+ * driving-licence lookup without it, so there's no point accepting the call without one. */
 const driverVerifyDlBody = z.object({
   licenseNumber,
+  dateOfBirth: isoDate,
 });
 
 const driverVerificationBody = z.object({
@@ -304,6 +308,7 @@ export const mastersValidators = {
         licenseNumber: licenseNumber.optional(),
         licenseExpiry: isoDate.optional(),
         dateOfJoining: isoDate.optional(),
+        dateOfBirth: isoDate.optional(),
         status: z.enum(DRIVER_STATUSES).optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),

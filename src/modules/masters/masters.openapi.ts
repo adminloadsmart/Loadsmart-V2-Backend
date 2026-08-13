@@ -826,10 +826,12 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.verifyDriverDl',
     ...write(
-      'Check a driving licence against the Sarathi registry before the driver record exists — ' +
-        'step 2 of the "Add a driver" form. No SARATHI_API_KEY is configured yet, so every check ' +
-        'currently returns manual_review; the form falls back to photo uploads and typed-in details, ' +
-        'which get submitted as part of drivers/onboard.',
+      'Check a driving licence + date of birth against the Sarathi registry via IDfy, before the ' +
+        'driver record exists — step 2 of the "Add a driver" form. Submits an async IDfy task and ' +
+        'polls for the result before responding. Falls back to manual_review if IDFY_API_KEY/' +
+        'IDFY_ACCOUNT_ID/IDFY_TASK_ID/IDFY_GROUP_ID are unset, the registry has no match, or the ' +
+        'call fails — the form then switches to photo uploads and typed-in details, submitted as ' +
+        'part of drivers/onboard.',
     ),
     request: { body: json(mastersValidators.verifyDriverDl.shape.body) },
     responses: {
