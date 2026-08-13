@@ -33,6 +33,8 @@ export function createApp({
         callback(new Error('Origin is not allowed by CORS'));
       },
       credentials: true,
+
+      // origin: '*',
     }),
   );
   app.use(cookieParser());

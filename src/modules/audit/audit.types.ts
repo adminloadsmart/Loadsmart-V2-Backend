@@ -27,7 +27,16 @@ export const AUDIT_ACTIONS = [
   'CUSTOMER_BULK_IMPORTED',
   'CUSTOMER_UPDATED',
   'CUSTOMER_APPROVED',
+  'CUSTOMER_REJECTED',
+  'VEHICLE_APPROVED',
+  'VEHICLE_REJECTED',
+  'DRIVER_APPROVED',
+  'DRIVER_REJECTED',
   'CUSTOMER_DELETED',
+  'TRANSPORTER_CREATED',
+  'TRANSPORTER_UPDATED',
+  'TRANSPORTER_DELETED',
+  'TRANSPORTER_BULK_IMPORTED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -37,5 +46,8 @@ export const AUDIT_RESOURCE_TYPES = [
   'referral_code',
   'user',
   'customer',
+  'vehicle',
+  'driver',
+  'transporter',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

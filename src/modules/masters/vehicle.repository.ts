@@ -54,7 +54,12 @@ export class VehicleRepository {
   findByIdWithRelations(tenantId: string, id: string): Promise<VehicleEntity | null> {
     return this.vehicles.findOne({
       where: { id, tenantId, deletedAt: IsNull() },
-      relations: { documents: true, driverLinks: { driver: true }, truckType: true },
+      relations: {
+        documents: true,
+        driverLinks: { driver: true },
+        truckType: true,
+        telemetryMeta: true,
+      },
     });
   }
 
@@ -82,7 +87,16 @@ export class VehicleRepository {
 
     const [items, total] = await this.vehicles.findAndCount({
       where,
-      relations: { operationalStatus: true, truckType: true },
+      // driverLinks carries the full assignment history per vehicle (small — see findActiveLink),
+      // with the driver relation so the fleet table can show the linked driver's name, not just
+      // their id. Callers pick out the active/primary link themselves, same shape as GET /vehicles/:id.
+      // telemetryMeta carries EMI + GPS fields (section 4 of the vehicle form) for the same reason.
+      relations: {
+        operationalStatus: true,
+        truckType: true,
+        driverLinks: { driver: true },
+        telemetryMeta: true,
+      },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -95,9 +109,11 @@ export class VehicleRepository {
     tenantId: string,
     id: string,
     data: UpdateVehicleData,
+    manager?: EntityManager,
   ): Promise<VehicleEntity | null> {
-    await this.vehicles.update({ id, tenantId, deletedAt: IsNull() }, data);
-    return this.findById(tenantId, id);
+    const vehicles = manager ? manager.getRepository(VehicleEntity) : this.vehicles;
+    await vehicles.update({ id, tenantId, deletedAt: IsNull() }, data);
+    return this.findById(tenantId, id, manager);
   }
 
   async softDelete(tenantId: string, id: string, deletedBy: string | null): Promise<void> {
@@ -105,6 +121,34 @@ export class VehicleRepository {
       { id, tenantId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
+  }
+
+  /** Only a `pending` vehicle (dispatch's own onboardVehicle call) can be approved. */
+  async approve(tenantId: string, id: string, actorId: string): Promise<VehicleEntity | null> {
+    const result = await this.vehicles.update(
+      { id, tenantId, status: 'pending', deletedAt: IsNull() },
+      {
+        status: 'active',
+        approvedBy: actorId,
+        approvedAt: new Date(),
+        rejectionReason: null,
+        updatedBy: actorId,
+      },
+    );
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+
+  async reject(
+    tenantId: string,
+    id: string,
+    actorId: string,
+    reason: string,
+  ): Promise<VehicleEntity | null> {
+    const result = await this.vehicles.update(
+      { id, tenantId, status: 'pending', deletedAt: IsNull() },
+      { status: 'rejected', rejectionReason: reason, updatedBy: actorId },
+    );
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
   }
 
   async createDocument(

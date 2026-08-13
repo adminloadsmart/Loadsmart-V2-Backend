@@ -1,9 +1,13 @@
 import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
-import { ORG_ADMIN_ROLE, SALES_ROLE } from '../../shared/constants/roles';
+import { ORG_ADMIN_ROLE, SALES_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { paginate } from '../admin/utils/admin.types';
 import { CustomerRepository } from './customer.repository';
 import { CreateCustomerInput, ListCustomersInput, UpdateCustomerInput } from './customer.types';
+
+// Anyone invited into the org (sales_cs/dispatch/documents_ops/finance_accounts) can request a
+// new customer, same as SALES_ROLE; only org_admin's request auto-approves.
+const CUSTOMER_CREATOR_ROLES = [ORG_ADMIN_ROLE, SALES_ROLE, ...ORG_ASSIGNABLE_ROLES];
 
 export class CustomerService {
   constructor(
@@ -22,7 +26,7 @@ export class CustomerService {
     source: 'manual' | 'csv_import' = 'manual',
   ) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE, SALES_ROLE]);
+      this.assertRole(role, CUSTOMER_CREATOR_ROLES);
       const status = role === ORG_ADMIN_ROLE ? 'active' : 'pending';
       const customer = await this.dataSource.transaction(async (manager) => {
         const value = await this.repository.create(tenantId, actorId, status, input, manager);
@@ -117,6 +121,28 @@ export class CustomerService {
       return value;
     } catch (error) {
       rethrow(error, 'Failed to approve customer');
+    }
+  }
+  async reject(tenantId: string, actorId: string, role: string, id: string, reason: string) {
+    try {
+      this.assertRole(role, [ORG_ADMIN_ROLE]);
+      const existing = await this.repository.findById(tenantId, id);
+      if (!existing) throw new NotFoundError(`Customer ${id} not found`);
+      if (existing.status !== 'pending')
+        throw new ConflictError('Only pending customers can be rejected');
+      const value = await this.repository.reject(tenantId, id, actorId, reason);
+      if (!value) throw new ConflictError('Customer rejection failed');
+      await this.audit.log({
+        tenantId,
+        userId: actorId,
+        action: 'CUSTOMER_REJECTED',
+        resourceType: 'customer',
+        oldData: { id, status: 'pending' },
+        newData: { id, status: 'rejected', rejectionReason: reason },
+      });
+      return value;
+    } catch (error) {
+      rethrow(error, 'Failed to reject customer');
     }
   }
 

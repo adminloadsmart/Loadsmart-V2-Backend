@@ -17,6 +17,8 @@ import { VehicleService } from './vehicle.service';
 import { DriverService } from './driver.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeService } from './truck-type.service';
+import { TransporterService } from './transporter.service';
+import { ListTransportersInput } from './utils/transporter.interface';
 
 export class MastersController {
   constructor(
@@ -24,6 +26,7 @@ export class MastersController {
     private readonly driverService: DriverService,
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly truckTypeService: TruckTypeService,
+    private readonly transporterService: TransporterService,
   ) {}
 
   listTruckTypes = async (req: Request, res: Response) => {
@@ -49,13 +52,45 @@ export class MastersController {
     respond(res, { success: true });
   };
 
-  createVehicle = async (req: Request, res: Response) => {
-    const vehicle = await this.vehicleService.createVehicle(
+  createTransporter = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.create(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        req.body,
+      ),
+      201,
+    );
+  listTransporters = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.list(
+        requireTenantId(req),
+        req.user!.role,
+        req.validatedQuery as ListTransportersInput,
+      ),
+    );
+  updateTransporter = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.update(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        String(req.params.transporterId),
+        req.body,
+      ),
+    );
+  deleteTransporter = async (req: Request, res: Response) => {
+    await this.transporterService.delete(
       requireTenantId(req),
       req.user!.id,
-      req.body,
+      req.user!.role,
+      String(req.params.transporterId),
     );
-    respond(res, vehicle, 201);
+    respond(res, { success: true });
   };
 
   listVehicles = async (req: Request, res: Response) => {
@@ -130,15 +165,6 @@ export class MastersController {
       req.params.documentId,
     );
     respond(res, { success: true });
-  };
-
-  createDriver = async (req: Request, res: Response) => {
-    const driver = await this.driverService.createDriver(
-      requireTenantId(req),
-      req.user!.id,
-      req.body,
-    );
-    respond(res, driver, 201);
   };
 
   listDrivers = async (req: Request, res: Response) => {
@@ -318,9 +344,29 @@ export class MastersController {
     const vehicle = await this.vehicleService.onboardVehicle(
       requireTenantId(req),
       req.user!.id,
+      req.user!.role,
       req.body,
     );
     respond(res, vehicle, 201);
+  };
+
+  approveVehicle = async (req: Request<VehicleParams>, res: Response) => {
+    const vehicle = await this.vehicleService.approveVehicle(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+    );
+    respond(res, vehicle);
+  };
+
+  rejectVehicle = async (req: Request<VehicleParams>, res: Response) => {
+    const vehicle = await this.vehicleService.rejectVehicle(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body.reason,
+    );
+    respond(res, vehicle);
   };
 
   getVehicleOperationalStatus = async (req: Request<VehicleParams>, res: Response) => {
@@ -395,13 +441,38 @@ export class MastersController {
     respond(res, snapshots);
   };
 
+  verifyDriverDl = async (req: Request, res: Response) => {
+    const result = await this.driverService.checkDrivingLicence(req.body.licenseNumber);
+    respond(res, result);
+  };
+
   onboardDriver = async (req: Request, res: Response) => {
     const driver = await this.driverService.onboardDriver(
       requireTenantId(req),
       req.user!.id,
+      req.user!.role,
       req.body,
     );
     respond(res, driver, 201);
+  };
+
+  approveDriver = async (req: Request<DriverParams>, res: Response) => {
+    const driver = await this.driverService.approveDriver(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.driverId,
+    );
+    respond(res, driver);
+  };
+
+  rejectDriver = async (req: Request<DriverParams>, res: Response) => {
+    const driver = await this.driverService.rejectDriver(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.driverId,
+      req.body.reason,
+    );
+    respond(res, driver);
   };
 
   getDriverOperationalStatus = async (req: Request<DriverParams>, res: Response) => {

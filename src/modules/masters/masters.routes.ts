@@ -5,9 +5,37 @@ import { requirePermission } from '../../shared/middleware/require-permission.mi
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
 import { MastersController } from './masters.controller';
 import { mastersValidators } from './masters.validators';
-import { MASTERS_WRITE } from '../../shared/constants/permissions';
+import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
+import multer, { FileFilterCallback } from 'multer';
+import { ValidationError } from '../../shared/errors';
+import { TransporterImportController } from './transporter-import.controller';
 
-export function createMastersProtectedRoutes(controller: MastersController): Router {
+const transporterCsvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback: FileFilterCallback) => {
+    if (!file.originalname.toLowerCase().endsWith('.csv'))
+      callback(new Error('Only .csv files are accepted'));
+    else callback(null, true);
+  },
+});
+
+function requireTransporterCsvFile(
+  req: Parameters<import('express').RequestHandler>[0],
+  _res: Parameters<import('express').RequestHandler>[1],
+  next: Parameters<import('express').RequestHandler>[2],
+) {
+  if (!req.file) {
+    next(new ValidationError('A CSV file is required in the "file" form field'));
+    return;
+  }
+  next();
+}
+
+export function createMastersProtectedRoutes(
+  controller: MastersController,
+  transporterImportController: TransporterImportController,
+): Router {
   const router = Router();
 
   // Tenant-owned resources only — no platform-scope caller (platform_admin/staff) has any
@@ -16,6 +44,8 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
 
   // Reads are open to any authenticated member of the tenant; writes are restricted below.
   const canWrite = requirePermission(MASTERS_WRITE);
+  // Approve/reject a pending vehicle or driver — org_admin only (see db/seed-roles.ts).
+  const canApprove = requirePermission(MASTERS_APPROVE);
 
   // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
   router.get(
@@ -37,11 +67,33 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   );
 
   router.post(
-    '/vehicles',
-    canWrite,
-    validate(mastersValidators.createVehicle),
-    asyncHandler(controller.createVehicle),
+    '/transporters',
+    validate(mastersValidators.createTransporter),
+    asyncHandler(controller.createTransporter),
   );
+  router.post(
+    '/transporters/import',
+    requirePermission(MASTERS_WRITE),
+    transporterCsvUpload.single('file'),
+    requireTransporterCsvFile,
+    asyncHandler(transporterImportController.import),
+  );
+  router.get(
+    '/transporters',
+    validate(mastersValidators.listTransporters),
+    asyncHandler(controller.listTransporters),
+  );
+  router.patch(
+    '/transporters/:transporterId',
+    validate(mastersValidators.updateTransporter),
+    asyncHandler(controller.updateTransporter),
+  );
+  router.delete(
+    '/transporters/:transporterId',
+    validate(mastersValidators.deleteTransporter),
+    asyncHandler(controller.deleteTransporter),
+  );
+
   // Backs the single "Save vehicle" button — whole form, one transaction. Declared before
   // '/vehicles/:vehicleId' so the literal segment isn't captured as an id.
   router.post(
@@ -73,6 +125,21 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     asyncHandler(controller.deleteVehicle),
   );
 
+  // Settings → Approvals. Only a `pending` vehicle (added by dispatch) can be approved/rejected —
+  // org_admin's own onboardVehicle calls land `active` immediately and never need this.
+  router.patch(
+    '/vehicles/:vehicleId/approve',
+    canApprove,
+    validate(mastersValidators.approveVehicle),
+    asyncHandler(controller.approveVehicle),
+  );
+  router.patch(
+    '/vehicles/:vehicleId/reject',
+    canApprove,
+    validate(mastersValidators.rejectVehicle),
+    asyncHandler(controller.rejectVehicle),
+  );
+
   router.post(
     '/vehicles/:vehicleId/documents',
     canWrite,
@@ -97,12 +164,15 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     asyncHandler(controller.deleteVehicleDocument),
   );
 
+  // Step-2 preflight for "Add a driver" — checks a licence before the driver exists, so it has no
+  // :driverId param. Declared before '/drivers/onboard' for the same reason as vehicles/onboard.
   router.post(
-    '/drivers',
+    '/drivers/verify-dl',
     canWrite,
-    validate(mastersValidators.createDriver),
-    asyncHandler(controller.createDriver),
+    validate(mastersValidators.verifyDriverDl),
+    asyncHandler(controller.verifyDriverDl),
   );
+
   // Backs the single "Save driver" button — whole form, one transaction.
   router.post(
     '/drivers/onboard',
@@ -131,6 +201,21 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     canWrite,
     validate(mastersValidators.deleteDriver),
     asyncHandler(controller.deleteDriver),
+  );
+
+  // Settings → Approvals. Only a `pending` driver (added by dispatch) can be approved/rejected —
+  // org_admin's own onboardDriver calls land `active` immediately and never need this.
+  router.patch(
+    '/drivers/:driverId/approve',
+    canApprove,
+    validate(mastersValidators.approveDriver),
+    asyncHandler(controller.approveDriver),
+  );
+  router.patch(
+    '/drivers/:driverId/reject',
+    canApprove,
+    validate(mastersValidators.rejectDriver),
+    asyncHandler(controller.rejectDriver),
   );
 
   router.post(

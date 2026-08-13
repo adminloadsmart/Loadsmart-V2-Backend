@@ -9,6 +9,7 @@ import { registerMastersOpenApi } from '../../modules/masters/masters.openapi';
 import { registerAdminOpenApi } from '../../modules/admin/admin.openapi';
 import { registerDashboardsOpenApi } from '../../modules/dashboards/dashboards.openapi';
 import { registerCustomersOpenApi } from '../../modules/customers/customer.openapi';
+import { registerStorageOpenApi } from '../../modules/storage/storage.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -38,6 +39,7 @@ function getOpenApiDocument() {
     registerAdminOpenApi(registry);
     registerDashboardsOpenApi(registry);
     registerCustomersOpenApi(registry);
+    registerStorageOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -63,6 +65,11 @@ function getOpenApiDocument() {
           description: 'Cross-module read models for fleet dashboards (fleet activity summary)',
         },
         { name: TAGS.CUSTOMERS, description: 'Tenant customer management' },
+        {
+          name: TAGS.STORAGE,
+          description:
+            'Presigned S3 uploads/downloads: generate an upload URL, confirm completion, and fetch a file plus its download URL',
+        },
       ],
     });
   }

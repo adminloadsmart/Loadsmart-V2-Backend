@@ -161,4 +161,52 @@ export class OrganizationRepository {
   countByReferralCodeId(referralCodeId: string): Promise<number> {
     return this.repo.count({ where: { referralCodeId } });
   }
+
+  // Batched for AuthService.listStaffUsers — one grouped query for the whole page of staff,
+  // keyed by referral-code owner id. Only counts fully approved orgs ('active'), unlike
+  // countByReferralCodeId above which counts any status.
+  async countActiveByReferralCodeOwnerIds(ownerUserIds: string[]): Promise<Map<string, number>> {
+    if (ownerUserIds.length === 0) return new Map();
+    const rows = await this.repo
+      .createQueryBuilder('org')
+      .innerJoin('org.referralCode', 'rc')
+      .where('rc.owner_user_id IN (:...ownerUserIds)', { ownerUserIds })
+      .andWhere('org.status = :status', { status: 'active' })
+      .select('rc.owner_user_id', 'ownerUserId')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('rc.owner_user_id')
+      .getRawMany<{ ownerUserId: string; count: string }>();
+    return new Map(rows.map((row) => [row.ownerUserId, Number(row.count)]));
+  }
+
+  // Batched for AuthService.listStaffUsers — "workload" here means KYC review assignments not
+  // yet completed, the only staff-assignment relationship this schema has (see
+  // onlineKycVerifierId/physicalKycAgentId on OrganizationEntity). Staff outside the
+  // online_kyc_desk/offline_kyc_desk roles never appear as either, so they end up with 0.
+  async countPendingKycAssignmentsByStaffIds(staffIds: string[]): Promise<Map<string, number>> {
+    if (staffIds.length === 0) return new Map();
+    const [onlineRows, physicalRows] = await Promise.all([
+      this.repo
+        .createQueryBuilder('org')
+        .where('org.online_kyc_verifier_id IN (:...staffIds)', { staffIds })
+        .andWhere('org.online_kyc_completed_at IS NULL')
+        .select('org.online_kyc_verifier_id', 'staffId')
+        .addSelect('COUNT(*)', 'count')
+        .groupBy('org.online_kyc_verifier_id')
+        .getRawMany<{ staffId: string; count: string }>(),
+      this.repo
+        .createQueryBuilder('org')
+        .where('org.physical_kyc_agent_id IN (:...staffIds)', { staffIds })
+        .andWhere('org.physical_kyc_approved_at IS NULL')
+        .select('org.physical_kyc_agent_id', 'staffId')
+        .addSelect('COUNT(*)', 'count')
+        .groupBy('org.physical_kyc_agent_id')
+        .getRawMany<{ staffId: string; count: string }>(),
+    ]);
+    const byStaff = new Map<string, number>();
+    for (const row of [...onlineRows, ...physicalRows]) {
+      byStaff.set(row.staffId, (byStaff.get(row.staffId) ?? 0) + Number(row.count));
+    }
+    return byStaff;
+  }
 }
