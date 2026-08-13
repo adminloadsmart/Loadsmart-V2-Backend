@@ -75,7 +75,7 @@ export function createAdminRoutes(controller: AdminController): Router {
   );
   router.patch(
     '/organizations/:organizationId/physical-agent',
-    requirePermission(...adminOnly),
+    requirePermission(...onlineVerify),
     validate(adminValidators.assignPhysicalAgent),
     asyncHandler(controller.assignPhysicalAgent),
   );
@@ -135,6 +135,20 @@ export function createAdminRoutes(controller: AdminController): Router {
     requirePermission(...adminOnly),
     validate(adminValidators.listStaff),
     asyncHandler(controller.listStaff),
+  );
+
+  router.patch(
+    '/staff/:staffId',
+    requirePermission(...adminOnly),
+    validate(adminValidators.updateStaff),
+    asyncHandler(controller.updateStaff),
+  );
+
+  router.delete(
+    '/staff/:staffId',
+    requirePermission(...adminOnly),
+    validate(adminValidators.deleteStaff),
+    asyncHandler(controller.deleteStaff),
   );
 
   router.post(

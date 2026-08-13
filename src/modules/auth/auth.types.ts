@@ -29,6 +29,17 @@ export interface CreateStaffInput {
   permissionIds?: string[];
 }
 
+export interface UpdateStaffInput {
+  fullName?: string;
+  phoneNumber?: string;
+  email?: string;
+  roleId?: string;
+  coverage?: string;
+  // Extra permissions granted on top of whatever roleId already grants — see
+  // auth.service.ts's createStaffUser.
+  permissionIds?: string[];
+}
+
 // Org admin inviting a teammate into their own org — the organization-scope counterpart to
 // CreateStaffInput. Phone only, no email: see auth.service.ts's inviteOrganizationUser.
 export interface InviteOrganizationUserInput {

@@ -11,6 +11,7 @@ import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { LoginAttemptEntity } from './entities/login-attempt.entity';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
+import { NotFoundError } from '../../shared/errors';
 
 export class AuthRepository {
   private readonly users: Repository<UserEntity>;
@@ -140,6 +141,24 @@ export class AuthRepository {
 
   async softDeleteUser(userId: string): Promise<void> {
     await this.users.update({ id: userId }, { deletedAt: new Date() });
+  }
+
+  // Used by AuthService.updateStaff for the profile-field half of a staff update (role changes go
+  // through RoleService.assignRole instead). Re-fetches with `role` populated, same guarantee as
+  // findUserByPhone/findUserByEmail/findUserById above.
+  async updateUser(
+    userId: string,
+    data: Partial<{
+      fullName: string;
+      phoneNumber: string;
+      email: string;
+      coverage: string;
+    }>,
+  ): Promise<UserEntity> {
+    await this.users.update({ id: userId }, data);
+    const user = await this.findUserById(userId);
+    if (!user) throw new NotFoundError(`User ${userId} not found`);
+    return user;
   }
 
   async updateUserTenant(userId: string, tenantId: string, manager?: EntityManager): Promise<void> {

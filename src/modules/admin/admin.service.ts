@@ -32,7 +32,7 @@ import {
   UpdateReferralCodeInput,
   VerifyOrganizationDocumentInput,
 } from './utils/admin.interface';
-import { CreateStaffInput } from '../auth/auth.types';
+import { CreateStaffInput, UpdateStaffInput } from '../auth/auth.types';
 
 export class AdminService {
   constructor(
@@ -492,6 +492,22 @@ export class AdminService {
       return await this.authService.listStaffUsers(input);
     } catch (error) {
       rethrow(error, 'Failed to list staff');
+    }
+  }
+
+  async updateStaff(actingUser: AuthenticatedUser, staffId: string, input: UpdateStaffInput) {
+    try {
+      return await this.authService.updateStaff(actingUser, staffId, input);
+    } catch (error) {
+      rethrow(error, 'Failed to update staff');
+    }
+  }
+
+  async deleteStaff(actingUser: AuthenticatedUser, staffId: string) {
+    try {
+      await this.authService.deleteStaff(actingUser, staffId);
+    } catch (error) {
+      rethrow(error, 'Failed to delete staff');
     }
   }
 

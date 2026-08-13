@@ -45,6 +45,7 @@ import {
   VerifyOtpInput,
   VerifyLoginOtpInput,
   CreateStaffInput,
+  UpdateStaffInput,
   InviteOrganizationUserInput,
   ListOrganizationUsersInput,
   LoginInput,
@@ -435,10 +436,14 @@ export class AuthService {
 
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
-    // Batched, not per-row — one extra query for the whole page, keyed by owner.
-    const codesByOwner = await this.referralCodeService.listByOwnerIds(
-      items.map((user) => user.id),
-    );
+    const staffIds = items.map((user) => user.id);
+    // Batched, not per-row — fixed number of extra queries for the whole page, keyed by
+    // owner/staff id, run concurrently.
+    const [codesByOwner, signupCountByOwner, workloadByStaff] = await Promise.all([
+      this.referralCodeService.listByOwnerIds(staffIds),
+      this.organizationService.countActiveByReferralCodeOwnerIds(staffIds),
+      this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
+    ]);
     return {
       items: items.map((user) => ({
         id: user.id,
@@ -448,6 +453,11 @@ export class AuthService {
         role: user.role.name,
         coverage: user.coverage,
         referralCodes: codesByOwner.get(user.id) ?? [],
+        // Organizations that onboarded (status 'active') via any of this staff member's referral codes.
+        signupCount: signupCountByOwner.get(user.id) ?? 0,
+        // Orgs assigned to this staff member for KYC review (online or physical) not yet completed —
+        // the only "current work" concept this schema has; non-KYC roles are always 0.
+        workload: workloadByStaff.get(user.id) ?? 0,
         createdAt: user.createdAt,
       })),
       page: input.page,
@@ -455,6 +465,158 @@ export class AuthService {
       total,
       totalPages: Math.ceil(total / input.limit),
     };
+  }
+
+  /** Platform admin edits an existing staff account (PATCH /admin/staff/:staffId) — profile
+   *  fields, role, and direct permission grants (replace semantics: the new permissionIds list
+   *  becomes the full set of direct grants, missing ones get revoked). Role and permission changes
+   *  are delegated to RoleService.assignRole/grantPermission/revokePermission, which each already
+   *  reject a self-targeting caller (assertCanManage) and write their own audit entries — handled
+   *  first, before the profile-field write below, so a self-target rejection can't leave a partial
+   *  update behind (profile fields saved, permissions half-applied). Profile fields
+   *  (fullName/phoneNumber/email/coverage) aren't scoped by assertCanManage and stay self-editable. */
+  async updateStaff(actingUser: AuthenticatedUser, staffId: string, input: UpdateStaffInput) {
+    const { fullName, phoneNumber, email, roleId, coverage, permissionIds } = input;
+
+    const existing = await this.authRepository.findUserById(staffId);
+    if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
+
+    if (roleId !== undefined) {
+      const role = await this.roleService.getRoleById(roleId);
+      if (!STAFF_ASSIGNABLE_ROLES.includes(role.name)) {
+        throw new ValidationError(
+          `Role "${role.name}" cannot be assigned through staff update — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
+        );
+      }
+      if (role.name === SALES_ROLE && !actingUser.tenantId) {
+        throw new AuthorizationError(
+          'A sales user must be assigned within an organization context',
+        );
+      }
+      await this.roleService.assignRole(actingUser, staffId, roleId);
+    }
+
+    if (permissionIds !== undefined) {
+      const current = await this.roleService.getUserPermissions(actingUser, staffId);
+      const currentIds = new Set(current.directPermissions.map((p) => p.id));
+      const nextIds = new Set(permissionIds);
+      for (const id of nextIds) {
+        if (!currentIds.has(id)) await this.roleService.grantPermission(actingUser, staffId, id);
+      }
+      for (const id of currentIds) {
+        if (!nextIds.has(id)) await this.roleService.revokePermission(actingUser, staffId, id);
+      }
+    }
+
+    const normalizedPhone = phoneNumber ? this.normalizePhone(phoneNumber) : undefined;
+    const [existingByPhone, existingByEmail] = await Promise.all([
+      normalizedPhone
+        ? this.authRepository.findUserByPhone(normalizedPhone)
+        : Promise.resolve(null),
+      // Same undefined-drops-the-where gotcha as createStaffUser — only call when email is set.
+      email ? this.authRepository.findUserByEmail(email) : Promise.resolve(null),
+    ]);
+    if (existingByPhone && existingByPhone.id !== staffId) {
+      throw new ConflictError('A user with this phone number already exists');
+    }
+    if (existingByEmail && existingByEmail.id !== staffId) {
+      throw new ConflictError('A user with this email already exists');
+    }
+
+    const profileFields: Partial<{
+      fullName: string;
+      phoneNumber: string;
+      email: string;
+      coverage: string;
+    }> = {};
+    if (fullName !== undefined) profileFields.fullName = fullName;
+    if (normalizedPhone !== undefined) profileFields.phoneNumber = normalizedPhone;
+    if (email !== undefined) profileFields.email = email;
+    if (coverage !== undefined) profileFields.coverage = coverage;
+
+    if (Object.keys(profileFields).length > 0) {
+      await this.authRepository.updateUser(staffId, profileFields);
+      await this.auditService.log({
+        tenantId: null,
+        userId: actingUser.id,
+        action: 'STAFF_UPDATED',
+        resourceType: 'user',
+        oldData: {
+          fullName: existing.fullName,
+          phoneNumber: existing.phoneNumber,
+          email: existing.email,
+          coverage: existing.coverage,
+        },
+        newData: profileFields,
+      });
+    }
+
+    const updated = await this.authRepository.findUserById(staffId);
+    if (!updated) throw new NotFoundError(`Staff member ${staffId} not found`);
+
+    return {
+      id: updated.id,
+      fullName: updated.fullName,
+      phoneNumber: updated.phoneNumber,
+      email: updated.email,
+      role: updated.role.name,
+      coverage: updated.coverage,
+      permissions: await this.roleService.getEffectivePermissions(updated.id),
+      createdAt: updated.createdAt,
+    };
+  }
+
+  /** Platform admin deactivates a staff account (DELETE /admin/staff/:staffId) — soft delete via
+   *  AuthRepository.softDeleteUser, the same mechanism the self-service deleteAccount flow below
+   *  uses, plus revoking their refresh tokens so a currently-live session can't silently keep
+   *  renewing (their still-live access token expires naturally — same limitation deleteAccount
+   *  has for the caller's own current token, there worked around with an explicit blockToken call
+   *  we can't make here since we don't hold the target's jti). Restricted to accounts actually
+   *  provisioned through this surface (STAFF_ASSIGNABLE_ROLES) — platform_admin/org_admin aren't
+   *  deprovisioned this way, same boundary createStaffUser/updateStaff already enforce for role
+   *  assignment. Blocked while the staff member still has unfinished KYC review work assigned
+   *  (OrganizationService.countPendingKycAssignmentsByStaffIds) — reassign those organizations
+   *  first, mirroring deleteReferralCode's block-while-in-use rule. */
+  async deleteStaff(actingUser: AuthenticatedUser, staffId: string) {
+    const existing = await this.authRepository.findUserById(staffId);
+    if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
+
+    if (staffId === actingUser.id) {
+      throw new AuthorizationError('Cannot delete your own account');
+    }
+    if (!STAFF_ASSIGNABLE_ROLES.includes(existing.role.name)) {
+      throw new ValidationError(
+        `Role "${existing.role.name}" cannot be deleted through staff management — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
+      );
+    }
+
+    const workloadByStaff = await this.organizationService.countPendingKycAssignmentsByStaffIds([
+      staffId,
+    ]);
+    const workload = workloadByStaff.get(staffId) ?? 0;
+    if (workload > 0) {
+      throw new ConflictError(
+        `Staff member has ${workload} unfinished KYC review assignment(s) — reassign them before deleting`,
+      );
+    }
+
+    await this.authRepository.softDeleteUser(staffId);
+    await this.authRepository.revokeAllRefreshTokensForUser(staffId);
+    await invalidateUserExistsCache(staffId);
+
+    await this.auditService.log({
+      tenantId: null,
+      userId: actingUser.id,
+      action: 'STAFF_DELETED',
+      resourceType: 'user',
+      oldData: {
+        id: existing.id,
+        fullName: existing.fullName,
+        phoneNumber: existing.phoneNumber,
+        email: existing.email,
+        role: existing.role.name,
+      },
+    });
   }
 
   async login(input: LoginInput, ipAddress: string | null) {
