@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
 import { CustomerService } from './customer.service';
-import { CustomerParams, ListCustomersInput } from './customer.types';
+import { CustomerParams, DeleteCustomerParams, ListCustomersInput } from './customer.types';
 
 export class CustomerController {
   constructor(private readonly service: CustomerService) {}
@@ -62,4 +62,13 @@ export class CustomerController {
         (req.body as { reason: string }).reason,
       ),
     );
+  delete = async (req: Request, res: Response) => {
+    await this.service.delete(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      (req.params as unknown as DeleteCustomerParams).customer_id,
+    );
+    respond(res, { success: true });
+  };
 }

@@ -126,4 +126,23 @@ export class CustomerRepository {
     );
     return result.affected === 1 ? this.findById(tenantId, id) : null;
   }
+
+  async softDelete(
+    tenantId: string,
+    id: string,
+    deletedBy: string,
+    manager: EntityManager,
+  ): Promise<boolean> {
+    const customerRepo = manager.getRepository(CustomerEntity);
+    const pointRepo = manager.getRepository(CustomerDeliveryPointEntity);
+    const deletedAt = new Date();
+    const result = await customerRepo.update(
+      { id, tenantId, deletedAt: IsNull() },
+      { deletedAt, updatedBy: deletedBy },
+    );
+    if (result.affected !== 1) return false;
+
+    await pointRepo.update({ tenantId, customerId: id, deletedAt: IsNull() }, { deletedAt });
+    return true;
+  }
 }

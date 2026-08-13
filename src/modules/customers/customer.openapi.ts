@@ -6,7 +6,13 @@ import {
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
 } from '../../shared/constants/permissions';
-import { TAGS, errorContent, json, permissionGated } from '../../shared/openapi/core';
+import {
+  TAGS,
+  SuccessResponseSchema,
+  errorContent,
+  json,
+  permissionGated,
+} from '../../shared/openapi/core';
 import { customerValidators } from './customer.validators';
 
 const BASE = `${API_VERSION_PREFIX}/customers`;
@@ -101,6 +107,18 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Validation failed (reason required)', ...errorContent },
       404: { description: 'Customer not found', ...errorContent },
       409: { description: 'Invalid status transition', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/delete/{customer_id}`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.delete',
+    ...permissionGated([CUSTOMERS_WRITE], 'Soft-delete a tenant-scoped customer. ORG_ADMIN only.'),
+    request: { params: customerValidators.delete.shape.params },
+    responses: {
+      200: { description: 'Customer deleted', ...json(SuccessResponseSchema) },
+      404: { description: 'Customer not found', ...errorContent },
     },
   });
 }
