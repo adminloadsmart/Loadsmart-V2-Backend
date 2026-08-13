@@ -37,6 +37,27 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
   );
 
   router.post(
+    '/transporters',
+    validate(mastersValidators.createTransporter),
+    asyncHandler(controller.createTransporter),
+  );
+  router.get(
+    '/transporters',
+    validate(mastersValidators.listTransporters),
+    asyncHandler(controller.listTransporters),
+  );
+  router.patch(
+    '/transporters/:transporterId',
+    validate(mastersValidators.updateTransporter),
+    asyncHandler(controller.updateTransporter),
+  );
+  router.delete(
+    '/transporters/:transporterId',
+    validate(mastersValidators.deleteTransporter),
+    asyncHandler(controller.deleteTransporter),
+  );
+
+  router.post(
     '/vehicles',
     canWrite,
     validate(mastersValidators.createVehicle),

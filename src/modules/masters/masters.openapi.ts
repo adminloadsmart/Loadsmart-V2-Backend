@@ -71,6 +71,73 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  // --- Transporters ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/transporters`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.createTransporter',
+    ...authenticated('Create a transporter. Available only to the organization admin.'),
+    request: { body: json(mastersValidators.createTransporter.shape.body) },
+    responses: {
+      201: { description: 'Created transporter' },
+      400: { description: 'Validation failed', ...errorContent },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      409: { description: 'A transporter with this name already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/transporters`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listTransporters',
+    ...authenticated(
+      'List the organization transporters. Available only to the organization admin.',
+    ),
+    request: { query: mastersValidators.listTransporters.shape.query },
+    responses: {
+      200: {
+        description: 'Paginated transporters — { data: { items, page, limit, total, totalPages } }',
+      },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/transporters/{transporterId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.updateTransporter',
+    ...authenticated('Update a transporter. Available only to the organization admin.'),
+    request: {
+      params: mastersValidators.updateTransporter.shape.params,
+      body: json(mastersValidators.updateTransporter.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated transporter' },
+      400: { description: 'Validation failed', ...errorContent },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      404: { description: 'Transporter not found', ...errorContent },
+      409: { description: 'A transporter with this name already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/transporters/{transporterId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.deleteTransporter',
+    ...authenticated('Soft-delete a transporter. Available only to the organization admin.'),
+    request: { params: mastersValidators.deleteTransporter.shape.params },
+    responses: {
+      200: { description: 'Deleted', ...json(SuccessResponseSchema) },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      404: { description: 'Transporter not found', ...errorContent },
+    },
+  });
+
   // --- Vehicles ---
 
   registry.registerPath({

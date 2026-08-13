@@ -17,6 +17,8 @@ import { VehicleService } from './vehicle.service';
 import { DriverService } from './driver.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeService } from './truck-type.service';
+import { TransporterService } from './transporter.service';
+import { ListTransportersInput } from './utils/transporter.interface';
 
 export class MastersController {
   constructor(
@@ -24,6 +26,7 @@ export class MastersController {
     private readonly driverService: DriverService,
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly truckTypeService: TruckTypeService,
+    private readonly transporterService: TransporterService,
   ) {}
 
   listTruckTypes = async (req: Request, res: Response) => {
@@ -45,6 +48,47 @@ export class MastersController {
       requireTenantId(req),
       req.user!.id,
       req.params.truckTypeId,
+    );
+    respond(res, { success: true });
+  };
+
+  createTransporter = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.create(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        req.body,
+      ),
+      201,
+    );
+  listTransporters = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.list(
+        requireTenantId(req),
+        req.user!.role,
+        req.validatedQuery as ListTransportersInput,
+      ),
+    );
+  updateTransporter = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.update(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        String(req.params.transporterId),
+        req.body,
+      ),
+    );
+  deleteTransporter = async (req: Request, res: Response) => {
+    await this.transporterService.delete(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      String(req.params.transporterId),
     );
     respond(res, { success: true });
   };

@@ -67,7 +67,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
   // Reference data other modules read from — no cross-module deps of its own.
-  const masters = createMastersModule(dataSource);
+  const masters = createMastersModule(dataSource, { auditService: audit.service });
 
   // Producers first — no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
