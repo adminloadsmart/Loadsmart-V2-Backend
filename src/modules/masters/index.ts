@@ -17,8 +17,12 @@ import { TransporterService } from './transporter.service';
 import { TransporterImportService } from './transporter-import.service';
 import { TransporterImportController } from './transporter-import.controller';
 import { SarathiClient } from '../../adapters/sarathi.client';
+import { StorageService } from '../storage/storage.service';
 
-export function createMastersModule(dataSource: DataSource, deps: { auditService: AuditService }) {
+export function createMastersModule(
+  dataSource: DataSource,
+  deps: { auditService: AuditService; storageService: StorageService },
+) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
   const truckTypeRepository = new TruckTypeRepository(dataSource);
   const truckTypeService = new TruckTypeService(truckTypeRepository);
@@ -58,6 +62,7 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     dataSource,
     sarathiClient,
     deps.auditService,
+    deps.storageService,
   );
 
   const controller = new MastersController(

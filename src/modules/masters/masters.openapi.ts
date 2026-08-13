@@ -536,14 +536,17 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/documents`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.addDriverDocument',
-    ...write('Attach a document (driving license front/back) to a driver.'),
+    ...write(
+      'Attach a document (driving license front/back) to a driver. `fileUrl` must be the storage `key` of a file already uploaded via POST /files with purpose `masters/driver` and confirmed — see storage.constants.ts.',
+    ),
     request: {
       params: mastersValidators.addDriverDocument.shape.params,
       body: json(mastersValidators.addDriverDocument.shape.body),
     },
     responses: {
-      201: { description: 'Created document' },
-      404: { description: 'Driver not found', ...errorContent },
+      201: { description: 'Created document, with fileUrl resolved to a fresh download URL' },
+      400: { description: 'File is not a confirmed masters/driver upload', ...errorContent },
+      404: { description: 'Driver or file not found', ...errorContent },
     },
   });
 

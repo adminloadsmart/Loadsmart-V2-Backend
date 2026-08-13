@@ -171,6 +171,8 @@ const driverBankDetailsBody = z.object({
 
 const driverDocumentBody = z.object({
   documentType: z.enum(DRIVER_DOCUMENT_TYPES),
+  // The storage `key` from a confirmed POST /files upload (purpose `masters/driver`), not an
+  // arbitrary URL — driver.service.ts's assertDriverDlUpload rejects anything else.
   fileUrl: z.string().min(1),
   verificationSource: z.enum(DRIVER_DOCUMENT_VERIFICATION_SOURCES).optional(),
 });

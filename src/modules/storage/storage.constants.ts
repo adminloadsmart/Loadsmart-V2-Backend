@@ -5,6 +5,7 @@ export const UPLOAD_PURPOSES = [
   'trips/pod',
   'trips/lr',
   'masters/vehicle',
+  'masters/driver',
   'profile',
 ] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
@@ -35,6 +36,13 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     keyPrefix: 'masters/vehicle',
+  },
+  // Driving-licence front/back photos captured on the manual Sarathi route — see
+  // DRIVER_DOCUMENT_TYPES in masters/utils/drivers.types.ts.
+  'masters/driver': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
+    keyPrefix: 'masters/driver',
   },
   profile: {
     maxSizeBytes: 2 * 1024 * 1024,

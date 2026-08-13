@@ -273,6 +273,7 @@ export class MastersController {
     const document = await this.driverService.addDocument(
       requireTenantId(req),
       req.user!.id,
+      req.user!.role,
       req.params.driverId,
       req.body,
     );
@@ -282,6 +283,7 @@ export class MastersController {
   listDriverDocuments = async (req: Request<DriverParams>, res: Response) => {
     const documents = await this.driverService.listDocuments(
       requireTenantId(req),
+      req.user!.role,
       req.params.driverId,
     );
     respond(res, documents);

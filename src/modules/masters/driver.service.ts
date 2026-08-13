@@ -12,6 +12,7 @@ import { DriverBankVerificationStatus } from './utils/drivers.types';
 import { DriverRepository } from './driver.repository';
 import { Paginated, paginate } from './utils/masters.types';
 import { SarathiClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
+import { StorageService } from '../storage/storage.service';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
@@ -30,7 +31,45 @@ export class DriverService {
     private readonly dataSource: DataSource,
     private readonly sarathiClient: SarathiClient,
     private readonly auditService: AuditService,
+    private readonly storageService: StorageService,
   ) {}
+
+  /**
+   * Driving-licence front/back photos (manual Sarathi-review route) are uploaded to S3 through the
+   * storage module first — see storage.constants.ts's `masters/driver` purpose. `document.fileUrl`
+   * here is that upload's storage `key`, not an arbitrary external URL; this rejects anything that
+   * isn't a confirmed, correctly-scoped `masters/driver` upload before it's attached to the driver.
+   */
+  private async assertDriverDlUpload(
+    tenantId: string,
+    actorRole: string,
+    key: string,
+  ): Promise<void> {
+    try {
+      const { file } = await this.storageService.getByKey({ tenantId, role: actorRole }, key);
+      if (file.purpose !== 'masters/driver') {
+        throw new ValidationError(`File ${key} was not uploaded for a driver document`);
+      }
+      if (file.status !== 'confirmed') {
+        throw new ValidationError(`File ${key} must be confirmed before it can be attached`);
+      }
+    } catch (error) {
+      rethrow(error, 'Failed to verify uploaded driver document');
+    }
+  }
+
+  /** Resolves a document's stored S3 key into a fresh, short-lived download URL for the response. */
+  private async withDocumentDownloadUrl(
+    tenantId: string,
+    actorRole: string,
+    document: DriverDocumentEntity,
+  ): Promise<DriverDocumentEntity> {
+    const { downloadUrl } = await this.storageService.getByKey(
+      { tenantId, role: actorRole },
+      document.fileUrl,
+    );
+    return downloadUrl ? { ...document, fileUrl: downloadUrl } : document;
+  }
 
   /**
    * Preflight check used by the "Verify the driving licence" step of the Add-a-driver form,
@@ -148,14 +187,16 @@ export class DriverService {
   async addDocument(
     tenantId: string,
     actorId: string,
+    actorRole: string,
     driverId: string,
     input: AddDriverDocumentInput,
   ): Promise<DriverDocumentEntity> {
     try {
       await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverDlUpload(tenantId, actorRole, input.fileUrl);
 
       const verificationSource = input.verificationSource ?? 'manual';
-      return await this.driverRepository.createDocument({
+      const document = await this.driverRepository.createDocument({
         tenantId,
         driverId,
         documentType: input.documentType,
@@ -164,15 +205,23 @@ export class DriverService {
         verifiedAt: null,
         createdBy: actorId,
       });
+      return await this.withDocumentDownloadUrl(tenantId, actorRole, document);
     } catch (error) {
       rethrow(error, 'Failed to add driver document');
     }
   }
 
-  async listDocuments(tenantId: string, driverId: string): Promise<DriverDocumentEntity[]> {
+  async listDocuments(
+    tenantId: string,
+    actorRole: string,
+    driverId: string,
+  ): Promise<DriverDocumentEntity[]> {
     try {
       await this.assertDriverExists(tenantId, driverId);
-      return await this.driverRepository.listDocuments(tenantId, driverId);
+      const documents = await this.driverRepository.listDocuments(tenantId, driverId);
+      return await Promise.all(
+        documents.map((document) => this.withDocumentDownloadUrl(tenantId, actorRole, document)),
+      );
     } catch (error) {
       rethrow(error, 'Failed to list driver documents');
     }
@@ -487,6 +536,7 @@ export class DriverService {
         }
 
         for (const document of documents ?? []) {
+          await this.assertDriverDlUpload(tenantId, actorRole, document.fileUrl);
           await this.driverRepository.createDocument(
             {
               tenantId,
