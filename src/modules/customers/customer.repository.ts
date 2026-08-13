@@ -109,7 +109,20 @@ export class CustomerRepository {
   async approve(tenantId: string, id: string, actorId: string) {
     const result = await this.customers.update(
       { id, tenantId, status: 'pending', deletedAt: IsNull() },
-      { status: 'active', approvedBy: actorId, approvedAt: new Date(), updatedBy: actorId },
+      {
+        status: 'active',
+        approvedBy: actorId,
+        approvedAt: new Date(),
+        rejectionReason: null,
+        updatedBy: actorId,
+      },
+    );
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+  async reject(tenantId: string, id: string, actorId: string, reason: string) {
+    const result = await this.customers.update(
+      { id, tenantId, status: 'pending', deletedAt: IsNull() },
+      { status: 'rejected', rejectionReason: reason, updatedBy: actorId },
     );
     return result.affected === 1 ? this.findById(tenantId, id) : null;
   }

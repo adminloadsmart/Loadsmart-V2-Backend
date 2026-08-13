@@ -39,6 +39,7 @@ import {
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
   CUSTOMERS_APPROVE,
+  MASTERS_APPROVE,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -154,6 +155,12 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Approve customers',
     },
+    {
+      key: MASTERS_APPROVE,
+      module: 'masters',
+      scope: 'organization',
+      description: 'Approve/reject vehicles and drivers created pending admin approval',
+    },
   ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -179,6 +186,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
     permissionKeys: [
       ORGANIZATION_PROFILE_MANAGE,
       MASTERS_WRITE,
+      MASTERS_APPROVE,
       CUSTOMERS_CREATE,
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,
@@ -186,13 +194,33 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
-  // Roles. Permission keys are forward-looking: the Load module (PRD §6) and Payments module
-  // (PRD §7) that actually enforce them don't exist yet — same "seeded ahead of the module"
-  // situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
-  { name: SALES_CS_ROLE, scope: 'organization', permissionKeys: [REQUISITIONS_MANAGE] },
-  { name: DISPATCH_ROLE, scope: 'organization', permissionKeys: [DISPATCH_PLANNING_MANAGE] },
-  { name: DOCUMENTS_OPS_ROLE, scope: 'organization', permissionKeys: [LOADS_DOCUMENTS_MANAGE] },
-  { name: FINANCE_ACCOUNTS_ROLE, scope: 'organization', permissionKeys: [PAYMENTS_MANAGE] },
+  // Roles. All 4 can request a new customer (CUSTOMERS_CREATE — customer.service.ts's create()
+  // auto-approves for org_admin, leaves everyone else 'pending' for CUSTOMERS_APPROVE to review).
+  // Only dispatch also gets MASTERS_WRITE: it's the sole non-admin role allowed to add a vehicle
+  // or driver at all (masters.routes.ts's canWrite gate), same pending-approval treatment.
+  // Beyond that, permission keys are forward-looking: the Load module (PRD §6) and Payments
+  // module (PRD §7) that actually enforce them don't exist yet — same "seeded ahead of the
+  // module" situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
+  {
+    name: SALES_CS_ROLE,
+    scope: 'organization',
+    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_CREATE],
+  },
+  {
+    name: DISPATCH_ROLE,
+    scope: 'organization',
+    permissionKeys: [DISPATCH_PLANNING_MANAGE, CUSTOMERS_CREATE, MASTERS_WRITE],
+  },
+  {
+    name: DOCUMENTS_OPS_ROLE,
+    scope: 'organization',
+    permissionKeys: [LOADS_DOCUMENTS_MANAGE, CUSTOMERS_CREATE],
+  },
+  {
+    name: FINANCE_ACCOUNTS_ROLE,
+    scope: 'organization',
+    permissionKeys: [PAYMENTS_MANAGE, CUSTOMERS_CREATE],
+  },
 ];
 
 async function seed(): Promise<void> {

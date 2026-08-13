@@ -18,7 +18,8 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'customers.create',
     ...permissionGated(
       [CUSTOMERS_CREATE],
-      'Create a customer. ORG_ADMIN creates an active customer; SALES creates a pending customer.',
+      'Create a customer. org_admin creates an active customer; sales/sales_cs/dispatch/' +
+        'documents_ops/finance_accounts create a pending one awaiting org_admin approval.',
     ),
     request: { body: json(customerValidators.create.shape.body) },
     responses: {
@@ -78,6 +79,26 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     request: { params: customerValidators.approve.shape.params },
     responses: {
       200: { description: 'Approved customer' },
+      404: { description: 'Customer not found', ...errorContent },
+      409: { description: 'Invalid status transition', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/{customerId}/reject`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.reject',
+    ...permissionGated(
+      [CUSTOMERS_APPROVE],
+      'Reject a pending customer with a mandatory reason. ORG_ADMIN only.',
+    ),
+    request: {
+      params: customerValidators.reject.shape.params,
+      body: json(customerValidators.reject.shape.body),
+    },
+    responses: {
+      200: { description: 'Rejected customer' },
+      400: { description: 'Validation failed (reason required)', ...errorContent },
       404: { description: 'Customer not found', ...errorContent },
       409: { description: 'Invalid status transition', ...errorContent },
     },

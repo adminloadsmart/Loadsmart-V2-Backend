@@ -60,4 +60,8 @@ export const env = {
   verifyOtpRateLimitWindowSeconds: numberWithDefault('VERIFY_OTP_RATE_LIMIT_WINDOW_SECONDS', 300),
   signupRateLimitMax: numberWithDefault('SIGNUP_RATE_LIMIT_MAX', 20),
   signupRateLimitWindowSeconds: numberWithDefault('SIGNUP_RATE_LIMIT_WINDOW_SECONDS', 300),
+  // Unset until the government registry integration goes live — SarathiClient falls back to
+  // manual_review whenever this is missing, so the app runs fine without it.
+  sarathiApiKey: process.env.SARATHI_API_KEY || undefined,
+  sarathiBaseUrl: process.env.SARATHI_BASE_URL || undefined,
 };

@@ -14,4 +14,12 @@ export class DashboardsController {
     );
     respond(res, summary);
   };
+
+  listPendingApprovals = async (req: Request, res: Response) => {
+    const result = await this.dashboardsService.listPendingApprovals(
+      requireTenantId(req),
+      req.user!,
+    );
+    respond(res, result);
+  };
 }

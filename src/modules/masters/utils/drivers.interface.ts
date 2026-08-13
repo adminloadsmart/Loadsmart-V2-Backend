@@ -78,6 +78,9 @@ export interface CreateDriverData {
   licenseNumber: string | null;
   licenseExpiry: string | null;
   dateOfJoining: string | null;
+  status: DriverStatus;
+  approvedBy: string | null;
+  approvedAt: Date | null;
   createdBy: string | null;
 }
 

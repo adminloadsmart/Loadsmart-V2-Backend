@@ -55,6 +55,16 @@ export class DriverEntity {
   @Column({ type: 'enum', enum: [...DRIVER_STATUSES], default: 'active' })
   status!: DriverStatus;
 
+  @Column({ name: 'approved_by', type: 'uuid', nullable: true })
+  approvedBy!: string | null;
+
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt!: Date | null;
+
+  // Set by reject, cleared by approve — mirrors CustomerEntity.rejectionReason.
+  @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
+  rejectionReason!: string | null;
+
   @OneToMany(() => FleetDriverLinkEntity, (link) => link.driver)
   vehicleLinks!: FleetDriverLinkEntity[];
 

@@ -30,6 +30,9 @@ export class CustomerEntity {
   @Column({ name: 'created_by', type: 'uuid' }) createdBy!: string;
   @Column({ name: 'approved_by', type: 'uuid', nullable: true }) approvedBy!: string | null;
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true }) approvedAt!: Date | null;
+  // Set by reject, cleared by approve — mirrors OrganizationEntity's decisionReason.
+  @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
+  rejectionReason!: string | null;
   @Column({ name: 'updated_by', type: 'uuid', nullable: true }) updatedBy!: string | null;
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true }) deletedAt!: Date | null;
   @OneToMany(() => CustomerDeliveryPointEntity, (point) => point.customer)
