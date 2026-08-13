@@ -8,6 +8,8 @@ import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeRepository } from './truck-type.repository';
 import { TruckTypeService } from './truck-type.service';
+import { LoadingPointRepository } from './loading-point.repository';
+import { LoadingPointService } from './loading-point.service';
 import { MastersController } from './masters.controller';
 import { createMastersProtectedRoutes } from './masters.routes';
 import { AuditService } from '../audit/audit.service';
@@ -16,6 +18,8 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
   const truckTypeRepository = new TruckTypeRepository(dataSource);
   const truckTypeService = new TruckTypeService(truckTypeRepository);
+  const loadingPointRepository = new LoadingPointRepository(dataSource);
+  const loadingPointService = new LoadingPointService(loadingPointRepository, deps.auditService);
 
   const vehicleRepository = new VehicleRepository(dataSource);
   const driverRepository = new DriverRepository(dataSource);
@@ -50,6 +54,7 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     driverService,
     fleetDriverLinkService,
     truckTypeService,
+    loadingPointService,
   );
   const protectedRouter = createMastersProtectedRoutes(controller);
 
@@ -58,6 +63,7 @@ export function createMastersModule(dataSource: DataSource, deps: { auditService
     driverService,
     fleetDriverLinkService,
     truckTypeService,
+    loadingPointService,
     protectedRouter,
   };
 }

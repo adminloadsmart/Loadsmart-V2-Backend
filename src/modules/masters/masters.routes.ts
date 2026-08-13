@@ -5,6 +5,7 @@ import { requirePermission } from '../../shared/middleware/require-permission.mi
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
 import { MastersController } from './masters.controller';
 import { mastersValidators } from './masters.validators';
+import { loadingPointValidators } from './loading-point.validators';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 
 export function createMastersProtectedRoutes(controller: MastersController): Router {
@@ -36,6 +37,48 @@ export function createMastersProtectedRoutes(controller: MastersController): Rou
     canWrite,
     validate(mastersValidators.deleteTruckType),
     asyncHandler(controller.deleteTruckType),
+  );
+
+  // Settings → Loading Points — origins used by dispatch and load creation.
+  router.post(
+    '/loading-points',
+    canWrite,
+    validate(loadingPointValidators.create),
+    asyncHandler(controller.createLoadingPoint),
+  );
+  router.get(
+    '/loading-points',
+    validate(loadingPointValidators.list),
+    asyncHandler(controller.listLoadingPoints),
+  );
+  router.get(
+    '/loading-points/:loadingPointId',
+    validate(loadingPointValidators.get),
+    asyncHandler(controller.getLoadingPoint),
+  );
+  router.patch(
+    '/loading-points/:loadingPointId',
+    canWrite,
+    validate(loadingPointValidators.update),
+    asyncHandler(controller.updateLoadingPoint),
+  );
+  router.patch(
+    '/loading-points/:loadingPointId/approve',
+    canApprove,
+    validate(loadingPointValidators.approve),
+    asyncHandler(controller.approveLoadingPoint),
+  );
+  router.patch(
+    '/loading-points/:loadingPointId/reject',
+    canApprove,
+    validate(loadingPointValidators.reject),
+    asyncHandler(controller.rejectLoadingPoint),
+  );
+  router.delete(
+    '/loading-points/:loadingPointId',
+    canWrite,
+    validate(loadingPointValidators.delete),
+    asyncHandler(controller.deleteLoadingPoint),
   );
 
   // Backs the single "Save vehicle" button — whole form, one transaction. Declared before

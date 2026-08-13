@@ -32,6 +32,7 @@ import { VehicleServiceUsageEntity } from '../modules/masters/entities/vehicle-s
 import { DriverOperationalStatusEntity } from '../modules/masters/entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip-metrics.entity';
 import { TruckTypeEntity } from '../modules/masters/entities/truck-type.entity';
+import { LoadingPointEntity } from '../modules/masters/entities/loading-point.entity';
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
 
@@ -71,6 +72,7 @@ export const AppDataSource = new DataSource({
     DriverOperationalStatusEntity,
     DriverTripMetricsEntity,
     TruckTypeEntity,
+    LoadingPointEntity,
     CustomerEntity,
     CustomerDeliveryPointEntity,
   ], // every new module adds its entity here
