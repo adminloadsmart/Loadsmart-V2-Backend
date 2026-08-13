@@ -353,7 +353,12 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { query: adminValidators.listStaff.shape.query },
     responses: {
-      200: { description: 'Paginated staff — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description:
+          'Paginated staff — { data: { items, page, limit, total, totalPages } }. Each item ' +
+          "includes signupCount (orgs onboarded via the staff member's referral codes) and " +
+          'workload (orgs currently assigned to them for KYC review, not yet completed).',
+      },
     },
   });
 

@@ -435,10 +435,14 @@ export class AuthService {
 
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
-    // Batched, not per-row — one extra query for the whole page, keyed by owner.
-    const codesByOwner = await this.referralCodeService.listByOwnerIds(
-      items.map((user) => user.id),
-    );
+    const staffIds = items.map((user) => user.id);
+    // Batched, not per-row — fixed number of extra queries for the whole page, keyed by
+    // owner/staff id, run concurrently.
+    const [codesByOwner, signupCountByOwner, workloadByStaff] = await Promise.all([
+      this.referralCodeService.listByOwnerIds(staffIds),
+      this.organizationService.countActiveByReferralCodeOwnerIds(staffIds),
+      this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
+    ]);
     return {
       items: items.map((user) => ({
         id: user.id,
@@ -448,6 +452,11 @@ export class AuthService {
         role: user.role.name,
         coverage: user.coverage,
         referralCodes: codesByOwner.get(user.id) ?? [],
+        // Organizations that onboarded (status 'active') via any of this staff member's referral codes.
+        signupCount: signupCountByOwner.get(user.id) ?? 0,
+        // Orgs assigned to this staff member for KYC review (online or physical) not yet completed —
+        // the only "current work" concept this schema has; non-KYC roles are always 0.
+        workload: workloadByStaff.get(user.id) ?? 0,
         createdAt: user.createdAt,
       })),
       page: input.page,
