@@ -7,7 +7,12 @@ import {
 import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
 
 export type OnboardingStatus = 'incomplete' | 'submitted' | 'completed';
-export type OnboardingStep = 'company_details' | 'business_details' | 'review_submit' | 'submitted';
+export type OnboardingStep =
+  | 'company_details'
+  | 'business_details'
+  | 'review_submit'
+  | 'shopboard_premises_photo'
+  | 'submitted';
 
 export interface SaveCompanyDetailsInput {
   companyLegalName: string;
@@ -49,6 +54,11 @@ export interface SubmitOrganizationInput {
   documents: OrganizationDocumentInput[];
 }
 
+export interface SaveShopboardPremisesPhotoInput {
+  step: 'shopboard_premises_photo';
+  purpose: 'organizations/shopboard-premises';
+}
+
 // Returned by OrganizationOnboardingService.getProgress/buildOnboardingState — moved (renamed
 // from AuthService's local OrganizationProgress) since it's now a cross-module return type
 // consumed directly by auth.service.ts's buildAuthSession.
@@ -76,6 +86,7 @@ export type OrganizationReviewData = {
     pinCode: string | null;
   };
   referralCode: string | null;
+  shopboardPremisesPhotoKey: string | null;
   documents: Array<{
     documentType: string;
     documentNumber: string | null;
