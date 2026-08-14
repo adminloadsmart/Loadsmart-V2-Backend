@@ -64,6 +64,20 @@ export class RoleRepository {
     await this.users.update({ id: userId }, { roleId });
   }
 
+  // Atomic increment (not read-then-write) so two concurrent role/permission changes against the
+  // same user both land instead of one clobbering the other. Returns the new value so the caller
+  // can push it straight into the permissions-version cache without a re-read.
+  async bumpPermissionsVersion(userId: string): Promise<number> {
+    const result = await this.users
+      .createQueryBuilder()
+      .update(UserEntity)
+      .set({ permissionsVersion: () => '"permissions_version" + 1' })
+      .where('id = :userId', { userId })
+      .returning('permissions_version')
+      .execute();
+    return result.raw[0].permissions_version as number;
+  }
+
   findUserPermissionGrants(userId: string): Promise<UserPermissionEntity[]> {
     return this.userPermissions.find({ where: { userId }, relations: { permission: true } });
   }

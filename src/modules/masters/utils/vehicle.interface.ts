@@ -4,6 +4,7 @@ import {
   VehicleBodyType,
   VehicleDocumentStatus,
   VehicleDocumentType,
+  VehicleDocumentTypeWithExpiry,
   VehicleFuelType,
   VehicleOperationalStatus,
   VehicleOwnershipType,
@@ -49,6 +50,11 @@ export interface ListVehiclesQuery {
   search?: string;
   status?: string;
   operationalStatus?: string;
+}
+
+export interface ListComplianceAlertsInput extends PaginationInput {
+  documentType?: VehicleDocumentTypeWithExpiry;
+  search?: string;
 }
 
 export interface AddVehicleDocumentInput {
@@ -100,6 +106,15 @@ export interface ListVehiclesFilters {
   search?: string;
   page: number;
   limit: number;
+}
+
+export interface ListComplianceAlertsFilters {
+  documentType?: VehicleDocumentTypeWithExpiry;
+  search?: string;
+  page: number;
+  limit: number;
+  /** today + DOCUMENT_EXPIRING_SOON_DAYS + 1, computed by the service — see listComplianceAlerts. */
+  expiryBefore: string;
 }
 
 export interface CreateVehicleDocumentData {

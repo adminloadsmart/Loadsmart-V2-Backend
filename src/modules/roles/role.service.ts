@@ -6,6 +6,7 @@ import {
   ORG_ADMIN_ROLE,
   ORG_ASSIGNABLE_ROLES,
 } from '../../shared/constants/roles';
+import { setCachedPermissionsVersion } from '../../shared/utils/permissions-version-cache';
 import { RoleEntity, RoleScope } from './entities/role.entity';
 import { PermissionEntity, PermissionScope } from './entities/permission.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -24,7 +25,22 @@ export class RoleService {
   constructor(
     private readonly roleRepository: RoleRepository,
     private readonly auditService: AuditService,
+    // A plain function, not a typed AuthRepository import — keeps this module decoupled from
+    // modules/auth (which already depends on roles.service for the JWT permissions claim; the
+    // reverse import would cycle). See composition-root.ts for how this is wired.
+    private readonly revokeRefreshTokensForUser: (userId: string) => Promise<void>,
   ) {}
+
+  /** Called by assignRole/grantPermission/revokePermission after the DB write: bumps the
+   *  target's permissions_version (so their next request's version check fails and forces
+   *  re-auth — see auth.middleware.ts), actively pushes the new value into the version cache
+   *  rather than waiting for its TTL to lapse, and revokes their refresh tokens so a fully
+   *  logged-out session can't silently renew either. */
+  private async invalidateSession(targetUserId: string): Promise<void> {
+    const newVersion = await this.roleRepository.bumpPermissionsVersion(targetUserId);
+    await setCachedPermissionsVersion(targetUserId, newVersion);
+    await this.revokeRefreshTokensForUser(targetUserId);
+  }
 
   /** Used by auth.service.ts's bootstrap flows (verifyOtp, createOrganization) to resolve a
    *  seeded system role's id by its well-known name. */
@@ -206,6 +222,7 @@ export class RoleService {
 
       const oldRole = { id: targetUser.role.id, name: targetUser.role.name };
       await this.roleRepository.updateUserRole(targetUserId, roleId);
+      await this.invalidateSession(targetUserId);
 
       await this.auditService.log({
         tenantId: targetUser.tenantId,
@@ -244,6 +261,7 @@ export class RoleService {
         throw new ConflictError(`User already has permission "${permission.key}" granted directly`);
 
       await this.roleRepository.grantPermission(targetUserId, permissionId, actingUser.id);
+      await this.invalidateSession(targetUserId);
 
       await this.auditService.log({
         tenantId: targetUser.tenantId,
@@ -282,6 +300,7 @@ export class RoleService {
         );
 
       await this.roleRepository.revokePermission(targetUserId, permissionId);
+      await this.invalidateSession(targetUserId);
 
       await this.auditService.log({
         tenantId: targetUser.tenantId,

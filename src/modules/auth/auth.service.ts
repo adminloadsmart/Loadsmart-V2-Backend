@@ -568,10 +568,15 @@ export class AuthService {
    *  uses, plus revoking their refresh tokens so a currently-live session can't silently keep
    *  renewing (their still-live access token expires naturally — same limitation deleteAccount
    *  has for the caller's own current token, there worked around with an explicit blockToken call
-   *  we can't make here since we don't hold the target's jti). Restricted to accounts actually
-   *  provisioned through this surface (STAFF_ASSIGNABLE_ROLES) — platform_admin/org_admin aren't
-   *  deprovisioned this way, same boundary createStaffUser/updateStaff already enforce for role
-   *  assignment. Blocked while the staff member still has unfinished KYC review work assigned
+   *  we can't make here since we don't hold the target's jti). role.service.ts's
+   *  assignRole/grantPermission/revokePermission close this exact gap for permission changes via
+   *  a permissions_version check every request goes through (see auth.middleware.ts) — deletion
+   *  doesn't need that same mechanism since invalidateUserExistsCache below already forces the
+   *  equivalent "user no longer exists" rejection on this user's very next request, on the same
+   *  cache-TTL bound. Restricted to accounts actually provisioned through this surface
+   *  (STAFF_ASSIGNABLE_ROLES) — platform_admin/org_admin aren't deprovisioned this way, same
+   *  boundary createStaffUser/updateStaff already enforce for role assignment. Blocked while the
+   *  staff member still has unfinished KYC review work assigned
    *  (OrganizationService.countPendingKycAssignmentsByStaffIds) — reassign those organizations
    *  first, mirroring deleteReferralCode's block-while-in-use rule. */
   async deleteStaff(actingUser: AuthenticatedUser, staffId: string) {
@@ -713,11 +718,14 @@ export class AuthService {
       );
       await this.authRepository.updateUserTenant(userId, organization.id, manager);
       const permissions = await this.roleService.getEffectivePermissions(userId);
+      const user = await this.authRepository.findUserById(userId);
+      if (!user) throw new NotFoundError(`User ${userId} not found`);
       const tokens = await this.issueTokenPair(
         userId,
         organization.id,
         ORG_ADMIN_ROLE,
         permissions,
+        user.permissionsVersion,
       );
       return {
         ...this.organizationOnboardingService.buildOrganizationResponse(updated, []),
@@ -942,7 +950,13 @@ export class AuthService {
     await this.assertOrganizationActiveForLogin(user);
 
     const permissions = await this.roleService.getEffectivePermissions(user.id);
-    const tokens = await this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
+    const tokens = await this.issueTokenPair(
+      user.id,
+      user.tenantId,
+      user.role.name,
+      permissions,
+      user.permissionsVersion,
+    );
     const progress = await this.getOnboardingProgress(user);
 
     return {
@@ -1033,9 +1047,16 @@ export class AuthService {
     id: string;
     tenantId: string | null;
     role: { name: string };
+    permissionsVersion: number;
   }) {
     const permissions = await this.roleService.getEffectivePermissions(user.id);
-    return this.issueTokenPair(user.id, user.tenantId, user.role.name, permissions);
+    return this.issueTokenPair(
+      user.id,
+      user.tenantId,
+      user.role.name,
+      permissions,
+      user.permissionsVersion,
+    );
   }
 
   private async issueTokenPair(
@@ -1043,10 +1064,11 @@ export class AuthService {
     tenantId: string | null,
     role: string,
     permissions: string[],
+    permissionsVersion: number,
   ) {
     const jti = randomUUID();
     const accessToken = signToken(
-      { id: userId, tenantId, role, permissions, jti, purpose: 'access' },
+      { id: userId, tenantId, role, permissions, permissionsVersion, jti, purpose: 'access' },
       env.accessTokenTtlSeconds,
     );
 

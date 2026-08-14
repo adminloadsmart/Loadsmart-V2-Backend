@@ -1,6 +1,7 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import { toDateString } from '../../shared/utils/date';
 import { AuditService } from '../audit/audit.service';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleServiceUsageEntity } from './entities/vehicle-service-usage.entity';
@@ -17,6 +18,7 @@ import { Paginated, paginate } from './utils/masters.types';
 import {
   AddVehicleDocumentInput,
   CreateVehicleInput,
+  ListComplianceAlertsInput,
   ListVehiclesInput,
   OnboardVehicleInput,
   RecordVehicleVerificationInput,
@@ -113,6 +115,37 @@ export class VehicleService {
       return paginate(items, total, input);
     } catch (error) {
       rethrow(error, 'Failed to list vehicles');
+    }
+  }
+
+  async listComplianceAlerts(
+    tenantId: string,
+    input: ListComplianceAlertsInput,
+  ): Promise<Paginated<VehicleDocumentEntity>> {
+    try {
+      // +1: resolveDocumentStatus compares expiry's midnight-UTC instant against the real current
+      // instant, so its floor() drops a day off the count except at exactly 00:00:00 UTC — a
+      // document expiring in DOCUMENT_EXPIRING_SOON_DAYS + 1 calendar days still resolves to
+      // 'expiring_soon'. This keeps the SQL cutoff aligned with that boundary.
+      const expiryBefore = toDateString(
+        new Date(Date.now() + (DOCUMENT_EXPIRING_SOON_DAYS + 1) * 24 * 60 * 60 * 1000),
+      );
+
+      const { items, total } = await this.vehicleRepository.listComplianceAlerts(tenantId, {
+        ...input,
+        expiryBefore,
+      });
+
+      // Recompute live rather than trust the persisted `status` column, which is only refreshed
+      // on document create/update and can go stale — see resolveDocumentStatus's doc comment.
+      const alerts = items.map((document) => ({
+        ...document,
+        status: resolveDocumentStatus(document.expiryDate),
+      }));
+
+      return paginate(alerts, total, input);
+    } catch (error) {
+      rethrow(error, 'Failed to list compliance alerts');
     }
   }
 

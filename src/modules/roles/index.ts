@@ -11,9 +11,18 @@ import { createRoleRoutes } from './role.routes';
 // service directly, no gateway" pattern modules/admin/ already uses for auth's
 // organizationService (this is a cross-tenant-capable read/write, not a producer/consumer
 // integration between two independently-owned domains).
-export function createRolesModule(dataSource: DataSource, deps: { auditService: AuditService }) {
+export function createRolesModule(
+  dataSource: DataSource,
+  deps: {
+    auditService: AuditService;
+    // A plain function rather than a typed AuthRepository/AuthService dependency — see
+    // role.service.ts and composition-root.ts for why (auth already depends on roles.service,
+    // so the reverse can't be a typed cross-module import without cycling).
+    revokeRefreshTokensForUser: (userId: string) => Promise<void>;
+  },
+) {
   const repository = new RoleRepository(dataSource);
-  const service = new RoleService(repository, deps.auditService);
+  const service = new RoleService(repository, deps.auditService, deps.revokeRefreshTokensForUser);
   const controller = new RoleController(service);
   const router = createRoleRoutes(controller);
 

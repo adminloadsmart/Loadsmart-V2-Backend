@@ -5,6 +5,7 @@ import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
 
 import { createAuthModule } from './modules/auth';
+import { AuthRepository } from './modules/auth/auth.repository';
 import {
   createOrganizationModule,
   createOrganizationOnboardingRoutes,
@@ -41,8 +42,19 @@ export function buildContainer(dataSource: DataSource): Container {
   const auditMiddleware = createAudit(audit.service);
 
   // Built before auth: auth.service.ts needs roles's roleService injected directly to build the
-  // JWT's `permissions` claim (see modules/auth/index.ts and modules/roles/index.ts).
-  const roles = createRolesModule(dataSource, { auditService: audit.service });
+  // JWT's `permissions` claim (see modules/auth/index.ts and modules/roles/index.ts). That same
+  // build order means roles can't take a typed dependency on auth's AuthService/AuthRepository
+  // (it doesn't exist yet). AuthRepository's constructor only needs `dataSource` though (no
+  // other module's service), so it's safe to construct one standalone instance here purely to
+  // hand role.service.ts a way to revoke a target user's refresh tokens when their role/
+  // permissions change — createAuthModule below still builds and uses its own separate
+  // AuthRepository instance as it always has.
+  const earlyAuthRepository = new AuthRepository(dataSource);
+  const roles = createRolesModule(dataSource, {
+    auditService: audit.service,
+    revokeRefreshTokensForUser: (userId) =>
+      earlyAuthRepository.revokeAllRefreshTokensForUser(userId),
+  });
 
   // No cross-module deps of its own — owns the organization/organization-document/referral-code
   // schema. Built before auth: auth.service.ts orchestrates org onboarding on top of these
