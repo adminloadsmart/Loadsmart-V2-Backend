@@ -128,6 +128,7 @@ export class OrganizationRepository {
       operationalCity: string | null;
       referralCodeId: string | null;
       onboardingStep: OrganizationOnboardingStep | null;
+      shopboardPremisesPhotoKey: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
       city: string | null;

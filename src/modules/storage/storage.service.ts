@@ -96,6 +96,49 @@ export class StorageService {
     }
   }
 
+  // Server-side upload counterpart to generateUploadUrl/confirmUpload. Use this when the client
+  // submits the binary to our API rather than uploading directly through a presigned S3 POST.
+  async uploadTenantFile(
+    tenantId: string,
+    actorId: string,
+    input: GenerateUploadUrlInput,
+    body: Uint8Array,
+  ): Promise<FileEntity> {
+    try {
+      if (input.sizeBytes === 0) {
+        throw new ValidationError('File must not be empty');
+      }
+      const policy = UPLOAD_POLICIES[input.purpose];
+      if (!policy.allowedMimeTypes.includes(input.mimeType)) {
+        throw new ValidationError(
+          `File type ${input.mimeType} is not allowed for purpose ${input.purpose}`,
+        );
+      }
+      if (input.sizeBytes > policy.maxSizeBytes) {
+        throw new ValidationError(
+          `File exceeds the ${policy.maxSizeBytes}-byte limit for purpose ${input.purpose}`,
+        );
+      }
+
+      const key = `${policy.keyPrefix}/${tenantId}/${randomUUID()}-${sanitizeFileName(input.fileName)}`;
+      const file = await this.repository.create(
+        tenantId,
+        actorId,
+        input.purpose,
+        key,
+        input.fileName,
+        input.mimeType,
+        input.sizeBytes,
+      );
+      await this.s3.putObject(key, body, input.mimeType);
+      const confirmed = await this.repository.markConfirmed(tenantId, file.id, input.sizeBytes);
+      if (!confirmed) throw new ConflictError(`File ${file.id} could not be confirmed`);
+      return confirmed;
+    } catch (error) {
+      rethrow(error, 'Failed to upload file');
+    }
+  }
+
   // Shared tail for get()/getByKey() — a confirmed file gets a fresh presigned download URL,
   // anything else (pending/failed) gets null rather than a URL to an object that may not exist.
   private async withDownloadUrl(file: FileEntity): Promise<FileWithUrlResult> {

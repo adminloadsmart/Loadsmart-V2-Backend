@@ -12,7 +12,8 @@ import {
 
 /**
  * OpenAPI docs for the org onboarding endpoints — GET/POST /v1/auth/organization,
- * POST /v1/auth/organization/business, POST /v1/auth/organization/submit. Lives here (not
+ * POST /v1/auth/organization/business, POST /v1/auth/organization/submit, and the post-submit
+ * shop-board photo endpoint. Lives here (not
  * auth.openapi.ts) since the routes are org-owned, but BASE stays '/v1/auth' and the tag stays
  * TAGS.AUTH: the URLs are deliberately unchanged (see modules/organization/index.ts's
  * createOrganizationOnboardingRoutes), and core.ts's tag convention mirrors mount paths, which
@@ -39,6 +40,37 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
       200: { description: 'Organization, or null if none exists yet' },
       404: {
         description: 'Caller has a tenantId but no matching organization (data inconsistency)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organization/shopboard-premises-photo`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.saveShopboardPremisesPhoto',
+    ...authenticated(
+      'Upload and attach a shop-board/premises image. Send multipart/form-data with purpose, step, and file; the backend uploads the image to S3. Available after the review step and before final submission.',
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: organizationValidators.saveShopboardPremisesPhoto.shape.body,
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Shop-board premises photo uploaded and onboarding step advanced' },
+      400: {
+        description: 'Validation failed, image is missing, or purpose/step is invalid',
+        ...errorContent,
+      },
+      401: { description: 'Missing/invalid access token', ...errorContent },
+      403: {
+        description: 'Organization is already submitted or cannot be updated',
         ...errorContent,
       },
     },

@@ -29,6 +29,7 @@ export const ORGANIZATION_ONBOARDING_STEPS = [
   'company_details',
   'business_details',
   'review_submit',
+  'shopboard_premises_photo',
   'submitted',
 ] as const;
 export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[number];
@@ -84,6 +85,11 @@ export class OrganizationEntity {
     nullable: true,
   })
   onboardingStep!: OrganizationOnboardingStep | null;
+
+  // Confirmed S3 object key for the post-submission shop-board/premises photograph. The binary
+  // remains in S3; this is only the storage reference, matching organization_documents.file_key.
+  @Column({ name: 'shopboard_premises_photo_key', type: 'varchar', nullable: true })
+  shopboardPremisesPhotoKey!: string | null;
 
   @Column({ name: 'address_line_1', type: 'varchar', nullable: true })
   addressLine1!: string | null;
