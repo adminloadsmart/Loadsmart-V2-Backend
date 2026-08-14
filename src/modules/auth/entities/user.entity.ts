@@ -59,6 +59,13 @@ export class UserEntity {
   @Column({ type: 'varchar', nullable: true })
   coverage!: string | null;
 
+  // Bumped by role.service.ts's assignRole/grantPermission/revokePermission whenever this user's
+  // authority changes. Embedded in the access token at issuance and compared against the live
+  // value on every request (see auth.middleware.ts) so a permission change forces re-auth instead
+  // of waiting for the token to expire on its own.
+  @Column({ name: 'permissions_version', type: 'integer', default: 1 })
+  permissionsVersion!: number;
+
   @Column({ name: 'deleted_at', type: 'timestamp', nullable: true })
   deletedAt!: Date | null;
 

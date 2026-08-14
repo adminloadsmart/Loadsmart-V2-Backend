@@ -4,6 +4,10 @@ import { AuthenticatedUser } from './request.types';
 import { extractBearerToken, verifyToken } from '../utils/token';
 import { isTokenBlocked } from '../utils/token-blocklist';
 import { getCachedUserExists, setCachedUserExists } from '../utils/user-existence-cache';
+import {
+  getCachedPermissionsVersion,
+  setCachedPermissionsVersion,
+} from '../utils/permissions-version-cache';
 import { AuthRepository } from '../../modules/auth/auth.repository';
 
 export const createAuth = (authRepository: AuthRepository): RequestHandler => {
@@ -35,13 +39,28 @@ export const createAuth = (authRepository: AuthRepository): RequestHandler => {
     }
 
     let exists = await getCachedUserExists(decoded.id);
-    if (exists === null) {
-      exists = (await authRepository.findUserById(decoded.id)) !== null;
+    let currentVersion = await getCachedPermissionsVersion(decoded.id);
+
+    if (exists === null || currentVersion === null) {
+      const user = await authRepository.findUserById(decoded.id);
+      exists = user !== null;
       await setCachedUserExists(decoded.id, exists);
+      if (user) {
+        currentVersion = user.permissionsVersion;
+        await setCachedPermissionsVersion(decoded.id, user.permissionsVersion);
+      }
     }
 
     if (!exists) {
       throw new AuthenticationError('User no longer exists');
+    }
+
+    // A role/permission change (role.service.ts's assignRole/grantPermission/revokePermission)
+    // bumps the DB's permissions_version and actively overwrites this cache entry, so a
+    // mismatch here means this token's claims are stale — same generic message as the other
+    // failure branches above, so a caller can't tell which check failed.
+    if (decoded.permissionsVersion !== currentVersion) {
+      throw new AuthenticationError('Invalid or expired token');
     }
 
     req.user = decoded;

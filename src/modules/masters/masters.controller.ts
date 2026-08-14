@@ -10,7 +10,7 @@ import {
   VehicleDocumentParams,
   VehicleParams,
 } from './utils/masters.interface';
-import { ListVehiclesInput } from './utils/vehicle.interface';
+import { ListComplianceAlertsInput, ListVehiclesInput } from './utils/vehicle.interface';
 import { ListDriversInput } from './utils/drivers.interface';
 import { CreateTruckTypeInput } from './utils/truck-type.interface';
 import {
@@ -585,5 +585,15 @@ export class MastersController {
       req.params.driverId,
     );
     respond(res, metrics);
+  };
+
+  /** Fleet-wide compliance alerts (documents expired or about to expire) — feeds the Home
+   *  dashboard's Compliance widget. */
+  listComplianceAlerts = async (req: Request, res: Response) => {
+    const alerts = await this.vehicleService.listComplianceAlerts(
+      requireTenantId(req),
+      req.validatedQuery as ListComplianceAlertsInput,
+    );
+    respond(res, alerts);
   };
 }
