@@ -191,7 +191,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
   {
     name: 'sales',
-    scope: 'organization',
+    scope: 'platform',
     permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
   },
   {
