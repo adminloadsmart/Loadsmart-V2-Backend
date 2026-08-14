@@ -39,6 +39,8 @@ import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
 import { FileEntity } from '../modules/storage/entities/file.entity';
 import { CustomerImportEntity } from '../modules/customers/entities/customer-import.entity';
+import { ProductEntity } from '../modules/masters/entities/product.entity';
+import { ProductSubItemEntity } from '../modules/masters/entities/product-sub-item.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -83,6 +85,8 @@ export const AppDataSource = new DataSource({
     CustomerDeliveryPointEntity,
     FileEntity,
     CustomerImportEntity,
+    ProductEntity,
+    ProductSubItemEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,
