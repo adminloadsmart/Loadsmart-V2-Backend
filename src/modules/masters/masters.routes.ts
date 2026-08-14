@@ -488,5 +488,13 @@ export function createMastersProtectedRoutes(
     asyncHandler(controller.deleteLink),
   );
 
+  // Fleet-wide compliance alerts (documents expired or about to expire) — feeds the Home
+  // dashboard's Compliance widget. Read-only, so no extra permission gate beyond the
+  // router-level requireTenant — same as every other list endpoint above.
+  router.get(
+    '/compliance-alert',
+    validate(mastersValidators.listComplianceAlerts),
+    asyncHandler(controller.listComplianceAlerts),
+  );
   return router;
 }

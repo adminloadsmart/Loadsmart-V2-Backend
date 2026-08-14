@@ -51,6 +51,17 @@ export const VEHICLE_DOCUMENT_TYPES = [
 ] as const;
 export type VehicleDocumentType = (typeof VEHICLE_DOCUMENT_TYPES)[number];
 
+/** The 5 dated papers the compliance column actually tracks — excludes rc_front/rc_back, the
+ * undated RC photos. Scopes filters (e.g. compliance alerts) to types that can carry an expiry. */
+export const VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY = [
+  'rc',
+  'insurance',
+  'permit',
+  'puc',
+  'fitness',
+] as const;
+export type VehicleDocumentTypeWithExpiry = (typeof VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY)[number];
+
 /** Derived from the document's expiry date — see resolveDocumentStatus in vehicle.service.ts. */
 export const VEHICLE_DOCUMENT_STATUSES = ['valid', 'expiring_soon', 'expired'] as const;
 export type VehicleDocumentStatus = (typeof VEHICLE_DOCUMENT_STATUSES)[number];

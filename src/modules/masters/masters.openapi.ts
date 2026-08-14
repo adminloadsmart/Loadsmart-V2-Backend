@@ -1,6 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { mastersValidators } from './masters.validators';
 import { loadingPointValidators } from './loading-point.validators';
+import { DOCUMENT_EXPIRING_SOON_DAYS } from './masters.constants';
 import { productValidators } from './product.validators';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../shared/constants/api';
@@ -1157,6 +1158,29 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Trip metrics' },
       404: { description: 'Driver not found', ...errorContent },
+    },
+  });
+
+  // --- Compliance alerts ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/compliance-alert`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listComplianceAlerts',
+    ...authenticated(
+      'Fleet-wide vehicle-document compliance alerts — documents already expired or expiring ' +
+        `within ${DOCUMENT_EXPIRING_SOON_DAYS} days, most urgent first. Feeds the Home ` +
+        "dashboard's Compliance widget.",
+    ),
+    request: { query: mastersValidators.listComplianceAlerts.shape.query },
+    responses: {
+      200: {
+        description:
+          'Paginated compliance alerts — { data: { items, page, limit, total, totalPages } }; ' +
+          'each item is a vehicle document with its vehicle relation loaded and status freshly ' +
+          'recomputed (never trusts the persisted, possibly stale status column).',
+      },
     },
   });
 }

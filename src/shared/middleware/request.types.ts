@@ -15,9 +15,14 @@ export interface AuthenticatedUser {
   tenantId: string | null;
   role: Role;
   // Effective permissions at the time the token was issued (role's permissions ∪ direct grants
-  // — see role.service.ts's getEffectivePermissions). Same staleness trade-off `role` already
-  // had: changes take effect on next login/refresh, not instantly.
+  // — see role.service.ts's getEffectivePermissions).
   permissions: string[];
+  // Snapshot of the user's permissions_version at token-issuance time. auth.middleware.ts
+  // compares this against the live DB value (Redis-cached ~30s, see
+  // permissions-version-cache.ts) on every request, so a role/permission change bumped by
+  // role.service.ts's assignRole/grantPermission/revokePermission takes effect promptly instead
+  // of waiting for this token to expire or for the client to hit /auth/refresh.
+  permissionsVersion: number;
   jti?: string;
   exp?: number;
 }
