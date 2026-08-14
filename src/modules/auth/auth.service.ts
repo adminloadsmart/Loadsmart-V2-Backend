@@ -35,7 +35,6 @@ import {
 } from './auth.constants';
 import {
   ORG_ADMIN_ROLE,
-  SALES_ROLE,
   STAFF_ASSIGNABLE_ROLES,
   ORG_ASSIGNABLE_ROLES,
 } from '../../shared/constants/roles';
@@ -267,10 +266,6 @@ export class AuthService {
         `Role "${role.name}" cannot be assigned through staff creation — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
       );
     }
-    if (role.name === SALES_ROLE && !actingUser.tenantId) {
-      throw new AuthorizationError('A sales user must be created within an organization context');
-    }
-
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const [existingByPhone, existingByEmail] = await Promise.all([
       this.authRepository.findUserByPhone(normalizedPhone),
@@ -284,7 +279,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.authRepository.createUser({
       phoneNumber: normalizedPhone,
-      tenantId: role.name === SALES_ROLE ? actingUser.tenantId : null,
+      tenantId: null,
       roleId,
       email,
       passwordHash,
@@ -486,11 +481,6 @@ export class AuthService {
       if (!STAFF_ASSIGNABLE_ROLES.includes(role.name)) {
         throw new ValidationError(
           `Role "${role.name}" cannot be assigned through staff update — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
-        );
-      }
-      if (role.name === SALES_ROLE && !actingUser.tenantId) {
-        throw new AuthorizationError(
-          'A sales user must be assigned within an organization context',
         );
       }
       await this.roleService.assignRole(actingUser, staffId, roleId);
