@@ -20,6 +20,8 @@ import { SarathiClient } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { ProductRepository } from './product.repository';
 import { ProductService } from './product.service';
+import { ProductImportService } from './product-import.service';
+import { ProductImportController } from './product-import.controller';
 
 export function createMastersModule(
   dataSource: DataSource,
@@ -39,6 +41,8 @@ export function createMastersModule(
   const loadingPointService = new LoadingPointService(loadingPointRepository, deps.auditService);
   const productRepository = new ProductRepository(dataSource);
   const productService = new ProductService(productRepository, deps.auditService);
+  const productImportService = new ProductImportService(productService, deps.auditService);
+  const productImportController = new ProductImportController(productImportService);
 
   const vehicleRepository = new VehicleRepository(dataSource);
   const driverRepository = new DriverRepository(dataSource);
@@ -78,7 +82,11 @@ export function createMastersModule(
     transporterService,
     productService,
   );
-  const protectedRouter = createMastersProtectedRoutes(controller, transporterImportController);
+  const protectedRouter = createMastersProtectedRoutes(
+    controller,
+    transporterImportController,
+    productImportController,
+  );
 
   return {
     vehicleService,
@@ -87,6 +95,7 @@ export function createMastersModule(
     truckTypeService,
     loadingPointService,
     transporterService,
+    productService,
     protectedRouter,
   };
 }

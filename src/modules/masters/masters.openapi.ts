@@ -31,6 +31,34 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   // --- Products ---
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/products/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importProductsCsv',
+    ...write(
+      'Bulk import products from a CSV file. Each row creates one product and optional sub-items.',
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: { type: 'string', format: 'binary', description: 'CSV file, maximum 5 MB.' },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Import report with created and failed row counts' },
+      400: { description: 'Invalid CSV or missing file', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/products`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.createProduct',

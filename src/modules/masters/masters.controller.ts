@@ -190,6 +190,7 @@ export class MastersController {
       res,
       await this.productService.setStatus(
         requireTenantId(req),
+        req.user!.id,
         String(req.params.productId),
         req.body.status,
       ),

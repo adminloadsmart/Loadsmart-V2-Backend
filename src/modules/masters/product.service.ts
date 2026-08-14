@@ -18,7 +18,7 @@ export class ProductService {
     try {
       const autoApproved = role === ORG_ADMIN_ROLE;
       const now = autoApproved ? new Date() : null;
-      return await this.repository.create(
+      const product = await this.repository.create(
         {
           tenantId,
           productDetails: input.productDetails.trim(),
@@ -40,6 +40,20 @@ export class ProductService {
         input.subItems?.map((item) => item.name.trim()) ?? [],
         actorId,
       );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'PRODUCT_CREATED',
+        resourceType: 'product',
+        newData: {
+          id: product.id,
+          productDetails: product.productDetails,
+          approvalStatus: product.approvalStatus,
+          status: product.status,
+          subItemCount: product.subItems?.length ?? input.subItems?.length ?? 0,
+        },
+      });
+      return product;
     } catch (error) {
       rethrow(error, 'Failed to create product');
     }
@@ -89,6 +103,14 @@ export class ProductService {
         actorId,
       );
       if (!result) throw new NotFoundError(`Product ${id} not found`);
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'PRODUCT_UPDATED',
+        resourceType: 'product',
+        oldData: { id, productDetails: existing.productDetails, status: existing.status },
+        newData: { id, fields: Object.keys(fields), subItems: Object.keys(subItems ?? {}) },
+      });
       return result;
     } catch (error) {
       rethrow(error, 'Failed to update product');
@@ -145,11 +167,19 @@ export class ProductService {
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Product ${id} not found`);
       await this.repository.softDelete(tenantId, id, actorId);
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'PRODUCT_DELETED',
+        resourceType: 'product',
+        oldData: { id, status: existing.status, approvalStatus: existing.approvalStatus },
+        newData: { id, deleted: true, status: 'inactive' },
+      });
     } catch (error) {
       rethrow(error, 'Failed to delete product');
     }
   }
-  async setStatus(tenantId: string, id: string, status: 'active' | 'inactive') {
+  async setStatus(tenantId: string, actorId: string, id: string, status: 'active' | 'inactive') {
     try {
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Product ${id} not found`);
@@ -157,6 +187,14 @@ export class ProductService {
         throw new ConflictError('Only approved products can be activated');
       const value = await this.repository.update(tenantId, id, { status }, {}, id);
       if (!value) throw new NotFoundError(`Product ${id} not found`);
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'PRODUCT_STATUS_UPDATED',
+        resourceType: 'product',
+        oldData: { id, status: existing.status },
+        newData: { id, status },
+      });
       return value;
     } catch (error) {
       rethrow(error, 'Failed to update product status');

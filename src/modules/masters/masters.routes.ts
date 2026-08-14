@@ -13,6 +13,7 @@ import multer, { FileFilterCallback } from 'multer';
 import { ValidationError } from '../../shared/errors';
 import { TransporterImportController } from './transporter-import.controller';
 import { productValidators } from './product.validators';
+import { ProductImportController } from './product-import.controller';
 
 const transporterCsvUpload = multer({
   storage: multer.memoryStorage(),
@@ -39,6 +40,7 @@ function requireTransporterCsvFile(
 export function createMastersProtectedRoutes(
   controller: MastersController,
   transporterImportController: TransporterImportController,
+  productImportController: ProductImportController,
 ): Router {
   const router = Router();
 
@@ -75,6 +77,14 @@ export function createMastersProtectedRoutes(
     canWrite,
     validate(mastersValidators.deleteTruckType),
     asyncHandler(controller.deleteTruckType),
+  );
+
+  router.post(
+    '/products/import',
+    canWrite,
+    transporterCsvUpload.single('file'),
+    requireTransporterCsvFile,
+    asyncHandler(productImportController.import),
   );
 
   router.post(

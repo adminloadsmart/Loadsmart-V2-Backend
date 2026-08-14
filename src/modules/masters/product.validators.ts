@@ -24,7 +24,18 @@ export const productValidators = {
   }),
   get: z.object({ params }),
   create: z.object({
-    body: z.object({ ...fields, subItems: z.array(subItem).max(100).optional() }).strict(),
+    body: z
+      .object({
+        productDetails: fields.productDetails,
+        hsnCode: fields.hsnCode.optional(),
+        invoiceValue: fields.invoiceValue.optional(),
+        billingUnit: fields.billingUnit.optional(),
+        dimensions: fields.dimensions.optional(),
+        weight: fields.weight.optional(),
+        weightUnit: fields.weightUnit.optional(),
+        subItems: z.array(subItem).max(100).optional(),
+      })
+      .strict(),
   }),
   update: z.object({
     params,
