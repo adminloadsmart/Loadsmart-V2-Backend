@@ -1,7 +1,9 @@
 import {
+  DriverBloodGroup,
   DriverDocumentType,
   DriverDocumentVerificationSource,
   DriverOperationalStatus,
+  DriverSalaryType,
   DriverStatus,
   DriverVerificationStatus,
   DriverVerificationType,
@@ -17,6 +19,15 @@ export interface CreateDriverInput {
   licenseExpiry?: string;
   dateOfJoining?: string;
   dateOfBirth?: string;
+  bloodGroup?: DriverBloodGroup;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  pinCode?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  salaryType?: DriverSalaryType;
+  salaryAmount?: number;
 }
 
 export interface UpdateDriverInput {
@@ -25,6 +36,15 @@ export interface UpdateDriverInput {
   licenseExpiry?: string;
   dateOfJoining?: string;
   dateOfBirth?: string;
+  bloodGroup?: DriverBloodGroup;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  pinCode?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  salaryType?: DriverSalaryType;
+  salaryAmount?: number;
   status?: DriverStatus;
 }
 
@@ -46,6 +66,7 @@ export interface ListDriversQuery {
 export interface AddDriverDocumentInput {
   documentType: DriverDocumentType;
   fileUrl: string;
+  documentNumber?: string;
   verificationSource?: DriverDocumentVerificationSource;
 }
 
@@ -81,6 +102,15 @@ export interface CreateDriverData {
   licenseExpiry: string | null;
   dateOfJoining: string | null;
   dateOfBirth: string | null;
+  bloodGroup: DriverBloodGroup | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  pinCode: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  salaryType: DriverSalaryType | null;
+  salaryAmount: string | null;
   status: DriverStatus;
   approvedBy: string | null;
   approvedAt: Date | null;
@@ -94,6 +124,15 @@ export interface UpdateDriverData {
   licenseExpiry?: string | null;
   dateOfJoining?: string | null;
   dateOfBirth?: string | null;
+  bloodGroup?: DriverBloodGroup | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  pinCode?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  salaryType?: DriverSalaryType | null;
+  salaryAmount?: string | null;
   status?: DriverStatus;
   updatedBy?: string | null;
 }
@@ -111,6 +150,7 @@ export interface CreateDriverDocumentData {
   driverId: string;
   documentType: DriverDocumentType;
   fileUrl: string;
+  documentNumber: string | null;
   verificationSource: DriverDocumentVerificationSource;
   verifiedAt: Date | null;
   createdBy: string | null;

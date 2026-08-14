@@ -7,6 +7,8 @@ import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeRepository } from './truck-type.repository';
 import { TruckTypeService } from './truck-type.service';
+import { TruckTypeCatalogRepository } from './truck-type-catalog.repository';
+import { TruckTypeCatalogService } from './truck-type-catalog.service';
 import { LoadingPointRepository } from './loading-point.repository';
 import { LoadingPointService } from './loading-point.service';
 import { MastersController } from './masters.controller';
@@ -25,7 +27,9 @@ export function createMastersModule(
 ) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
   const truckTypeRepository = new TruckTypeRepository(dataSource);
-  const truckTypeService = new TruckTypeService(truckTypeRepository);
+  const truckTypeCatalogRepository = new TruckTypeCatalogRepository(dataSource);
+  const truckTypeCatalogService = new TruckTypeCatalogService(truckTypeCatalogRepository);
+  const truckTypeService = new TruckTypeService(truckTypeRepository, truckTypeCatalogRepository);
   const transporterRepository = new TransporterRepository(dataSource);
   const transporterService = new TransporterService(transporterRepository, deps.auditService);
   const transporterImportService = new TransporterImportService(
@@ -70,6 +74,7 @@ export function createMastersModule(
     driverService,
     fleetDriverLinkService,
     truckTypeService,
+    truckTypeCatalogService,
     loadingPointService,
     transporterService,
   );
@@ -80,6 +85,7 @@ export function createMastersModule(
     driverService,
     fleetDriverLinkService,
     truckTypeService,
+    truckTypeCatalogService,
     loadingPointService,
     transporterService,
     protectedRouter,

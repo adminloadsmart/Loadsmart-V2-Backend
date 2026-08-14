@@ -12,3 +12,8 @@ export interface CreateTruckTypeData {
 
 /** The list view — each row plus how many vehicles currently reference it (truck-type.service.ts's delete guard). */
 export type TruckTypeWithVehicleCount = TruckTypeEntity & { vehicleCount: number };
+
+/** "Add truck type" modal: org_admin picks names off the global catalog to add to their own list. */
+export interface AddTruckTypesFromCatalogInput {
+  names: string[];
+}

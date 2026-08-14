@@ -12,7 +12,7 @@ import {
 } from './utils/masters.interface';
 import { ListComplianceAlertsInput, ListVehiclesInput } from './utils/vehicle.interface';
 import { ListDriversInput } from './utils/drivers.interface';
-import { CreateTruckTypeInput } from './utils/truck-type.interface';
+import { AddTruckTypesFromCatalogInput, CreateTruckTypeInput } from './utils/truck-type.interface';
 import {
   CreateLoadingPointInput,
   ListLoadingPointsInput,
@@ -22,6 +22,7 @@ import { VehicleService } from './vehicle.service';
 import { DriverService } from './driver.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 import { TruckTypeService } from './truck-type.service';
+import { TruckTypeCatalogService } from './truck-type-catalog.service';
 import { LoadingPointService } from './loading-point.service';
 import { TransporterService } from './transporter.service';
 import { ListTransportersInput } from './utils/transporter.interface';
@@ -32,6 +33,7 @@ export class MastersController {
     private readonly driverService: DriverService,
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly truckTypeService: TruckTypeService,
+    private readonly truckTypeCatalogService: TruckTypeCatalogService,
     private readonly loadingPointService: LoadingPointService,
     private readonly transporterService: TransporterService,
   ) {}
@@ -39,6 +41,20 @@ export class MastersController {
   listTruckTypes = async (req: Request, res: Response) => {
     const truckTypes = await this.truckTypeService.listTruckTypes(requireTenantId(req));
     respond(res, truckTypes);
+  };
+
+  listTruckTypeCatalog = async (_req: Request, res: Response) => {
+    const catalog = await this.truckTypeCatalogService.listCatalog();
+    respond(res, catalog);
+  };
+
+  addTruckTypesFromCatalog = async (req: Request, res: Response) => {
+    const truckTypes = await this.truckTypeService.addFromCatalog(
+      requireTenantId(req),
+      req.user!.id,
+      req.body as AddTruckTypesFromCatalogInput,
+    );
+    respond(res, truckTypes, 201);
   };
 
   createTruckType = async (req: Request, res: Response) => {

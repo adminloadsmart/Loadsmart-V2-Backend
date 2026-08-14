@@ -1,4 +1,4 @@
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { TruckTypeEntity } from './entities/truck-type.entity';
 import { CreateTruckTypeData, TruckTypeWithVehicleCount } from './utils/truck-type.interface';
 
@@ -55,5 +55,28 @@ export class TruckTypeRepository {
       { id, tenantId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
+  }
+
+  /**
+   * Inserts whichever of `names` the tenant doesn't already have (by name, active rows only) —
+   * backs TruckTypeService.addFromCatalog ("Add truck type" modal: org_admin picks names off the
+   * global catalog). Safe to call repeatedly without duplicating rows or clobbering an existing one.
+   */
+  async seedMissing(
+    tenantId: string,
+    names: readonly string[],
+    actorId: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const truckTypes = manager ? manager.getRepository(TruckTypeEntity) : this.truckTypes;
+    const existing = await truckTypes.find({ where: { tenantId, deletedAt: IsNull() } });
+    const existingNames = new Set(existing.map((truckType) => truckType.name));
+    const missing = names.filter((name) => !existingNames.has(name));
+    if (missing.length === 0) return;
+
+    const rows = missing.map((name) =>
+      truckTypes.create({ tenantId, name, createdBy: actorId, deletedAt: null }),
+    );
+    await truckTypes.save(rows);
   }
 }

@@ -12,7 +12,14 @@ import { FleetDriverLinkEntity } from './fleet-driver-link.entity';
 import { DriverDocumentEntity } from './driver-document.entity';
 import { DriverVerificationEntity } from './driver-verification.entity';
 import { DriverBankDetailsEntity } from './driver-bank-details.entity';
-import { DRIVER_STATUSES, DriverStatus } from '../utils/drivers.types';
+import {
+  DRIVER_BLOOD_GROUPS,
+  DRIVER_SALARY_TYPES,
+  DRIVER_STATUSES,
+  DriverBloodGroup,
+  DriverSalaryType,
+  DriverStatus,
+} from '../utils/drivers.types';
 import { DriverOperationalStatusEntity } from './driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './driver-trip-metrics.entity';
 
@@ -56,6 +63,33 @@ export class DriverEntity {
   // together), so it's captured on the driver even though nothing else in the product needs it yet.
   @Column({ name: 'date_of_birth', type: 'date', nullable: true })
   dateOfBirth!: string | null;
+
+  @Column({ name: 'blood_group', type: 'enum', enum: [...DRIVER_BLOOD_GROUPS], nullable: true })
+  bloodGroup!: DriverBloodGroup | null;
+
+  @Column({ name: 'address_line1', type: 'varchar', length: 255, nullable: true })
+  addressLine1!: string | null;
+
+  @Column({ name: 'address_line2', type: 'varchar', length: 255, nullable: true })
+  addressLine2!: string | null;
+
+  @Column({ name: 'city', type: 'varchar', length: 100, nullable: true })
+  city!: string | null;
+
+  @Column({ name: 'pin_code', type: 'varchar', length: 6, nullable: true })
+  pinCode!: string | null;
+
+  @Column({ name: 'emergency_contact_name', type: 'varchar', length: 150, nullable: true })
+  emergencyContactName!: string | null;
+
+  @Column({ name: 'emergency_contact_phone', type: 'varchar', length: 15, nullable: true })
+  emergencyContactPhone!: string | null;
+
+  @Column({ name: 'salary_type', type: 'enum', enum: [...DRIVER_SALARY_TYPES], nullable: true })
+  salaryType!: DriverSalaryType | null;
+
+  @Column({ name: 'salary_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  salaryAmount!: string | null;
 
   @Column({ type: 'enum', enum: [...DRIVER_STATUSES], default: 'active' })
   status!: DriverStatus;
