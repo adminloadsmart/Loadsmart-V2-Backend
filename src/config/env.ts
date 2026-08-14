@@ -42,6 +42,7 @@ export const env = {
   loginOtpTtlSeconds: numberWithDefault('LOGIN_OTP_TTL_SECONDS', 600),
   loginOtpResendCooldownSeconds: numberWithDefault('LOGIN_OTP_RESEND_COOLDOWN_SECONDS', 30),
   userExistsCacheTtlSeconds: numberWithDefault('USER_EXISTS_CACHE_TTL_SECONDS', 30),
+  permissionsVersionCacheTtlSeconds: numberWithDefault('PERMISSIONS_VERSION_CACHE_TTL_SECONDS', 30),
   // Per-IP request throttles on the unauthenticated auth endpoints — defense-in-depth alongside
   // the (email, ip)-scoped login lockout and the per-phone OTP attempt cap.
   loginRateLimitMax: numberWithDefault('LOGIN_RATE_LIMIT_MAX', 20),

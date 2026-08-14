@@ -7,6 +7,7 @@ import {
   FUEL_TYPES,
   OWNERSHIP_TYPES,
   VEHICLE_DOCUMENT_TYPES,
+  VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY,
   VEHICLE_OPERATIONAL_STATUSES,
   VEHICLE_STATUSES,
   VEHICLE_VERIFICATION_STATUSES,
@@ -431,4 +432,10 @@ export const mastersValidators = {
     }),
   }),
   listDriverTripMetrics: z.object({ params: driverParams }),
+
+  listComplianceAlerts: z.object({
+    query: pagination.extend({
+      documentType: z.enum(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY).optional(),
+    }),
+  }),
 };

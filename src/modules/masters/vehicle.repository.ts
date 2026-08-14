@@ -1,4 +1,12 @@
-import { DataSource, EntityManager, FindOptionsWhere, ILike, IsNull, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  ILike,
+  IsNull,
+  LessThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
 import { VehicleOperationalStatusEntity } from './entities/vehicle-operational-status.entity';
@@ -13,6 +21,7 @@ import {
   CreateVehicleServiceUsageData,
   CreateVehicleTelemetryMetaData,
   CreateVehicleVerificationSnapshotData,
+  ListComplianceAlertsFilters,
   ListVehiclesFilters,
   UpdateVehicleData,
   UpdateVehicleDocumentData,
@@ -183,6 +192,42 @@ export class VehicleRepository {
       where: { tenantId, vehicleId, deletedAt: IsNull() },
       order: { expiryDate: 'ASC' },
     });
+  }
+
+  /**
+   * Fleet-wide, across every vehicle in the tenant — unlike listDocuments, which is scoped to one
+   * vehicle. Always excludes documents belonging to a soft-deleted vehicle (no cascade exists
+   * between vehicles.deleted_at and vehicle_documents), not just when `search` is given.
+   */
+  async listComplianceAlerts(
+    tenantId: string,
+    filters: ListComplianceAlertsFilters,
+  ): Promise<{ items: VehicleDocumentEntity[]; total: number }> {
+    const { documentType, search, expiryBefore, page, limit } = filters;
+
+    const vehicleWhere: FindOptionsWhere<VehicleEntity> = search
+      ? { deletedAt: IsNull(), registrationNumber: ILike(`%${search}%`) }
+      : { deletedAt: IsNull() };
+
+    // NULL expiryDate (rc_front/rc_back, or any undated doc) is excluded here for free: Postgres
+    // evaluates `NULL <= x` as unknown/false, so it never satisfies a WHERE clause.
+    const where: FindOptionsWhere<VehicleDocumentEntity> = {
+      tenantId,
+      deletedAt: IsNull(),
+      expiryDate: LessThanOrEqual(expiryBefore),
+      vehicle: vehicleWhere,
+    };
+    if (documentType) where.documentType = documentType;
+
+    const [items, total] = await this.documents.findAndCount({
+      where,
+      relations: { vehicle: true },
+      order: { expiryDate: 'ASC' }, // most overdue / soonest-expiring first
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { items, total };
   }
 
   async updateDocument(
