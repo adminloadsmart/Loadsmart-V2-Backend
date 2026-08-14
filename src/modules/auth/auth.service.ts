@@ -19,6 +19,7 @@ import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
+import { StorageService } from '../storage/storage.service';
 import { isTenantAccessible } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -56,6 +57,7 @@ import {
   SaveCompanyDetailsInput,
   SaveBusinessDetailsInput,
   SubmitOrganizationInput,
+  SaveShopboardPremisesPhotoInput,
   OnboardingStatus,
   OnboardingStep,
   OrganizationOnboardingProgress,
@@ -84,6 +86,7 @@ export class AuthService {
     private readonly organizationDocumentService: OrganizationDocumentService,
     private readonly organizationOnboardingService: OrganizationOnboardingService,
     private readonly organizationJourneyStageService: OrganizationJourneyStageService,
+    private readonly storageService: StorageService,
     private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
@@ -847,6 +850,44 @@ export class AuthService {
 
       return this.organizationOnboardingService.buildOrganizationResponse(withStage, documents);
     });
+  }
+
+  async saveShopboardPremisesPhoto(
+    user: AuthenticatedUser,
+    input: SaveShopboardPremisesPhotoInput,
+    file: Express.Multer.File,
+  ) {
+    if (!user.tenantId) {
+      throw new AuthorizationError('Missing organization context');
+    }
+
+    const current = await this.organizationService.getOrganizationStatus(user.tenantId);
+    if (!isTenantAccessible(current.status)) {
+      throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
+    }
+    if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
+      throw new AuthorizationError('Organization has already been submitted');
+    }
+    const uploadedFile = await this.storageService.uploadTenantFile(
+      user.tenantId,
+      user.id,
+      {
+        purpose: input.purpose,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+      },
+      file.buffer,
+    );
+
+    const [organization, documents] = await Promise.all([
+      this.organizationService.updateOrganization(user.tenantId, {
+        shopboardPremisesPhotoKey: uploadedFile.key,
+        onboardingStep: 'shopboard_premises_photo',
+      }),
+      this.organizationDocumentService.listByOrganization(user.tenantId),
+    ]);
+    return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
   }
 
   private async requestOtpCode(input: {

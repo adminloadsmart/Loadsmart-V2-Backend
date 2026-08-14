@@ -7,6 +7,7 @@ import { OrganizationDocumentService } from '../organization/organization-docume
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { ReferralCodeService } from '../organization/referral-code.service';
+import { StorageService } from '../storage/storage.service';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -25,6 +26,7 @@ export function createAuthModule(
     organizationOnboardingService: OrganizationOnboardingService;
     organizationJourneyStageService: OrganizationJourneyStageService;
     referralCodeService: ReferralCodeService;
+    storageService: StorageService;
   },
 ) {
   const repository = new AuthRepository(dataSource);
@@ -34,6 +36,7 @@ export function createAuthModule(
     deps.organizationDocumentService,
     deps.organizationOnboardingService,
     deps.organizationJourneyStageService,
+    deps.storageService,
     deps.referralCodeService,
     deps.roleService,
     deps.auditService,

@@ -56,6 +56,10 @@ export function buildContainer(dataSource: DataSource): Container {
       earlyAuthRepository.revokeAllRefreshTokensForUser(userId),
   });
 
+  // Standalone — built before auth because the post-submission organization photo endpoint
+  // validates an already-confirmed tenant-owned upload through storage.service.
+  const storage = createStorageModule(dataSource);
+
   // No cross-module deps of its own — owns the organization/organization-document/referral-code
   // schema. Built before auth: auth.service.ts orchestrates org onboarding on top of these
   // services directly (see modules/auth/index.ts), the same "read another module's service
@@ -70,6 +74,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationOnboardingService: organization.organizationOnboardingService,
     organizationJourneyStageService: organization.organizationJourneyStageService,
     referralCodeService: organization.referralCodeService,
+    storageService: storage.service,
   });
   const authMiddleware = createAuth(auth.authRepository);
 
@@ -78,11 +83,6 @@ export function buildContainer(dataSource: DataSource): Container {
   // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
-
-  // Standalone — no cross-module deps of its own. Built before masters: driver.service.ts injects
-  // storage.service directly to validate/resolve the driving-licence front/back photos uploaded
-  // through the manual-Sarathi-review route (see modules/masters/driver.service.ts).
-  const storage = createStorageModule(dataSource);
 
   // Reference data other modules read from.
   const masters = createMastersModule(dataSource, {

@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   NotFound,
+  PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -50,6 +51,21 @@ export class S3Adapter {
       return { url, fields };
     } catch (error) {
       this.wrapError(`Failed to create presigned upload POST for key "${params.key}"`, error);
+    }
+  }
+
+  async putObject(key: string, body: Uint8Array, contentType: string): Promise<void> {
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+        }),
+      );
+    } catch (error) {
+      this.wrapError(`Failed to upload S3 object at key "${key}"`, error);
     }
   }
 
