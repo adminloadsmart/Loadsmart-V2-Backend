@@ -38,13 +38,8 @@ const organizationReviewSchema = z
     contactPersonName: z.string().min(1),
     operatingCity: z.string().min(1),
     ownsFleet: z.boolean(),
-    fleetSize: z.number().int().positive().optional(),
     referralCode: z.string().min(1).optional(),
     registeredBusinessName: z.string().min(1),
-    registrationDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format')
-      .optional(),
     address: z.object({
       addressLine1: z.string().min(1),
       addressLine2: z.string().min(1).optional(),
@@ -56,13 +51,6 @@ const organizationReviewSchema = z
     documents: z.array(organizationDocumentSchema).min(1),
   })
   .superRefine((data, ctx) => {
-    if (data.ownsFleet && data.fleetSize === undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['fleetSize'],
-        message: 'fleetSize is required when ownsFleet is true',
-      });
-    }
     const types = data.documents.map((document) => document.documentType);
     if (new Set(types).size !== types.length) {
       ctx.addIssue({
@@ -75,35 +63,18 @@ const organizationReviewSchema = z
 
 export const organizationValidators = {
   createOrganization: z.object({
-    body: z
-      .object({
-        companyLegalName: z.string().min(1),
-        contactPersonName: z.string().min(1),
-        operatingCity: z.string().min(1),
-        ownsFleet: z.boolean(),
-        fleetSize: z.number().int().positive().optional(),
-        referralCode: z.string().min(1).optional(),
-      })
-      .superRefine((data, ctx) => {
-        if (data.ownsFleet) {
-          if (data.fleetSize === undefined) {
-            ctx.addIssue({
-              code: 'custom',
-              path: ['fleetSize'],
-              message: 'fleetSize is required when ownsFleet is true',
-            });
-          }
-        }
-      }),
+    body: z.object({
+      companyLegalName: z.string().min(1),
+      contactPersonName: z.string().min(1),
+      operatingCity: z.string().min(1),
+      ownsFleet: z.boolean(),
+      referralCode: z.string().min(1).optional(),
+    }),
   }),
   saveBusinessDetails: z.object({
     body: z
       .object({
         registeredBusinessName: z.string().min(1),
-        registrationDate: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/, 'registrationDate must be in YYYY-MM-DD format')
-          .optional(),
         address: z.object({
           addressLine1: z.string().min(1),
           addressLine2: z.string().min(1).optional(),

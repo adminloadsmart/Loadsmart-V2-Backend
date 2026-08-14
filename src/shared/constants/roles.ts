@@ -13,6 +13,7 @@ export const OFFLINE_KYC_DESK_ROLE = 'offline_kyc_desk';
 // actually holds this role, without comparing against a raw string literal — same reason
 // ONLINE_KYC_DESK_ROLE/OFFLINE_KYC_DESK_ROLE exist.
 export const SALES_ROLE = 'sales';
+export const LOAD_CONSOLE = 'load_console';
 
 // Roles a platform admin may hand a newly-created staff account (POST /admin/staff) — deliberately
 // excludes platform_admin (no minting new platform admins through a bulk staff form) and org_admin
@@ -21,7 +22,7 @@ export const STAFF_ASSIGNABLE_ROLES = [
   SALES_ROLE,
   ONLINE_KYC_DESK_ROLE,
   OFFLINE_KYC_DESK_ROLE,
-  'load_console',
+  LOAD_CONSOLE,
 ];
 
 // Every role with scope: 'platform' in auth.roles — i.e. never tied to a tenant (tenantId is

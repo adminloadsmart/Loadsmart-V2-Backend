@@ -128,14 +128,12 @@ export class OrganizationRepository {
       operationalCity: string | null;
       referralCodeId: string | null;
       onboardingStep: OrganizationOnboardingStep | null;
-      registrationDate: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
       city: string | null;
       district: string | null;
       state: string | null;
       hasOwnFleet: boolean | null;
-      fleetSize: number | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
       onlineKycCompletedAt: Date | null;
