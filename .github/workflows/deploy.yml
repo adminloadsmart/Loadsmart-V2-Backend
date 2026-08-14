@@ -51,6 +51,7 @@ jobs:
             node ./node_modules/typeorm/cli.js migration:run -d dist/db/data-source.js
             node -r reflect-metadata dist/db/seed-roles.js
             node -r reflect-metadata dist/db/seed-platform-admin.js
+            node -r reflect-metadata dist/db/seed.js
             pm2 restart loadsmart_backend
 
   deploy-production:
@@ -76,4 +77,5 @@ jobs:
             node ./node_modules/typeorm/cli.js migration:run -d dist/db/data-source.js
             node -r reflect-metadata dist/db/seed-roles.js
             node -r reflect-metadata dist/db/seed-platform-admin.js
+            node -r reflect-metadata dist/db/seed.js
             pm2 restart loadsmart_backend
