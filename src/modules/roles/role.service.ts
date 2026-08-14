@@ -1,7 +1,11 @@
 import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
-import { PLATFORM_ADMIN_ROLE, ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import {
+  PLATFORM_ADMIN_ROLE,
+  ORG_ADMIN_ROLE,
+  ORG_ASSIGNABLE_ROLES,
+} from '../../shared/constants/roles';
 import { RoleEntity, RoleScope } from './entities/role.entity';
 import { PermissionEntity, PermissionScope } from './entities/permission.entity';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -47,6 +51,20 @@ export class RoleService {
       return await this.roleRepository.listRoles(filters);
     } catch (error) {
       rethrow(error, 'Failed to list roles');
+    }
+  }
+
+  /** Backs the "Invite a teammate" role dropdown (Settings → Users & Roles) — exactly
+   *  ORG_ASSIGNABLE_ROLES, the same allow-list auth.service.ts's inviteOrganizationUser
+   *  validates roleId against, so the dropdown can never offer a role the invite then rejects.
+   *  Unlike listRoles above this isn't scope-filtered: org_admin (self-signup only) and any other
+   *  organization-scope role added later that isn't meant to be invitable stay excluded by
+   *  construction, not by remembering to filter them out. */
+  async listAssignableOrganizationRoles(): Promise<RoleEntity[]> {
+    try {
+      return await this.roleRepository.listRolesByNames(ORG_ASSIGNABLE_ROLES);
+    } catch (error) {
+      rethrow(error, 'Failed to list assignable organization roles');
     }
   }
 

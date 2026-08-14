@@ -405,6 +405,13 @@ export class AuthService {
     };
   }
 
+  /** Backs the "Invite a teammate" role dropdown — see role.service.ts's
+   *  listAssignableOrganizationRoles for why this is a fixed allow-list, not a scope filter. */
+  async listAssignableOrganizationRoles() {
+    const roles = await this.roleService.listAssignableOrganizationRoles();
+    return roles.map((role) => ({ id: role.id, name: role.name }));
+  }
+
   generatePassword() {
     const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const lower = 'abcdefghijklmnopqrstuvwxyz';

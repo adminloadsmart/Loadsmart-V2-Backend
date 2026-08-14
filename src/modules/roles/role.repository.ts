@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { RoleEntity, RoleScope } from './entities/role.entity';
 import { PermissionEntity, PermissionScope } from './entities/permission.entity';
 import { UserPermissionEntity } from './entities/user-permission.entity';
@@ -32,6 +32,12 @@ export class RoleRepository {
       where: filters.scope ? { scope: filters.scope } : {},
       order: { name: 'ASC' },
     });
+  }
+
+  /** Used by RoleService.listAssignableOrganizationRoles — the fixed ORG_ASSIGNABLE_ROLES set,
+   *  not a scope filter, so it stays exactly the invite flow's actual allow-list. */
+  listRolesByNames(names: string[]): Promise<RoleEntity[]> {
+    return this.roles.find({ where: { name: In(names) }, order: { name: 'ASC' } });
   }
 
   findPermissionById(id: string): Promise<PermissionEntity | null> {
