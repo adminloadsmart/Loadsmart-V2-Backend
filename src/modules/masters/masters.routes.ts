@@ -12,6 +12,7 @@ import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissio
 import multer, { FileFilterCallback } from 'multer';
 import { ValidationError } from '../../shared/errors';
 import { TransporterImportController } from './transporter-import.controller';
+import { productValidators } from './product.validators';
 
 const transporterCsvUpload = multer({
   storage: multer.memoryStorage(),
@@ -74,6 +75,49 @@ export function createMastersProtectedRoutes(
     canWrite,
     validate(mastersValidators.deleteTruckType),
     asyncHandler(controller.deleteTruckType),
+  );
+
+  router.post(
+    '/products',
+    canWrite,
+    validate(productValidators.create),
+    asyncHandler(controller.createProduct),
+  );
+  router.get('/products', validate(productValidators.list), asyncHandler(controller.listProducts));
+  router.get(
+    '/products/:productId',
+    validate(productValidators.get),
+    asyncHandler(controller.getProduct),
+  );
+  router.patch(
+    '/products/:productId',
+    canWrite,
+    validate(productValidators.update),
+    asyncHandler(controller.updateProduct),
+  );
+  router.patch(
+    '/products/:productId/approve',
+    canApprove,
+    validate(productValidators.approve),
+    asyncHandler(controller.approveProduct),
+  );
+  router.patch(
+    '/products/:productId/reject',
+    canApprove,
+    validate(productValidators.reject),
+    asyncHandler(controller.rejectProduct),
+  );
+  router.patch(
+    '/products/:productId/status',
+    canWrite,
+    validate(productValidators.status),
+    asyncHandler(controller.setProductStatus),
+  );
+  router.delete(
+    '/products/:productId',
+    canWrite,
+    validate(productValidators.delete),
+    asyncHandler(controller.deleteProduct),
   );
 
   // Settings → Loading Points — origins used by dispatch and load creation.
