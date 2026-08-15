@@ -203,6 +203,11 @@ export function createMastersProtectedRoutes(
     validate(mastersValidators.listTransporters),
     asyncHandler(controller.listTransporters),
   );
+  router.get(
+    '/transporters/:transporterId',
+    validate(mastersValidators.getTransporter),
+    asyncHandler(controller.getTransporter),
+  );
   router.patch(
     '/transporters/:transporterId',
     validate(mastersValidators.updateTransporter),

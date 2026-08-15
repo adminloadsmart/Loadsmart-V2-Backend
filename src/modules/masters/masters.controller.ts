@@ -232,6 +232,15 @@ export class MastersController {
         req.validatedQuery as ListTransportersInput,
       ),
     );
+  getTransporter = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.transporterService.get(
+        requireTenantId(req),
+        req.user!.role,
+        String(req.params.transporterId),
+      ),
+    );
   updateTransporter = async (req: Request, res: Response) =>
     respond(
       res,
