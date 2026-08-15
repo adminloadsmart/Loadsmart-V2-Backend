@@ -1,7 +1,12 @@
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { CustomerEntity } from './entities/customer.entity';
 import { CustomerDeliveryPointEntity } from './entities/customer-delivery-point.entity';
-import { CreateCustomerInput, ListCustomersInput, UpdateCustomerInput } from './customer.types';
+import {
+  CreateCustomerInput,
+  DeliveryPointInput,
+  ListCustomersInput,
+  UpdateCustomerInput,
+} from './customer.types';
 
 export class CustomerRepository {
   private readonly customers: Repository<CustomerEntity>;
@@ -27,8 +32,16 @@ export class CustomerRepository {
       email: input.email ?? null,
       gstin: input.gstin ?? null,
       advancePercentage: input.advancePercentage?.toString() ?? null,
+      balancePercentage: input.balancePercentage?.toString() ?? null,
       creditDays: input.creditDays ?? null,
       rateContract: input.rateContract ?? null,
+      billingAddressLine1: input.billingAddressLine1 ?? null,
+      billingAddressLine2: input.billingAddressLine2 ?? null,
+      billingLandmark: input.billingLandmark ?? null,
+      billingAreaLocality: input.billingAreaLocality ?? null,
+      billingCity: input.billingCity ?? null,
+      billingState: input.billingState ?? null,
+      billingPinCode: input.billingPinCode ?? null,
       deletedAt: null,
       approvedBy: status === 'active' ? actorId : null,
       approvedAt: status === 'active' ? new Date() : null,
@@ -38,14 +51,26 @@ export class CustomerRepository {
   async addPoints(
     customerId: string,
     tenantId: string,
-    points: { location: string }[],
+    points: DeliveryPointInput[],
     manager?: EntityManager,
   ) {
     const repo = manager?.getRepository(CustomerDeliveryPointEntity) ?? this.points;
     if (!points.length) return [];
     return repo.save(
       points.map((point) =>
-        repo.create({ customerId, tenantId, location: point.location, deletedAt: null }),
+        repo.create({
+          customerId,
+          tenantId,
+          location: point.location,
+          addressLine1: point.addressLine1 ?? null,
+          addressLine2: point.addressLine2 ?? null,
+          landmark: point.landmark ?? null,
+          areaLocality: point.areaLocality ?? null,
+          city: point.city ?? null,
+          state: point.state ?? null,
+          pinCode: point.pinCode ?? null,
+          deletedAt: null,
+        }),
       ),
     );
   }
@@ -91,6 +116,10 @@ export class CustomerRepository {
         input.advancePercentage === undefined || input.advancePercentage === null
           ? input.advancePercentage
           : input.advancePercentage.toString(),
+      balancePercentage:
+        input.balancePercentage === undefined || input.balancePercentage === null
+          ? input.balancePercentage
+          : input.balancePercentage.toString(),
       updatedBy: actorId,
     };
     await repo.update({ id, tenantId, deletedAt: IsNull() }, data);
@@ -99,7 +128,7 @@ export class CustomerRepository {
   async replacePoints(
     tenantId: string,
     customerId: string,
-    values: { location: string }[],
+    values: DeliveryPointInput[],
     manager: EntityManager,
   ) {
     const repo = manager.getRepository(CustomerDeliveryPointEntity);

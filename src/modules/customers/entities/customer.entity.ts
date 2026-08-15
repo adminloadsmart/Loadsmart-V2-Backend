@@ -23,8 +23,24 @@ export class CustomerEntity {
   @Column({ type: 'varchar', length: 15, nullable: true }) gstin!: string | null;
   @Column({ name: 'advance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
   advancePercentage!: string | null;
+  @Column({ name: 'balance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
+  balancePercentage!: string | null;
   @Column({ name: 'credit_days', type: 'integer', nullable: true }) creditDays!: number | null;
   @Column({ name: 'rate_contract', type: 'varchar', nullable: true }) rateContract!: string | null;
+  @Column({ name: 'billing_address_line_1', type: 'varchar', length: 255, nullable: true })
+  billingAddressLine1!: string | null;
+  @Column({ name: 'billing_address_line_2', type: 'varchar', length: 255, nullable: true })
+  billingAddressLine2!: string | null;
+  @Column({ name: 'billing_landmark', type: 'varchar', length: 255, nullable: true })
+  billingLandmark!: string | null;
+  @Column({ name: 'billing_area_locality', type: 'varchar', length: 255, nullable: true })
+  billingAreaLocality!: string | null;
+  @Column({ name: 'billing_city', type: 'varchar', length: 100, nullable: true })
+  billingCity!: string | null;
+  @Column({ name: 'billing_state', type: 'varchar', length: 100, nullable: true })
+  billingState!: string | null;
+  @Column({ name: 'billing_pin_code', type: 'varchar', length: 10, nullable: true })
+  billingPinCode!: string | null;
   @Column({ type: 'enum', enum: [...CUSTOMER_STATUSES], default: 'pending' })
   status!: CustomerStatus;
   @Column({ name: 'created_by', type: 'uuid' }) createdBy!: string;
