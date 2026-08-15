@@ -787,9 +787,11 @@ export class AuthService {
       throw new AuthorizationError('Missing organization context');
     }
 
+    // Referral attribution may have been captured during createOrganization. Do not
+    // clear it merely because the final submission request omits the optional code.
     const referralCodeId = input.referralCode
       ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
-      : null;
+      : undefined;
 
     const current = await this.organizationService.getOrganizationStatus(user.tenantId);
     if (!isTenantAccessible(current.status)) {
@@ -814,7 +816,7 @@ export class AuthService {
           district: input.address.district,
           state: input.address.state,
           pinCode: input.address.pinCode,
-          referralCodeId,
+          ...(referralCodeId !== undefined ? { referralCodeId } : {}),
           status: current.status === 'draft' ? 'partial_pending' : current.status,
           onboardingStep: 'review_submit',
         },
