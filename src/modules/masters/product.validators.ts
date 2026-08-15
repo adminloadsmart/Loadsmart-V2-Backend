@@ -5,7 +5,10 @@ import { PRODUCT_APPROVAL_STATUSES, PRODUCT_STATUSES } from './utils/product.typ
 const uuid = z.string().uuid();
 const fields = {
   productDetails: z.string().trim().min(1).max(255),
-  hsnCode: z.string().trim().max(20),
+  hsnCode: z
+    .string()
+    .trim()
+    .regex(/^\d{4,8}$/, 'HSN code must contain 4 to 8 digits'),
   invoiceValue: z.number().nonnegative(),
   billingUnit: z.string().trim().max(30),
   dimensions: z.string().trim().max(100),
