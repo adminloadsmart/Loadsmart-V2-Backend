@@ -45,6 +45,10 @@ export class DriverDocumentEntity {
   @Column({ name: 'file_url', type: 'text' })
   fileUrl!: string;
 
+  // Aadhaar/PAN number for ID-proof documents; left null for licence photos.
+  @Column({ name: 'document_number', type: 'varchar', length: 50, nullable: true })
+  documentNumber!: string | null;
+
   @Column({
     name: 'verification_source',
     type: 'enum',

@@ -1,10 +1,46 @@
-import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
+import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { TruckTypeEntity } from './entities/truck-type.entity';
 import { TruckTypeRepository } from './truck-type.repository';
-import { CreateTruckTypeInput, TruckTypeWithVehicleCount } from './utils/truck-type.interface';
+import { TruckTypeCatalogRepository } from './truck-type-catalog.repository';
+import {
+  AddTruckTypesFromCatalogInput,
+  CreateTruckTypeInput,
+  TruckTypeWithVehicleCount,
+} from './utils/truck-type.interface';
 
 export class TruckTypeService {
-  constructor(private readonly truckTypeRepository: TruckTypeRepository) {}
+  constructor(
+    private readonly truckTypeRepository: TruckTypeRepository,
+    private readonly truckTypeCatalogRepository: TruckTypeCatalogRepository,
+  ) {}
+
+  /**
+   * Backs the "Add truck type" modal: org_admin picks names off the global catalog and they land
+   * as this tenant's own TruckTypeEntity rows (same rows POST /truck-types creates, just several
+   * at once from a fixed set instead of one free-text name). Names not in the catalog are rejected
+   * — a fully custom name still goes through createTruckType below, not this endpoint.
+   */
+  async addFromCatalog(
+    tenantId: string,
+    actorId: string,
+    input: AddTruckTypesFromCatalogInput,
+  ): Promise<TruckTypeWithVehicleCount[]> {
+    try {
+      const names = [...new Set(input.names.map((name) => name.trim()))];
+      const catalog = await this.truckTypeCatalogRepository.list();
+      const catalogNames = new Set(catalog.map((entry) => entry.name));
+
+      const unknown = names.filter((name) => !catalogNames.has(name));
+      if (unknown.length > 0) {
+        throw new ValidationError(`Not in the truck type catalog: ${unknown.join(', ')}`);
+      }
+
+      await this.truckTypeRepository.seedMissing(tenantId, names, actorId);
+      return await this.truckTypeRepository.list(tenantId);
+    } catch (error) {
+      rethrow(error, 'Failed to add truck types from catalog');
+    }
+  }
 
   async listTruckTypes(tenantId: string): Promise<TruckTypeWithVehicleCount[]> {
     try {

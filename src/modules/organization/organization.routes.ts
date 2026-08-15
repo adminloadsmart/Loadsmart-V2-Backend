@@ -83,5 +83,15 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
     asyncHandler(controller.listUsers),
   );
 
+  // Backs the "Invite a teammate" role dropdown — exactly the 4 assignable roles (sales_cs,
+  // dispatch, documents_ops, finance_accounts), not the full organization-scope catalog GET
+  // /roles?scope=organization returns (which still includes org_admin and sales). See
+  // role.service.ts's listAssignableOrganizationRoles.
+  router.get(
+    '/organization/roles',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    asyncHandler(controller.listAssignableRoles),
+  );
+
   return router;
 }

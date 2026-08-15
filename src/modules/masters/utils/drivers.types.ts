@@ -21,9 +21,20 @@ export const DRIVER_STATUSES = [
 ] as const;
 export type DriverStatus = (typeof DRIVER_STATUSES)[number];
 
-/** Licence photos captured on the manual Sarathi route. */
-export const DRIVER_DOCUMENT_TYPES = ['driving_license_front', 'driving_license_back'] as const;
+/** Licence photos (manual Sarathi route) plus ID-proof uploads (Aadhaar/PAN). */
+export const DRIVER_DOCUMENT_TYPES = [
+  'driving_license_front',
+  'driving_license_back',
+  'aadhaar',
+  'pan',
+] as const;
 export type DriverDocumentType = (typeof DRIVER_DOCUMENT_TYPES)[number];
+
+export const DRIVER_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'] as const;
+export type DriverBloodGroup = (typeof DRIVER_BLOOD_GROUPS)[number];
+
+export const DRIVER_SALARY_TYPES = ['fixed', 'per_trip', 'per_km'] as const;
+export type DriverSalaryType = (typeof DRIVER_SALARY_TYPES)[number];
 
 /** Whether the document came from the registry or was uploaded by hand. */
 export const DRIVER_DOCUMENT_VERIFICATION_SOURCES = ['sarathi', 'manual'] as const;

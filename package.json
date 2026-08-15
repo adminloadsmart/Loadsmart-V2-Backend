@@ -16,6 +16,7 @@
     "migration:revert": "npm run typeorm -- migration:revert",
     "seed:roles": "ts-node -r reflect-metadata src/db/seed-roles.ts",
     "seed:platform-admin": "ts-node -r reflect-metadata src/db/seed-platform-admin.ts",
+    "seed:all": "ts-node -r reflect-metadata src/db/seed.ts",
     "prepare": "husky"
   },
   "keywords": [],

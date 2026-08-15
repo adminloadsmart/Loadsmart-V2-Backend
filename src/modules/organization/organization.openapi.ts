@@ -179,4 +179,19 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
       403: { description: 'Caller has no organization context yet', ...errorContent },
     },
   });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/roles`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.listAssignableOrganizationRoles',
+    ...orgAdminOnly(
+      'Roles selectable in the "Invite a teammate" dropdown — exactly sales_cs, dispatch, ' +
+        'documents_ops, finance_accounts. Excludes org_admin (self-signup only) and any other ' +
+        'organization-scope role not meant to be invitable.',
+    ),
+    responses: {
+      200: { description: 'Assignable roles — [{ id, name }]' },
+    },
+  });
 }

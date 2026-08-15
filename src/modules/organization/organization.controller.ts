@@ -67,4 +67,9 @@ export class OrganizationController {
     );
     respond(res, users);
   };
+
+  listAssignableRoles = async (_req: Request, res: Response) => {
+    const roles = await this.authService.listAssignableOrganizationRoles();
+    respond(res, roles);
+  };
 }
