@@ -380,6 +380,20 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/transporters/{transporterId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getTransporter',
+    ...authenticated('Get a single transporter. Available only to the organization admin.'),
+    request: { params: mastersValidators.getTransporter.shape.params },
+    responses: {
+      200: { description: 'Transporter detail' },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      404: { description: 'Transporter not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/transporters/import`,
     tags: [TAGS.MASTERS],

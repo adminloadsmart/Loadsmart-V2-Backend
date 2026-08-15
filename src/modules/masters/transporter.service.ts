@@ -2,6 +2,7 @@ import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../..
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { AuditService } from '../audit/audit.service';
 import { paginate } from './utils/masters.types';
+import { TransporterEntity } from './entities/transporter.entity';
 import { TransporterRepository } from './transporter.repository';
 import {
   CreateTransporterInput,
@@ -22,8 +23,8 @@ export class TransporterService {
     try {
       this.assertAdmin(role);
       const name = input.name.trim();
-      if (await this.repository.findByName(tenantId, name))
-        throw new ConflictError(`A transporter named "${name}" already exists`);
+      if (await this.repository.findByPhone(tenantId, input.phone))
+        throw new ConflictError(`A transporter with phone "${input.phone}" already exists`);
       const transporter = await this.repository.create({
         ...input,
         name,
@@ -51,6 +52,16 @@ export class TransporterService {
       rethrow(error, 'Failed to list transporters');
     }
   }
+  async get(tenantId: string, role: string, id: string) {
+    try {
+      this.assertAdmin(role);
+      const transporter = await this.repository.findById(tenantId, id);
+      if (!transporter) throw new NotFoundError(`Transporter ${id} not found`);
+      return transporter;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch transporter');
+    }
+  }
   async update(
     tenantId: string,
     actorId: string,
@@ -63,8 +74,12 @@ export class TransporterService {
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Transporter ${id} not found`);
       const name = input.name?.trim();
-      if (name && name !== existing.name && (await this.repository.findByName(tenantId, name)))
-        throw new ConflictError(`A transporter named "${name}" already exists`);
+      if (
+        input.phone &&
+        input.phone !== existing.phone &&
+        (await this.repository.findByPhone(tenantId, input.phone))
+      )
+        throw new ConflictError(`A transporter with phone "${input.phone}" already exists`);
       const updated = await this.repository.update(tenantId, id, {
         ...input,
         ...(name ? { name } : {}),
@@ -101,20 +116,30 @@ export class TransporterService {
       rethrow(error, 'Failed to delete transporter');
     }
   }
-  private snapshot(value: {
-    id: string;
-    tenantId: string;
-    name: string;
-    rate: string;
-    creditDays: number;
-    deletedAt: Date | null;
-  }) {
+  private snapshot(value: TransporterEntity) {
     return {
       id: value.id,
       tenantId: value.tenantId,
       name: value.name,
+      phone: value.phone,
       rate: value.rate,
+      email: value.email,
+      gstin: value.gstin,
+      msmeRegistration: value.msmeRegistration,
+      companyType: value.companyType,
+      status: value.status,
+      advancePercentage: value.advancePercentage,
       creditDays: value.creditDays,
+      addressLine1: value.addressLine1,
+      addressLine2: value.addressLine2,
+      landmark: value.landmark,
+      areaLocality: value.areaLocality,
+      city: value.city,
+      state: value.state,
+      pinCode: value.pinCode,
+      bankAccountNumber: value.bankAccountNumber,
+      bankIfsc: value.bankIfsc,
+      bankAccountHolderName: value.bankAccountHolderName,
       deletedAt: value.deletedAt,
     };
   }

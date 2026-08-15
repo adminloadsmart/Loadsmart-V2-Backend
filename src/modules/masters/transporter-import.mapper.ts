@@ -25,6 +25,36 @@ function value(row: Record<string, string>, header: string): string | undefined 
   return raw === undefined || raw.trim() === '' ? undefined : raw.trim();
 }
 
+/** Fields stored as a number on `CreateTransporterInput` — parsed from the raw CSV string. */
+const NUMERIC_FIELDS = new Set<keyof CreateTransporterInput>(['advancePercentage', 'creditDays']);
+
+/** Normalized header (see `normalizeHeader`) → `CreateTransporterInput` field it maps to. */
+const FIELD_BY_HEADER: Record<string, keyof CreateTransporterInput> = {
+  name: 'name',
+  phone: 'phone',
+  rate: 'rate',
+  email: 'email',
+  gstin: 'gstin',
+  gst: 'gstin',
+  msmeregistration: 'msmeRegistration',
+  companytype: 'companyType',
+  status: 'status',
+  advancepercentage: 'advancePercentage',
+  advance: 'advancePercentage',
+  creditdays: 'creditDays',
+  creditperiod: 'creditDays',
+  addressline1: 'addressLine1',
+  addressline2: 'addressLine2',
+  landmark: 'landmark',
+  arealocality: 'areaLocality',
+  city: 'city',
+  state: 'state',
+  pincode: 'pinCode',
+  bankaccountnumber: 'bankAccountNumber',
+  bankifsc: 'bankIfsc',
+  bankaccountholdername: 'bankAccountHolderName',
+};
+
 export function parseTransporterCsv(buffer: Buffer): ParsedTransporterCsv {
   let records: Record<string, string>[];
   try {
@@ -47,18 +77,17 @@ export function parseTransporterCsv(buffer: Buffer): ParsedTransporterCsv {
     throw new Error(`CSV cannot contain more than ${TRANSPORTER_IMPORT_MAX_ROWS} rows`);
 
   const headers = Object.keys(records[0]);
-  const expected = new Set(['name', 'rate', 'creditdays']);
   const mapping: Record<string, keyof CreateTransporterInput> = {};
   for (const header of headers) {
     const normalized = normalizeHeader(header);
-    if (!expected.has(normalized)) throw new Error(`Unexpected column "${header}"`);
-    const field = normalized === 'creditdays' ? 'creditDays' : (normalized as 'name' | 'rate');
+    const field = FIELD_BY_HEADER[normalized];
+    if (!field) throw new Error(`Unexpected column "${header}"`);
     if (Object.values(mapping).includes(field))
       throw new Error(`Multiple columns map to "${field}"`);
     mapping[header] = field;
   }
 
-  for (const required of ['name', 'rate', 'creditDays'] as const) {
+  for (const required of ['name', 'phone'] as const) {
     if (!Object.values(mapping).includes(required))
       throw new Error(`Missing required column "${required}"`);
   }
@@ -67,11 +96,11 @@ export function parseTransporterCsv(buffer: Buffer): ParsedTransporterCsv {
     const input: Partial<CreateTransporterInput> = {};
     for (const [header, field] of Object.entries(mapping)) {
       const raw = value(record, header);
-      if (field === 'creditDays') {
-        const parsed = raw === undefined ? undefined : Number(raw.replace(/days?/i, '').trim());
-        input.creditDays = parsed === undefined ? undefined : parsed;
+      if (NUMERIC_FIELDS.has(field)) {
+        const parsed = raw === undefined ? undefined : Number(raw.replace(/%|days?/gi, '').trim());
+        (input as Record<string, unknown>)[field] = parsed;
       } else {
-        input[field] = raw;
+        (input as Record<string, unknown>)[field] = raw;
       }
     }
     return { row: index + 2, input };

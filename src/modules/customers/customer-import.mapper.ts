@@ -17,6 +17,7 @@ const aliases: Record<keyof CreateCustomerInput, string[]> = {
   email: ['email', 'emailid', 'emailaddress', 'mail'],
   gstin: ['gstin', 'gst', 'gstnumber', 'gstno', 'taxnumber'],
   advancePercentage: ['advancepercentage', 'advance', 'advancepercent', 'advancepct'],
+  balancePercentage: ['balancepercentage', 'balance', 'balancepercent', 'balancepct'],
   creditDays: ['creditdays', 'paymentdays', 'paymentterms', 'creditperiod'],
   rateContract: ['ratecontract', 'contract', 'contractname', 'ratetype'],
   deliveryPoints: [
@@ -26,6 +27,13 @@ const aliases: Record<keyof CreateCustomerInput, string[]> = {
     'locations',
     'deliveryaddress',
   ],
+  billingAddressLine1: ['billingaddressline1', 'billingaddress1', 'billingaddress'],
+  billingAddressLine2: ['billingaddressline2', 'billingaddress2'],
+  billingLandmark: ['billinglandmark'],
+  billingAreaLocality: ['billingarealocality', 'billinglocality'],
+  billingCity: ['billingcity'],
+  billingState: ['billingstate'],
+  billingPinCode: ['billingpincode', 'billingpin', 'billingzip'],
 };
 
 export interface ParsedImportRow {
@@ -106,7 +114,11 @@ export function parseCustomerCsv(buffer: Buffer): ParsedCustomerCsv {
     const data: Partial<CreateCustomerInput> = {};
     for (const [header, field] of Object.entries(mapping)) {
       const raw = value(record, header);
-      if (field === 'advancePercentage' || field === 'creditDays') {
+      if (
+        field === 'advancePercentage' ||
+        field === 'balancePercentage' ||
+        field === 'creditDays'
+      ) {
         (data as Record<string, unknown>)[field] = numberValue(raw);
       } else if (field === 'deliveryPoints') {
         data.deliveryPoints = raw
