@@ -24,7 +24,7 @@ import {
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
 } from './utils/drivers.types';
-import { TRANSPORTER_COMPANY_TYPES } from './utils/transporter.types';
+import { TRANSPORTER_COMPANY_TYPES, TRANSPORTER_STATUSES } from './utils/transporter.types';
 
 const uuid = z.string().uuid();
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
@@ -60,6 +60,7 @@ const transporterFields = {
   gstin: z.string().trim().min(1).max(15).optional(),
   msmeRegistration: z.string().trim().min(1).max(50).optional(),
   companyType: z.enum(TRANSPORTER_COMPANY_TYPES).optional(),
+  status: z.enum(TRANSPORTER_STATUSES).optional(),
   advancePercentage: z.number().min(0).max(100).optional(),
   creditDays: z.number().int().nonnegative().max(36500).optional(),
   addressLine1: z.string().trim().min(1).max(255).optional(),

@@ -38,6 +38,7 @@ const FIELD_BY_HEADER: Record<string, keyof CreateTransporterInput> = {
   gst: 'gstin',
   msmeregistration: 'msmeRegistration',
   companytype: 'companyType',
+  status: 'status',
   advancepercentage: 'advancePercentage',
   advance: 'advancePercentage',
   creditdays: 'creditDays',

@@ -26,6 +26,7 @@ export class TransporterRepository {
         gstin: data.gstin ?? null,
         msmeRegistration: data.msmeRegistration ?? null,
         companyType: data.companyType ?? null,
+        status: data.status ?? 'active',
         advancePercentage: data.advancePercentage?.toString() ?? null,
         creditDays: data.creditDays ?? null,
         addressLine1: data.addressLine1 ?? null,
@@ -46,8 +47,8 @@ export class TransporterRepository {
   findById(tenantId: string, id: string) {
     return this.transporters.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
-  findByName(tenantId: string, name: string) {
-    return this.transporters.findOneBy({ tenantId, name, deletedAt: IsNull() });
+  findByPhone(tenantId: string, phone: string) {
+    return this.transporters.findOneBy({ tenantId, phone, deletedAt: IsNull() });
   }
   async list(tenantId: string, input: ListTransportersInput) {
     const where = input.search

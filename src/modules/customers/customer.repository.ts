@@ -81,6 +81,10 @@ export class CustomerRepository {
       relations: { deliveryPoints: true },
     });
   }
+  findByMobile(tenantId: string, mobile: string, manager?: EntityManager) {
+    const repo = manager?.getRepository(CustomerEntity) ?? this.customers;
+    return repo.findOneBy({ tenantId, mobile, deletedAt: IsNull() });
+  }
   async list(tenantId: string, filters: ListCustomersInput) {
     const { page, limit, search, status } = filters;
     const query = this.customers

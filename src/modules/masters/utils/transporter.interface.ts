@@ -1,5 +1,5 @@
 import { TransporterEntity } from '../entities/transporter.entity';
-import { TransporterCompanyType } from './transporter.types';
+import { TransporterCompanyType, TransporterStatus } from './transporter.types';
 import { PaginationInput, Paginated } from './masters.types';
 
 export interface CreateTransporterInput {
@@ -10,6 +10,7 @@ export interface CreateTransporterInput {
   gstin?: string;
   msmeRegistration?: string;
   companyType?: TransporterCompanyType;
+  status?: TransporterStatus;
   advancePercentage?: number;
   creditDays?: number;
   addressLine1?: string;
@@ -31,6 +32,7 @@ export interface UpdateTransporterInput {
   gstin?: string | null;
   msmeRegistration?: string | null;
   companyType?: TransporterCompanyType | null;
+  status?: TransporterStatus;
   advancePercentage?: number | null;
   creditDays?: number | null;
   addressLine1?: string | null;

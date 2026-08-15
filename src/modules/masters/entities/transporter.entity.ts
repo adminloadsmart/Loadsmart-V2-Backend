@@ -6,11 +6,16 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { TRANSPORTER_COMPANY_TYPES, TransporterCompanyType } from '../utils/transporter.types';
+import {
+  TRANSPORTER_COMPANY_TYPES,
+  TRANSPORTER_STATUSES,
+  TransporterCompanyType,
+  TransporterStatus,
+} from '../utils/transporter.types';
 
 @Entity({ schema: 'masters', name: 'transporters' })
 @Index('transporters_tenant_id_idx', ['tenantId'])
-@Index('transporters_tenant_name_active_unique', ['tenantId', 'name'], {
+@Index('transporters_tenant_phone_active_unique', ['tenantId', 'phone'], {
   unique: true,
   where: '"deleted_at" IS NULL',
 })
@@ -51,6 +56,8 @@ export class TransporterEntity {
   bankIfsc!: string | null;
   @Column({ name: 'bank_account_holder_name', type: 'varchar', length: 150, nullable: true })
   bankAccountHolderName!: string | null;
+  @Column({ type: 'enum', enum: [...TRANSPORTER_STATUSES], default: 'active' })
+  status!: TransporterStatus;
   @Column({ name: 'created_by', type: 'uuid', nullable: true }) createdBy!: string | null;
   @Column({ name: 'updated_by', type: 'uuid', nullable: true }) updatedBy!: string | null;
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true }) deletedAt!: Date | null;

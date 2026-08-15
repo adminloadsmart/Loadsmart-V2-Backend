@@ -23,8 +23,8 @@ export class TransporterService {
     try {
       this.assertAdmin(role);
       const name = input.name.trim();
-      if (await this.repository.findByName(tenantId, name))
-        throw new ConflictError(`A transporter named "${name}" already exists`);
+      if (await this.repository.findByPhone(tenantId, input.phone))
+        throw new ConflictError(`A transporter with phone "${input.phone}" already exists`);
       const transporter = await this.repository.create({
         ...input,
         name,
@@ -74,8 +74,12 @@ export class TransporterService {
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Transporter ${id} not found`);
       const name = input.name?.trim();
-      if (name && name !== existing.name && (await this.repository.findByName(tenantId, name)))
-        throw new ConflictError(`A transporter named "${name}" already exists`);
+      if (
+        input.phone &&
+        input.phone !== existing.phone &&
+        (await this.repository.findByPhone(tenantId, input.phone))
+      )
+        throw new ConflictError(`A transporter with phone "${input.phone}" already exists`);
       const updated = await this.repository.update(tenantId, id, {
         ...input,
         ...(name ? { name } : {}),
@@ -123,6 +127,7 @@ export class TransporterService {
       gstin: value.gstin,
       msmeRegistration: value.msmeRegistration,
       companyType: value.companyType,
+      status: value.status,
       advancePercentage: value.advancePercentage,
       creditDays: value.creditDays,
       addressLine1: value.addressLine1,

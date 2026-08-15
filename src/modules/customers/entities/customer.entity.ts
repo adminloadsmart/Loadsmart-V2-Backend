@@ -14,6 +14,10 @@ import { CustomerDeliveryPointEntity } from './customer-delivery-point.entity';
 @Index('customers_tenant_id_idx', ['tenantId'])
 @Index('customers_tenant_status_idx', ['tenantId', 'status'])
 @Index('customers_tenant_name_idx', ['tenantId', 'name'])
+@Index('customers_tenant_mobile_active_unique', ['tenantId', 'mobile'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class CustomerEntity {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'tenant_id', type: 'uuid' }) tenantId!: string;
