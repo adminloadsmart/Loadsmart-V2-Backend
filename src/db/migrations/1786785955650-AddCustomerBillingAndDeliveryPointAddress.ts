@@ -16,54 +16,75 @@ export class AddCustomerBillingAndDeliveryPointAddress1786785955650 implements M
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "balance_percentage" numeric(5,2)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "balance_percentage" numeric(5,2)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_address_line_1" character varying(255)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_address_line_1" character varying(255)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_address_line_2" character varying(255)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_address_line_2" character varying(255)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_landmark" character varying(255)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_landmark" character varying(255)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_area_locality" character varying(255)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_area_locality" character varying(255)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_city" character varying(100)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_city" character varying(100)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_state" character varying(100)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_state" character varying(100)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "billing_pin_code" character varying(10)`,
-    );
-
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "address_line_1" character varying(255)`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "address_line_2" character varying(255)`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "landmark" character varying(255)`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "area_locality" character varying(255)`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "city" character varying(100)`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "state" character varying(100)`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customer_delivery_points" ADD "pin_code" character varying(10)`,
+      `ALTER TABLE "customers"."customers" ADD COLUMN IF NOT EXISTS "billing_pin_code" character varying(10)`,
     );
 
     await queryRunner.query(
-      `CREATE UNIQUE INDEX "customers_tenant_mobile_active_unique" ON "customers"."customers" ("tenant_id", "mobile") WHERE "deleted_at" IS NULL`,
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "address_line_1" character varying(255)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "address_line_2" character varying(255)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "landmark" character varying(255)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "area_locality" character varying(255)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "city" character varying(100)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "state" character varying(100)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "customers"."customer_delivery_points" ADD COLUMN IF NOT EXISTS "pin_code" character varying(10)`,
+    );
+
+    // The new invariant is one active customer per tenant/mobile. Keep the oldest
+    // active row and soft-delete newer duplicates so existing data can be indexed
+    // without losing customer records.
+    await queryRunner.query(
+      `WITH ranked_customers AS (
+        SELECT
+          "id",
+          ROW_NUMBER() OVER (
+            PARTITION BY "tenant_id", "mobile"
+            ORDER BY "created_at" ASC NULLS LAST, "id" ASC
+          ) AS row_number
+        FROM "customers"."customers"
+        WHERE "deleted_at" IS NULL
+      )
+      UPDATE "customers"."customers" AS customer
+      SET "deleted_at" = NOW(), "updated_at" = NOW()
+      FROM ranked_customers
+      WHERE customer."id" = ranked_customers."id"
+        AND ranked_customers.row_number > 1`,
+    );
+
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "customers_tenant_mobile_active_unique" ON "customers"."customers" ("tenant_id", "mobile") WHERE "deleted_at" IS NULL`,
     );
   }
 

@@ -5,40 +5,52 @@ export class AddDriverProfileFields1786700772148 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "masters"."driver_documents" ADD "document_number" character varying(50)`,
+      `ALTER TABLE "masters"."driver_documents" ADD COLUMN IF NOT EXISTS "document_number" character varying(50)`,
     );
     await queryRunner.query(
-      `CREATE TYPE "masters"."drivers_blood_group_enum" AS ENUM('A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-')`,
+      `DO $$ BEGIN
+        CREATE TYPE "masters"."drivers_blood_group_enum" AS ENUM('A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$`,
     );
     await queryRunner.query(
-      `ALTER TABLE "masters"."drivers" ADD "blood_group" "masters"."drivers_blood_group_enum"`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "blood_group" "masters"."drivers_blood_group_enum"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "masters"."drivers" ADD "address_line1" character varying(255)`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "address_line1" character varying(255)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "masters"."drivers" ADD "address_line2" character varying(255)`,
-    );
-    await queryRunner.query(`ALTER TABLE "masters"."drivers" ADD "city" character varying(100)`);
-    await queryRunner.query(`ALTER TABLE "masters"."drivers" ADD "pin_code" character varying(6)`);
-    await queryRunner.query(
-      `ALTER TABLE "masters"."drivers" ADD "emergency_contact_name" character varying(150)`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "address_line2" character varying(255)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "masters"."drivers" ADD "emergency_contact_phone" character varying(15)`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "city" character varying(100)`,
     );
     await queryRunner.query(
-      `CREATE TYPE "masters"."drivers_salary_type_enum" AS ENUM('fixed', 'per_trip', 'per_km')`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "pin_code" character varying(6)`,
     );
     await queryRunner.query(
-      `ALTER TABLE "masters"."drivers" ADD "salary_type" "masters"."drivers_salary_type_enum"`,
-    );
-    await queryRunner.query(`ALTER TABLE "masters"."drivers" ADD "salary_amount" numeric(12,2)`);
-    await queryRunner.query(
-      `ALTER TYPE "masters"."driver_documents_document_type_enum" ADD VALUE 'aadhaar'`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "emergency_contact_name" character varying(150)`,
     );
     await queryRunner.query(
-      `ALTER TYPE "masters"."driver_documents_document_type_enum" ADD VALUE 'pan'`,
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "emergency_contact_phone" character varying(15)`,
+    );
+    await queryRunner.query(
+      `DO $$ BEGIN
+        CREATE TYPE "masters"."drivers_salary_type_enum" AS ENUM('fixed', 'per_trip', 'per_km');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "salary_type" "masters"."drivers_salary_type_enum"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "masters"."drivers" ADD COLUMN IF NOT EXISTS "salary_amount" numeric(12,2)`,
+    );
+    await queryRunner.query(
+      `ALTER TYPE "masters"."driver_documents_document_type_enum" ADD VALUE IF NOT EXISTS 'aadhaar'`,
+    );
+    await queryRunner.query(
+      `ALTER TYPE "masters"."driver_documents_document_type_enum" ADD VALUE IF NOT EXISTS 'pan'`,
     );
   }
 

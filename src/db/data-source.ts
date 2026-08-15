@@ -45,7 +45,9 @@ import { ProductSubItemEntity } from '../modules/masters/entities/product-sub-it
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
-  synchronize: !['staging', 'production'].includes(env.nodeEnv), // off on real servers, on everywhere else (local/dev/test) — see docs/rbac.md §9
+  // Schema changes are managed by migrations. Running synchronize before pending
+  // migrations can make partially-created legacy columns fail startup.
+  synchronize: false,
   logging: env.nodeEnv === 'development',
   entities: [
     OrganizationEntity,
