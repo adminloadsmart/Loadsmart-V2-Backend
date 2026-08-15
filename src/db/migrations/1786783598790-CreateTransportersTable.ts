@@ -51,7 +51,7 @@ export class CreateTransportersTable1786783598790 implements MigrationInterface 
     // column constraint can be applied without inventing an active phone number.
     await queryRunner.query(
       `UPDATE "masters"."transporters"
-      SET "phone" = 'legacy_' || RIGHT(REPLACE("id"::text, '-', ''), 9),
+      SET "phone" = 'L' || RIGHT(REPLACE("id"::text, '-', ''), 14),
           "deleted_at" = COALESCE("deleted_at", NOW())
       WHERE "phone" IS NULL`,
     );
