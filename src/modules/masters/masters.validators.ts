@@ -279,7 +279,7 @@ export const mastersValidators = {
       serviceUsage: vehicleServiceUsageBody.optional(),
       documents: z.array(vehicleDocumentBody).max(20).optional(),
       operationalStatus: vehicleOperationalStatusBody.optional(),
-      driverLink: driverLinkBody.optional(),
+      driverLink: driverLinkBody.nullish(),
     }),
   }),
   listVehicles: z.object({

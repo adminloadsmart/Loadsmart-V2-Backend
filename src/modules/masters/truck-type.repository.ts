@@ -35,10 +35,13 @@ export class TruckTypeRepository {
       order: { name: 'ASC' },
     });
 
-    return truckTypes.map((truckType) => ({
-      ...truckType,
-      vehicleCount: truckType.vehicles.filter((vehicle) => !vehicle.deletedAt).length,
-    }));
+    return truckTypes.map((truckType) => {
+      const { vehicles, ...rest } = truckType;
+      return {
+        ...rest,
+        vehicleCount: vehicles.filter((vehicle) => !vehicle.deletedAt).length,
+      };
+    });
   }
 
   /** Single-row version of the `vehicleCount` in `list()`, used by the delete guard. */
