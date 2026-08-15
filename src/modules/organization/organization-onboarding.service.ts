@@ -62,7 +62,7 @@ export class OrganizationOnboardingService {
     return {
       onboardingStatus: 'incomplete',
       onboardingStep,
-      nextStep: this.resolveNextStep(onboardingStep),
+      nextStep: this.resolveNextStep(onboardingStep, organization),
       organization,
       documents,
     };
@@ -193,13 +193,26 @@ export class OrganizationOnboardingService {
     return 'review_submit';
   }
 
-  // After business details, the user uploads the shop-board image. A successful upload leaves
-  // the persisted step at shopboard_premises_photo and directs the UI to final review/submit.
-  // The review_submit mapping preserves the same next action for organizations saved before the
-  // shop-board step was introduced.
-  private resolveNextStep(onboardingStep: OrganizationOnboardingStep): OrganizationOnboardingStep {
-    if (onboardingStep === 'review_submit') return 'shopboard_premises_photo';
-    if (onboardingStep === 'shopboard_premises_photo') return 'review_submit';
+  // Business details are followed by the shop-board upload. The persisted step remains
+  // shopboard_premises_photo until the upload has actually stored a photo key; only then can the
+  // UI resume at final review/submit. The review_submit fallback supports organizations created
+  // before the shop-board step was introduced.
+  private resolveNextStep(
+    onboardingStep: OrganizationOnboardingStep,
+    organization: OrganizationEntity,
+  ): OrganizationOnboardingStep {
+    if (
+      (onboardingStep === 'review_submit' || onboardingStep === 'shopboard_premises_photo') &&
+      !organization.shopboardPremisesPhotoKey
+    ) {
+      return 'shopboard_premises_photo';
+    }
+    if (
+      onboardingStep === 'review_submit' ||
+      (onboardingStep === 'shopboard_premises_photo' && organization.shopboardPremisesPhotoKey)
+    ) {
+      return 'review_submit';
+    }
     return onboardingStep;
   }
 
