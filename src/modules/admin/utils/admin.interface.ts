@@ -17,6 +17,7 @@ export interface ListOrganizationsInput extends PaginationInput {
 
 export interface UpdateOrganizationInput {
   status: OrganizationStatus;
+  reason: string;
 }
 
 export interface VerifyOrganizationDocumentInput {

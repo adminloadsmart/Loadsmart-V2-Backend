@@ -94,8 +94,9 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.updateOrganization',
     ...adminOnly(
       "Update an organization's status directly — for lifecycle transitions outside the KYC review " +
-        'moment (e.g. suspending an active org, reactivating one). For the actual review decision, use ' +
-        'POST .../approve, .../reject, or .../deny below instead, which also validate documents and ' +
+        'moment (e.g. suspending an active org, reactivating one). `reason` is required for every ' +
+        'call, recorded as decisionReason. For the actual review decision, use POST ' +
+        '.../approve, .../reject, or .../deny below instead, which also validate documents and ' +
         "record why. Logged to this organization's audit trail either way.",
     ),
     request: {

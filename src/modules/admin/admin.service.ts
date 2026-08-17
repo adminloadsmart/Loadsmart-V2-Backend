@@ -137,15 +137,18 @@ export class AdminService {
   ) {
     try {
       const before = await this.organizationService.getOrganizationStatus(organizationId);
-      const organization = await this.organizationService.updateOrganization(organizationId, input);
+      const organization = await this.organizationService.updateOrganization(organizationId, {
+        status: input.status,
+        decisionReason: input.reason,
+      });
 
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
         action: 'ORGANIZATION_STATUS_UPDATED',
         resourceType: 'organization',
-        oldData: { status: before.status },
-        newData: { status: organization.status },
+        oldData: { status: before.status, decisionReason: before.decisionReason },
+        newData: { status: organization.status, decisionReason: organization.decisionReason },
       });
 
       return organization;
