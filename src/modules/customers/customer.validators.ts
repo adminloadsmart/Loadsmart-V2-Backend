@@ -12,7 +12,7 @@ const pinCode = z
   .string()
   .trim()
   .regex(/^\d{6}$/, 'Expected a 6-digit PIN code');
-/** Address Component (PRD §3.2) — reused for each delivery point and for the billing address. */
+/** Address Component — reused for each delivery point and for the billing address. */
 const addressComponent = {
   addressLine1: z.string().trim().min(1).max(255).optional(),
   addressLine2: z.string().trim().min(1).max(255).optional(),

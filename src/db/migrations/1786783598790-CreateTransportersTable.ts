@@ -3,7 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * `transporters` has never had a migration — it only ever existed via `synchronize: true` in
  * local/dev/test (off in staging/production, see data-source.ts). This is the first real
- * migration for it, so it's a full CREATE TABLE against the PRD §5.4.2 (FMS-MAS-TRN-001) shape
+ * migration for it, so it's a full CREATE TABLE against the shape
  * rather than an ALTER against prior columns.
  */
 export class CreateTransportersTable1786783598790 implements MigrationInterface {

@@ -10,6 +10,7 @@ import { registerAdminOpenApi } from '../../modules/admin/admin.openapi';
 import { registerDashboardsOpenApi } from '../../modules/dashboards/dashboards.openapi';
 import { registerCustomersOpenApi } from '../../modules/customers/customer.openapi';
 import { registerStorageOpenApi } from '../../modules/storage/storage.openapi';
+import { registerLoadsOpenApi } from '../../modules/loads/loads.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -40,6 +41,7 @@ function getOpenApiDocument() {
     registerDashboardsOpenApi(registry);
     registerCustomersOpenApi(registry);
     registerStorageOpenApi(registry);
+    registerLoadsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -70,6 +72,11 @@ function getOpenApiDocument() {
           name: TAGS.STORAGE,
           description:
             'Presigned S3 uploads/downloads: generate an upload URL, confirm completion, and fetch a file plus its download URL',
+        },
+        {
+          name: TAGS.LOADS,
+          description:
+            'Requisition → Dispatch Planning → Load Assignment → Loading & Documents → Tracking → E-POD → Advance/Balance Payment',
         },
       ],
     });

@@ -41,10 +41,23 @@ import { FileEntity } from '../modules/storage/entities/file.entity';
 import { CustomerImportEntity } from '../modules/customers/entities/customer-import.entity';
 import { ProductEntity } from '../modules/masters/entities/product.entity';
 import { ProductSubItemEntity } from '../modules/masters/entities/product-sub-item.entity';
+import { RequisitionEntity } from '../modules/loads/entities/requisition.entity';
+import { LoadEntity } from '../modules/loads/entities/load.entity';
+import { LoadPaymentEntity } from '../modules/loads/entities/load-payment.entity';
+import { LoadActivityEntity } from '../modules/loads/entities/load-activity.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
+  // Every migration already schema-qualifies everything it creates ("auth"."...",
+  // "masters"."...", etc.) except TypeORM's own migrations-bookkeeping table, which
+  // defaults to whatever schema is first in the connecting role's search_path —
+  // conventionally "public". Pointing that at "auth" instead (a schema every migration
+  // already proves the app's role has full rights to) avoids ever needing CREATE/USAGE on
+  // "public", which isn't guaranteed to be granted (Postgres 15+ no longer grants it to
+  // everyone by default, and scoped-privilege roles on managed/production databases often
+  // don't have it at all) — see "permission denied for schema public" during migration:run.
+  schema: 'auth',
   // Schema changes are managed by migrations. Running synchronize before pending
   // migrations can make partially-created legacy columns fail startup.
   synchronize: false,
@@ -89,6 +102,11 @@ export const AppDataSource = new DataSource({
     CustomerImportEntity,
     ProductEntity,
     ProductSubItemEntity,
+    // loads module
+    RequisitionEntity,
+    LoadEntity,
+    LoadPaymentEntity,
+    LoadActivityEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,

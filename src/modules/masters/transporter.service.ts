@@ -19,6 +19,7 @@ export class TransporterService {
     if (role !== ORG_ADMIN_ROLE)
       throw new AuthorizationError('Only organization admins can manage transporters');
   }
+
   async create(tenantId: string, actorId: string, role: string, input: CreateTransporterInput) {
     try {
       this.assertAdmin(role);
@@ -62,6 +63,17 @@ export class TransporterService {
       rethrow(error, 'Failed to fetch transporter');
     }
   }
+
+  async getTransporter(tenantId: string, id: string) {
+    try {
+      const transporter = await this.repository.findById(tenantId, id);
+      if (!transporter) throw new NotFoundError(`Transporter ${id} not found`);
+      return transporter;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch transporter');
+    }
+  }
+
   async update(
     tenantId: string,
     actorId: string,
