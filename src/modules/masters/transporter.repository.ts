@@ -16,14 +16,39 @@ export class TransporterRepository {
     data: CreateTransporterInput & { tenantId: string; createdBy: string },
   ): Promise<TransporterEntity> {
     return this.transporters.save(
-      this.transporters.create({ ...data, deletedAt: null, updatedBy: null }),
+      this.transporters.create({
+        tenantId: data.tenantId,
+        createdBy: data.createdBy,
+        name: data.name,
+        phone: data.phone,
+        rate: data.rate ?? null,
+        email: data.email ?? null,
+        gstin: data.gstin ?? null,
+        msmeRegistration: data.msmeRegistration ?? null,
+        companyType: data.companyType ?? null,
+        status: data.status ?? 'active',
+        advancePercentage: data.advancePercentage?.toString() ?? null,
+        creditDays: data.creditDays ?? null,
+        addressLine1: data.addressLine1 ?? null,
+        addressLine2: data.addressLine2 ?? null,
+        landmark: data.landmark ?? null,
+        areaLocality: data.areaLocality ?? null,
+        city: data.city ?? null,
+        state: data.state ?? null,
+        pinCode: data.pinCode ?? null,
+        bankAccountNumber: data.bankAccountNumber ?? null,
+        bankIfsc: data.bankIfsc ?? null,
+        bankAccountHolderName: data.bankAccountHolderName ?? null,
+        deletedAt: null,
+        updatedBy: null,
+      }),
     );
   }
   findById(tenantId: string, id: string) {
     return this.transporters.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
-  findByName(tenantId: string, name: string) {
-    return this.transporters.findOneBy({ tenantId, name, deletedAt: IsNull() });
+  findByPhone(tenantId: string, phone: string) {
+    return this.transporters.findOneBy({ tenantId, phone, deletedAt: IsNull() });
   }
   async list(tenantId: string, input: ListTransportersInput) {
     const where = input.search
@@ -38,7 +63,17 @@ export class TransporterRepository {
     return { items, total };
   }
   async update(tenantId: string, id: string, data: UpdateTransporterInput & { updatedBy: string }) {
-    await this.transporters.update({ id, tenantId, deletedAt: IsNull() }, data);
+    const { advancePercentage, ...rest } = data;
+    await this.transporters.update(
+      { id, tenantId, deletedAt: IsNull() },
+      {
+        ...rest,
+        advancePercentage:
+          advancePercentage === undefined || advancePercentage === null
+            ? advancePercentage
+            : advancePercentage.toString(),
+      },
+    );
     return this.findById(tenantId, id);
   }
   async softDelete(tenantId: string, id: string, updatedBy: string) {

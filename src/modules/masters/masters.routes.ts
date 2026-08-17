@@ -61,6 +61,20 @@ export function createMastersProtectedRoutes(
   });
 
   // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
+  // /truck-types/catalog before /truck-types/:truckTypeId so the literal segment isn't captured
+  // as an id (there's no GET /truck-types/:id today, but keeping the convention cheap now beats
+  // a collision surprise if one gets added later).
+  router.get(
+    '/truck-types/catalog',
+    validate(mastersValidators.listTruckTypeCatalog),
+    asyncHandler(controller.listTruckTypeCatalog),
+  );
+  router.post(
+    '/truck-types/from-catalog',
+    canWrite,
+    validate(mastersValidators.addTruckTypesFromCatalog),
+    asyncHandler(controller.addTruckTypesFromCatalog),
+  );
   router.get(
     '/truck-types',
     validate(mastersValidators.listTruckTypes),
@@ -188,6 +202,11 @@ export function createMastersProtectedRoutes(
     '/transporters',
     validate(mastersValidators.listTransporters),
     asyncHandler(controller.listTransporters),
+  );
+  router.get(
+    '/transporters/:transporterId',
+    validate(mastersValidators.getTransporter),
+    asyncHandler(controller.getTransporter),
   );
   router.patch(
     '/transporters/:transporterId',

@@ -6,7 +6,6 @@ import {
   BODY_TYPES,
   FUEL_TYPES,
   OWNERSHIP_TYPES,
-  VEHICLE_DOCUMENT_TYPES,
   VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY,
   VEHICLE_OPERATIONAL_STATUSES,
   VEHICLE_STATUSES,
@@ -16,13 +15,16 @@ import {
 } from './utils/vehicle.type';
 import {
   DRIVER_BANK_VERIFICATION_STATUSES,
+  DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_OPERATIONAL_STATUSES,
+  DRIVER_SALARY_TYPES,
   DRIVER_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
 } from './utils/drivers.types';
+import { TRANSPORTER_COMPANY_TYPES, TRANSPORTER_STATUSES } from './utils/transporter.types';
 
 const uuid = z.string().uuid();
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
@@ -39,10 +41,41 @@ const driverBankDetailsParams = z.object({
 const linkParams = z.object({ linkId: uuid });
 const truckTypeParams = z.object({ truckTypeId: uuid });
 const transporterParams = z.object({ transporterId: uuid });
+const transporterPhone = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/[\s-]/g, ''))
+  .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number');
+const transporterBankIfsc = z
+  .string()
+  .trim()
+  .transform((value) => value.toUpperCase())
+  .refine((value) => IFSC_REGEX.test(value), 'Invalid IFSC code');
+/** PRD §5.4.2 (FMS-MAS-TRN-001) — only name and phone are mandatory, everything else optional. */
 const transporterFields = {
   name: z.string().trim().min(1).max(150),
-  rate: z.string().trim().min(1).max(100),
-  creditDays: z.number().int().nonnegative().max(36500),
+  phone: transporterPhone,
+  rate: z.string().trim().min(1).max(100).optional(),
+  email: z.string().trim().email().max(255).optional(),
+  gstin: z.string().trim().min(1).max(15).optional(),
+  msmeRegistration: z.string().trim().min(1).max(50).optional(),
+  companyType: z.enum(TRANSPORTER_COMPANY_TYPES).optional(),
+  status: z.enum(TRANSPORTER_STATUSES).optional(),
+  advancePercentage: z.number().min(0).max(100).optional(),
+  creditDays: z.number().int().nonnegative().max(36500).optional(),
+  addressLine1: z.string().trim().min(1).max(255).optional(),
+  addressLine2: z.string().trim().min(1).max(255).optional(),
+  landmark: z.string().trim().min(1).max(255).optional(),
+  areaLocality: z.string().trim().min(1).max(255).optional(),
+  city: z.string().trim().min(1).max(100).optional(),
+  state: z.string().trim().min(1).max(100).optional(),
+  pinCode: z
+    .string()
+    .regex(/^\d{6}$/, 'Expected a 6-digit PIN code')
+    .optional(),
+  bankAccountNumber: z.string().trim().min(6).max(30).optional(),
+  bankIfsc: transporterBankIfsc.optional(),
+  bankAccountHolderName: z.string().trim().min(1).max(150).optional(),
 };
 
 /**
@@ -112,13 +145,28 @@ const driverLinkBody = z.object({
   linkedFrom: isoDate.optional(),
 });
 
-const vehicleDocumentBody = z.object({
-  documentType: z.enum(VEHICLE_DOCUMENT_TYPES),
-  documentNumber: z.string().min(1).max(50).optional(),
-  issueDate: isoDate.optional(),
-  expiryDate: isoDate.optional(),
-  fileUrl: z.string().min(1).optional(),
-});
+// The 5 dated papers (rc/insurance/permit/puc/fitness) dropped upload support per client request —
+// fileUrl isn't an accepted field for them at all now, only documentNumber/issueDate/expiryDate.
+// rc_front/rc_back are undated photos and keep fileUrl as their one field. Two `.strict()` object
+// schemas in a union (rather than one shared object) so fileUrl is actually absent from the dated
+// schema, not merely rejected by a refine.
+const vehicleDocumentDatedBody = z
+  .object({
+    documentType: z.enum(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY),
+    documentNumber: z.string().min(1).max(50).optional(),
+    issueDate: isoDate.optional(),
+    expiryDate: isoDate.optional(),
+  })
+  .strict();
+
+const vehicleDocumentPhotoBody = z
+  .object({
+    documentType: z.enum(['rc_front', 'rc_back']),
+    fileUrl: z.string().min(1).optional(),
+  })
+  .strict();
+
+const vehicleDocumentBody = z.union([vehicleDocumentDatedBody, vehicleDocumentPhotoBody]);
 
 /** Shared by `createDriver` and the section-1 fields of `onboardDriver`. */
 const driverCoreFields = {
@@ -132,6 +180,23 @@ const driverCoreFields = {
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
   dateOfBirth: isoDate.optional(),
+  bloodGroup: z.enum(DRIVER_BLOOD_GROUPS).optional(),
+  addressLine1: z.string().min(1).max(255).optional(),
+  addressLine2: z.string().min(1).max(255).optional(),
+  city: z.string().min(1).max(100).optional(),
+  pinCode: z
+    .string()
+    .regex(/^\d{6}$/, 'Expected a 6-digit PIN code')
+    .optional(),
+  emergencyContactName: z.string().min(1).max(150).optional(),
+  emergencyContactPhone: z
+    .string()
+    .trim()
+    .transform((value) => value.replace(/[\s-]/g, ''))
+    .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number')
+    .optional(),
+  salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
+  salaryAmount: z.number().nonnegative().max(9999999999).optional(),
 };
 
 /** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
@@ -175,6 +240,9 @@ const driverDocumentBody = z.object({
   // The storage `key` from a confirmed POST /files upload (purpose `masters/driver`), not an
   // arbitrary URL — driver.service.ts's assertDriverDlUpload rejects anything else.
   fileUrl: z.string().min(1),
+  // Aadhaar/PAN number — only meaningful for those document types, but not worth a refine to
+  // enforce that; the field is simply ignored for licence-photo documents.
+  documentNumber: z.string().min(1).max(50).optional(),
   verificationSource: z.enum(DRIVER_DOCUMENT_VERIFICATION_SOURCES).optional(),
 });
 
@@ -216,12 +284,38 @@ export const mastersValidators = {
     body: z.object({ name: z.string().trim().min(1).max(100) }),
   }),
   deleteTruckType: z.object({ params: truckTypeParams }),
+  listTruckTypeCatalog: z.object({}),
+  addTruckTypesFromCatalog: z.object({
+    body: z.object({
+      names: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
+    }),
+  }),
   createTransporter: z.object({ body: z.object(transporterFields).strict() }),
   listTransporters: z.object({ query: pagination }),
+  getTransporter: z.object({ params: transporterParams }),
   updateTransporter: z.object({
     params: transporterParams,
     body: z
-      .object(transporterFields)
+      .object({
+        ...transporterFields,
+        rate: transporterFields.rate.nullable(),
+        email: transporterFields.email.nullable(),
+        gstin: transporterFields.gstin.nullable(),
+        msmeRegistration: transporterFields.msmeRegistration.nullable(),
+        companyType: transporterFields.companyType.nullable(),
+        advancePercentage: transporterFields.advancePercentage.nullable(),
+        creditDays: transporterFields.creditDays.nullable(),
+        addressLine1: transporterFields.addressLine1.nullable(),
+        addressLine2: transporterFields.addressLine2.nullable(),
+        landmark: transporterFields.landmark.nullable(),
+        areaLocality: transporterFields.areaLocality.nullable(),
+        city: transporterFields.city.nullable(),
+        state: transporterFields.state.nullable(),
+        pinCode: transporterFields.pinCode.nullable(),
+        bankAccountNumber: transporterFields.bankAccountNumber.nullable(),
+        bankIfsc: transporterFields.bankIfsc.nullable(),
+        bankAccountHolderName: transporterFields.bankAccountHolderName.nullable(),
+      })
       .partial()
       .strict()
       .refine((value) => Object.keys(value).length > 0, 'At least one field is required'),
@@ -237,7 +331,7 @@ export const mastersValidators = {
       serviceUsage: vehicleServiceUsageBody.optional(),
       documents: z.array(vehicleDocumentBody).max(20).optional(),
       operationalStatus: vehicleOperationalStatusBody.optional(),
-      driverLink: driverLinkBody.optional(),
+      driverLink: driverLinkBody.nullish(),
     }),
   }),
   listVehicles: z.object({
@@ -329,6 +423,23 @@ export const mastersValidators = {
         licenseExpiry: isoDate.optional(),
         dateOfJoining: isoDate.optional(),
         dateOfBirth: isoDate.optional(),
+        bloodGroup: z.enum(DRIVER_BLOOD_GROUPS).optional(),
+        addressLine1: z.string().min(1).max(255).optional(),
+        addressLine2: z.string().min(1).max(255).optional(),
+        city: z.string().min(1).max(100).optional(),
+        pinCode: z
+          .string()
+          .regex(/^\d{6}$/, 'Expected a 6-digit PIN code')
+          .optional(),
+        emergencyContactName: z.string().min(1).max(150).optional(),
+        emergencyContactPhone: z
+          .string()
+          .trim()
+          .transform((value) => value.replace(/[\s-]/g, ''))
+          .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number')
+          .optional(),
+        salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
+        salaryAmount: z.number().nonnegative().max(9999999999).optional(),
         status: z.enum(DRIVER_STATUSES).optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),

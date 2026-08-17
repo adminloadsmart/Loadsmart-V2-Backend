@@ -101,6 +101,14 @@ export const organizationValidators = {
   submitOrganization: z.object({
     body: organizationReviewSchema,
   }),
+  saveShopboardPremisesPhoto: z.object({
+    body: z
+      .object({
+        step: z.literal('shopboard_premises_photo'),
+        purpose: z.literal('organizations/shopboard-premises'),
+      })
+      .strict(),
+  }),
 
   // Settings → Users & Roles "Invite a teammate". roleId is just a uuid here — the actual
   // ORG_ASSIGNABLE_ROLES membership check happens service-side (auth.service.ts's

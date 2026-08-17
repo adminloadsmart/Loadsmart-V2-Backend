@@ -1,5 +1,5 @@
 import { DataSource, EntityManager } from 'typeorm';
-import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
+import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { toDateString } from '../../shared/utils/date';
 import { AuditService } from '../audit/audit.service';
@@ -9,7 +9,11 @@ import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
 import { VehicleOperationalStatusEntity } from './entities/vehicle-operational-status.entity';
 import { VehicleTelemetryMetaEntity } from './entities/vehicle-telemetry-meta.entity';
 import { VehicleVerificationSnapshotEntity } from './entities/vehicle-verification-snapshot.entity';
-import { VehicleDocumentStatus, VehicleDocumentType } from './utils/vehicle.type';
+import {
+  VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY,
+  VehicleDocumentStatus,
+  VehicleDocumentType,
+} from './utils/vehicle.type';
 import { VehicleRepository } from './vehicle.repository';
 import { TruckTypeService } from './truck-type.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
@@ -268,6 +272,15 @@ export class VehicleService {
         documentId,
       );
       if (!existing) throw new NotFoundError(`Vehicle document ${documentId} not found`);
+
+      // documentType isn't resubmitted on PATCH, so this is the one place left that can still
+      // reject a fileUrl on the 5 dated paper types — the create-time validator can't see it here.
+      if (
+        input.fileUrl &&
+        (VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY as readonly string[]).includes(existing.documentType)
+      ) {
+        throw new ValidationError('fileUrl is not accepted for this document type');
+      }
 
       // Recompute the status whenever the caller moves the expiry date.
       const expiryDate = input.expiryDate === undefined ? existing.expiryDate : input.expiryDate;

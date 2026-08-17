@@ -1,5 +1,6 @@
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ReferralCodeEntity } from './entities/referral-code.entity';
+import { OrganizationEntity } from './entities/organization.entity';
 
 export class ReferralCodeRepository {
   private readonly repo: Repository<ReferralCodeEntity>;
@@ -67,6 +68,26 @@ export class ReferralCodeRepository {
     }
 
     const [items, total] = await qb.getManyAndCount();
+
+    if (items.length > 0) {
+      const referralCodeIds = items.map((item) => item.id);
+      const countRows = await this.repo.manager
+        .getRepository(OrganizationEntity)
+        .createQueryBuilder('organization')
+        .select('organization.referral_code_id', 'referralCodeId')
+        .addSelect('COUNT(*)', 'count')
+        .where('organization.referral_code_id IN (:...referralCodeIds)', { referralCodeIds })
+        .groupBy('organization.referral_code_id')
+        .getRawMany<{ referralCodeId: string; count: string }>();
+
+      const countsByReferralCodeId = new Map(
+        countRows.map((row) => [row.referralCodeId, Number(row.count)]),
+      );
+      for (const item of items) {
+        item.totalSignup = countsByReferralCodeId.get(item.id) ?? 0;
+      }
+    }
+
     return { items, total };
   }
 

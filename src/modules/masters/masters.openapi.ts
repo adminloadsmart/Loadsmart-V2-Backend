@@ -165,6 +165,37 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/truck-types/catalog`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listTruckTypeCatalog',
+    ...authenticated(
+      'List the global truck-type catalog (PRD §5.7, "configurable from the Admin Panel") — the ' +
+        'fixed reference names the "Add truck type" modal offers to pick from. Not tenant-scoped.',
+    ),
+    responses: {
+      200: { description: 'Catalog entries' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/truck-types/from-catalog`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.addTruckTypesFromCatalog',
+    ...write(
+      'Add one or more catalog names as this tenant\'s own truck types — backs the "Add truck ' +
+        'type" modal\'s multi-select. Any name not present in the catalog is rejected; a fully ' +
+        'custom name still goes through POST /truck-types instead.',
+    ),
+    request: { body: json(mastersValidators.addTruckTypesFromCatalog.shape.body) },
+    responses: {
+      201: { description: "The tenant's truck types after the add, each with a vehicleCount" },
+      400: { description: 'Validation failed, or a name not in the catalog', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/truck-types`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listTruckTypes',
@@ -349,6 +380,20 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/transporters/{transporterId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getTransporter',
+    ...authenticated('Get a single transporter. Available only to the organization admin.'),
+    request: { params: mastersValidators.getTransporter.shape.params },
+    responses: {
+      200: { description: 'Transporter detail' },
+      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      404: { description: 'Transporter not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/transporters/import`,
     tags: [TAGS.MASTERS],
@@ -515,7 +560,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/documents`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.addVehicleDocument',
-    ...write('Attach a document (RC, insurance, permit, PUC, fitness) to a vehicle.'),
+    ...write(
+      'Attach a document (RC, insurance, permit, PUC, fitness, or an RC front/back photo) to a ' +
+        'vehicle. RC/insurance/permit/PUC/fitness track documentNumber/issueDate/expiryDate only — ' +
+        'fileUrl is rejected for those 5; only rc_front/rc_back accept an upload.',
+    ),
     request: {
       params: mastersValidators.addVehicleDocument.shape.params,
       body: json(mastersValidators.addVehicleDocument.shape.body),

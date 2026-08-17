@@ -52,8 +52,8 @@ export class OrganizationOnboardingService {
     if (organization.status === 'pending' || organization.submittedAt) {
       return {
         onboardingStatus: 'submitted',
-        onboardingStep: 'submitted',
-        nextStep: 'submitted',
+        onboardingStep,
+        nextStep: onboardingStep,
         organization,
         documents,
       };
@@ -62,7 +62,7 @@ export class OrganizationOnboardingService {
     return {
       onboardingStatus: 'incomplete',
       onboardingStep,
-      nextStep: onboardingStep,
+      nextStep: this.resolveNextStep(onboardingStep, organization),
       organization,
       documents,
     };
@@ -100,7 +100,7 @@ export class OrganizationOnboardingService {
     if (currentStep === 'submitted') {
       return 'submitted';
     }
-    return 'review_submit';
+    return 'shopboard_premises_photo';
   }
 
   // Single gate replacing the 3 separate asserts submitOrganization used to call inline —
@@ -112,6 +112,7 @@ export class OrganizationOnboardingService {
     this.assertCompanyDetailsComplete(organization);
     this.assertBusinessDetailsComplete(organization);
     this.assertDocumentsReady(documents);
+    this.assertShopboardPremisesPhotoPresent(organization);
   }
 
   private hasCompanyDetails(organization: OrganizationEntity): boolean {
@@ -164,6 +165,12 @@ export class OrganizationOnboardingService {
     }
   }
 
+  private assertShopboardPremisesPhotoPresent(organization: OrganizationEntity): void {
+    if (!organization.shopboardPremisesPhotoKey) {
+      throw new ValidationError('Shop-board premises photo is required before submission');
+    }
+  }
+
   private resolveOnboardingStep(
     organization: OrganizationEntity,
     documents: OrganizationDocumentEntity[],
@@ -186,6 +193,29 @@ export class OrganizationOnboardingService {
     return 'review_submit';
   }
 
+  // Business details are followed by the shop-board upload. The persisted step remains
+  // shopboard_premises_photo until the upload has actually stored a photo key; only then can the
+  // UI resume at final review/submit. The review_submit fallback supports organizations created
+  // before the shop-board step was introduced.
+  private resolveNextStep(
+    onboardingStep: OrganizationOnboardingStep,
+    organization: OrganizationEntity,
+  ): OrganizationOnboardingStep {
+    if (
+      (onboardingStep === 'review_submit' || onboardingStep === 'shopboard_premises_photo') &&
+      !organization.shopboardPremisesPhotoKey
+    ) {
+      return 'shopboard_premises_photo';
+    }
+    if (
+      onboardingStep === 'review_submit' ||
+      (onboardingStep === 'shopboard_premises_photo' && organization.shopboardPremisesPhotoKey)
+    ) {
+      return 'review_submit';
+    }
+    return onboardingStep;
+  }
+
   private buildReviewData(
     organization: OrganizationEntity,
     documents: OrganizationDocumentEntity[],
@@ -205,6 +235,7 @@ export class OrganizationOnboardingService {
         pinCode: organization.pinCode,
       },
       referralCode: organization.referralCode?.code ?? null,
+      shopboardPremisesPhotoKey: organization.shopboardPremisesPhotoKey,
       documents: documents.map((document) => ({
         documentType: document.documentType,
         documentNumber: document.documentNumber,

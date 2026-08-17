@@ -6,6 +6,7 @@ export const UPLOAD_PURPOSES = [
   'trips/lr',
   'masters/vehicle',
   'masters/driver',
+  'organizations/shopboard-premises',
   'profile',
   'loads/invoice',
   'loads/eway-bill',
@@ -46,6 +47,13 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     keyPrefix: 'masters/driver',
+  },
+  // Photograph of the organization's physical shop board/premises, supplied after the
+  // organization application itself has been submitted for KYC.
+  'organizations/shopboard-premises': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    keyPrefix: 'organizations/shopboard-premises',
   },
   profile: {
     maxSizeBytes: 2 * 1024 * 1024,

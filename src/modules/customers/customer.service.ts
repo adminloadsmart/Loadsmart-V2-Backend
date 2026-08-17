@@ -27,6 +27,8 @@ export class CustomerService {
   ) {
     try {
       this.assertRole(role, CUSTOMER_CREATOR_ROLES);
+      if (await this.repository.findByMobile(tenantId, input.mobile))
+        throw new ConflictError(`A customer with mobile "${input.mobile}" already exists`);
       const status = role === ORG_ADMIN_ROLE ? 'active' : 'pending';
       const customer = await this.dataSource.transaction(async (manager) => {
         const value = await this.repository.create(tenantId, actorId, status, input, manager);
@@ -101,6 +103,12 @@ export class CustomerService {
       this.assertRole(role, [ORG_ADMIN_ROLE]);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Customer ${id} not found`);
+      if (
+        input.mobile &&
+        input.mobile !== existing.mobile &&
+        (await this.repository.findByMobile(tenantId, input.mobile))
+      )
+        throw new ConflictError(`A customer with mobile "${input.mobile}" already exists`);
       const updated = await this.dataSource.transaction(async (manager) => {
         const value = await this.repository.update(tenantId, id, actorId, input, manager);
         if (!value) throw new NotFoundError(`Customer ${id} not found`);

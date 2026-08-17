@@ -82,11 +82,16 @@ export class DriverRepository {
         ]
       : [base];
 
-    // The table renders DL verification, status and trip figures per row, so load them with the page
-    // rather than leaving the caller to fan out one request per driver.
+    // The table renders DL verification, status, trip figures and linked vehicle per row, so load
+    // them with the page rather than leaving the caller to fan out one request per driver.
     const [items, total] = await this.drivers.findAndCount({
       where,
-      relations: { operationalStatus: true, tripMetrics: true, verifications: true },
+      relations: {
+        operationalStatus: true,
+        tripMetrics: true,
+        verifications: true,
+        vehicleLinks: { vehicle: true },
+      },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

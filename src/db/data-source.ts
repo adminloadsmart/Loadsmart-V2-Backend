@@ -32,6 +32,7 @@ import { VehicleServiceUsageEntity } from '../modules/masters/entities/vehicle-s
 import { DriverOperationalStatusEntity } from '../modules/masters/entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../modules/masters/entities/driver-trip-metrics.entity';
 import { TruckTypeEntity } from '../modules/masters/entities/truck-type.entity';
+import { TruckTypeCatalogEntity } from '../modules/masters/entities/truck-type-catalog.entity';
 import { LoadingPointEntity } from '../modules/masters/entities/loading-point.entity';
 import { TransporterEntity } from '../modules/masters/entities/transporter.entity';
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
@@ -48,7 +49,9 @@ import { LoadActivityEntity } from '../modules/loads/entities/load-activity.enti
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
-  synchronize: !['staging', 'production'].includes(env.nodeEnv), // off on real servers, on everywhere else (local/dev/test) — see docs/rbac.md §9
+  // Schema changes are managed by migrations. Running synchronize before pending
+  // migrations can make partially-created legacy columns fail startup.
+  synchronize: false,
   logging: env.nodeEnv === 'development',
   entities: [
     OrganizationEntity,
@@ -81,6 +84,7 @@ export const AppDataSource = new DataSource({
     DriverOperationalStatusEntity,
     DriverTripMetricsEntity,
     TruckTypeEntity,
+    TruckTypeCatalogEntity,
     LoadingPointEntity,
     TransporterEntity,
     CustomerEntity,

@@ -37,7 +37,7 @@ export class TransporterImportService {
     const parsed = this.parse(buffer);
     const valid: { row: number; input: CreateTransporterInput }[] = [];
     const errors: TransporterImportRowError[] = [];
-    const names = new Set<string>();
+    const phones = new Set<string>();
 
     for (const item of parsed.rows) {
       const result = mastersValidators.createTransporter.safeParse({ body: item.input });
@@ -48,16 +48,15 @@ export class TransporterImportService {
         continue;
       }
       const input = result.data.body as CreateTransporterInput;
-      const normalizedName = input.name.toLowerCase();
-      if (names.has(normalizedName)) {
+      if (phones.has(input.phone)) {
         errors.push({
           row: item.row,
-          field: 'name',
-          message: 'Duplicate transporter name in this file',
+          field: 'phone',
+          message: 'Duplicate transporter phone in this file',
         });
         continue;
       }
-      names.add(normalizedName);
+      phones.add(input.phone);
       valid.push({ row: item.row, input });
     }
 
@@ -79,7 +78,7 @@ export class TransporterImportService {
         report.failed += 1;
         report.errors.push({
           row: item.row,
-          field: 'name',
+          field: 'phone',
           message: error instanceof Error ? error.message : 'Failed to create transporter',
         });
       }
