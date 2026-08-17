@@ -7,6 +7,9 @@ export const UPLOAD_PURPOSES = [
   'masters/vehicle',
   'masters/driver',
   'profile',
+  'loads/invoice',
+  'loads/eway-bill',
+  'loads/payment-proof',
 ] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
@@ -48,6 +51,24 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 2 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png'],
     keyPrefix: 'profile',
+  },
+  // Loads module (PRD §6.5) — tax invoice / e-way bill attached at Confirm Loading. Reuses
+  // `trips/pod`/`trips/lr` above for E-POD/E-LR, already at the same 5MB limit.
+  'loads/invoice': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    keyPrefix: 'loads/invoice',
+  },
+  'loads/eway-bill': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    keyPrefix: 'loads/eway-bill',
+  },
+  // Optional screenshot attached to an advance/balance payment record (PRD §6.6).
+  'loads/payment-proof': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    keyPrefix: 'loads/payment-proof',
   },
 };
 

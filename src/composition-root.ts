@@ -21,6 +21,7 @@ import { createAdminModule } from './modules/admin';
 import { createDashboardsModule } from './modules/dashboards';
 import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
+import { createLoadsModule } from './modules/loads';
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 
@@ -116,6 +117,23 @@ export function buildContainer(dataSource: DataSource): Container {
   // (Settings → Approvals aggregates pending customers alongside pending vehicles/drivers).
   const customers = createCustomersModule(dataSource, audit.service);
 
+  // Built after customers/masters/storage — the Load module (PRD §6) reads customers.service
+  // (unloading-point validation) and masters' vehicle/driver/transporter/truckType/loadingPoint/
+  // product services (capacity matching + master-record validation) and storage.service
+  // (invoice/e-way-bill/E-LR/E-POD uploads) directly, no gateway — same "consumer takes producer
+  // services as direct constructor args" pattern dashboards uses below.
+  const loads = createLoadsModule(dataSource, {
+    auditService: audit.service,
+    storageService: storage.service,
+    customerService: customers.service,
+    vehicleService: masters.vehicleService,
+    driverService: masters.driverService,
+    transporterService: masters.transporterService,
+    truckTypeService: masters.truckTypeService,
+    loadingPointService: masters.loadingPointService,
+    productService: masters.productService,
+  });
+
   // Last — reads other modules' services directly.
   const dashboards = createDashboardsModule({
     vehicleService: masters.vehicleService,
@@ -143,6 +161,7 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/dashboards', router: dashboards.router },
       { path: '/customers/import', router: customers.importRouter },
       { path: '/customers', router: customers.router },
+      { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
     ],
   };

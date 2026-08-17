@@ -223,6 +223,14 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       FILES_UPLOAD,
       FILES_READ,
       FILES_DELETE,
+      // Load module (PRD §6) — org_admin gets every stage's permission, same "full access to
+      // every org-scoped module" treatment as MASTERS_*/CUSTOMERS_* above. Without these, the org
+      // owner couldn't use their own organization's Load module once these gates went live —
+      // sales_cs/dispatch/documents_ops/finance_accounts each get one of these individually below.
+      REQUISITIONS_MANAGE,
+      DISPATCH_PLANNING_MANAGE,
+      LOADS_DOCUMENTS_MANAGE,
+      PAYMENTS_MANAGE,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
