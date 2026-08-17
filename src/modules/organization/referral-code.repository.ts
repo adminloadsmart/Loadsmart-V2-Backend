@@ -12,8 +12,7 @@ export class ReferralCodeRepository {
   async create(
     data: {
       code: string;
-      ownerUserId: string;
-      validFrom: string | null;
+      ownerUserId: string | null;
       validUntil: string | null;
       createdBy: string | null;
     },
@@ -91,14 +90,9 @@ export class ReferralCodeRepository {
     return { items, total };
   }
 
-  async revoke(id: string): Promise<ReferralCodeEntity | null> {
-    await this.repo.update({ id }, { revokedAt: new Date() });
-    return this.repo.findOneBy({ id });
-  }
-
   async update(
     id: string,
-    data: Partial<{ ownerUserId: string; validFrom: string | null; validUntil: string | null }>,
+    data: Partial<{ ownerUserId: string; validUntil: string | null; revokedAt: Date | null }>,
   ): Promise<ReferralCodeEntity | null> {
     await this.repo.update({ id }, data);
     return this.repo.findOneBy({ id });

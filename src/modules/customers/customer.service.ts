@@ -72,6 +72,26 @@ export class CustomerService {
       rethrow(error, 'Failed to fetch customer');
     }
   }
+
+  /**
+   * Open read (no role gate, unlike get() above) — for validating a customerId/deliveryPointId
+   * reference from another module before using it, the same "any authenticated org member can
+   * read master data, only writes are gated" convention masters/loading-point.service.ts's get()
+   * and masters/truck-type.service.ts's assertTruckTypeExists() already follow. Used by
+   * loads/requisition.service.ts
+   * returns `deliveryPoints` loaded so the caller can
+   * validate a delivery point belongs to this customer without a second query.
+   */
+  async assertActive(tenantId: string, id: string) {
+    try {
+      const value = await this.repository.findById(tenantId, id);
+      if (!value) throw new NotFoundError(`Customer ${id} not found`);
+      if (value.status !== 'active') throw new ConflictError(`Customer ${id} is not active`);
+      return value;
+    } catch (error) {
+      rethrow(error, 'Failed to verify customer is active');
+    }
+  }
   async update(
     tenantId: string,
     actorId: string,

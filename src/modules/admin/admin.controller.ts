@@ -10,6 +10,7 @@ import {
   OrganizationDocumentParams,
   OrganizationParams,
   ReferralCodeParams,
+  SetReferralCodeStatusInput,
   UpdateOrganizationInput,
   UpdateReferralCodeInput,
   VerifyOrganizationDocumentInput,
@@ -178,10 +179,11 @@ export class AdminController {
     respond(res, referralCode);
   };
 
-  revokeReferralCode = async (req: Request<ReferralCodeParams>, res: Response) => {
-    const referralCode = await this.adminService.revokeReferralCode(
+  setReferralCodeStatus = async (req: Request<ReferralCodeParams>, res: Response) => {
+    const referralCode = await this.adminService.setReferralCodeStatus(
       req.user!,
       req.params.referralCodeId,
+      req.body as SetReferralCodeStatusInput,
     );
     respond(res, referralCode);
   };

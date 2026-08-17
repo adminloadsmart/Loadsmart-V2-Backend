@@ -3,28 +3,30 @@ import { REFERRAL_CODE_REGEX } from './organization.constants';
 import { ReferralCodeEntity } from './entities/referral-code.entity';
 import { ReferralCodeRepository } from './referral-code.repository';
 
-export type ReferralCodeStatus = 'upcoming' | 'active' | 'expired' | 'revoked';
+export type ReferralCodeStatus = 'active' | 'expired' | 'revoked';
+
+// Subset of ReferralCodeStatus a caller can set directly via setStatus() — 'expired' stays
+// derived-only (from validUntil), never something PATCH .../status accepts.
+export const REFERRAL_CODE_SETTABLE_STATUSES = ['active', 'revoked'] as const;
+export type ReferralCodeSettableStatus = (typeof REFERRAL_CODE_SETTABLE_STATUSES)[number];
 
 /** Derives a code's current lifecycle state fresh on every read — unlike vehicle-document's
  *  `status` (recomputed only on write, so it can go stale between writes), a referral code can be
  *  redeemed on any calendar day, so this can't be a persisted, write-time-only column. */
 export function resolveReferralCodeStatus(entity: {
-  validFrom: string | null;
   validUntil: string | null;
   revokedAt: Date | null;
 }): ReferralCodeStatus {
   if (entity.revokedAt) return 'revoked';
 
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD — safe lexicographic compare against date-only columns
-  if (entity.validFrom && today < entity.validFrom) return 'upcoming';
   if (entity.validUntil && today > entity.validUntil) return 'expired';
   return 'active';
 }
 
 export interface CreateReferralCodeData {
   code: string;
-  ownerUserId: string;
-  validFrom: string | null;
+  ownerUserId: string | null;
   validUntil: string | null;
   createdBy: string | null;
 }
@@ -40,10 +42,6 @@ export class ReferralCodeService {
           'Referral code must be 4-40 characters, using only A-Z, 0-9, - and _',
         );
       }
-      if (input.validFrom && input.validUntil && input.validFrom > input.validUntil) {
-        throw new ValidationError('validUntil must be on or after validFrom');
-      }
-
       const existing = await this.referralCodeRepository.findByCode(code);
       if (existing) {
         throw new ConflictError(`Referral code "${code}" already exists`);
@@ -82,6 +80,9 @@ export class ReferralCodeService {
       const items = await this.referralCodeRepository.findByOwnerIds(ownerUserIds);
       const byOwner = new Map<string, Array<ReferralCodeEntity & { status: ReferralCodeStatus }>>();
       for (const item of items) {
+        // findByOwnerIds only returns rows WHERE owner_user_id IN (:...ownerUserIds), so
+        // item.ownerUserId can't actually be null here — guard exists to satisfy the nullable type.
+        if (!item.ownerUserId) continue;
         const withStatus = this.withStatus(item);
         const forOwner = byOwner.get(item.ownerUserId) ?? [];
         forOwner.push(withStatus);
@@ -93,39 +94,30 @@ export class ReferralCodeService {
     }
   }
 
-  async revoke(id: string): Promise<ReferralCodeEntity> {
+  /** Sets the code active or revoked directly, idempotently — setting the state to what it's
+   *  already in is not an error. Separate from update() below (owner/validity only) — see
+   *  AdminService.setReferralCodeStatus, the dedicated PATCH .../status action this backs. */
+  async setStatus(id: string, status: ReferralCodeSettableStatus): Promise<ReferralCodeEntity> {
     try {
-      const referralCode = await this.getById(id);
-      if (referralCode.revokedAt) {
-        throw new ConflictError(`Referral code ${id} is already revoked`);
-      }
-
-      const revoked = await this.referralCodeRepository.revoke(id);
-      if (!revoked) throw new NotFoundError(`Referral code ${id} not found`);
-      return revoked;
+      const updated = await this.referralCodeRepository.update(id, {
+        revokedAt: status === 'revoked' ? new Date() : null,
+      });
+      if (!updated) throw new NotFoundError(`Referral code ${id} not found`);
+      return updated;
     } catch (error) {
-      rethrow(error, 'Failed to revoke referral code');
+      rethrow(error, 'Failed to update referral code status');
     }
   }
 
   /** Partial update — owner reassignment and/or validity window. `code` itself is deliberately
    *  not editable here (it's already been shared with prospects; changing it would silently break
    *  outstanding copies) — create a new code instead. Any field omitted from `data` keeps its
-   *  current value; the validFrom/validUntil ordering check runs against the merged result, not
-   *  just whatever this call happens to touch. */
+   *  current value. */
   async update(
     id: string,
-    data: { ownerUserId?: string; validFrom?: string | null; validUntil?: string | null },
+    data: { ownerUserId?: string; validUntil?: string | null },
   ): Promise<ReferralCodeEntity> {
     try {
-      const existing = await this.getById(id);
-
-      const validFrom = data.validFrom !== undefined ? data.validFrom : existing.validFrom;
-      const validUntil = data.validUntil !== undefined ? data.validUntil : existing.validUntil;
-      if (validFrom && validUntil && validFrom > validUntil) {
-        throw new ValidationError('validUntil must be on or after validFrom');
-      }
-
       const updated = await this.referralCodeRepository.update(id, data);
       if (!updated) throw new NotFoundError(`Referral code ${id} not found`);
       return updated;
@@ -149,7 +141,7 @@ export class ReferralCodeService {
 
   /** Redemption entry point — used by AuthService.createOrganization at signup. Resolves a
    *  raw, user-supplied code string to its entity, or throws if it doesn't exist or isn't
-   *  currently usable (upcoming/expired/revoked all reject, with a status-specific message). */
+   *  currently usable (expired/revoked both reject, with a status-specific message). */
   async validateAndResolve(rawCode: string): Promise<ReferralCodeEntity> {
     try {
       const code = this.normalizeCode(rawCode);

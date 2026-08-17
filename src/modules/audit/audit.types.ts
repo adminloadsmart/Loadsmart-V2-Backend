@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = [
   'REFERRAL_CODE_CREATED',
   'REFERRAL_CODE_UPDATED',
   'REFERRAL_CODE_REVOKED',
+  'REFERRAL_CODE_REACTIVATED',
   'REFERRAL_CODE_DELETED',
   'STAFF_CREATED',
   'STAFF_UPDATED',
@@ -48,6 +49,18 @@ export const AUDIT_ACTIONS = [
   'PRODUCT_STATUS_UPDATED',
   'PRODUCT_DELETED',
   'PRODUCT_BULK_IMPORTED',
+  // Load module — the per-load chronological timeline lives in
+  // modules/loads/entities/load-activity.entity.ts; these mirror the same events into the
+  // shared platform-wide audit log, same convention every other write-heavy module follows.
+  'REQUISITION_CREATED',
+  'REQUISITION_CLOSED',
+  'DISPATCH_PLANNED',
+  'LOAD_ASSIGNED',
+  'LOAD_LOADING_CONFIRMED',
+  'LOAD_STATUS_UPDATED',
+  'LOAD_POD_RECORDED',
+  'LOAD_PAYMENT_RECORDED',
+  'LOAD_CLOSED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -62,5 +75,8 @@ export const AUDIT_RESOURCE_TYPES = [
   'loading_point',
   'transporter',
   'product',
+  'requisition',
+  'load',
+  'load_payment',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

@@ -94,8 +94,9 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.updateOrganization',
     ...adminOnly(
       "Update an organization's status directly — for lifecycle transitions outside the KYC review " +
-        'moment (e.g. suspending an active org, reactivating one). For the actual review decision, use ' +
-        'POST .../approve, .../reject, or .../deny below instead, which also validate documents and ' +
+        'moment (e.g. suspending an active org, reactivating one). `reason` is required for every ' +
+        'call, recorded as decisionReason. For the actual review decision, use POST ' +
+        '.../approve, .../reject, or .../deny below instead, which also validate documents and ' +
         "record why. Logged to this organization's audit trail either way.",
     ),
     request: {
@@ -422,11 +423,12 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.createReferralCode',
     ...adminOnly(
-      'Create a referral code and assign it to a sales rep (ownerUserId must hold the sales role). ' +
-        "Shared with prospects, then redeemed at signup via POST /v1/auth/organization's optional " +
-        'referralCode field to attribute the resulting organization to that rep. Both validFrom and ' +
-        'validUntil are optional (open-ended if omitted) — see GET .../{referralCodeId} for how the ' +
-        'computed status (upcoming/active/expired/revoked) is derived from them.',
+      'Create a referral code, optionally assigning it to a sales rep up front (ownerUserId, if ' +
+        'provided, must hold the sales role — the check is skipped when omitted; an unowned code ' +
+        'can be assigned later via PATCH). Shared with prospects, then redeemed at signup via ' +
+        "POST /v1/auth/organization's optional referralCode field to attribute the resulting " +
+        'organization to its owner. validUntil is optional (open-ended if omitted) — see GET ' +
+        '.../{referralCodeId} for how the computed status (active/expired/revoked) is derived from it.',
     ),
     request: { body: json(adminValidators.createReferralCode.shape.body) },
     responses: {
@@ -479,7 +481,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly(
       "Update a referral code's owner and/or validity window. The code string itself is not " +
         "editable — it may already be in a prospect's hands, so create a new code instead of " +
-        'changing this one. Omitted fields keep their current value.',
+        'changing this one. Omitted fields keep their current value. To revoke or reactivate the ' +
+        'code, use PATCH .../status instead.',
     ),
     request: {
       params: adminValidators.updateReferralCode.shape.params,
@@ -488,8 +491,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Updated referral code' },
       400: {
-        description:
-          'Validation failed, ownerUserId does not hold the sales role, or validUntil precedes validFrom',
+        description: 'Validation failed, or ownerUserId does not hold the sales role',
         ...errorContent,
       },
       404: { description: 'Referral code or ownerUserId not found', ...errorContent },
@@ -497,20 +499,26 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
-    method: 'post',
-    path: `${BASE}/referral-codes/{referralCodeId}/revoke`,
+    method: 'patch',
+    path: `${BASE}/referral-codes/{referralCodeId}/status`,
     tags: [TAGS.ADMIN],
-    operationId: 'admin.revokeReferralCode',
+    operationId: 'admin.setReferralCodeStatus',
     ...adminOnly(
-      'Revoke a referral code immediately, independent of its validUntil — it stops being ' +
-        'redeemable at signup right away. Preferred over DELETE for a code that may already be in ' +
-        'circulation, since the row (and any organization attribution already recorded) is kept.',
+      'Set a referral code active or revoked directly — idempotent, so setting it to its current ' +
+        'state is not an error. Revoking stops the code being redeemable at signup right away, ' +
+        'independent of its validUntil; reactivating undoes that. Separate from PATCH ' +
+        '.../referral-codes/{referralCodeId} above, which only touches owner/validity. Preferred ' +
+        'over DELETE for a code that may already be in circulation, since the row (and any ' +
+        'organization attribution already recorded) is kept either way.',
     ),
-    request: { params: adminValidators.revokeReferralCode.shape.params },
+    request: {
+      params: adminValidators.setReferralCodeStatus.shape.params,
+      body: json(adminValidators.setReferralCodeStatus.shape.body),
+    },
     responses: {
-      200: { description: 'Revoked referral code' },
+      200: { description: 'Updated referral code' },
+      400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Referral code not found', ...errorContent },
-      409: { description: 'Referral code is already revoked', ...errorContent },
     },
   });
 
@@ -522,7 +530,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly(
       'Permanently delete a referral code — only allowed while it has never been redeemed by any ' +
         'organization. Once an organization has signed up with it, its attribution history must be ' +
-        'preserved, so this is rejected and POST .../revoke is the only option at that point.',
+        'preserved, so this is rejected and PATCH .../status is the only option at that point.',
     ),
     request: { params: adminValidators.deleteReferralCode.shape.params },
     responses: {

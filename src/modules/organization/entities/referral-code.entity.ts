@@ -20,15 +20,12 @@ export class ReferralCodeEntity {
   @Column({ type: 'varchar', length: 40 })
   code!: string;
 
-  @Column({ name: 'owner_user_id', type: 'uuid' })
-  ownerUserId!: string;
+  @Column({ name: 'owner_user_id', type: 'uuid', nullable: true })
+  ownerUserId!: string | null;
 
-  @ManyToOne(() => UserEntity, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'owner_user_id' })
-  owner!: UserEntity;
-
-  @Column({ name: 'valid_from', type: 'date', nullable: true })
-  validFrom!: string | null;
+  owner!: UserEntity | null;
 
   @Column({ name: 'valid_until', type: 'date', nullable: true })
   validUntil!: string | null;

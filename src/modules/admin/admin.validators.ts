@@ -5,6 +5,7 @@ import {
 } from '../organization/entities/organization.entity';
 import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
+import { REFERRAL_CODE_SETTABLE_STATUSES } from '../organization/referral-code.service';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 
@@ -49,6 +50,7 @@ export const adminValidators = {
     params: organizationParams,
     body: z.object({
       status: z.enum(ORGANIZATION_STATUSES),
+      reason: z.string().min(1),
     }),
   }),
 
@@ -120,49 +122,30 @@ export const adminValidators = {
   }),
 
   // ownerUserId's role match (must be 'sales') can't be expressed at the schema level — see
-  // admin.service.ts's createReferralCode.
+  // admin.service.ts's createReferralCode. Only checked when ownerUserId is provided; a code can
+  // be created unassigned and given an owner later via updateReferralCode.
   createReferralCode: z.object({
-    body: z
-      .object({
-        code: z.string().regex(REFERRAL_CODE_REGEX, 'Invalid referral code format'),
-        ownerUserId: uuid,
-        validFrom: isoDate.optional(),
-        validUntil: isoDate.optional(),
-      })
-      .superRefine((data, ctx) => {
-        if (data.validFrom && data.validUntil && data.validFrom > data.validUntil) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['validUntil'],
-            message: 'validUntil must be on/after validFrom',
-          });
-        }
-      }),
+    body: z.object({
+      code: z.string().regex(REFERRAL_CODE_REGEX, 'Invalid referral code format'),
+      ownerUserId: uuid.optional(),
+      validUntil: isoDate.optional(),
+    }),
   }),
   listReferralCodes: z.object({ query: pagination.extend({ ownerUserId: uuid.optional() }) }),
   getReferralCode: z.object({ params: referralCodeParams }),
-  // Cross-field validFrom/validUntil ordering is only fully checked here when both are present in
-  // the same request — if only one is supplied, the merge against the existing stored value is
-  // checked service-side (see ReferralCodeService.update).
   updateReferralCode: z.object({
     params: referralCodeParams,
-    body: z
-      .object({
-        ownerUserId: uuid.optional(),
-        validFrom: isoDate.optional(),
-        validUntil: isoDate.optional(),
-      })
-      .superRefine((data, ctx) => {
-        if (data.validFrom && data.validUntil && data.validFrom > data.validUntil) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['validUntil'],
-            message: 'validUntil must be on/after validFrom',
-          });
-        }
-      }),
+    body: z.object({
+      ownerUserId: uuid.optional(),
+      validUntil: isoDate.optional(),
+    }),
   }),
-  revokeReferralCode: z.object({ params: referralCodeParams }),
+  // Separate from updateReferralCode above — a dedicated, idempotent active/revoked toggle, not
+  // an owner/validity edit. See ReferralCodeService.setStatus.
+  setReferralCodeStatus: z.object({
+    params: referralCodeParams,
+    body: z.object({ status: z.enum(REFERRAL_CODE_SETTABLE_STATUSES) }).strict(),
+  }),
   // Hard delete — blocked service-side (AdminService.deleteReferralCode) if any organization has
   // already redeemed the code.
   deleteReferralCode: z.object({ params: referralCodeParams }),

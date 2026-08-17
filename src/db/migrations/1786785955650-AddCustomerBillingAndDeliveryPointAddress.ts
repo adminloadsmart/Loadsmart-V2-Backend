@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * PRD §5.3.2 (FMS-MAS-CUS-001) — customers now carry a billing address, a "balance %" payment
+ *customers now carry a billing address, a "balance %" payment
  * term alongside the existing advance %/credit days, and each delivery point can carry a full
  * Address Component. `location` on customer_delivery_points is kept as-is (not replaced) — the
  * new address columns are additive, optional detail alongside it.
