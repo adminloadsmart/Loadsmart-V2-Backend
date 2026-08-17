@@ -175,11 +175,11 @@ export function createAdminRoutes(controller: AdminController): Router {
     validate(adminValidators.updateReferralCode),
     asyncHandler(controller.updateReferralCode),
   );
-  router.post(
-    '/referral-codes/:referralCodeId/revoke',
+  router.patch(
+    '/referral-codes/:referralCodeId/status',
     requirePermission(...adminOnly),
-    validate(adminValidators.revokeReferralCode),
-    asyncHandler(controller.revokeReferralCode),
+    validate(adminValidators.setReferralCodeStatus),
+    asyncHandler(controller.setReferralCodeStatus),
   );
   router.delete(
     '/referral-codes/:referralCodeId',

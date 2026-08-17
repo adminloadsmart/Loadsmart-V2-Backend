@@ -41,8 +41,7 @@ export interface ListStaffInput extends PaginationInput {
 
 export interface CreateReferralCodeInput {
   code: string;
-  ownerUserId: string;
-  validFrom?: string;
+  ownerUserId?: string;
   validUntil?: string;
 }
 
@@ -55,8 +54,11 @@ export type ReferralCodeParams = { referralCodeId: string };
 
 export interface UpdateReferralCodeInput {
   ownerUserId?: string;
-  validFrom?: string;
   validUntil?: string;
+}
+
+export interface SetReferralCodeStatusInput {
+  status: 'active' | 'revoked';
 }
 
 export type StaffParams = { staffId: string };
