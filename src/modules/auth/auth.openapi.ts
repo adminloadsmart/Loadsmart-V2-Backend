@@ -74,7 +74,8 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     description:
       'Requires the signup token returned by POST /v1/auth/signup, sent via the Authorization header ' +
       '(checked by verifySignupToken before this handler runs) — not the main access/refresh pair. ' +
-      'On first verification, creates the user if needed and returns onboarding state.',
+      'On first verification, creates the user if needed and returns onboarding state. An optional ' +
+      'password may be supplied; it must be at least 6 characters. If omitted, a password is generated.',
     security: [{ [signupTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyOtp.shape.body) },
     responses: {
@@ -169,6 +170,24 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid access token', ...errorContent },
       409: { description: 'Password already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/user-details`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.saveUserDetails',
+    summary: "Save the caller's first-step user details",
+    ...authenticated(
+      'Saves the authenticated user name and optional email, designation, and department. ' +
+        'Select Others for designation to provide manualDesignation.',
+    ),
+    request: { body: json(authValidators.saveUserDetails.shape.body) },
+    responses: {
+      200: { description: 'User details saved' },
+      400: { description: 'Validation failed', ...errorContent },
+      401: { description: 'Missing/invalid access token', ...errorContent },
     },
   });
 

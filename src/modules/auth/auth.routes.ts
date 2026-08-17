@@ -88,6 +88,11 @@ export function createAuthProtectedRoutes(controller: AuthController): Router {
     validate(authValidators.createPassword),
     asyncHandler(controller.createPassword),
   );
+  router.post(
+    '/user-details',
+    validate(authValidators.saveUserDetails),
+    asyncHandler(controller.saveUserDetails),
+  );
 
   return router;
 }

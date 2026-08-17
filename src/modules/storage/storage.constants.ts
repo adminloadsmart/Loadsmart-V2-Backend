@@ -49,7 +49,7 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
   // organization application itself has been submitted for KYC.
   'organizations/shopboard-premises': {
     maxSizeBytes: 5 * 1024 * 1024,
-    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'],
     keyPrefix: 'organizations/shopboard-premises',
   },
   profile: {

@@ -44,6 +44,15 @@ export class UserEntity {
   @Column({ type: 'varchar', nullable: true })
   email!: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  designation!: string | null;
+
+  @Column({ name: 'manual_designation', type: 'varchar', nullable: true })
+  manualDesignation!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  department!: string | null;
+
   @Column({ name: 'password_hash', type: 'varchar', nullable: true })
   passwordHash!: string | null;
 

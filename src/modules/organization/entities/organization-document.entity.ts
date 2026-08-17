@@ -35,6 +35,8 @@ export interface OrganizationDocumentInput {
   documentType: OrganizationDocumentType;
   documentNumber?: string;
   documentUrl?: string;
+  backFileKey?: string;
+  isGovtVerified?: boolean;
 }
 
 @Entity({ schema: 'auth', name: 'organization_documents' })
@@ -70,6 +72,12 @@ export class OrganizationDocumentEntity {
   // binary/file itself; this table only ever stores the reference string.
   @Column({ name: 'file_key', type: 'varchar', nullable: true })
   fileKey!: string | null;
+
+  @Column({ name: 'back_file_key', type: 'varchar', nullable: true })
+  backFileKey!: string | null;
+
+  @Column({ name: 'is_govt_verified', type: 'boolean', default: false })
+  isGovtVerified!: boolean;
 
   @Column({
     name: 'verification_status',

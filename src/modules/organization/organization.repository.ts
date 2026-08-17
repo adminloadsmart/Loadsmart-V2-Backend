@@ -131,9 +131,12 @@ export class OrganizationRepository {
       shopboardPremisesPhotoKey: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
+      landmark: string | null;
+      areaLocality: string | null;
       city: string | null;
       district: string | null;
       state: string | null;
+      pinCode: string | null;
       hasOwnFleet: boolean | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;

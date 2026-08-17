@@ -52,6 +52,8 @@ export class OrganizationDocumentRepository {
       if (existing) {
         existing.documentNumber = document.documentNumber ?? null;
         existing.fileKey = document.documentUrl ?? null;
+        existing.backFileKey = document.backFileKey ?? null;
+        existing.isGovtVerified = document.isGovtVerified ?? false;
         existing.verificationStatus = 'pending' as DocumentVerificationStatus;
         existing.verifiedAt = null;
         existing.updatedBy = actingUserId;
@@ -64,6 +66,8 @@ export class OrganizationDocumentRepository {
         documentType: document.documentType,
         documentNumber: document.documentNumber ?? null,
         fileKey: document.documentUrl ?? null,
+        backFileKey: document.backFileKey ?? null,
+        isGovtVerified: document.isGovtVerified ?? false,
         verificationStatus: 'pending' as DocumentVerificationStatus,
         isVaild: false,
         createdBy: actingUserId,

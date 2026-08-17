@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import { AuthService } from '../auth/auth.service';
 import { InviteOrganizationUserInput, ListOrganizationUsersInput } from '../auth/auth.types';
-import { SaveShopboardPremisesPhotoInput } from './organization.types';
 
 // The org onboarding endpoints — GET/POST /auth/organization, POST /auth/organization/business,
 // POST /auth/organization/submit. Kept mounted under /auth (see modules/organization/index.ts's
@@ -16,11 +15,7 @@ export class OrganizationController {
   constructor(private readonly authService: AuthService) {}
 
   getOrganization = async (req: Request, res: Response) => {
-    if (!req.user!.tenantId) {
-      respond(res, null); // hasn't completed their company profile yet — no organization exists
-      return;
-    }
-    const organization = await this.authService.getOrganization(req.user!.tenantId);
+    const organization = await this.authService.getOrganizationForUser(req.user!);
     respond(res, organization);
   };
 
@@ -34,21 +29,21 @@ export class OrganizationController {
   };
 
   saveBusinessDetails = async (req: Request, res: Response) => {
-    const result = await this.authService.saveBusinessDetails(req.user!, req.body);
+    const files = (req.files ?? {}) as {
+      documentFront?: Express.Multer.File[];
+      documentBack?: Express.Multer.File[];
+      shopPremisesPhoto?: Express.Multer.File[];
+    };
+    const result = await this.authService.saveBusinessDetails(req.user!, req.body, {
+      documentFront: files.documentFront![0],
+      documentBack: files.documentBack?.[0],
+      shopPremisesPhoto: files.shopPremisesPhoto![0],
+    });
     respond(res, result);
   };
 
   submitOrganization = async (req: Request, res: Response) => {
     const result = await this.authService.submitOrganization(req.user!, req.body);
-    respond(res, result);
-  };
-
-  saveShopboardPremisesPhoto = async (req: Request, res: Response) => {
-    const result = await this.authService.saveShopboardPremisesPhoto(
-      req.user!,
-      req.body as SaveShopboardPremisesPhotoInput,
-      req.file!,
-    );
     respond(res, result);
   };
 

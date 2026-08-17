@@ -17,7 +17,11 @@ export class AuthController {
 
   verifyOtp = async (req: Request, res: Response) => {
     const { phoneNumber } = req.signupPayload!;
-    const tokens = await this.authService.verifyOtp({ phoneNumber, otp: req.body.otp });
+    const tokens = await this.authService.verifyOtp({
+      phoneNumber,
+      otp: req.body.otp,
+      password: req.body.password,
+    });
     respond(res, tokens);
   };
 
@@ -34,6 +38,11 @@ export class AuthController {
 
   createPassword = async (req: Request, res: Response) => {
     const result = await this.authService.createPassword(req.user!, req.body);
+    respond(res, result);
+  };
+
+  saveUserDetails = async (req: Request, res: Response) => {
+    const result = await this.authService.saveUserDetails(req.user!, req.body);
     respond(res, result);
   };
 

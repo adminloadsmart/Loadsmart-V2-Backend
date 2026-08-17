@@ -52,12 +52,12 @@ import {
   RefreshInput,
   LogoutInput,
   CreatePasswordInput,
+  SaveUserDetailsInput,
 } from './auth.types';
 import {
   SaveCompanyDetailsInput,
   SaveBusinessDetailsInput,
   SubmitOrganizationInput,
-  SaveShopboardPremisesPhotoInput,
   OnboardingStatus,
   OnboardingStep,
   OrganizationOnboardingProgress,
@@ -133,7 +133,7 @@ export class AuthService {
   }
 
   async verifyOtp(input: VerifyOtpInput) {
-    const { phoneNumber, otp } = input;
+    const { phoneNumber, otp, password: requestedPassword } = input;
 
     const redisKey = `signup:${phoneNumber}`;
     const attemptsKey = `signup:${phoneNumber}:attempts`;
@@ -166,7 +166,7 @@ export class AuthService {
     let user = await this.authRepository.findUserByPhone(phoneNumber);
     if (!user) {
       const roleId = await this.roleService.findRoleIdByName(ORG_ADMIN_ROLE);
-      const password = this.generatePassword();
+      const password = requestedPassword ?? this.generatePassword();
       const passwordHash = await bcrypt.hash(password, 10);
       user = await this.authRepository.createUser({
         phoneNumber,
@@ -238,6 +238,25 @@ export class AuthService {
     return { success: true, hasPassword: true };
   }
 
+  async saveUserDetails(user: AuthenticatedUser, input: SaveUserDetailsInput) {
+    const updated = await this.authRepository.updateUser(user.id, {
+      fullName: input.name,
+      email: input.email ?? null,
+      designation: input.designation ?? null,
+      manualDesignation: input.manualDesignation ?? null,
+      department: input.department ?? null,
+    });
+
+    return {
+      id: updated.id,
+      name: updated.fullName,
+      email: updated.email,
+      designation: updated.designation,
+      manualDesignation: updated.manualDesignation,
+      department: updated.department,
+    };
+  }
+
   async getProfile(userId: string) {
     const user = await this.getUserById(userId);
     return {
@@ -246,6 +265,9 @@ export class AuthService {
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
       email: user.email,
+      designation: user.designation,
+      manualDesignation: user.manualDesignation,
+      department: user.department,
       role: user.role.name,
       coverage: user.coverage,
       permissions: await this.roleService.getEffectivePermissions(user.id),
@@ -672,6 +694,27 @@ export class AuthService {
     return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
   }
 
+  async getOrganizationForUser(user: AuthenticatedUser) {
+    const currentUser = await this.getUserById(user.id);
+    const progress = await this.getOnboardingProgress(currentUser);
+    const userDetails = {
+      id: currentUser.id,
+      phoneNumber: currentUser.phoneNumber,
+      name: currentUser.fullName,
+      email: currentUser.email,
+      designation: currentUser.designation,
+      manualDesignation: currentUser.manualDesignation,
+      department: currentUser.department,
+    };
+
+    if (!user.tenantId) {
+      return { ...progress, user: userDetails };
+    }
+
+    const organization = await this.getOrganization(user.tenantId);
+    return { ...organization, user: userDetails };
+  }
+
   async createOrganization(
     userId: string,
     tenantId: string | null,
@@ -684,9 +727,14 @@ export class AuthService {
     const profileData = {
       name: input.companyLegalName,
       companyLegalName: input.companyLegalName,
-      orgAdminName: input.contactPersonName,
-      operationalCity: input.operatingCity,
       hasOwnFleet: input.ownsFleet,
+      addressLine1: input.address.addressLine1,
+      addressLine2: input.address.addressLine2 ?? null,
+      landmark: input.address.landmark ?? null,
+      areaLocality: input.address.areaLocality,
+      city: input.address.city,
+      state: input.address.state,
+      pinCode: input.address.pinCode,
       referralCodeId,
     };
 
@@ -737,7 +785,15 @@ export class AuthService {
     });
   }
 
-  async saveBusinessDetails(user: AuthenticatedUser, input: SaveBusinessDetailsInput) {
+  async saveBusinessDetails(
+    user: AuthenticatedUser,
+    input: SaveBusinessDetailsInput,
+    files: {
+      documentFront: Express.Multer.File;
+      documentBack?: Express.Multer.File;
+      shopPremisesPhoto: Express.Multer.File;
+    },
+  ) {
     if (!user.tenantId) {
       throw new AuthorizationError('Missing organization context');
     }
@@ -750,33 +806,69 @@ export class AuthService {
       throw new AuthorizationError('Organization has already been submitted');
     }
 
+    const [documentFront, documentBack, shopPremisesPhoto] = await Promise.all([
+      this.storageService.uploadTenantFile(
+        user.tenantId,
+        user.id,
+        {
+          purpose: 'kyc',
+          fileName: files.documentFront.originalname,
+          mimeType: files.documentFront.mimetype,
+          sizeBytes: files.documentFront.size,
+        },
+        files.documentFront.buffer,
+      ),
+      files.documentBack
+        ? this.storageService.uploadTenantFile(
+            user.tenantId,
+            user.id,
+            {
+              purpose: 'kyc',
+              fileName: files.documentBack.originalname,
+              mimeType: files.documentBack.mimetype,
+              sizeBytes: files.documentBack.size,
+            },
+            files.documentBack.buffer,
+          )
+        : Promise.resolve(null),
+      this.storageService.uploadTenantFile(
+        user.tenantId,
+        user.id,
+        {
+          purpose: 'organizations/shopboard-premises',
+          fileName: files.shopPremisesPhoto.originalname,
+          mimeType: files.shopPremisesPhoto.mimetype,
+          sizeBytes: files.shopPremisesPhoto.size,
+        },
+        files.shopPremisesPhoto.buffer,
+      ),
+    ]);
+
     return this.dataSource.transaction(async (manager) => {
       const organization = await this.organizationService.updateOrganization(
         user.tenantId!,
         {
-          registeredBusinessName: input.registeredBusinessName,
-          addressLine1: input.address.addressLine1,
-          addressLine2: input.address.addressLine2 ?? null,
-          city: input.address.city,
-          district: input.address.district,
-          state: input.address.state,
-          pinCode: input.address.pinCode,
+          shopboardPremisesPhotoKey: shopPremisesPhoto.key,
           status: current.status === 'draft' ? 'partial_pending' : current.status,
-          onboardingStep: this.organizationOnboardingService.nextStepAfterBusinessDetails(
-            current.onboardingStep,
-          ),
+          onboardingStep: 'review_submit',
         },
         manager,
       );
 
-      const documents = input.documents?.length
-        ? await this.organizationDocumentService.upsertDocuments(
-            user.tenantId!,
-            user.id,
-            input.documents,
-            manager,
-          )
-        : await this.organizationDocumentService.listByOrganization(user.tenantId!);
+      const documents = await this.organizationDocumentService.upsertDocuments(
+        user.tenantId!,
+        user.id,
+        [
+          {
+            documentType: input.documentType,
+            documentNumber: input.documentNo,
+            documentUrl: documentFront.key,
+            ...(documentBack ? { backFileKey: documentBack.key } : {}),
+            isGovtVerified: input.isGovtVerified === 'Yes',
+          },
+        ],
+        manager,
+      );
 
       return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     });
@@ -787,12 +879,6 @@ export class AuthService {
       throw new AuthorizationError('Missing organization context');
     }
 
-    // Referral attribution may have been captured during createOrganization. Do not
-    // clear it merely because the final submission request omits the optional code.
-    const referralCodeId = input.referralCode
-      ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
-      : undefined;
-
     const current = await this.organizationService.getOrganizationStatus(user.tenantId);
     if (!isTenantAccessible(current.status)) {
       throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
@@ -801,21 +887,14 @@ export class AuthService {
       throw new AuthorizationError('Organization has already been submitted');
     }
 
+    const referralCodeId = input.referralCode
+      ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
+      : undefined;
+
     return this.dataSource.transaction(async (manager) => {
       const organization = await this.organizationService.updateOrganization(
         user.tenantId!,
         {
-          companyLegalName: input.companyLegalName,
-          orgAdminName: input.contactPersonName,
-          operationalCity: input.operatingCity,
-          hasOwnFleet: input.ownsFleet,
-          registeredBusinessName: input.registeredBusinessName,
-          addressLine1: input.address.addressLine1,
-          addressLine2: input.address.addressLine2 ?? null,
-          city: input.address.city,
-          district: input.address.district,
-          state: input.address.state,
-          pinCode: input.address.pinCode,
           ...(referralCodeId !== undefined ? { referralCodeId } : {}),
           status: current.status === 'draft' ? 'partial_pending' : current.status,
           onboardingStep: 'review_submit',
@@ -823,12 +902,7 @@ export class AuthService {
         manager,
       );
 
-      const documents = await this.organizationDocumentService.upsertDocuments(
-        user.tenantId!,
-        user.id,
-        input.documents,
-        manager,
-      );
+      const documents = await this.organizationDocumentService.listByOrganization(user.tenantId!);
 
       this.organizationOnboardingService.assertReadyForSubmission(organization, documents);
 
@@ -852,44 +926,6 @@ export class AuthService {
 
       return this.organizationOnboardingService.buildOrganizationResponse(withStage, documents);
     });
-  }
-
-  async saveShopboardPremisesPhoto(
-    user: AuthenticatedUser,
-    input: SaveShopboardPremisesPhotoInput,
-    file: Express.Multer.File,
-  ) {
-    if (!user.tenantId) {
-      throw new AuthorizationError('Missing organization context');
-    }
-
-    const current = await this.organizationService.getOrganizationStatus(user.tenantId);
-    if (!isTenantAccessible(current.status)) {
-      throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
-    }
-    if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
-      throw new AuthorizationError('Organization has already been submitted');
-    }
-    const uploadedFile = await this.storageService.uploadTenantFile(
-      user.tenantId,
-      user.id,
-      {
-        purpose: input.purpose,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-      },
-      file.buffer,
-    );
-
-    const [organization, documents] = await Promise.all([
-      this.organizationService.updateOrganization(user.tenantId, {
-        shopboardPremisesPhotoKey: uploadedFile.key,
-        onboardingStep: 'shopboard_premises_photo',
-      }),
-      this.organizationDocumentService.listByOrganization(user.tenantId),
-    ]);
-    return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
   }
 
   private async requestOtpCode(input: {
