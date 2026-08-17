@@ -109,6 +109,8 @@ export class OrganizationRepository {
 
     const [items, total] = await this.repo.findAndCount({
       where,
+      relations: { referralCode: true },
+      select: { referralCode: { id: true, code: true } },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

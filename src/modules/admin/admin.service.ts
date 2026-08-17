@@ -28,6 +28,7 @@ import {
   ListReferralCodesInput,
   ListStaffInput,
   OrganizationDecisionReasonInput,
+  SetReferralCodeStatusInput,
   UpdateOrganizationInput,
   UpdateReferralCodeInput,
   VerifyOrganizationDocumentInput,
@@ -136,15 +137,18 @@ export class AdminService {
   ) {
     try {
       const before = await this.organizationService.getOrganizationStatus(organizationId);
-      const organization = await this.organizationService.updateOrganization(organizationId, input);
+      const organization = await this.organizationService.updateOrganization(organizationId, {
+        status: input.status,
+        decisionReason: input.reason,
+      });
 
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
         action: 'ORGANIZATION_STATUS_UPDATED',
         resourceType: 'organization',
-        oldData: { status: before.status },
-        newData: { status: organization.status },
+        oldData: { status: before.status, decisionReason: before.decisionReason },
+        newData: { status: organization.status, decisionReason: organization.decisionReason },
       });
 
       return organization;
@@ -511,21 +515,24 @@ export class AdminService {
     }
   }
 
-  /** Mirrors assignReviewer's role-check pattern above: the owner must actually hold the 'sales'
-   *  role, checked here (not at the schema level, same reasoning as assignReviewer). */
+  /** Mirrors assignReviewer's role-check pattern above: when an owner is provided, they must
+   *  actually hold the 'sales' role, checked here (not at the schema level, same reasoning as
+   *  assignReviewer). ownerUserId is optional — a code can be created unassigned and given an
+   *  owner later via updateReferralCode. */
   async createReferralCode(actingUser: AuthenticatedUser, input: CreateReferralCodeInput) {
     try {
-      const owner = await this.authService.getUserById(input.ownerUserId);
-      if (owner.role.name !== SALES_ROLE) {
-        throw new ValidationError(
-          `User ${input.ownerUserId} does not have the "${SALES_ROLE}" role`,
-        );
+      if (input.ownerUserId) {
+        const owner = await this.authService.getUserById(input.ownerUserId);
+        if (owner.role.name !== SALES_ROLE) {
+          throw new ValidationError(
+            `User ${input.ownerUserId} does not have the "${SALES_ROLE}" role`,
+          );
+        }
       }
 
       const referralCode = await this.referralCodeService.createCode({
         code: input.code,
-        ownerUserId: input.ownerUserId,
-        validFrom: input.validFrom ?? null,
+        ownerUserId: input.ownerUserId ?? null,
         validUntil: input.validUntil ?? null,
         createdBy: actingUser.id,
       });
@@ -539,7 +546,6 @@ export class AdminService {
           id: referralCode.id,
           code: referralCode.code,
           ownerUserId: referralCode.ownerUserId,
-          validFrom: referralCode.validFrom,
           validUntil: referralCode.validUntil,
         },
       });
@@ -569,8 +575,9 @@ export class AdminService {
   }
 
   /** Owner reassignment (if any) is re-checked against the 'sales' role the same way
-   *  createReferralCode checks it — a partial body that only touches validFrom/validUntil skips
-   *  this check entirely. */
+   *  createReferralCode checks it — a partial body that only touches validUntil skips this check
+   *  entirely. Owner/validity only — for revoking/reactivating the code, see
+   *  setReferralCodeStatus below instead. */
   async updateReferralCode(
     actingUser: AuthenticatedUser,
     referralCodeId: string,
@@ -597,12 +604,10 @@ export class AdminService {
         resourceType: 'referral_code',
         oldData: {
           ownerUserId: before.ownerUserId,
-          validFrom: before.validFrom,
           validUntil: before.validUntil,
         },
         newData: {
           ownerUserId: updated.ownerUserId,
-          validFrom: updated.validFrom,
           validUntil: updated.validUntil,
         },
       });
@@ -613,29 +618,35 @@ export class AdminService {
     }
   }
 
-  async revokeReferralCode(actingUser: AuthenticatedUser, referralCodeId: string) {
+  /** Sets a referral code active or revoked directly — idempotent (setting it to its current
+   *  state is not an error), and separate from updateReferralCode above (owner/validity only). */
+  async setReferralCodeStatus(
+    actingUser: AuthenticatedUser,
+    referralCodeId: string,
+    input: SetReferralCodeStatusInput,
+  ) {
     try {
       const before = await this.referralCodeService.getById(referralCodeId);
-      const after = await this.referralCodeService.revoke(referralCodeId);
+      const updated = await this.referralCodeService.setStatus(referralCodeId, input.status);
 
       await this.auditService.log({
         tenantId: null,
         userId: actingUser.id,
-        action: 'REFERRAL_CODE_REVOKED',
+        action: input.status === 'revoked' ? 'REFERRAL_CODE_REVOKED' : 'REFERRAL_CODE_REACTIVATED',
         resourceType: 'referral_code',
         oldData: { revokedAt: before.revokedAt },
-        newData: { revokedAt: after.revokedAt },
+        newData: { revokedAt: updated.revokedAt },
       });
 
-      return after;
+      return updated;
     } catch (error) {
-      rethrow(error, 'Failed to revoke referral code');
+      rethrow(error, 'Failed to update referral code status');
     }
   }
 
   /** Hard delete — only allowed while the code has never been redeemed by an organization (see
    *  OrganizationService.countByReferralCodeId). Once it has, the row has to stay for
-   *  attribution/audit history — POST .../revoke is the only option at that point. */
+   *  attribution/audit history — PATCH .../status is the only option at that point. */
   async deleteReferralCode(actingUser: AuthenticatedUser, referralCodeId: string) {
     try {
       const before = await this.referralCodeService.getById(referralCodeId);
