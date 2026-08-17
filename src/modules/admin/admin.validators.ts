@@ -50,6 +50,7 @@ export const adminValidators = {
     params: organizationParams,
     body: z.object({
       status: z.enum(ORGANIZATION_STATUSES),
+      reason: z.string().min(1),
     }),
   }),
 
