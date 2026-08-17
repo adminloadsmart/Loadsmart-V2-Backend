@@ -49,6 +49,15 @@ import { LoadActivityEntity } from '../modules/loads/entities/load-activity.enti
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: env.databaseUrl,
+  // Every migration already schema-qualifies everything it creates ("auth"."...",
+  // "masters"."...", etc.) except TypeORM's own migrations-bookkeeping table, which
+  // defaults to whatever schema is first in the connecting role's search_path —
+  // conventionally "public". Pointing that at "auth" instead (a schema every migration
+  // already proves the app's role has full rights to) avoids ever needing CREATE/USAGE on
+  // "public", which isn't guaranteed to be granted (Postgres 15+ no longer grants it to
+  // everyone by default, and scoped-privilege roles on managed/production databases often
+  // don't have it at all) — see "permission denied for schema public" during migration:run.
+  schema: 'auth',
   // Schema changes are managed by migrations. Running synchronize before pending
   // migrations can make partially-created legacy columns fail startup.
   synchronize: false,
