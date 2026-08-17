@@ -78,8 +78,8 @@ export class CustomerService {
    * reference from another module before using it, the same "any authenticated org member can
    * read master data, only writes are gated" convention masters/loading-point.service.ts's get()
    * and masters/truck-type.service.ts's assertTruckTypeExists() already follow. Used by
-   * loads/requisition.service.ts (PRD FMS-LOAD-012: only approved/active master records,
-   * customer included, can be selected) — returns `deliveryPoints` loaded so the caller can
+   * loads/requisition.service.ts
+   * returns `deliveryPoints` loaded so the caller can
    * validate a delivery point belongs to this customer without a second query.
    */
   async assertActive(tenantId: string, id: string) {

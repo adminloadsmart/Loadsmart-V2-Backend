@@ -9,9 +9,6 @@ import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
 import { RecordAdvanceInput, RecordBalanceInput } from './utils/load-payment.interface';
 
-/** freightValue is either a flat total or a per-tonne rate (see PRD §6.4's freightType), so the
- *  share amount for a given percentage differs accordingly. No adjustments modeled in this build
- *  — PRD §6.9's "less any adjustments" is a later refinement of the Billing module (§7). */
 function computeShareAmount(load: LoadEntity, percentage: string): string {
   const pct = Number(percentage) / 100;
   const freightValue = Number(load.freightValue ?? 0);
@@ -35,7 +32,7 @@ export class LoadPaymentService {
     return load;
   }
 
-  /** FMS-PAY-001/002 — market loads only, and only once loading is confirmed. */
+  /** Market loads only, and only once loading is confirmed. */
   async recordAdvance(
     tenantId: string,
     actorId: string,
@@ -97,7 +94,7 @@ export class LoadPaymentService {
     }
   }
 
-  /** FMS-PAY-010/011 — market loads only, once E-POD is received; due date derives from the
+  /** Market loads only, once E-POD is received; due date derives from the
    *  transporter's credit terms. Recording balance closes the load once advance is also paid. */
   async recordBalance(
     tenantId: string,
@@ -118,11 +115,13 @@ export class LoadPaymentService {
       }
 
       const transporter = load.transporterId
-        ? await this.transporterService.get(tenantId, load.transporterId)
+        ? await this.transporterService.getTransporter(tenantId, load.transporterId)
         : null;
       const dueDate = transporter
         ? toDateString(
-            new Date(load.deliveredAt.getTime() + transporter.creditDays * 24 * 60 * 60 * 1000),
+            new Date(
+              load.deliveredAt.getTime() + (transporter.creditDays ?? 1) * 24 * 60 * 60 * 1000,
+            ),
           )
         : null;
 
@@ -165,7 +164,7 @@ export class LoadPaymentService {
         newData: { id: payment.id, loadId, paymentType: 'balance', amount, dueDate },
       });
 
-      // PRD §6.1A — Closed requires Delivered + (for market) both advance and balance paid.
+      // Closed requires Delivered + (for market) both advance and balance paid.
       if (load.advancePaidAt) {
         const closed = await this.loadRepository.update(tenantId, loadId, {
           status: 'closed',

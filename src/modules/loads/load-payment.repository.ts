@@ -44,7 +44,7 @@ export class LoadPaymentRepository {
     return this.payments.find({ where: { tenantId, loadId }, order: { createdAt: 'ASC' } });
   }
 
-  /** Keeps the future §7A transporter-payables view queryable by transporterId without a join
+  /** Keeps a future transporter-payables view queryable by transporterId without a join
    *  through loads — see LoadPaymentEntity's doc comment on the denormalized transporterId. */
   async listByTransporter(
     tenantId: string,

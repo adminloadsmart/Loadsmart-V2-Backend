@@ -15,8 +15,8 @@ import { ProductEntity } from '../../masters/entities/product.entity';
 import { REQUISITION_STATUSES, RequisitionStatus } from '../utils/loads.types';
 
 /**
- * A Requisition captures the complete customer order (PRD §6.2) — Sales creates it; Dispatch
- * Planning (§6.3) splits it into one or more Loads (one truck = one load, see load.entity.ts).
+ * A Requisition captures the complete customer order — Sales creates it; Dispatch
+ * Planning splits it into one or more Loads (one truck = one load, see load.entity.ts).
  * No delete flow — a requisition is either open, fully dispatched, or manually closed.
  */
 @Entity({ schema: 'loads', name: 'requisitions' })
@@ -71,7 +71,7 @@ export class RequisitionEntity {
   @Column({ name: 'expected_delivery_date', type: 'date' })
   expectedDeliveryDate!: string;
 
-  /** The customer's own PO/SO reference. Tax invoice numbers are captured per load (§6.5), not here. */
+  /** The customer's own PO/SO reference. Tax invoice numbers are captured per load, not here. */
   @Column({ name: 'customer_po_number', type: 'varchar', length: 100 })
   customerPoNumber!: string;
 

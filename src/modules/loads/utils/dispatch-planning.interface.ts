@@ -1,4 +1,4 @@
-/** One planned truck line on the "Plan Dispatch" screen (PRD §6.3). */
+/** One planned truck line on the "Plan Dispatch" screen. */
 export interface OwnFleetTruckLineInput {
   sourceType: 'own_fleet';
   vehicleId: string;

@@ -31,7 +31,7 @@ export class LoadsController {
     private readonly loadActivityService: LoadActivityService,
   ) {}
 
-  // --- Requisitions (§6.2) ---
+  // --- Requisitions ---
 
   createRequisition = async (req: Request, res: Response) => {
     const requisition = await this.requisitionService.create(
@@ -68,7 +68,7 @@ export class LoadsController {
     respond(res, requisition);
   };
 
-  // --- Dispatch Planning (§6.3) ---
+  // --- Dispatch Planning ---
 
   planDispatch = async (req: Request<RequisitionParams>, res: Response) => {
     const result = await this.dispatchPlanningService.planDispatch(
@@ -80,7 +80,7 @@ export class LoadsController {
     respond(res, result, 201);
   };
 
-  // --- Loads (§6.4-§6.9, §6.11) ---
+  // --- Loads ---
 
   listLoads = async (req: Request, res: Response) => {
     const loads = await this.loadService.list(
@@ -149,7 +149,7 @@ export class LoadsController {
     respond(res, activities);
   };
 
-  // --- Payments (§6.6/§6.9) ---
+  // --- Payments ---
 
   recordAdvancePayment = async (req: Request<LoadParams>, res: Response) => {
     const payment = await this.loadPaymentService.recordAdvance(

@@ -28,7 +28,7 @@ export class DispatchPlanningService {
   ) {}
 
   /**
-   * PRD §6.3 — Dispatch picks a requisition and plans how it moves: one line per planned truck
+   * Dispatch picks a requisition and plans how it moves: one line per planned truck
    * (own fleet or market). On submit, the requisition is split into loads — one load per truck
    * (FMS-DSP-R003). Capacity under/over/exact are all allowed (FMS-DSP-R001/R002); the summary is
    * informational, not a hard block, so a requisition can be dispatched in multiple rounds.
@@ -161,7 +161,7 @@ export class DispatchPlanningService {
       return { rows: [row], capacityTonnes: Number(vehicle.capacityTons) };
     }
 
-    await this.transporterService.get(tenantId, line.transporterId);
+    await this.transporterService.getTransporter(tenantId, line.transporterId);
     await this.truckTypeService.assertTruckTypeExists(tenantId, line.truckTypeId);
 
     const row: CreateLoadData = {

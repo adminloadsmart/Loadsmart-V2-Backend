@@ -76,7 +76,7 @@ function getOpenApiDocument() {
         {
           name: TAGS.LOADS,
           description:
-            'Requisition → Dispatch Planning → Load Assignment → Loading & Documents → Tracking → E-POD → Advance/Balance Payment (PRD §6)',
+            'Requisition → Dispatch Planning → Load Assignment → Loading & Documents → Tracking → E-POD → Advance/Balance Payment',
         },
       ],
     });

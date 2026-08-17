@@ -1,5 +1,5 @@
 /**
- * Load module (PRD §6) value sets — each declared once as a `const` tuple, same pattern as
+ * Load module value sets — each declared once as a `const` tuple, same pattern as
  * masters/utils/vehicle.type.ts, so the entity's `@Column({ enum: [...] })`, validators and
  * services can never drift apart.
  */
@@ -14,8 +14,8 @@ export const FREIGHT_TYPES = ['per_ton', 'flat'] as const;
 export type FreightType = (typeof FREIGHT_TYPES)[number];
 
 /**
- * The load's single, unified movement status (PRD §6.1A) — Advance/Balance payment are tracked
- * separately (LoadEntity.advancePaidAt/balancePaidAt) since PRD rule FMS-LOAD-006 has them run in
+ * The load's single, unified movement status — Advance/Balance payment are tracked
+ * separately (LoadEntity.advancePaidAt/balancePaidAt) since they run in
  * parallel with movement rather than block it; see loads/entities/load.entity.ts's doc comment.
  *
  * Order is significant: LoadService.updateStatus walks this array by index to reject skipping
@@ -33,8 +33,8 @@ export const LOAD_STATUSES = [
 ] as const;
 export type LoadStatus = (typeof LOAD_STATUSES)[number];
 
-/** The subset of LOAD_STATUSES settable via PATCH /loads/:id/status (manual tracking, PRD §6.7 —
- *  this build has no GPS/geofence automation, see the Load module plan's scope boundary).
+/** The subset of LOAD_STATUSES settable via PATCH /loads/:id/status (manual tracking —
+ *  this build has no GPS/geofence automation).
  *  'delivered' is only reachable via uploadPod(); 'closed' only via the payment/POD flows. */
 export const MANUAL_TRACKING_STATUSES = [
   'at_plant',

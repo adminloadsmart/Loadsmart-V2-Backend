@@ -22,8 +22,8 @@ export class RequisitionService {
   ) {}
 
   /**
-   * Captures the complete customer order (PRD §6.2) — every referenced master record must be
-   * approved/active (FMS-LOAD-012) before Sales can create a requisition against it.
+   * Captures the complete customer order — every referenced master record must be
+   * approved/active before Sales can create a requisition against it.
    */
   async create(
     tenantId: string,
@@ -95,7 +95,7 @@ export class RequisitionService {
     }
   }
 
-  /** §6.10 — dispatched-vs-remaining tonnage plus every child load's current status. */
+  /** Dispatched-vs-remaining tonnage plus every child load's current status. */
   async get(
     tenantId: string,
     id: string,
@@ -123,7 +123,7 @@ export class RequisitionService {
     }
   }
 
-  /** FMS-REQ-012 — manual close with a reason (e.g. customer cancelled the remaining quantity). */
+  /** Manual close with a reason (e.g. customer cancelled the remaining quantity). */
   async close(
     tenantId: string,
     actorId: string,

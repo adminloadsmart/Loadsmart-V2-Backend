@@ -23,14 +23,14 @@ import {
 } from '../utils/loads.types';
 
 /**
- * One truck's worth of movement, split off a Requisition at Dispatch Planning (PRD §6.3 —
- * 1 truck = 1 load). This is the "trip" object — PRD rule FMS-LOAD-004: there is no separate
+ * One truck's worth of movement, split off a Requisition at Dispatch Planning
+ * (1 truck = 1 load). This is the "trip" object — there is no separate
  * trip-status model, "trip" and "load" refer to the same row.
  *
  * `status` tracks movement only (created → ... → delivered → closed). Advance/balance payment
- * are tracked separately via `advancePaidAt`/`balancePaidAt` rather than folded into `status` —
- * PRD rule FMS-LOAD-006 has them "run in parallel... and do not block the movement statuses",
- * which a single linear enum can't represent for both at once. `closed` requires `deliveredAt`
+ * are tracked separately via `advancePaidAt`/`balancePaidAt` rather than folded into `status`,
+ * since they run in parallel with movement and don't block it — a single linear enum can't
+ * represent both at once. `closed` requires `deliveredAt`
  * set and, for market loads, both payment timestamps set — see load.service.ts's closeLoad.
  */
 @Entity({ schema: 'loads', name: 'loads' })
@@ -116,7 +116,7 @@ export class LoadEntity {
   @Column({ name: 'balance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
   balancePercentage!: string | null;
 
-  // --- Loading & Documents (§6.5) — file references are storage `key` text columns, same
+  // --- Loading & Documents — file references are storage `key` text columns, same
   // convention as VehicleDocumentEntity.fileUrl, not a FK to storage.files.id.
 
   @Column({ name: 'invoice_number', type: 'varchar', length: 50, nullable: true })
@@ -148,7 +148,7 @@ export class LoadEntity {
   @Column({ name: 'loading_confirmed_by', type: 'uuid', nullable: true })
   loadingConfirmedBy!: string | null;
 
-  // --- Tracking (§6.7, manual in this build — see MANUAL_TRACKING_STATUSES) ---
+  // --- Tracking (manual in this build — see MANUAL_TRACKING_STATUSES) ---
 
   @Column({ name: 'at_plant_at', type: 'timestamptz', nullable: true })
   atPlantAt!: Date | null;
@@ -162,7 +162,7 @@ export class LoadEntity {
   @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt!: Date | null;
 
-  // --- E-POD (§6.8) — exactly one of {podFileKey} or {podReceiverName/podQuantityReceived} is set. ---
+  // --- E-POD — exactly one of {podFileKey} or {podReceiverName/podQuantityReceived} is set. ---
 
   @Column({ name: 'pod_file_key', type: 'text', nullable: true })
   podFileKey!: string | null;
@@ -182,7 +182,7 @@ export class LoadEntity {
   @Column({ name: 'pod_remarks', type: 'varchar', nullable: true })
   podRemarks!: string | null;
 
-  // --- Payments (§6.6/§6.9) — market only; run in parallel with movement, see class doc comment. ---
+  // --- Payments — market only; run in parallel with movement, see class doc comment. ---
 
   @Column({ name: 'advance_paid_at', type: 'timestamptz', nullable: true })
   advancePaidAt!: Date | null;

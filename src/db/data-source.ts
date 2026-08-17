@@ -93,7 +93,7 @@ export const AppDataSource = new DataSource({
     CustomerImportEntity,
     ProductEntity,
     ProductSubItemEntity,
-    // loads module (PRD §6)
+    // loads module
     RequisitionEntity,
     LoadEntity,
     LoadPaymentEntity,

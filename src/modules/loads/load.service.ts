@@ -21,7 +21,7 @@ import {
   UploadPodInput,
 } from './utils/load.interface';
 
-const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // PRD §6.5 — 2-hour expiry alert
+const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 
 export interface LoadDetailView {
   load: LoadEntity;
@@ -55,8 +55,8 @@ export class LoadService {
   /**
    * Completes a load's vehicle/driver (own-fleet) or transporter/freight terms (market) — the
    * vehicle (own-fleet) or transporter (market) itself was already captured at Dispatch Planning
-   * (PRD §6.3); this is the Load Assignment screen (§6.4). Own-fleet vehicles with an expired
-   * mandatory compliance document are still assignable — FMS-LOAD-011 — but surface a non-blocking
+   * this is the Load Assignment screen. Own-fleet vehicles with an expired
+   * mandatory compliance document are still assignable, but surface a non-blocking
    * warning back to the caller.
    */
   async assign(
@@ -113,7 +113,7 @@ export class LoadService {
         if (!load.transporterId) {
           throw new ConflictError('Market load has no transporter set from dispatch planning');
         }
-        await this.transporterService.get(tenantId, load.transporterId);
+        await this.transporterService.getTransporter(tenantId, load.transporterId);
 
         if (!input.vehicleNumber?.trim()) throw new ValidationError('vehicleNumber is required');
         if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
@@ -218,7 +218,7 @@ export class LoadService {
     };
   }
 
-  /** Ops attaches invoice/e-way bill/E-LR and confirms loading (PRD §6.5) — triggers tracking and,
+  /** Ops attaches invoice/e-way bill/E-LR and confirms loading — triggers tracking and,
    *  for market loads, enables advance payment. */
   async confirmLoading(
     tenantId: string,
@@ -296,7 +296,7 @@ export class LoadService {
   }
 
   /** Computed on read — no scheduler/queue infra exists in this repo yet (src/jobs/queue-registry.ts
-   *  is a no-op placeholder), so the 2-hour e-way-bill expiry (PRD §6.5) is a derived flag, not a
+   *  is a no-op placeholder), so the 2-hour e-way-bill expiry is a derived flag, not a
    *  pushed notification. // TODO: wire a real alert once queue infra exists. */
   getEwayBillExpiry(load: LoadEntity): EwayBillExpiry {
     if (!load.ewayBillGeneratedAt) return { expiresAt: null, expired: false };
@@ -305,7 +305,7 @@ export class LoadService {
     return { expiresAt: expiresAt.toISOString(), expired: stillMoving && new Date() > expiresAt };
   }
 
-  /** Manual-only tracking advance (PRD §6.7 — no GPS/geofence automation in this build). Rejects
+  /** Manual-only tracking advance. Rejects
    *  skipping ahead or moving backward through MANUAL_TRACKING_STATUSES; the conditional
    *  `WHERE status = <current>` update also guards a concurrent double-advance race. */
   async updateStatus(
@@ -364,7 +364,7 @@ export class LoadService {
     }
   }
 
-  /** PRD §6.8 — exactly one of {document upload} or {receiver name + quantity + remarks}. Marks
+  /** Exactly one of {document upload} or {receiver name + quantity + remarks}. Marks
    *  the load Delivered; own-fleet loads close immediately (no payment gate), market loads wait
    *  for the balance payment (see load-payment.service.ts's recordBalance). */
   async uploadPod(
@@ -436,7 +436,7 @@ export class LoadService {
         newData: { id: loadId, status: 'delivered' },
       });
 
-      // TODO: notify Accounts for balance payment (PRD FMS-POD-001) once real notification/queue
+      // TODO: notify Accounts for balance payment once real notification/queue
       // infra exists — src/jobs/queue-registry.ts is currently a no-op placeholder.
 
       if (updated.sourceType === 'own_fleet') {
@@ -483,7 +483,7 @@ export class LoadService {
     }
   }
 
-  /** Load Detail (PRD §6.11) — status, documents (resolved to download URLs), payments, and the
+  /** Load Detail — status, documents (resolved to download URLs), payments, and the
    *  full chronological activity timeline. */
   async get(tenantId: string, actorRole: string, loadId: string): Promise<LoadDetailView> {
     try {

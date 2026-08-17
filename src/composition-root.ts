@@ -117,7 +117,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // (Settings → Approvals aggregates pending customers alongside pending vehicles/drivers).
   const customers = createCustomersModule(dataSource, audit.service);
 
-  // Built after customers/masters/storage — the Load module (PRD §6) reads customers.service
+  // Built after customers/masters/storage — the Load module reads customers.service
   // (unloading-point validation) and masters' vehicle/driver/transporter/truckType/loadingPoint/
   // product services (capacity matching + master-record validation) and storage.service
   // (invoice/e-way-bill/E-LR/E-POD uploads) directly, no gateway — same "consumer takes producer

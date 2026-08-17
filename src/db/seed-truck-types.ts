@@ -1,4 +1,4 @@
-// Seeds the fixed truck-type catalog (PRD §5.7 — see modules/masters/utils/truck-type.constants.ts)
+// Seeds the fixed truck-type catalog
 // into the global masters.truck_type_catalog table. Org admins pick from this catalog in the "Add
 // truck type" modal (GET /truck-types/catalog, POST /truck-types/from-catalog) — it is not copied
 // into any tenant automatically. Safe to re-run: only inserts names not already in the catalog.

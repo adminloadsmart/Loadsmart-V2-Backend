@@ -12,8 +12,7 @@ import { LOAD_ACTIVITY_ACTIONS, LoadActivityAction } from '../utils/loads.types'
 
 /**
  * A pure append-only per-load chronological log — powers the Load Detail screen's Activity
- * Timeline (PRD §6.11, FMS-LOAD-030: every status change/document upload/payment, with actor and
- * timestamp, for dispute resolution). The shared audit module (modules/audit) has no per-resource
+ * The shared audit module (modules/audit) has no per-resource
  * read path (no `resourceId` column, no findByResource), so this is a dedicated table scoped to
  * `loadId` instead of widening that shared, platform-wide sink. Every load-mutating service method
  * also still calls the shared AuditService.log(...), matching the convention every other

@@ -48,7 +48,7 @@ export const AUDIT_ACTIONS = [
   'PRODUCT_STATUS_UPDATED',
   'PRODUCT_DELETED',
   'PRODUCT_BULK_IMPORTED',
-  // Load module (PRD §6) — the per-load chronological timeline lives in
+  // Load module — the per-load chronological timeline lives in
   // modules/loads/entities/load-activity.entity.ts; these mirror the same events into the
   // shared platform-wide audit log, same convention every other write-heavy module follows.
   'REQUISITION_CREATED',

@@ -60,7 +60,6 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     allowedMimeTypes: ['image/jpeg', 'image/png'],
     keyPrefix: 'profile',
   },
-  // Loads module (PRD §6.5) — tax invoice / e-way bill attached at Confirm Loading. Reuses
   // `trips/pod`/`trips/lr` above for E-POD/E-LR, already at the same 5MB limit.
   'loads/invoice': {
     maxSizeBytes: 5 * 1024 * 1024,

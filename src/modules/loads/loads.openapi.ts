@@ -41,7 +41,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.createRequisition',
     ...manageRequisitions(
-      'Capture the complete customer order (PRD §6.2). Every referenced customer/product/loading ' +
+      'Capture the complete customer order. Every referenced customer/product/loading ' +
         'point must be approved/active, and the delivery point must belong to the given customer.',
     ),
     request: { body: json(requisitionValidators.create.shape.body) },
@@ -72,7 +72,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.getRequisition',
     ...authenticated(
-      "Requisition detail (PRD §6.10) — dispatched-vs-remaining tonnage plus every child load's current status.",
+      "Requisition detail — dispatched-vs-remaining tonnage plus every child load's current status.",
     ),
     request: { params: requisitionValidators.get.shape.params },
     responses: {
@@ -87,7 +87,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.closeRequisition',
     ...manageRequisitions(
-      'Manually close a requisition with a reason (e.g. customer cancelled the remaining quantity) — FMS-REQ-012.',
+      'Manually close a requisition with a reason (e.g. customer cancelled the remaining quantity).',
     ),
     request: {
       params: requisitionValidators.close.shape.params,
@@ -108,8 +108,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.planDispatch',
     ...manageDispatch(
-      'Plan how a requisition moves — one truck line per planned truck, own fleet or market (PRD ' +
-        '§6.3). Splits the requisition into one Load per truck; partial dispatch is allowed and the ' +
+      'Plan how a requisition moves — one truck line per planned truck, own fleet or market. ' +
+        'Splits the requisition into one Load per truck; partial dispatch is allowed and the ' +
         'requisition stays open with the remainder visible.',
     ),
     request: {
@@ -146,9 +146,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.getLoad',
     ...authenticated(
-      'Load Detail (PRD §6.11) — status, assignment, documents (resolved to download URLs), ' +
+      'Load Detail — status, assignment, documents (resolved to download URLs), ' +
         'payments, computed e-way-bill expiry, and the full chronological activity timeline. This ' +
-        'is the only load/trip detail screen (FMS-LOAD-031).',
+        'is the only load/trip detail screen.',
     ),
     request: { params: loadValidators.get.shape.params },
     responses: {
@@ -175,7 +175,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.assignLoad',
     ...manageDispatch(
-      'Load Assignment (PRD §6.4). Own-fleet: resolves/validates the driver (defaults to the ' +
+      'Load Assignment. Own-fleet: resolves/validates the driver (defaults to the ' +
         "vehicle's primary linked driver) and surfaces a non-blocking compliance warning if the " +
         'vehicle has an expired document. Market: requires vehicleNumber/driverNumber (free text) ' +
         'plus freight terms.',
@@ -200,7 +200,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.confirmLoading',
     ...manageDocuments(
-      'Attach invoice/e-way bill/E-LR and confirm loading (PRD §6.5). File keys must be confirmed ' +
+      'Attach invoice/e-way bill/E-LR and confirm loading. File keys must be confirmed ' +
         'uploads from POST /files with the matching purpose (loads/invoice, loads/eway-bill, ' +
         'trips/lr). Triggers tracking and, for market loads, enables advance payment.',
     ),
@@ -224,8 +224,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.updateLoadStatus',
     ...manageDocuments(
-      'Manual tracking advance — At plant / In-transit / Reached delivery point (PRD §6.7; this ' +
-        'build has no GPS/geofence automation). Rejects skipping ahead or moving backward.',
+      'Manual tracking advance — At plant / In-transit / Reached delivery point. ' +
+        'Rejects skipping ahead or moving backward.',
     ),
     request: {
       params: loadValidators.updateStatus.shape.params,
@@ -243,7 +243,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.uploadPod',
     ...manageDocuments(
-      'Record proof of delivery — exactly one of a document upload or a filled form (PRD §6.8). ' +
+      'Record proof of delivery — exactly one of a document upload or a filled form. ' +
         'Marks the load Delivered; own-fleet loads close immediately, market loads wait for the ' +
         'balance payment.',
     ),
@@ -266,7 +266,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.recordAdvancePayment',
     ...managePayments(
-      'Record the advance payment to a market-load transporter (PRD §6.6). Amount is computed ' +
+      'Record the advance payment to a market-load transporter. Amount is computed ' +
         "from the load's freight value × advance %.",
     ),
     request: {
@@ -288,7 +288,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.recordBalancePayment',
     ...managePayments(
-      'Record the balance payment (PRD §6.9). Due date is derived from the E-POD date plus the ' +
+      'Record the balance payment. Due date is derived from the E-POD date plus the ' +
         "transporter's credit days. Closes the load once advance is also paid.",
     ),
     request: {

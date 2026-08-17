@@ -113,26 +113,25 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       key: REQUISITIONS_MANAGE,
       module: 'loads',
       scope: 'organization',
-      description: 'Manage load requisitions (PRD §6 Requisition stage)',
+      description: 'Manage load requisitions',
     },
     {
       key: DISPATCH_PLANNING_MANAGE,
       module: 'loads',
       scope: 'organization',
-      description:
-        'Manage dispatch planning and load assignment (PRD §6 Planning/Assignment stage)',
+      description: 'Manage dispatch planning and load assignment',
     },
     {
       key: LOADS_DOCUMENTS_MANAGE,
       module: 'loads',
       scope: 'organization',
-      description: 'Manage loading documents and E-POD (PRD §6 Loading & Docs / E-POD stage)',
+      description: 'Manage loading documents and E-POD',
     },
     {
       key: PAYMENTS_MANAGE,
       module: 'payments',
       scope: 'organization',
-      description: 'Manage advance/balance payments (PRD §7 Billing & Payments)',
+      description: 'Manage advance/balance payments',
     },
     {
       key: CUSTOMERS_CREATE,
@@ -223,7 +222,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       FILES_UPLOAD,
       FILES_READ,
       FILES_DELETE,
-      // Load module (PRD §6) — org_admin gets every stage's permission, same "full access to
+      // Load module — org_admin gets every stage's permission, same "full access to
       // every org-scoped module" treatment as MASTERS_*/CUSTOMERS_* above. Without these, the org
       // owner couldn't use their own organization's Load module once these gates went live —
       // sales_cs/dispatch/documents_ops/finance_accounts each get one of these individually below.
@@ -238,8 +237,8 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   // auto-approves for org_admin, leaves everyone else 'pending' for CUSTOMERS_APPROVE to review).
   // Only dispatch also gets MASTERS_WRITE: it's the sole non-admin role allowed to add a vehicle
   // or driver at all (masters.routes.ts's canWrite gate), same pending-approval treatment.
-  // Beyond that, permission keys are forward-looking: the Load module (PRD §6) and Payments
-  // module (PRD §7) that actually enforce them don't exist yet — same "seeded ahead of the
+  // Beyond that, permission keys are forward-looking: the Load module and Payments
+  // module that actually enforce them don't exist yet — same "seeded ahead of the
   // module" situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
   {
     name: SALES_CS_ROLE,

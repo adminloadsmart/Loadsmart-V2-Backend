@@ -13,9 +13,9 @@ import { TransporterEntity } from '../../masters/entities/transporter.entity';
 import { LOAD_PAYMENT_TYPES, LoadPaymentType } from '../utils/loads.types';
 
 /**
- * A recorded advance/balance payment against a market load (PRD §6.6/§6.9) — basic UTR/proof
+ * A recorded advance/balance payment against a market load — basic UTR/proof
  * capture only; GST invoicing, credit notes, aging reports and settlement runs are the separate,
- * MVP-gated Billing module (PRD §7), not this table. One row per (loadId, paymentType) — a load
+ * MVP-gated Billing module, not this table. One row per (loadId, paymentType) — a load
  * has at most one advance and one balance payment.
  */
 @Entity({ schema: 'loads', name: 'load_payments' })
@@ -36,7 +36,7 @@ export class LoadPaymentEntity {
   @JoinColumn({ name: 'load_id' })
   load!: LoadEntity;
 
-  /** Denormalized snapshot of the load's transporter at payment time — keeps the future §7A
+  /** Denormalized snapshot of the load's transporter at payment time — keeps a future
    *  transporter-payables view queryable by transporterId without a join through loads. */
   @Column({ name: 'transporter_id', type: 'uuid', nullable: true })
   transporterId!: string | null;
@@ -62,7 +62,7 @@ export class LoadPaymentEntity {
   @Column({ name: 'payment_date', type: 'date' })
   paymentDate!: string;
 
-  /** Balance only — E-POD date + transporter.creditDays (PRD FMS-PAY-011). */
+  /** Balance only — E-POD date + transporter.creditDays. */
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate!: string | null;
 

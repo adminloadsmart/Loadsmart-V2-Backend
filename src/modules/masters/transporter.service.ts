@@ -20,19 +20,6 @@ export class TransporterService {
       throw new AuthorizationError('Only organization admins can manage transporters');
   }
 
-  /** Open read, no role gate (unlike every other method here, which is org_admin only) — for
-   *  validating a transporterId reference from another module, e.g. loads/dispatch-planning and
-   *  load-payment services picking a market transporter. Transporters have no status/approval
-   *  concept (see TransporterEntity), so existence (and not soft-deleted) is the whole check. */
-  async get(tenantId: string, id: string) {
-    try {
-      const value = await this.repository.findById(tenantId, id);
-      if (!value) throw new NotFoundError(`Transporter ${id} not found`);
-      return value;
-    } catch (error) {
-      rethrow(error, 'Failed to fetch transporter');
-    }
-  }
   async create(tenantId: string, actorId: string, role: string, input: CreateTransporterInput) {
     try {
       this.assertAdmin(role);
@@ -76,6 +63,17 @@ export class TransporterService {
       rethrow(error, 'Failed to fetch transporter');
     }
   }
+
+  async getTransporter(tenantId: string, id: string) {
+    try {
+      const transporter = await this.repository.findById(tenantId, id);
+      if (!transporter) throw new NotFoundError(`Transporter ${id} not found`);
+      return transporter;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch transporter');
+    }
+  }
+
   async update(
     tenantId: string,
     actorId: string,

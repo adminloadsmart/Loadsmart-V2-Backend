@@ -27,7 +27,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   const canManageDocuments = requirePermission(LOADS_DOCUMENTS_MANAGE);
   const canManagePayments = requirePermission(PAYMENTS_MANAGE);
 
-  // --- Requisitions (§6.2) ---
+  // --- Requisitions ---
   router.post(
     '/requisitions',
     canManageRequisitions,
@@ -51,7 +51,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     asyncHandler(controller.closeRequisition),
   );
 
-  // --- Dispatch Planning (§6.3) — splits a requisition into one Load per planned truck. ---
+  // --- Dispatch Planning — splits a requisition into one Load per planned truck. ---
   router.post(
     '/requisitions/:requisitionId/dispatch-plan',
     canManageDispatch,
@@ -59,7 +59,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     asyncHandler(controller.planDispatch),
   );
 
-  // --- Loads (§6.4-§6.9, §6.11) ---
+  // --- Loads ---
   router.get('/loads', validate(loadValidators.list), asyncHandler(controller.listLoads));
   router.get('/loads/:loadId', validate(loadValidators.get), asyncHandler(controller.getLoad));
   router.get(
@@ -68,7 +68,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     asyncHandler(controller.listLoadActivities),
   );
 
-  // Load Assignment (§6.4) — vehicle/driver (own-fleet) or freight terms (market).
+  // Load Assignment — vehicle/driver (own-fleet) or freight terms (market).
   router.patch(
     '/loads/:loadId/assign',
     canManageDispatch,
@@ -76,7 +76,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     asyncHandler(controller.assignLoad),
   );
 
-  // Loading & Documents (§6.5) and Tracking/E-POD (§6.7/§6.8) — Ops.
+  // Loading & Documents and Tracking/E-POD — Ops.
   router.patch(
     '/loads/:loadId/confirm-loading',
     canManageDocuments,
@@ -96,7 +96,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     asyncHandler(controller.uploadPod),
   );
 
-  // --- Payments (§6.6/§6.9) — Accounts. ---
+  // --- Payments — Accounts. ---
   router.post(
     '/loads/:loadId/payments/advance',
     canManagePayments,

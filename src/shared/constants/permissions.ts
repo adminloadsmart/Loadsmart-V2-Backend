@@ -20,13 +20,13 @@ export const SALES_LEADS_MANAGE = 'sales.leads.manage';
 
 // Same "not yet enforced anywhere" situation as the KYC_*/LOADS_CONSOLE_ACCESS/SALES_LEADS_MANAGE
 // block above — seeded onto the 4 org-invitable teammate roles (see db/seed-roles.ts,
-// shared/constants/roles.ts's ORG_ASSIGNABLE_ROLES) ahead of the Load module (PRD §6) and
-// Payments module (PRD §7) that will eventually enforce them, so an invited teammate has a
+// shared/constants/roles.ts's ORG_ASSIGNABLE_ROLES) ahead of the Load module and
+// Payments module that will eventually enforce them, so an invited teammate has a
 // meaningful starting bundle instead of an empty one.
-export const REQUISITIONS_MANAGE = 'requisitions.manage'; // sales_cs — §6 Requisition stage
-export const DISPATCH_PLANNING_MANAGE = 'dispatch.planning.manage'; // dispatch — §6 Planning/Assignment
-export const LOADS_DOCUMENTS_MANAGE = 'loads.documents.manage'; // documents_ops — §6 Loading/E-POD
-export const PAYMENTS_MANAGE = 'payments.manage'; // finance_accounts — §7 Advance/Balance
+export const REQUISITIONS_MANAGE = 'requisitions.manage'; // sales_cs — Requisition stage
+export const DISPATCH_PLANNING_MANAGE = 'dispatch.planning.manage'; // dispatch — Planning/Assignment
+export const LOADS_DOCUMENTS_MANAGE = 'loads.documents.manage'; // documents_ops — Loading/E-POD
+export const PAYMENTS_MANAGE = 'payments.manage'; // finance_accounts — Advance/Balance
 export const CUSTOMERS_CREATE = 'customers.create';
 export const CUSTOMERS_READ = 'customers.read';
 export const CUSTOMERS_WRITE = 'customers.write';
