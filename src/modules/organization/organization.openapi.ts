@@ -12,8 +12,7 @@ import {
 
 /**
  * OpenAPI docs for the org onboarding endpoints — GET/POST /v1/auth/organization,
- * POST /v1/auth/organization/business, POST /v1/auth/organization/submit, and the post-submit
- * shop-board photo endpoint. Lives here (not
+ * POST /v1/auth/organization/business, and POST /v1/auth/organization/submit. Lives here (not
  * auth.openapi.ts) since the routes are org-owned, but BASE stays '/v1/auth' and the tag stays
  * TAGS.AUTH: the URLs are deliberately unchanged (see modules/organization/index.ts's
  * createOrganizationOnboardingRoutes), and core.ts's tag convention mirrors mount paths, which
@@ -33,44 +32,13 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     tags: [TAGS.AUTH],
     operationId: 'auth.getOrganization',
     ...authenticated(
-      "Get the caller's tenant organization. Returns null if the caller hasn't completed their " +
-        'company profile yet (no organization exists for them).',
+      "Get the caller's organization onboarding state, saved user details, documents, and review data. " +
+        'For a new org admin without an organization, organization is null and the current onboarding step is returned.',
     ),
     responses: {
-      200: { description: 'Organization, or null if none exists yet' },
+      200: { description: 'Organization onboarding state and saved details' },
       404: {
         description: 'Caller has a tenantId but no matching organization (data inconsistency)',
-        ...errorContent,
-      },
-    },
-  });
-
-  registry.registerPath({
-    method: 'post',
-    path: `${BASE}/organization/shopboard-premises-photo`,
-    tags: [TAGS.AUTH],
-    operationId: 'auth.saveShopboardPremisesPhoto',
-    ...authenticated(
-      'Upload and attach a shop-board/premises image. Send multipart/form-data with purpose, step, and file; the backend uploads the image to S3. Available after the review step and before final submission.',
-    ),
-    request: {
-      body: {
-        content: {
-          'multipart/form-data': {
-            schema: organizationValidators.saveShopboardPremisesPhoto.shape.body,
-          },
-        },
-      },
-    },
-    responses: {
-      200: { description: 'Shop-board premises photo uploaded and onboarding step advanced' },
-      400: {
-        description: 'Validation failed, image is missing, or purpose/step is invalid',
-        ...errorContent,
-      },
-      401: { description: 'Missing/invalid access token', ...errorContent },
-      403: {
-        description: 'Organization is already submitted or cannot be updated',
         ...errorContent,
       },
     },
@@ -82,7 +50,10 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     tags: [TAGS.AUTH],
     operationId: 'auth.createOrganization',
     ...authenticated(
-      "Create (first call) or update (subsequent calls) the caller's company details. On the first call this creates the organization, attaches it to the caller, and returns a fresh token pair because the caller's access token still has a null tenant.",
+      "Create (first call) or update (subsequent calls) the caller's company details and address. " +
+        'Address requires addressLine1, areaLocality, state, city, and a six-digit numeric pinCode; ' +
+        'addressLine2 and landmark are optional. On the first call this creates the organization, ' +
+        "attaches it to the caller, and returns a fresh token pair because the caller's access token still has a null tenant.",
     ),
     request: { body: json(organizationValidators.createOrganization.shape.body) },
     responses: {
@@ -104,10 +75,36 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     path: `${BASE}/organization/business`,
     tags: [TAGS.AUTH],
     operationId: 'auth.saveBusinessDetails',
-    ...authenticated("Save business details and document uploads for the caller's organization."),
-    request: { body: json(organizationValidators.saveBusinessDetails.shape.body) },
+    ...authenticated(
+      "Save the caller's document metadata and upload the document front, document back, and one shop-premises file to S3. The endpoint accepts JPG, JPEG, PNG, and PDF files.",
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['documentType', 'documentFront', 'shopPremisesPhoto'],
+              properties: {
+                documentType: {
+                  type: 'string',
+                  enum: ['gst_certificate', 'udyam', 'cin', 'shop_establishment'],
+                },
+                documentNo: { type: 'string' },
+                isGovtVerified: { type: 'string', enum: ['Yes', 'No'], default: 'No' },
+                documentFront: { type: 'string', format: 'binary' },
+                documentBack: { type: 'string', format: 'binary' },
+                shopPremisesPhoto: { type: 'string', format: 'binary' },
+              },
+            },
+          },
+        },
+      },
+    },
     responses: {
-      200: { description: 'Business details saved, including the current review payload' },
+      200: {
+        description: 'Document metadata and all uploaded files saved; files are stored in S3',
+      },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid access token', ...errorContent },
       403: {
@@ -123,7 +120,8 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     tags: [TAGS.AUTH],
     operationId: 'auth.submitOrganization',
     ...authenticated(
-      'Submit the organization for manual KYC review after allowing the caller to review and edit the final payload.',
+      'Submit the organization for manual KYC review using the data already saved during onboarding. ' +
+        'Only step is required; referralCode is optional and is applied when provided.',
     ),
     request: { body: json(organizationValidators.submitOrganization.shape.body) },
     responses: {

@@ -98,6 +98,12 @@ export class OrganizationEntity {
   addressLine2!: string | null;
 
   @Column({ type: 'varchar', nullable: true })
+  landmark!: string | null;
+
+  @Column({ name: 'area_locality', type: 'varchar', nullable: true })
+  areaLocality!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
   city!: string | null;
 
   @Column({ type: 'varchar', nullable: true })

@@ -151,7 +151,10 @@ export class AuthRepository {
     data: Partial<{
       fullName: string;
       phoneNumber: string;
-      email: string;
+      email: string | null;
+      designation: string | null;
+      manualDesignation: string | null;
+      department: string | null;
       coverage: string;
     }>,
   ): Promise<UserEntity> {

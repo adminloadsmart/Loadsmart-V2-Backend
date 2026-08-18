@@ -16,47 +16,30 @@ export type OnboardingStep =
 
 export interface SaveCompanyDetailsInput {
   companyLegalName: string;
-  contactPersonName: string;
-  operatingCity: string;
   ownsFleet: boolean;
+  address: OrganizationAddressInput;
   referralCode?: string;
 }
 
+export interface OrganizationAddressInput {
+  addressLine1: string;
+  addressLine2?: string;
+  landmark?: string;
+  areaLocality: string;
+  city: string;
+  state: string;
+  pinCode: string;
+}
+
 export interface SaveBusinessDetailsInput {
-  registeredBusinessName: string;
-  address: {
-    addressLine1: string;
-    addressLine2?: string;
-    city: string;
-    district: string;
-    state: string;
-    pinCode: string;
-  };
-  documents: OrganizationDocumentInput[];
+  documentType: OrganizationDocumentInput['documentType'];
+  documentNo?: string;
+  isGovtVerified: 'Yes' | 'No';
 }
 
 export interface SubmitOrganizationInput {
   step: 'review_submit';
-  companyLegalName: string;
-  contactPersonName: string;
-  operatingCity: string;
-  ownsFleet: boolean;
   referralCode?: string;
-  registeredBusinessName: string;
-  address: {
-    addressLine1: string;
-    addressLine2?: string;
-    city: string;
-    district: string;
-    state: string;
-    pinCode: string;
-  };
-  documents: OrganizationDocumentInput[];
-}
-
-export interface SaveShopboardPremisesPhotoInput {
-  step: 'shopboard_premises_photo';
-  purpose: 'organizations/shopboard-premises';
 }
 
 // Returned by OrganizationOnboardingService.getProgress/buildOnboardingState — moved (renamed
@@ -73,15 +56,14 @@ export type OrganizationOnboardingProgress = {
 // Moved (unchanged) from AuthService's local OrganizationReviewData.
 export type OrganizationReviewData = {
   companyLegalName: string | null;
-  contactPersonName: string | null;
-  operatingCity: string | null;
   ownsFleet: boolean | null;
   registeredBusinessName: string | null;
   address: {
     addressLine1: string | null;
     addressLine2: string | null;
+    landmark: string | null;
+    areaLocality: string | null;
     city: string | null;
-    district: string | null;
     state: string | null;
     pinCode: string | null;
   };

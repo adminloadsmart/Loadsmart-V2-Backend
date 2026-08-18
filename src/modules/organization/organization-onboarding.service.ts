@@ -116,20 +116,14 @@ export class OrganizationOnboardingService {
   }
 
   private hasCompanyDetails(organization: OrganizationEntity): boolean {
-    return Boolean(
-      organization.companyLegalName &&
-      organization.orgAdminName &&
-      organization.operationalCity &&
-      organization.hasOwnFleet !== null,
-    );
+    return Boolean(organization.companyLegalName && organization.hasOwnFleet !== null);
   }
 
   private hasBusinessDetails(organization: OrganizationEntity): boolean {
     return Boolean(
-      organization.registeredBusinessName &&
       organization.addressLine1 &&
       organization.city &&
-      organization.district &&
+      organization.areaLocality &&
       organization.state &&
       organization.pinCode,
     );
@@ -222,15 +216,14 @@ export class OrganizationOnboardingService {
   ): OrganizationReviewData {
     return {
       companyLegalName: organization.companyLegalName,
-      contactPersonName: organization.orgAdminName,
-      operatingCity: organization.operationalCity,
       ownsFleet: organization.hasOwnFleet,
       registeredBusinessName: organization.registeredBusinessName,
       address: {
         addressLine1: organization.addressLine1,
         addressLine2: organization.addressLine2,
+        landmark: organization.landmark,
+        areaLocality: organization.areaLocality,
         city: organization.city,
-        district: organization.district,
         state: organization.state,
         pinCode: organization.pinCode,
       },

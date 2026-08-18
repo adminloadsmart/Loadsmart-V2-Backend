@@ -66,6 +66,8 @@ export class OrganizationService {
       shopboardPremisesPhotoKey: string | null;
       addressLine1: string | null;
       addressLine2: string | null;
+      landmark: string | null;
+      areaLocality: string | null;
       city: string | null;
       district: string | null;
       state: string | null;

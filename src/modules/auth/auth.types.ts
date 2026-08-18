@@ -11,11 +11,27 @@ export interface RequestLoginOtpInput {
 export interface VerifyOtpInput {
   phoneNumber: string;
   otp: string;
+  password?: string;
 }
 
 export interface VerifyLoginOtpInput {
   phoneNumber: string;
   otp: string;
+}
+
+export interface SaveUserDetailsInput {
+  name: string;
+  email?: string;
+  designation?:
+    | 'Owner'
+    | 'Logistics Manager'
+    | 'Factory Manager'
+    | 'Dispatch Manager'
+    | 'Accounts'
+    | 'Administration manager'
+    | 'Others';
+  manualDesignation?: string;
+  department?: 'Sales' | 'Logistics' | 'Dispatch' | 'Accounts' | 'Administration' | 'Management';
 }
 
 export interface CreateStaffInput {

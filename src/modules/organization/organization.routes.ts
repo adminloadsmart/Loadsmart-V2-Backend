@@ -8,25 +8,28 @@ import { OrganizationController } from './organization.controller';
 import { organizationValidators } from './organization.validators';
 import { ValidationError } from '../../shared/errors';
 
-const shopboardPremisesPhotoUpload = multer({
+const organizationBusinessUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
   fileFilter: (_req, file, callback: FileFilterCallback) => {
-    if (!['image/jpeg', 'image/png'].includes(file.mimetype)) {
-      callback(new ValidationError('Only JPEG and PNG shop-board premises images are accepted'));
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'].includes(file.mimetype)) {
+      callback(new ValidationError('Only JPG, JPEG, PNG, and PDF files are accepted'));
       return;
     }
     callback(null, true);
   },
 });
 
-function requireShopboardPremisesPhoto(
+function requireOrganizationBusinessFiles(
   req: Parameters<import('express').RequestHandler>[0],
   _res: Parameters<import('express').RequestHandler>[1],
   next: Parameters<import('express').RequestHandler>[2],
 ) {
-  if (!req.file) {
-    next(new ValidationError('An image file is required in the "file" form field'));
+  const files = req.files as Record<string, Express.Multer.File[] | undefined>;
+  const requiredFields = ['documentFront', 'shopPremisesPhoto'];
+  const missing = requiredFields.filter((field) => !files[field]?.[0]);
+  if (missing.length) {
+    next(new ValidationError(`Missing required file fields: ${missing.join(', ')}`));
     return;
   }
   next();
@@ -48,6 +51,12 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
   );
   router.post(
     '/organization/business',
+    organizationBusinessUpload.fields([
+      { name: 'documentFront', maxCount: 1 },
+      { name: 'documentBack', maxCount: 1 },
+      { name: 'shopPremisesPhoto', maxCount: 1 },
+    ]),
+    requireOrganizationBusinessFiles,
     validate(organizationValidators.saveBusinessDetails),
     asyncHandler(controller.saveBusinessDetails),
   );
@@ -55,13 +64,6 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
     '/organization/submit',
     validate(organizationValidators.submitOrganization),
     asyncHandler(controller.submitOrganization),
-  );
-  router.post(
-    '/organization/shopboard-premises-photo',
-    shopboardPremisesPhotoUpload.single('file'),
-    requireShopboardPremisesPhoto,
-    validate(organizationValidators.saveShopboardPremisesPhoto),
-    asyncHandler(controller.saveShopboardPremisesPhoto),
   );
 
   // Settings → Users & Roles. Gated the same way admin.routes.ts gates POST/GET /admin/staff —
