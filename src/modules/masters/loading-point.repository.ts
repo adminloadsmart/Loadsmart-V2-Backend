@@ -2,6 +2,7 @@ import { DataSource, EntityManager, FindOptionsWhere, ILike, IsNull, Repository 
 import { LoadingPointEntity } from './entities/loading-point.entity';
 import {
   CreateLoadingPointData,
+  ListLoadingPointCitiesInput,
   ListLoadingPointsFilters,
   UpdateLoadingPointData,
 } from './utils/loading-point.interface';
@@ -62,6 +63,20 @@ export class LoadingPointRepository {
       skip: (page - 1) * limit,
       take: limit,
     });
+  }
+
+  /** Distinct cities with at least one loading point — feeds the city filter dropdown, which
+   * otherwise has no way to know what values are worth offering. */
+  async listCities(tenantId: string, filters: ListLoadingPointCitiesInput): Promise<string[]> {
+    const where: FindOptionsWhere<LoadingPointEntity> = { tenantId, deletedAt: IsNull() };
+    if (filters.status) where.status = filters.status;
+
+    const rows = await this.loadingPoints.find({
+      select: { city: true },
+      where,
+      order: { city: 'ASC' },
+    });
+    return [...new Set(rows.map((row) => row.city))];
   }
 
   async update(

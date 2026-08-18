@@ -165,6 +165,13 @@ export function createMastersProtectedRoutes(
     validate(loadingPointValidators.list),
     asyncHandler(controller.listLoadingPoints),
   );
+  // Distinct cities with at least one loading point — feeds the city filter dropdown. Declared
+  // before '/loading-points/:loadingPointId' so the literal segment isn't captured as an id.
+  router.get(
+    '/loading-points/cities',
+    validate(loadingPointValidators.listCities),
+    asyncHandler(controller.listLoadingPointCities),
+  );
   router.get(
     '/loading-points/:loadingPointId',
     validate(loadingPointValidators.get),

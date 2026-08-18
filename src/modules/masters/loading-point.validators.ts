@@ -39,6 +39,9 @@ export const loadingPointValidators = {
     }),
   }),
   get: z.object({ params }),
+  listCities: z.object({
+    query: z.object({ status: z.enum(LOADING_POINT_STATUSES).optional() }),
+  }),
   create: z.object({
     body: z.object(loadingPointAddress).strict(),
   }),

@@ -299,6 +299,18 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/loading-points/cities`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listLoadingPointCities',
+    ...authenticated(
+      'Distinct cities with at least one loading point — feeds a city filter dropdown.',
+    ),
+    request: { query: loadingPointValidators.listCities.shape.query },
+    responses: { 200: { description: 'Sorted list of distinct city names' } },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/loading-points/{loadingPointId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getLoadingPoint',

@@ -6,6 +6,7 @@ import { LoadingPointRepository } from './loading-point.repository';
 import { LoadingPointEntity } from './entities/loading-point.entity';
 import {
   CreateLoadingPointInput,
+  ListLoadingPointCitiesInput,
   ListLoadingPointsInput,
   UpdateLoadingPointInput,
 } from './utils/loading-point.interface';
@@ -60,6 +61,14 @@ export class LoadingPointService {
       return paginate(result[0], result[1], input);
     } catch (error) {
       rethrow(error, 'Failed to list loading points');
+    }
+  }
+
+  async listCities(tenantId: string, input: ListLoadingPointCitiesInput): Promise<string[]> {
+    try {
+      return await this.repository.listCities(tenantId, input);
+    } catch (error) {
+      rethrow(error, 'Failed to list loading point cities');
     }
   }
 
