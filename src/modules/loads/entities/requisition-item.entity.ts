@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { RequisitionEntity } from './requisition.entity';
 import { ProductEntity } from '../../masters/entities/product.entity';
+import { REQUISITION_ITEM_UNITS, RequisitionItemUnit } from '../utils/loads.types';
 
 /**
  * One product line on a Requisition (Plan Dispatch v2.0 R-02: "A requisition can hold multiple
@@ -42,8 +43,19 @@ export class RequisitionItemEntity {
   @JoinColumn({ name: 'product_id' })
   product!: ProductEntity;
 
+  /** The mandatory figure the module operates on — either typed directly, or derived from
+   *  `quantity`/`unit` below via the product's weight per pack. */
   @Column({ name: 'quantity_tonnes', type: 'numeric', precision: 10, scale: 2 })
   quantityTonnes!: string;
+
+  /** Convenience input, optional — converted into `quantityTonnes` at create time (see
+   *  requisition.service.ts) and kept alongside it for display ("2,400 bags"). Null when the
+   *  caller typed tonnage directly instead. */
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  quantity!: string | null;
+
+  @Column({ type: 'enum', enum: [...REQUISITION_ITEM_UNITS], nullable: true })
+  unit!: RequisitionItemUnit | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

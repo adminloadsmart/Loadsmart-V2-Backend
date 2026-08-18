@@ -7,6 +7,20 @@
 export const REQUISITION_STATUSES = ['open', 'fully_dispatched', 'closed'] as const;
 export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
 
+/** The "Unit" dropdown on a requisition's product line (Plan Dispatch v2.0 §4.1) — a convenience
+ *  quantity is entered in one of these and converted to tonnage via the product's weight per
+ *  pack; 'tonnes' copies the quantity straight into tonnage. */
+export const REQUISITION_ITEM_UNITS = [
+  'tonnes',
+  'bags',
+  'boxes',
+  'cartons',
+  'drums',
+  'pallets',
+  'pieces',
+] as const;
+export type RequisitionItemUnit = (typeof REQUISITION_ITEM_UNITS)[number];
+
 export const LOAD_SOURCE_TYPES = ['own_fleet', 'market'] as const;
 export type LoadSourceType = (typeof LOAD_SOURCE_TYPES)[number];
 

@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../sh
 import { AuditService } from '../audit/audit.service';
 import { CustomerService } from '../customers/customer.service';
 import { ProductService } from '../masters/product.service';
+import { ProductEntity } from '../masters/entities/product.entity';
 import { LoadingPointService } from '../masters/loading-point.service';
 import { toDateString } from '../../shared/utils/date';
 import { paginate, Paginated } from '../masters/utils/masters.types';
@@ -10,9 +11,44 @@ import { RequisitionRepository } from './requisition.repository';
 import { LoadRepository } from './load.repository';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
-import { CreateRequisitionInput, ListRequisitionsInput } from './utils/requisition.interface';
+import {
+  CreateRequisitionInput,
+  ListRequisitionsInput,
+  RequisitionProductLineInput,
+} from './utils/requisition.interface';
+import { RequisitionItemUnit } from './utils/loads.types';
+
+interface ResolvedRequisitionLine {
+  productId: string;
+  quantityTonnes: number;
+  quantity: number | null;
+  unit: RequisitionItemUnit | null;
+}
 
 const MIN_OVERRIDE_REASON_LENGTH = 15; // V-17
+
+/**
+ * Tonnage is the mandatory figure the module runs on; if given directly it always wins ("typing
+ * directly overrides it" — Plan Dispatch v2.0 §4.1). Otherwise derives it from the convenience
+ * quantity+unit using the product's weight per pack — 'tonnes' copies quantity straight across;
+ * any other unit is treated as one pack, weighing `product.weight` in `product.weightUnit`
+ * (kilograms unless the master says otherwise).
+ */
+function resolveLineTonnage(product: ProductEntity, line: RequisitionProductLineInput): number {
+  if (line.quantityTonnes !== undefined) return line.quantityTonnes;
+
+  if (line.unit === 'tonnes') return line.quantity!;
+
+  if (!product.weight) {
+    throw new ValidationError(
+      `Product ${product.id} has no weight set in the master — enter tonnage directly for this line`,
+    );
+  }
+  const perUnitTonnes = (product.weightUnit ?? 'kg').trim().toLowerCase().startsWith('ton')
+    ? Number(product.weight)
+    : Number(product.weight) / 1000;
+  return line.quantity! * perUnitTonnes;
+}
 
 export class RequisitionService {
   constructor(
@@ -54,12 +90,20 @@ export class RequisitionService {
       }
 
       // Every product line active — FMS-LOAD-012 "only approved, active master records can be
-      // selected" applies per line, not just once.
+      // selected" applies per line, not just once. Resolve each line's tonnage here too, while
+      // the product (and its weight-per-pack) is already in hand.
+      const resolvedLines: ResolvedRequisitionLine[] = [];
       for (const line of input.products) {
         const product = await this.productService.get(tenantId, line.productId);
         if (product.status !== 'active') {
           throw new ConflictError(`Product ${line.productId} is not active`);
         }
+        resolvedLines.push({
+          productId: line.productId,
+          quantityTonnes: resolveLineTonnage(product, line),
+          quantity: line.quantity ?? null,
+          unit: line.unit ?? null,
+        });
       }
 
       const loadingPoint = await this.loadingPointService.get(tenantId, input.loadingPointId);
@@ -84,7 +128,7 @@ export class RequisitionService {
         }
       }
 
-      const quantityTonnes = input.products
+      const quantityTonnes = resolvedLines
         .reduce((sum, line) => sum + line.quantityTonnes, 0)
         .toFixed(2);
 
@@ -106,11 +150,13 @@ export class RequisitionService {
         );
 
         await this.repository.createItems(
-          input.products.map((line) => ({
+          resolvedLines.map((line) => ({
             tenantId,
             requisitionId: created.id,
             productId: line.productId,
-            quantityTonnes: String(line.quantityTonnes),
+            quantityTonnes: line.quantityTonnes.toFixed(2),
+            quantity: line.quantity === null ? null : String(line.quantity),
+            unit: line.unit,
           })),
           manager,
         );
@@ -126,7 +172,7 @@ export class RequisitionService {
         newData: {
           id: requisition.id,
           quantityTonnes: requisition.quantityTonnes,
-          productLines: input.products.length,
+          productLines: resolvedLines.length,
           ...(c05Override ? { c05Override: { reason: c05Override.reason, by: actorId } } : {}),
         },
       });

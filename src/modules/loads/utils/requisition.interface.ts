@@ -1,10 +1,17 @@
 import { PaginationInput } from '../../masters/utils/masters.types';
-import { RequisitionStatus } from './loads.types';
+import { RequisitionItemUnit, RequisitionStatus } from './loads.types';
 import { OverrideInput } from './override.interface';
 
+/**
+ * `quantityTonnes` is the mandatory figure the module runs on and, if given, always wins
+ * ("typing directly overrides it" — Plan Dispatch v2.0 §4.1). If omitted, `quantity`+`unit` are
+ * both required and the service derives tonnage from the product's weight per pack.
+ */
 export interface RequisitionProductLineInput {
   productId: string;
-  quantityTonnes: number;
+  quantityTonnes?: number;
+  quantity?: number;
+  unit?: RequisitionItemUnit;
 }
 
 export interface CreateRequisitionInput {

@@ -1,17 +1,26 @@
 import { z } from 'zod';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { isoDateSchema } from '../../shared/utils/date';
-import { REQUISITION_STATUSES } from './utils/loads.types';
+import { REQUISITION_ITEM_UNITS, REQUISITION_STATUSES } from './utils/loads.types';
 
 const uuid = z.string().uuid();
 const params = z.object({ requisitionId: uuid });
 
+// Tonnage is mandatory and wins if typed directly; otherwise quantity+unit are both required and
+// requisition.service.ts derives tonnage from the product's weight per pack (§4.1).
 const productLine = z
   .object({
     productId: uuid,
-    quantityTonnes: z.number().positive(), // V-02/V-03
+    quantityTonnes: z.number().positive().optional(), // V-02/V-03
+    quantity: z.number().positive().optional(),
+    unit: z.enum(REQUISITION_ITEM_UNITS).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (line) =>
+      line.quantityTonnes !== undefined || (line.quantity !== undefined && line.unit !== undefined),
+    'Provide either quantityTonnes, or both quantity and unit',
+  );
 
 const override = z
   .object({

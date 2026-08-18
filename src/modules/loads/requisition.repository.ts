@@ -2,7 +2,16 @@ import { DataSource, EntityManager, FindOptionsWhere, ILike, Not, Repository } f
 import { RequisitionEntity } from './entities/requisition.entity';
 import { RequisitionItemEntity } from './entities/requisition-item.entity';
 import { CreateRequisitionData, ListRequisitionsFilters } from './utils/requisition.interface';
-import { RequisitionStatus } from './utils/loads.types';
+import { RequisitionItemUnit, RequisitionStatus } from './utils/loads.types';
+
+export interface CreateRequisitionItemData {
+  tenantId: string;
+  requisitionId: string;
+  productId: string;
+  quantityTonnes: string;
+  quantity: string | null;
+  unit: RequisitionItemUnit | null;
+}
 
 /** Fields the requisitions search box matches against, OR'd together. */
 const SEARCH_FIELDS: (keyof RequisitionEntity)[] = ['customerPoNumber'];
@@ -25,7 +34,7 @@ export class RequisitionRepository {
   /** One product line per row (Plan Dispatch v2.0 R-02) — called once, right after `create`,
    *  inside the same transaction. */
   async createItems(
-    rows: { tenantId: string; requisitionId: string; productId: string; quantityTonnes: string }[],
+    rows: CreateRequisitionItemData[],
     manager: EntityManager,
   ): Promise<RequisitionItemEntity[]> {
     const repo = manager.getRepository(RequisitionItemEntity);

@@ -13,7 +13,10 @@ export class CreateLoadsSchemaAndRequisitionsTable1786900000000 implements Migra
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "loads"`);
 
     await queryRunner.query(
-      `CREATE TABLE "loads"."requisition_items" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid NOT NULL, "requisition_id" uuid NOT NULL, "product_id" uuid NOT NULL, "quantity_tonnes" numeric(10,2) NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_9abc61153c001d72d089e11c715" PRIMARY KEY ("id"))`,
+      `CREATE TYPE "loads"."requisition_items_unit_enum" AS ENUM('tonnes', 'bags', 'boxes', 'cartons', 'drums', 'pallets', 'pieces')`,
+    );
+    await queryRunner.query(
+      `CREATE TABLE "loads"."requisition_items" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid NOT NULL, "requisition_id" uuid NOT NULL, "product_id" uuid NOT NULL, "quantity_tonnes" numeric(10,2) NOT NULL, "quantity" numeric(12,2), "unit" "loads"."requisition_items_unit_enum", "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_9abc61153c001d72d089e11c715" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "requisition_items_requisition_idx" ON "loads"."requisition_items"  ("requisition_id") `,
@@ -81,6 +84,7 @@ export class CreateLoadsSchemaAndRequisitionsTable1786900000000 implements Migra
     await queryRunner.query(`DROP INDEX "loads"."requisition_items_tenant_id_idx"`);
     await queryRunner.query(`DROP INDEX "loads"."requisition_items_requisition_idx"`);
     await queryRunner.query(`DROP TABLE "loads"."requisition_items"`);
+    await queryRunner.query(`DROP TYPE "loads"."requisition_items_unit_enum"`);
     // Schema left in place on down, same convention CreateStorageFilesTable's down() follows for
     // "storage" — later loads-module migrations also own it.
   }
