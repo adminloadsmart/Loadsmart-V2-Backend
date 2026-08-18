@@ -95,6 +95,7 @@ export class OrganizationDocumentRepository {
     data: {
       verificationStatus: DocumentVerificationStatus;
       verifiedAt: Date | null;
+      rejectionReason: string | null;
       updatedBy: string;
     },
   ): Promise<OrganizationDocumentEntity | null> {

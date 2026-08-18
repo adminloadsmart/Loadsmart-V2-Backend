@@ -51,7 +51,7 @@ export class OrganizationDocumentService {
     organizationId: string,
     documentId: string,
     actingUserId: string,
-    input: { verificationStatus: DocumentVerificationStatus },
+    input: { verificationStatus: DocumentVerificationStatus; reason?: string },
   ): Promise<OrganizationDocumentEntity> {
     const document = await this.organizationDocumentRepository.findActiveById(documentId);
     if (!document || document.organizationId !== organizationId) {
@@ -63,6 +63,9 @@ export class OrganizationDocumentService {
     const updated = await this.organizationDocumentRepository.updateVerificationStatus(documentId, {
       verificationStatus: input.verificationStatus,
       verifiedAt: input.verificationStatus === 'pending' ? null : new Date(),
+      // Cleared on any status other than reject — mirrors DriverRepository.approve nulling
+      // rejectionReason back out.
+      rejectionReason: input.verificationStatus === 'invalid' ? (input.reason ?? null) : null,
       updatedBy: actingUserId,
     });
     if (!updated) {

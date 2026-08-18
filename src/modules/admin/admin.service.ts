@@ -189,12 +189,16 @@ export class AdminService {
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
-        action: 'ORGANIZATION_DOCUMENT_VERIFIED',
+        action:
+          document.verificationStatus === 'invalid'
+            ? 'ORGANIZATION_DOCUMENT_REJECTED'
+            : 'ORGANIZATION_DOCUMENT_VERIFIED',
         resourceType: 'organization_document',
         newData: {
           documentId,
           documentType: document.documentType,
           verificationStatus: document.verificationStatus,
+          rejectionReason: document.rejectionReason,
         },
       });
 

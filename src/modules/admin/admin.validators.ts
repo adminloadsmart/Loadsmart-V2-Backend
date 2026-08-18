@@ -56,12 +56,24 @@ export const adminValidators = {
 
   // Verifies/rejects one specific submitted document — separate from updateOrganization above,
   // which only ever touches the org's own status now. See organization-document.entity.ts for the
-  // document-type/verification-status value sets.
+  // document-type/verification-status value sets. reason is required when rejecting (invalid) —
+  // same rule as rejectOrganization/rejectDriver/rejectVehicle elsewhere.
   verifyOrganizationDocument: z.object({
     params: organizationDocumentParams,
-    body: z.object({
-      verificationStatus: z.enum(['pending', 'verified', 'invalid']),
-    }),
+    body: z
+      .object({
+        verificationStatus: z.enum(['pending', 'verified', 'invalid']),
+        reason: z.string().trim().min(1).optional(),
+      })
+      .superRefine((data, ctx) => {
+        if (data.verificationStatus === 'invalid' && !data.reason) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['reason'],
+            message: 'reason is required when marking a document invalid',
+          });
+        }
+      }),
   }),
 
   // Record-keeping/routing assignment — see admin.service.ts's assignReviewer for the role check

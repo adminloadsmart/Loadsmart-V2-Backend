@@ -120,6 +120,11 @@ export class OrganizationDocumentEntity {
   @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt!: Date | null;
 
+  // Set by reject (verificationStatus = 'invalid'), cleared by any other status change —
+  // mirrors DriverEntity/CustomerEntity's rejectionReason.
+  @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
+  rejectionReason!: string | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 
