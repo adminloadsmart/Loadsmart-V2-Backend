@@ -38,13 +38,15 @@ export class OrganizationOnboardingService {
     documents: OrganizationDocumentEntity[],
   ): OrganizationOnboardingProgress {
     const onboardingStep = this.resolveOnboardingStep(organization, documents);
+    const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
+      organization;
 
     if (organization.status === 'active') {
       return {
         onboardingStatus: 'completed',
         onboardingStep: 'submitted',
         nextStep: 'submitted',
-        organization,
+        organization: publicOrganization,
         documents,
       };
     }
@@ -54,7 +56,7 @@ export class OrganizationOnboardingService {
         onboardingStatus: 'submitted',
         onboardingStep,
         nextStep: onboardingStep,
-        organization,
+        organization: publicOrganization,
         documents,
       };
     }
@@ -63,7 +65,7 @@ export class OrganizationOnboardingService {
       onboardingStatus: 'incomplete',
       onboardingStep,
       nextStep: this.resolveNextStep(onboardingStep, organization),
-      organization,
+      organization: publicOrganization,
       documents,
     };
   }
@@ -72,17 +74,25 @@ export class OrganizationOnboardingService {
     organization: OrganizationEntity,
     documents: OrganizationDocumentEntity[],
   ): OrganizationOnboardingProgress & {
-    organization: OrganizationEntity;
+    organization: Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'>;
     documents: OrganizationDocumentEntity[];
     reviewData: OrganizationReviewData;
   } {
     const state = this.buildOnboardingState(organization, documents);
     return {
       ...state,
-      organization,
+      organization: this.toPublicOrganization(organization),
       documents,
       reviewData: this.buildReviewData(organization, documents),
     };
+  }
+
+  private toPublicOrganization(
+    organization: OrganizationEntity,
+  ): Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'> {
+    const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
+      organization;
+    return publicOrganization;
   }
 
   nextStepAfterCompanyDetails(
@@ -228,7 +238,6 @@ export class OrganizationOnboardingService {
         pinCode: organization.pinCode,
       },
       referralCode: organization.referralCode?.code ?? null,
-      shopboardPremisesPhotoKey: organization.shopboardPremisesPhotoKey,
       documents: documents.map((document) => ({
         documentType: document.documentType,
         documentNumber: document.documentNumber,

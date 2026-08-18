@@ -49,7 +49,7 @@ export type OrganizationOnboardingProgress = {
   onboardingStatus: OnboardingStatus;
   onboardingStep: OrganizationOnboardingStep;
   nextStep: OnboardingStep;
-  organization: OrganizationEntity | null;
+  organization: Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'> | null;
   documents: OrganizationDocumentEntity[];
 };
 
@@ -68,7 +68,6 @@ export type OrganizationReviewData = {
     pinCode: string | null;
   };
   referralCode: string | null;
-  shopboardPremisesPhotoKey: string | null;
   documents: Array<{
     documentType: string;
     documentNumber: string | null;

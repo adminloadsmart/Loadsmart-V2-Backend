@@ -52,7 +52,11 @@ export class AdminService {
     try {
       const scoped = { ...input, ...this.reviewerScopeFilter(actingUser) };
       const { items, total } = await this.organizationService.listOrganizations(scoped);
-      return paginate(items, total, input);
+      return paginate(
+        items.map((organization) => this.toPublicOrganization(organization)),
+        total,
+        input,
+      );
     } catch (error) {
       rethrow(error, 'Failed to list organizations');
     }
@@ -67,10 +71,18 @@ export class AdminService {
         this.organizationDocumentService.listByOrganization(organizationId),
         this.organizationJourneyStageService.getTrail(organizationId),
       ]);
-      return { ...organization, documents, journeyStageHistory };
+      return { ...this.toPublicOrganization(organization), documents, journeyStageHistory };
     } catch (error) {
       rethrow(error, 'Failed to get organization');
     }
+  }
+
+  private toPublicOrganization(
+    organization: OrganizationEntity,
+  ): Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'> {
+    const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
+      organization;
+    return publicOrganization;
   }
 
   private reviewerScopeFilter(actingUser: AuthenticatedUser): {
