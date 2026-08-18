@@ -22,6 +22,7 @@ export interface UpdateOrganizationInput {
 
 export interface VerifyOrganizationDocumentInput {
   verificationStatus: DocumentVerificationStatus;
+  reason?: string;
 }
 
 export interface AssignReviewerInput {
