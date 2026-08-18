@@ -11,6 +11,8 @@ import { TruckTypeCatalogRepository } from './truck-type-catalog.repository';
 import { TruckTypeCatalogService } from './truck-type-catalog.service';
 import { LoadingPointRepository } from './loading-point.repository';
 import { LoadingPointService } from './loading-point.service';
+import { LoadingPointImportService } from './loading-point-import.service';
+import { LoadingPointImportController } from './loading-point-import.controller';
 import { MastersController } from './masters.controller';
 import { createMastersProtectedRoutes } from './masters.routes';
 import { AuditService } from '../audit/audit.service';
@@ -43,6 +45,11 @@ export function createMastersModule(
   const transporterImportController = new TransporterImportController(transporterImportService);
   const loadingPointRepository = new LoadingPointRepository(dataSource);
   const loadingPointService = new LoadingPointService(loadingPointRepository, deps.auditService);
+  const loadingPointImportService = new LoadingPointImportService(
+    loadingPointService,
+    deps.auditService,
+  );
+  const loadingPointImportController = new LoadingPointImportController(loadingPointImportService);
   const productRepository = new ProductRepository(dataSource);
   const productService = new ProductService(productRepository, deps.auditService);
   const productImportService = new ProductImportService(productService, deps.auditService);
@@ -91,6 +98,7 @@ export function createMastersModule(
     controller,
     transporterImportController,
     productImportController,
+    loadingPointImportController,
   );
 
   return {

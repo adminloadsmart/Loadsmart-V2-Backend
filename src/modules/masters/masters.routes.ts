@@ -14,6 +14,7 @@ import { ValidationError } from '../../shared/errors';
 import { TransporterImportController } from './transporter-import.controller';
 import { productValidators } from './product.validators';
 import { ProductImportController } from './product-import.controller';
+import { LoadingPointImportController } from './loading-point-import.controller';
 
 const transporterCsvUpload = multer({
   storage: multer.memoryStorage(),
@@ -41,6 +42,7 @@ export function createMastersProtectedRoutes(
   controller: MastersController,
   transporterImportController: TransporterImportController,
   productImportController: ProductImportController,
+  loadingPointImportController: LoadingPointImportController,
 ): Router {
   const router = Router();
 
@@ -145,6 +147,13 @@ export function createMastersProtectedRoutes(
   );
 
   // Settings → Loading Points — origins used by dispatch and load creation.
+  router.post(
+    '/loading-points/import',
+    canWrite,
+    transporterCsvUpload.single('file'),
+    requireTransporterCsvFile,
+    asyncHandler(loadingPointImportController.import),
+  );
   router.post(
     '/loading-points',
     canWrite,
