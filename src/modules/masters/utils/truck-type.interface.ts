@@ -1,12 +1,21 @@
 import { TruckTypeEntity } from '../entities/truck-type.entity';
+import { TruckBodyType } from './truck-type.types';
 
 export interface CreateTruckTypeInput {
   name: string;
+  bodyType: TruckBodyType;
+  wheelConfiguration: number;
+  capacityTons: number;
+  deckVolumeCubicMeters: number;
 }
 
 export interface CreateTruckTypeData {
   tenantId: string;
   name: string;
+  bodyType?: TruckBodyType | null;
+  wheelConfiguration?: number | null;
+  capacityTons?: string | null;
+  deckVolumeCubicMeters?: string | null;
   createdBy: string | null;
 }
 

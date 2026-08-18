@@ -6,17 +6,31 @@ import { REQUISITION_STATUSES } from './utils/loads.types';
 const uuid = z.string().uuid();
 const params = z.object({ requisitionId: uuid });
 
+const productLine = z
+  .object({
+    productId: uuid,
+    quantityTonnes: z.number().positive(), // V-02/V-03
+  })
+  .strict();
+
+const override = z
+  .object({
+    checkId: z.literal('C05'),
+    reason: z.string().trim().min(15), // V-17
+  })
+  .strict();
+
 export const requisitionValidators = {
   create: z.object({
     body: z
       .object({
         customerId: uuid,
-        productId: uuid,
-        quantityTonnes: z.number().positive(),
+        products: z.array(productLine).min(1), // R-02
         loadingPointId: uuid,
         customerDeliveryPointId: uuid,
         expectedDeliveryDate: isoDateSchema,
         customerPoNumber: z.string().trim().min(1).max(100),
+        overrides: z.array(override).max(1).optional(),
       })
       .strict(),
   }),

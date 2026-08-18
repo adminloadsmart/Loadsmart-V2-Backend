@@ -63,9 +63,38 @@ export class TruckTypeService {
         throw new ConflictError(`A truck type named "${name}" already exists`);
       }
 
-      return await this.truckTypeRepository.create({ tenantId, name, createdBy: actorId });
+      return await this.truckTypeRepository.create({
+        tenantId,
+        name,
+        bodyType: input.bodyType,
+        wheelConfiguration: input.wheelConfiguration,
+        capacityTons: String(input.capacityTons),
+        deckVolumeCubicMeters: String(input.deckVolumeCubicMeters),
+        createdBy: actorId,
+      });
     } catch (error) {
       rethrow(error, 'Failed to create truck type');
+    }
+  }
+
+  /** Suggests a smaller-capacity truck type of the same body type that would still fit the given
+   *  cargo weight — backs the fit engine's "a smaller vehicle would do this job" verdict
+   *  (loads/utils/fit-engine.ts). Market sourcing only; own-fleet has no catalog to suggest from. */
+  async findSmallerFit(
+    tenantId: string,
+    bodyType: TruckTypeEntity['bodyType'],
+    cargoTonnes: string,
+    currentCapacityTons: string,
+  ): Promise<TruckTypeEntity | null> {
+    try {
+      return await this.truckTypeRepository.findSmallerFit(
+        tenantId,
+        bodyType,
+        cargoTonnes,
+        currentCapacityTons,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to look up a smaller-fit truck type');
     }
   }
 

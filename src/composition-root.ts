@@ -118,7 +118,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const customers = createCustomersModule(dataSource, audit.service);
 
   // Built after customers/masters/storage — the Load module reads customers.service
-  // (unloading-point validation) and masters' vehicle/driver/transporter/truckType/loadingPoint/
+  // (unloading-point validation) and masters' vehicle/transporter/truckType/loadingPoint/
   // product services (capacity matching + master-record validation) and storage.service
   // (invoice/e-way-bill/E-LR/E-POD uploads) directly, no gateway — same "consumer takes producer
   // services as direct constructor args" pattern dashboards uses below.
@@ -127,7 +127,6 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     customerService: customers.service,
     vehicleService: masters.vehicleService,
-    driverService: masters.driverService,
     transporterService: masters.transporterService,
     truckTypeService: masters.truckTypeService,
     loadingPointService: masters.loadingPointService,

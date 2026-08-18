@@ -3,7 +3,6 @@ import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { CustomerService } from '../customers/customer.service';
 import { VehicleService } from '../masters/vehicle.service';
-import { DriverService } from '../masters/driver.service';
 import { TransporterService } from '../masters/transporter.service';
 import { TruckTypeService } from '../masters/truck-type.service';
 import { LoadingPointService } from '../masters/loading-point.service';
@@ -28,7 +27,6 @@ export function createLoadsModule(
     storageService: StorageService;
     customerService: CustomerService;
     vehicleService: VehicleService;
-    driverService: DriverService;
     transporterService: TransporterService;
     truckTypeService: TruckTypeService;
     loadingPointService: LoadingPointService;
@@ -43,6 +41,7 @@ export function createLoadsModule(
   const loadPaymentRepository = new LoadPaymentRepository(dataSource);
 
   const requisitionService = new RequisitionService(
+    dataSource,
     requisitionRepository,
     loadRepository,
     deps.customerService,
@@ -54,8 +53,6 @@ export function createLoadsModule(
   const loadService = new LoadService(
     loadRepository,
     loadPaymentRepository,
-    deps.vehicleService,
-    deps.driverService,
     deps.transporterService,
     deps.storageService,
     loadActivityService,
@@ -75,7 +72,6 @@ export function createLoadsModule(
     requisitionRepository,
     loadRepository,
     deps.vehicleService,
-    deps.transporterService,
     deps.truckTypeService,
     loadActivityService,
     deps.auditService,

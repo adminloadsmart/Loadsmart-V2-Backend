@@ -1,19 +1,15 @@
 import { PaginationInput } from '../../masters/utils/masters.types';
 import { FreightType, LoadSourceType, LoadStatus, ManualTrackingStatus } from './loads.types';
 
-/** Fields vary by the load's existing `sourceType` — the service validates which are required
- *  (own-fleet: vehicleId required, driverId optional/defaulted; market: transporterId + freight
- *  terms required, vehicleNumber/driverNumber free text), not the shape itself. */
+/** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
+ *  endpoint (Plan Dispatch v2.0 R-16). `freightValue` is optional: defaults to the load's
+ *  `expectedRate` (captured at planning) if the caller doesn't override it with the agreed rate. */
 export interface AssignLoadInput {
-  vehicleId?: string;
-  driverId?: string;
-  vehicleNumber?: string;
-  driverNumber?: string;
-  transporterId?: string;
-  freightType?: FreightType;
+  transporterId: string;
+  vehicleNumber: string;
+  driverNumber: string;
+  freightType: FreightType;
   freightValue?: number;
-  advancePercentage?: number;
-  balancePercentage?: number;
 }
 
 export interface ConfirmLoadingInput {

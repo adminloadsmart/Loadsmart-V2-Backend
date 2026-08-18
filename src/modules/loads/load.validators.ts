@@ -23,21 +23,17 @@ export const loadValidators = {
   get: z.object({ params }),
   getActivities: z.object({ params }),
 
-  // Required-ness of most fields depends on the load's own_fleet/market sourceType, which isn't
-  // known at request-validation time — LoadService.assign enforces that conditionally.
+  // Market loads only — own-fleet loads are assigned at Dispatch Planning (Plan Dispatch v2.0
+  // R-16) and never reach this endpoint; LoadService.assign() rejects them.
   assign: z.object({
     params,
     body: z
       .object({
-        vehicleId: uuid.optional(),
-        driverId: uuid.optional(),
-        vehicleNumber: z.string().trim().min(1).max(20).optional(),
-        driverNumber: z.string().trim().min(1).max(20).optional(),
-        transporterId: uuid.optional(),
-        freightType: z.enum(FREIGHT_TYPES).optional(),
+        transporterId: uuid,
+        vehicleNumber: z.string().trim().min(1).max(20),
+        driverNumber: z.string().trim().min(1).max(20),
+        freightType: z.enum(FREIGHT_TYPES),
         freightValue: z.number().nonnegative().optional(),
-        advancePercentage: z.number().min(0).max(100).optional(),
-        balancePercentage: z.number().min(0).max(100).optional(),
       })
       .strict(),
   }),

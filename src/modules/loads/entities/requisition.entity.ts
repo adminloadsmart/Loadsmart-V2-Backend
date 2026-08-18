@@ -7,17 +7,23 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from 'typeorm';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-delivery-point.entity';
 import { LoadingPointEntity } from '../../masters/entities/loading-point.entity';
-import { ProductEntity } from '../../masters/entities/product.entity';
+import { RequisitionItemEntity } from './requisition-item.entity';
 import { REQUISITION_STATUSES, RequisitionStatus } from '../utils/loads.types';
 
 /**
  * A Requisition captures the complete customer order — Sales creates it; Dispatch
  * Planning splits it into one or more Loads (one truck = one load, see load.entity.ts).
  * No delete flow — a requisition is either open, fully dispatched, or manually closed.
+ *
+ * A requisition can hold multiple products (Plan Dispatch v2.0 R-02) — each is its own
+ * RequisitionItemEntity row, not a column here. `quantityTonnes`/`dispatchedTonnes` stay as
+ * stored aggregates (the sum across items) since Dispatch Planning still matches capacity
+ * against one total figure per requisition.
  */
 @Entity({ schema: 'loads', name: 'requisitions' })
 @Index('requisitions_tenant_id_idx', ['tenantId'])
@@ -37,14 +43,10 @@ export class RequisitionEntity {
   @JoinColumn({ name: 'customer_id' })
   customer!: CustomerEntity;
 
-  @Column({ name: 'product_id', type: 'uuid' })
-  productId!: string;
+  @OneToMany(() => RequisitionItemEntity, (item) => item.requisition)
+  items!: RequisitionItemEntity[];
 
-  @ManyToOne(() => ProductEntity, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'product_id' })
-  product!: ProductEntity;
-
-  /** Full order quantity — may be split across multiple loads/trucks. */
+  /** Full order quantity — sum across `items`. May be split across multiple loads/trucks. */
   @Column({ name: 'quantity_tonnes', type: 'numeric', precision: 10, scale: 2 })
   quantityTonnes!: string;
 

@@ -82,4 +82,25 @@ export class TruckTypeRepository {
     );
     await truckTypes.save(rows);
   }
+
+  /** Same body type, strictly smaller capacity than the current truck, but still large enough to
+   *  carry the cargo — the "a smaller vehicle would do this job" suggestion. Picks the largest
+   *  such option (the closest fit), not the smallest, so the suggestion isn't needlessly tight. */
+  async findSmallerFit(
+    tenantId: string,
+    bodyType: TruckTypeEntity['bodyType'],
+    cargoTonnes: string,
+    currentCapacityTons: string,
+  ): Promise<TruckTypeEntity | null> {
+    if (!bodyType) return null;
+    return this.truckTypes
+      .createQueryBuilder('truckType')
+      .where('truckType.tenantId = :tenantId', { tenantId })
+      .andWhere('truckType.deletedAt IS NULL')
+      .andWhere('truckType.bodyType = :bodyType', { bodyType })
+      .andWhere('truckType.capacityTons >= :cargoTonnes', { cargoTonnes })
+      .andWhere('truckType.capacityTons < :currentCapacityTons', { currentCapacityTons })
+      .orderBy('truckType.capacityTons', 'DESC')
+      .getOne();
+  }
 }

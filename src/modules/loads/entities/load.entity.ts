@@ -7,14 +7,18 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from 'typeorm';
 import { RequisitionEntity } from './requisition.entity';
+import { LoadCargoItemEntity } from './load-cargo-item.entity';
 import { TruckTypeEntity } from '../../masters/entities/truck-type.entity';
 import { VehicleEntity } from '../../masters/entities/vehicle.entity';
 import { DriverEntity } from '../../masters/entities/driver.entity';
 import { TransporterEntity } from '../../masters/entities/transporter.entity';
 import {
+  FREIGHT_MODES,
   FREIGHT_TYPES,
+  FreightMode,
   FreightType,
   LOAD_SOURCE_TYPES,
   LOAD_STATUSES,
@@ -62,6 +66,11 @@ export class LoadEntity {
   @Column({ name: 'planned_capacity_tonnes', type: 'numeric', precision: 10, scale: 2 })
   plannedCapacityTonnes!: string;
 
+  /** What this load actually carries — the "cargo mix", identical across every load spawned from
+   *  the same truck line (Plan Dispatch v2.0 R-08). */
+  @OneToMany(() => LoadCargoItemEntity, (item) => item.load)
+  cargoItems!: LoadCargoItemEntity[];
+
   /** Market lines only — own-fleet capacity/type comes from the linked VehicleEntity. */
   @Column({ name: 'truck_type_id', type: 'uuid', nullable: true })
   truckTypeId!: string | null;
@@ -107,6 +116,18 @@ export class LoadEntity {
   @Column({ name: 'freight_type', type: 'enum', enum: [...FREIGHT_TYPES], nullable: true })
   freightType!: FreightType | null;
 
+  /** Market only, set at Dispatch Planning (Plan Dispatch v2.0 R-16): "set expected price" carries
+   *  `expectedRate`, "ask for quotes" leaves it null until Assignment negotiates a rate. */
+  @Column({ name: 'freight_mode', type: 'enum', enum: [...FREIGHT_MODES], nullable: true })
+  freightMode!: FreightMode | null;
+
+  /** The target/starting rate captured at planning — distinct from `freightValue`, the *agreed*
+   *  rate confirmed at Assignment. */
+  @Column({ name: 'expected_rate', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  expectedRate!: string | null;
+
+  /** The agreed rate — market only, confirmed at Assignment (defaults to `expectedRate` if the
+   *  caller doesn't override it). */
   @Column({ name: 'freight_value', type: 'numeric', precision: 12, scale: 2, nullable: true })
   freightValue!: string | null;
 

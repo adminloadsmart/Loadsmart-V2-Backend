@@ -1,10 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
-import { VehicleService, resolveDocumentStatus } from '../masters/vehicle.service';
-import { DriverService } from '../masters/driver.service';
 import { TransporterService } from '../masters/transporter.service';
 import { StorageService } from '../storage/storage.service';
-import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/utils/vehicle.type';
 import { paginate, Paginated } from '../masters/utils/masters.types';
 import { LoadRepository } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
@@ -34,8 +31,6 @@ export class LoadService {
   constructor(
     private readonly repository: LoadRepository,
     private readonly loadPaymentRepository: LoadPaymentRepository,
-    private readonly vehicleService: VehicleService,
-    private readonly driverService: DriverService,
     private readonly transporterService: TransporterService,
     private readonly storageService: StorageService,
     private readonly loadActivityService: LoadActivityService,
@@ -53,99 +48,47 @@ export class LoadService {
   }
 
   /**
-   * Completes a load's vehicle/driver (own-fleet) or transporter/freight terms (market) — the
-   * vehicle (own-fleet) or transporter (market) itself was already captured at Dispatch Planning
-   * this is the Load Assignment screen. Own-fleet vehicles with an expired
-   * mandatory compliance document are still assignable, but surface a non-blocking
-   * warning back to the caller.
+   * Load Assignment — market loads only. Own-fleet loads never reach this: vehicle+driver are
+   * already known at Dispatch Planning (the same vehicle/driver-resolution + compliance-warning
+   * logic this used to run lives in dispatch-planning.service.ts now), so they're created
+   * directly in `assigned`. Market loads pick their transporter, vehicle number, driver number
+   * and agreed freight here — none of that is known at planning time (Plan Dispatch v2.0 R-16).
    */
   async assign(
     tenantId: string,
     actorId: string,
     loadId: string,
     input: AssignLoadInput,
-  ): Promise<{ load: LoadEntity; complianceWarning: string | null }> {
+  ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
+      if (load.sourceType !== 'market') {
+        throw new ConflictError(
+          'Own-fleet loads are assigned at Dispatch Planning, not through this endpoint',
+        );
+      }
       if (load.status !== 'created') {
         throw new ConflictError('Only a newly created load can be assigned');
       }
 
-      let complianceWarning: string | null = null;
-      let vehicleNumber: string;
-      let driverNumber: string;
-      let driverId: string | null = null;
+      if (!input.transporterId) throw new ValidationError('transporterId is required');
+      await this.transporterService.getTransporter(tenantId, input.transporterId);
+      if (!input.vehicleNumber?.trim()) throw new ValidationError('vehicleNumber is required');
+      if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
+      if (!input.freightType) throw new ValidationError('freightType is required');
 
-      if (load.sourceType === 'own_fleet') {
-        if (!load.vehicleId) {
-          throw new ConflictError('Own-fleet load has no vehicle set from dispatch planning');
-        }
-        const vehicle = await this.vehicleService.getVehicle(tenantId, load.vehicleId);
-        vehicleNumber = vehicle.registrationNumber;
-
-        const documentTypesWithExpiry: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
-        const expiredTypes = (vehicle.documents ?? [])
-          .filter((document) => documentTypesWithExpiry.includes(document.documentType))
-          .filter((document) => resolveDocumentStatus(document.expiryDate) === 'expired');
-        if (expiredTypes.length > 0) {
-          complianceWarning =
-            'This vehicle has one or more expired compliance documents (e.g. insurance/PUC/fitness). ' +
-            'You can still assign it, but please verify before dispatch.';
-        }
-
-        if (input.driverId) {
-          const driver = await this.driverService.getDriver(tenantId, input.driverId);
-          driverId = driver.id;
-          driverNumber = driver.phoneNumber;
-        } else {
-          const primaryLink = (vehicle.driverLinks ?? []).find(
-            (link) => link.isPrimary && link.status === 'active',
-          );
-          if (!primaryLink) {
-            throw new ValidationError(
-              'This vehicle has no linked driver — pass driverId explicitly',
-            );
-          }
-          driverId = primaryLink.driverId;
-          driverNumber = primaryLink.driver?.phoneNumber ?? input.driverNumber ?? '';
-        }
-      } else {
-        if (!load.transporterId) {
-          throw new ConflictError('Market load has no transporter set from dispatch planning');
-        }
-        await this.transporterService.getTransporter(tenantId, load.transporterId);
-
-        if (!input.vehicleNumber?.trim()) throw new ValidationError('vehicleNumber is required');
-        if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
-        if (!input.freightType) throw new ValidationError('freightType is required');
-        if (input.freightValue === undefined) throw new ValidationError('freightValue is required');
-        if (input.advancePercentage === undefined)
-          throw new ValidationError('advancePercentage is required');
-        if (input.balancePercentage === undefined)
-          throw new ValidationError('balancePercentage is required');
-
-        vehicleNumber = input.vehicleNumber.trim();
-        driverNumber = input.driverNumber.trim();
-      }
+      // The agreed rate — defaults to the target rate captured at planning if the caller doesn't
+      // override it (e.g. the counter-offer negotiation landed on the original target).
+      const freightValue =
+        input.freightValue !== undefined ? String(input.freightValue) : load.expectedRate;
 
       const updated = await this.repository.update(tenantId, loadId, {
         status: 'assigned',
-        vehicleNumber,
-        driverNumber,
-        driverId,
-        freightType: load.sourceType === 'market' ? (input.freightType ?? null) : null,
-        freightValue:
-          load.sourceType === 'market' && input.freightValue !== undefined
-            ? String(input.freightValue)
-            : null,
-        advancePercentage:
-          load.sourceType === 'market' && input.advancePercentage !== undefined
-            ? String(input.advancePercentage)
-            : null,
-        balancePercentage:
-          load.sourceType === 'market' && input.balancePercentage !== undefined
-            ? String(input.balancePercentage)
-            : null,
+        transporterId: input.transporterId,
+        vehicleNumber: input.vehicleNumber.trim(),
+        driverNumber: input.driverNumber.trim(),
+        freightType: input.freightType,
+        freightValue,
         updatedBy: actorId,
       });
       if (!updated) throw new ConflictError('Load assignment failed');
@@ -164,10 +107,15 @@ export class LoadService {
         action: 'LOAD_ASSIGNED',
         resourceType: 'load',
         oldData: { id: loadId, status: 'created' },
-        newData: { id: loadId, status: 'assigned', vehicleNumber, driverNumber },
+        newData: {
+          id: loadId,
+          status: 'assigned',
+          vehicleNumber: updated.vehicleNumber,
+          driverNumber: updated.driverNumber,
+        },
       });
 
-      return { load: updated, complianceWarning };
+      return updated;
     } catch (error) {
       rethrow(error, 'Failed to assign load');
     }
@@ -231,6 +179,17 @@ export class LoadService {
       const load = await this.assertExists(tenantId, loadId);
       if (load.status !== 'assigned') {
         throw new ConflictError('Only an assigned load can have loading confirmed');
+      }
+
+      // C-04 — LR numbers are statutory and can never repeat, checked across every load in the
+      // tenant regardless of status. Blocking, no override.
+      if (input.elrNumber?.trim()) {
+        const clash = await this.repository.findByElrNumber(tenantId, input.elrNumber.trim());
+        if (clash) {
+          throw new ConflictError(
+            `E-LR number "${input.elrNumber.trim()}" is already used on load ${clash.id}`,
+          );
+        }
       }
 
       await this.assertLoadDocumentUpload(

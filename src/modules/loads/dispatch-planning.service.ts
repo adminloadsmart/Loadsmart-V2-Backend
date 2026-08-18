@@ -1,19 +1,45 @@
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
-import { VehicleService } from '../masters/vehicle.service';
-import { TransporterService } from '../masters/transporter.service';
+import { VehicleService, resolveDocumentStatus } from '../masters/vehicle.service';
+import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/utils/vehicle.type';
 import { TruckTypeService } from '../masters/truck-type.service';
+import { TruckTypeEntity } from '../masters/entities/truck-type.entity';
 import { RequisitionRepository } from './requisition.repository';
 import { LoadRepository, CreateLoadData } from './load.repository';
 import { LoadActivityService } from './load-activity.service';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
+import { computeFitVerdict, FitResult } from './utils/fit-engine';
 import {
   CapacitySummary,
+  MarketTruckLineInput,
+  OwnFleetTruckLineInput,
   PlanDispatchInput,
+  ProductAllocation,
+  TruckLineFitVerdict,
   TruckLineInput,
 } from './utils/dispatch-planning.interface';
+
+const MIN_OVERRIDE_REASON_LENGTH = 15; // V-17
+
+interface BuiltLine {
+  rows: CreateLoadData[];
+  cargoRows: { productId: string; tonnesPerTruck: string }[];
+  capacityTonnes: number;
+  fit: FitResult;
+  /** vehicleId -> compliance warning, own-fleet lines only. */
+  complianceWarnings: Map<string, string>;
+}
+
+export interface PlanDispatchResult {
+  requisition: RequisitionEntity;
+  loads: LoadEntity[];
+  capacitySummary: CapacitySummary;
+  allocationByProduct: ProductAllocation[];
+  fitVerdicts: TruckLineFitVerdict[];
+  complianceWarnings: { loadId: string; vehicleId: string; warning: string }[];
+}
 
 export class DispatchPlanningService {
   constructor(
@@ -21,31 +47,28 @@ export class DispatchPlanningService {
     private readonly requisitionRepository: RequisitionRepository,
     private readonly loadRepository: LoadRepository,
     private readonly vehicleService: VehicleService,
-    private readonly transporterService: TransporterService,
     private readonly truckTypeService: TruckTypeService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
   ) {}
 
   /**
-   * Dispatch picks a requisition and plans how it moves: one line per planned truck
-   * (own fleet or market). On submit, the requisition is split into loads — one load per truck
-   * (FMS-DSP-R003). Capacity under/over/exact are all allowed (FMS-DSP-R001/R002); the summary is
-   * informational, not a hard block, so a requisition can be dispatched in multiple rounds.
+   * Dispatch picks a requisition and plans how it moves: one line per planned truck (own fleet
+   * or market), each carrying a mix of the requisition's products. On submit, the requisition is
+   * split into loads — one load per truck (own-fleet lines are multi-vehicle: one load per
+   * selected vehicle, all sharing the same cargo mix). Capacity under/over/exact are all allowed
+   * at the requisition level; the summary is informational, not a hard block, so a requisition
+   * can be dispatched in multiple rounds. Per-truck weight capacity IS a hard block (V-14).
    */
   async planDispatch(
     tenantId: string,
     actorId: string,
     requisitionId: string,
     input: PlanDispatchInput,
-  ): Promise<{
-    requisition: RequisitionEntity;
-    loads: LoadEntity[];
-    capacitySummary: CapacitySummary;
-  }> {
+  ): Promise<PlanDispatchResult> {
     try {
       if (!input.truckLines?.length) {
-        throw new ValidationError('At least one truck line is required');
+        throw new ValidationError('At least one truck line is required'); // V-16
       }
 
       return await this.dataSource.transaction(async (manager) => {
@@ -59,17 +82,38 @@ export class DispatchPlanningService {
           throw new ConflictError('Cannot plan dispatch against a closed requisition');
         }
 
-        const rows: CreateLoadData[] = [];
-        let plannedTonnes = 0;
+        await this.assertVehicleChecks(tenantId, requisitionId, input, manager);
 
+        const built: BuiltLine[] = [];
         for (const line of input.truckLines) {
-          const lineRows = await this.buildRowsForLine(tenantId, actorId, requisitionId, line);
-          rows.push(...lineRows.rows);
-          plannedTonnes += lineRows.capacityTonnes;
+          built.push(await this.buildRowsForLine(tenantId, actorId, requisitionId, line));
         }
 
-        const loads = await this.loadRepository.createMany(rows, manager);
+        const allRows = built.flatMap((line) => line.rows);
+        const loads = await this.loadRepository.createMany(allRows, manager);
 
+        // Cargo items + compliance warnings line up with `loads` in the same order `createMany`
+        // preserves (repo.create/save keep array order).
+        let cursor = 0;
+        const complianceWarnings: PlanDispatchResult['complianceWarnings'] = [];
+        for (const line of built) {
+          for (let i = 0; i < line.rows.length; i++) {
+            const load = loads[cursor++];
+            await this.loadRepository.createCargoItems(
+              line.cargoRows.map((cargo) => ({ tenantId, loadId: load.id, ...cargo })),
+              manager,
+            );
+            if (load.vehicleId && line.complianceWarnings.has(load.vehicleId)) {
+              complianceWarnings.push({
+                loadId: load.id,
+                vehicleId: load.vehicleId,
+                warning: line.complianceWarnings.get(load.vehicleId)!,
+              });
+            }
+          }
+        }
+
+        const plannedTonnes = built.reduce((sum, line) => sum + line.capacityTonnes, 0);
         const plannedTonnesStr = plannedTonnes.toFixed(2);
         await this.requisitionRepository.incrementDispatchedTonnes(
           tenantId,
@@ -95,7 +139,7 @@ export class DispatchPlanningService {
             actorId,
             'LOAD_CREATED',
             null,
-            'created',
+            load.status,
             { requisitionId },
             manager,
           );
@@ -111,14 +155,14 @@ export class DispatchPlanningService {
             id: requisitionId,
             dispatchedTonnes: newDispatchedTonnes.toFixed(2),
             loadsCreated: loads.length,
+            ...(input.overrides?.length ? { overrides: input.overrides } : {}),
           },
         });
 
-        const updatedRequisition = await this.requisitionRepository.findById(
-          tenantId,
-          requisitionId,
-          manager,
-        );
+        const [updatedRequisition, allocationByProduct] = await Promise.all([
+          this.requisitionRepository.findById(tenantId, requisitionId, manager),
+          this.loadRepository.sumCargoByProductForRequisition(tenantId, requisitionId, manager),
+        ]);
 
         return {
           requisition: updatedRequisition ?? requisition,
@@ -128,10 +172,85 @@ export class DispatchPlanningService {
             requisitionTonnes: requisition.quantityTonnes,
             remainingTonnes: (Number(requisition.quantityTonnes) - newDispatchedTonnes).toFixed(2),
           },
+          allocationByProduct: (updatedRequisition?.items ?? requisition.items ?? []).map(
+            (item) => ({
+              productId: item.productId,
+              plannedTonnes:
+                allocationByProduct.find((row) => row.productId === item.productId)?.totalTonnes ??
+                '0',
+              requisitionTonnes: item.quantityTonnes,
+            }),
+          ),
+          fitVerdicts: built.map((line, index) => ({ truckLineIndex: index, ...line.fit })),
+          complianceWarnings,
         };
       });
     } catch (error) {
       rethrow(error, 'Failed to plan dispatch');
+    }
+  }
+
+  /** C-01/C-02/C-03 — run once, up front, across every own-fleet vehicle in this call, before any
+   *  row is built. Market lines carry no vehicle at planning time (R-16) so none of this applies
+   *  to them. */
+  private async assertVehicleChecks(
+    tenantId: string,
+    requisitionId: string,
+    input: PlanDispatchInput,
+    manager: EntityManager,
+  ): Promise<void> {
+    const ownFleetLines = input.truckLines.filter(
+      (line): line is OwnFleetTruckLineInput => line.sourceType === 'own_fleet',
+    );
+    const allVehicleIds = ownFleetLines.flatMap((line) => line.vehicleIds);
+    if (allVehicleIds.length === 0) return;
+
+    // C-01a — repeated within this very call.
+    const seen = new Set<string>();
+    for (const vehicleId of allVehicleIds) {
+      if (seen.has(vehicleId)) {
+        throw new ConflictError(
+          `Vehicle ${vehicleId} is planned on more than one truck line in this request`,
+        );
+      }
+      seen.add(vehicleId);
+    }
+
+    // C-01b — already used by an existing load under this same requisition (earlier rounds).
+    const inRequisition = await this.loadRepository.findByRequisitionAndVehicles(
+      tenantId,
+      requisitionId,
+      allVehicleIds,
+      manager,
+    );
+    if (inRequisition.length > 0) {
+      throw new ConflictError(
+        `Vehicle ${inRequisition[0].vehicleId} is already planned on load ${inRequisition[0].id} in this requisition`,
+      );
+    }
+
+    // C-02 — the vehicle is on a live trip elsewhere in the tenant. No override possible.
+    const active = await this.loadRepository.findActiveByVehicles(tenantId, allVehicleIds, manager);
+    if (active.length > 0) {
+      throw new ConflictError(
+        `Vehicle ${active[0].vehicleId} is already on an active load elsewhere (load ${active[0].id}, status ${active[0].status})`,
+      );
+    }
+
+    // C-03 — the vehicle appears on an earlier closed load. Amber: overridable with a reason.
+    const closed = await this.loadRepository.findClosedByVehicles(tenantId, allVehicleIds, manager);
+    if (closed.length > 0) {
+      const override = input.overrides?.find((entry) => entry.checkId === 'C03');
+      if (!override) {
+        throw new ConflictError(
+          `Vehicle ${closed[0].vehicleId} was used on an earlier closed load (${closed[0].id}) — override with a reason to reuse it`,
+        );
+      }
+      if (override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
+        throw new ValidationError(
+          `Override reason must be at least ${MIN_OVERRIDE_REASON_LENGTH} characters`, // V-17
+        );
+      }
     }
   }
 
@@ -140,43 +259,155 @@ export class DispatchPlanningService {
     actorId: string,
     requisitionId: string,
     line: TruckLineInput,
-  ): Promise<{ rows: CreateLoadData[]; capacityTonnes: number }> {
+  ): Promise<BuiltLine> {
+    const cargoTonnes = line.cargoMix.reduce((sum, item) => sum + item.tonnesPerTruck, 0);
+    const cargoRows = line.cargoMix.map((item) => ({
+      productId: item.productId,
+      tonnesPerTruck: String(item.tonnesPerTruck),
+    }));
+
     if (line.sourceType === 'own_fleet') {
-      const vehicle = await this.vehicleService.getVehicle(tenantId, line.vehicleId);
+      return this.buildOwnFleetLine(tenantId, actorId, requisitionId, line, cargoTonnes, cargoRows);
+    }
+    return this.buildMarketLine(tenantId, actorId, requisitionId, line, cargoTonnes, cargoRows);
+  }
+
+  private async buildOwnFleetLine(
+    tenantId: string,
+    actorId: string,
+    requisitionId: string,
+    line: OwnFleetTruckLineInput,
+    cargoTonnes: number,
+    cargoRows: { productId: string; tonnesPerTruck: string }[],
+  ): Promise<BuiltLine> {
+    const complianceWarnings = new Map<string, string>();
+    const documentTypesWithExpiry: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
+    const capacities: number[] = [];
+    const rows: CreateLoadData[] = [];
+
+    for (const vehicleId of line.vehicleIds) {
+      const vehicle = await this.vehicleService.getVehicle(tenantId, vehicleId);
       if (vehicle.status !== 'active') {
-        throw new ConflictError(`Vehicle ${line.vehicleId} is not active`);
+        throw new ConflictError(`Vehicle ${vehicleId} is not active`);
       }
       if (!vehicle.capacityTons) {
-        throw new ValidationError(`Vehicle ${line.vehicleId} has no capacity set`);
+        throw new ValidationError(`Vehicle ${vehicleId} has no capacity set`);
+      }
+      capacities.push(Number(vehicle.capacityTons));
+
+      const expired = (vehicle.documents ?? [])
+        .filter((document) => documentTypesWithExpiry.includes(document.documentType))
+        .some((document) => resolveDocumentStatus(document.expiryDate) === 'expired');
+      if (expired) {
+        complianceWarnings.set(
+          vehicleId,
+          'This vehicle has one or more expired compliance documents (e.g. insurance/PUC/fitness). ' +
+            'You can still assign it, but please verify before dispatch.',
+        );
       }
 
-      const row: CreateLoadData = {
+      // Vehicle+driver already known — the load lands directly in `assigned` (R-35), skipping the
+      // Load Assignment step entirely for own-fleet.
+      const primaryLink = (vehicle.driverLinks ?? []).find(
+        (link) => link.isPrimary && link.status === 'active',
+      );
+
+      rows.push({
         tenantId,
         requisitionId,
         sourceType: 'own_fleet',
+        status: 'assigned',
         plannedCapacityTonnes: vehicle.capacityTons,
         vehicleId: vehicle.id,
+        vehicleNumber: vehicle.registrationNumber,
+        driverId: primaryLink?.driverId ?? null,
+        driverNumber: primaryLink?.driver?.phoneNumber ?? null,
         createdBy: actorId,
-      };
-      return { rows: [row], capacityTonnes: Number(vehicle.capacityTons) };
+      });
     }
 
-    await this.transporterService.getTransporter(tenantId, line.transporterId);
-    await this.truckTypeService.assertTruckTypeExists(tenantId, line.truckTypeId);
+    const minCapacity = Math.min(...capacities);
+    if (cargoTonnes > minCapacity) {
+      throw new ValidationError(
+        `Cargo mix (${cargoTonnes}t) exceeds the smallest selected vehicle's capacity (${minCapacity}t)`, // V-14
+      );
+    }
+
+    const fit = computeFitVerdict(cargoTonnes, minCapacity, false);
+
+    return {
+      rows,
+      cargoRows,
+      capacityTonnes: cargoTonnes * line.vehicleIds.length,
+      fit,
+      complianceWarnings,
+    };
+  }
+
+  private async buildMarketLine(
+    tenantId: string,
+    actorId: string,
+    requisitionId: string,
+    line: MarketTruckLineInput,
+    cargoTonnes: number,
+    cargoRows: { productId: string; tonnesPerTruck: string }[],
+  ): Promise<BuiltLine> {
+    const truckType = await this.truckTypeService.assertTruckTypeExists(tenantId, line.truckTypeId);
+    if (!truckType.capacityTons) {
+      throw new ValidationError(
+        `Truck type "${truckType.name}" has no capacity set — edit it in Settings → Truck Types first`,
+      );
+    }
+
+    const capacityTons = Number(truckType.capacityTons);
+    if (cargoTonnes > capacityTons) {
+      throw new ValidationError(
+        `Cargo mix (${cargoTonnes}t) exceeds this truck type's capacity (${capacityTons}t)`, // V-14
+      );
+    }
+
+    const smallerFit = await this.findSmallerFitSuggestion(tenantId, truckType, cargoTonnes);
+    const fit = computeFitVerdict(cargoTonnes, capacityTons, smallerFit !== null);
 
     const row: CreateLoadData = {
       tenantId,
       requisitionId,
       sourceType: 'market',
-      plannedCapacityTonnes: String(line.capacityTonnes),
-      truckTypeId: line.truckTypeId,
-      feetWheels: line.feetWheels ?? null,
-      transporterId: line.transporterId,
+      status: 'created',
+      plannedCapacityTonnes: truckType.capacityTons,
+      truckTypeId: truckType.id,
+      feetWheels: truckType.wheelConfiguration ? `${truckType.wheelConfiguration} WH` : null,
+      freightMode: line.freightMode,
+      expectedRate: line.expectedRate === undefined ? null : String(line.expectedRate),
+      advancePercentage:
+        line.advancePercentage === undefined ? '30' : String(line.advancePercentage),
+      balancePercentage:
+        line.balancePercentage === undefined ? '70' : String(line.balancePercentage),
       createdBy: actorId,
     };
+
     return {
       rows: Array.from({ length: line.numberOfTrucks }, () => ({ ...row })),
-      capacityTonnes: line.capacityTonnes * line.numberOfTrucks,
+      cargoRows,
+      capacityTonnes: cargoTonnes * line.numberOfTrucks,
+      fit,
+      complianceWarnings: new Map(),
     };
+  }
+
+  /** Market only — "a smaller vehicle would do this job" (§6.7). Own-fleet has no catalog to
+   *  suggest from, so this is never called for own-fleet lines. */
+  private async findSmallerFitSuggestion(
+    tenantId: string,
+    truckType: TruckTypeEntity,
+    cargoTonnes: number,
+  ) {
+    if (!truckType.bodyType || !truckType.capacityTons) return null;
+    return this.truckTypeService.findSmallerFit(
+      tenantId,
+      truckType.bodyType,
+      String(cargoTonnes),
+      truckType.capacityTons,
+    );
   }
 }
