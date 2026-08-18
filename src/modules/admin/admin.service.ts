@@ -192,6 +192,19 @@ export class AdminService {
         await this.organizationService.updateOrganization(organizationId, {
           onboardingStep: 'business_details',
         });
+        await this.auditService.log({
+          tenantId: organizationId,
+          userId: actingUser.id,
+          action: 'ORGANIZATION_ONBOARDING_REOPENED',
+          resourceType: 'organization',
+          newData: {
+            organizationId,
+            onboardingStep: 'business_details',
+            invalidDocumentId: document.id,
+            invalidDocumentType: document.documentType,
+            rejectionReason: document.rejectionReason,
+          },
+        });
       }
 
       await this.auditService.log({

@@ -247,6 +247,20 @@ export class AuthService {
       department: input.department ?? null,
     });
 
+    await this.auditService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'ORGANIZATION_USER_DETAILS_SAVED',
+      resourceType: 'user',
+      newData: {
+        userId: updated.id,
+        fullName: updated.fullName,
+        email: updated.email,
+        designation: updated.designation,
+        department: updated.department,
+      },
+    });
+
     return {
       id: updated.id,
       name: updated.fullName,
@@ -754,6 +768,18 @@ export class AuthService {
         this.organizationService.updateOrganization(tenantId, { ...profileData, onboardingStep }),
         this.organizationDocumentService.listByOrganization(tenantId),
       ]);
+      await this.auditService.log({
+        tenantId,
+        userId,
+        action: 'ORGANIZATION_COMPANY_DETAILS_SAVED',
+        resourceType: 'organization',
+        newData: {
+          organizationId: organization.id,
+          companyLegalName: organization.companyLegalName,
+          ownsFleet: organization.hasOwnFleet,
+          onboardingStep: organization.onboardingStep,
+        },
+      });
       return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     }
 
@@ -778,6 +804,18 @@ export class AuthService {
         permissions,
         user.permissionsVersion,
       );
+      await this.auditService.log({
+        tenantId: organization.id,
+        userId,
+        action: 'ORGANIZATION_COMPANY_DETAILS_SAVED',
+        resourceType: 'organization',
+        newData: {
+          organizationId: organization.id,
+          companyLegalName: updated.companyLegalName,
+          ownsFleet: updated.hasOwnFleet,
+          onboardingStep: updated.onboardingStep,
+        },
+      });
       return {
         ...this.organizationOnboardingService.buildOrganizationResponse(updated, []),
         ...tokens,
@@ -907,6 +945,20 @@ export class AuthService {
         manager,
       );
 
+      await this.auditService.log({
+        tenantId: user.tenantId!,
+        userId: user.id,
+        action: 'ORGANIZATION_BUSINESS_DETAILS_SAVED',
+        resourceType: 'organization',
+        newData: {
+          organizationId: user.tenantId,
+          documentTypes: documents.map((document) => document.documentType),
+          documentIds: documents.map((document) => document.id),
+          replacedDocumentType: input.replaceDocumentType ?? null,
+          onboardingStep: organization.onboardingStep,
+        },
+      });
+
       return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     });
   }
@@ -966,6 +1018,24 @@ export class AuthService {
         },
         manager,
       );
+
+      await this.auditService.log({
+        tenantId: user.tenantId!,
+        userId: user.id,
+        action: isCorrectionResubmission ? 'ORGANIZATION_RESUBMITTED' : 'ORGANIZATION_SUBMITTED',
+        resourceType: 'organization',
+        oldData: {
+          status: current.status,
+          onboardingStep: current.onboardingStep,
+          submittedAt: current.submittedAt,
+        },
+        newData: {
+          status: 'pending',
+          onboardingStep: 'submitted',
+          submittedAt,
+          documentIds: documents.map((document) => document.id),
+        },
+      });
 
       const withStage = await this.organizationJourneyStageService.recordTransition(
         user.tenantId!,
