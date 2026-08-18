@@ -233,7 +233,7 @@ export class OrganizationOnboardingService {
         documentType: document.documentType,
         documentNumber: document.documentNumber,
         documentUrl: document.fileKey,
-        isVaild: document.isVaild,
+        verificationStatus: document.verificationStatus,
       })),
     };
   }

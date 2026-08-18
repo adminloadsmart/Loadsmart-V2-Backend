@@ -864,7 +864,10 @@ export class AuthService {
             documentNumber: input.documentNo,
             documentUrl: documentFront.key,
             ...(documentBack ? { backFileKey: documentBack.key } : {}),
-            isGovtVerified: input.isGovtVerified === 'Yes',
+          },
+          {
+            documentType: 'shopboard_premises_photo',
+            documentUrl: shopPremisesPhoto.key,
           },
         ],
         manager,

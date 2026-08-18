@@ -57,6 +57,7 @@ export const DOCUMENT_NUMBER_REGEX: Record<
   udyam: UDYAM_REGEX,
   cin: CIN_REGEX,
   shop_establishment: null,
+  shopboard_premises_photo: null,
 };
 
 // A referral code as admin-typed/generated: uppercase letters/digits plus - and _, 4-40 chars.

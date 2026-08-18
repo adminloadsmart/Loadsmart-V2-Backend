@@ -1,6 +1,7 @@
 /* Organization onboarding — DTOs and shared onboarding-state types. */
 
 import {
+  DocumentVerificationStatus,
   OrganizationDocumentEntity,
   OrganizationDocumentInput,
 } from './entities/organization-document.entity';
@@ -34,7 +35,6 @@ export interface OrganizationAddressInput {
 export interface SaveBusinessDetailsInput {
   documentType: OrganizationDocumentInput['documentType'];
   documentNo?: string;
-  isGovtVerified: 'Yes' | 'No';
 }
 
 export interface SubmitOrganizationInput {
@@ -73,6 +73,6 @@ export type OrganizationReviewData = {
     documentType: string;
     documentNumber: string | null;
     documentUrl: string | null;
-    isVaild: boolean;
+    verificationStatus: DocumentVerificationStatus;
   }>;
 };
