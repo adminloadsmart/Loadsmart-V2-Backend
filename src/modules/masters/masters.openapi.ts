@@ -242,6 +242,33 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/loading-points/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importLoadingPointsCsv',
+    ...write('Bulk import loading points from a CSV file.'),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: { type: 'string', format: 'binary', description: 'CSV file, maximum 5 MB.' },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Import report with created and failed row counts' },
+      400: { description: 'Invalid CSV or missing file', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/loading-points`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.createLoadingPoint',
@@ -268,6 +295,18 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
           'Paginated loading points — { data: { items, page, limit, total, totalPages } }',
       },
     },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loading-points/cities`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listLoadingPointCities',
+    ...authenticated(
+      'Distinct cities with at least one loading point — feeds a city filter dropdown.',
+    ),
+    request: { query: loadingPointValidators.listCities.shape.query },
+    responses: { 200: { description: 'Sorted list of distinct city names' } },
   });
 
   registry.registerPath({

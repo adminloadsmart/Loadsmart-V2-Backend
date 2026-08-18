@@ -15,6 +15,7 @@ import { ListDriversInput } from './utils/drivers.interface';
 import { AddTruckTypesFromCatalogInput, CreateTruckTypeInput } from './utils/truck-type.interface';
 import {
   CreateLoadingPointInput,
+  ListLoadingPointCitiesInput,
   ListLoadingPointsInput,
   UpdateLoadingPointInput,
 } from './utils/loading-point.interface';
@@ -88,6 +89,14 @@ export class MastersController {
       req.validatedQuery as ListLoadingPointsInput,
     );
     respond(res, loadingPoints);
+  };
+
+  listLoadingPointCities = async (req: Request, res: Response) => {
+    const cities = await this.loadingPointService.listCities(
+      requireTenantId(req),
+      req.validatedQuery as ListLoadingPointCitiesInput,
+    );
+    respond(res, cities);
   };
 
   getLoadingPoint = async (req: Request, res: Response) => {

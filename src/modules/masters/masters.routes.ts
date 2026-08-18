@@ -14,6 +14,7 @@ import { ValidationError } from '../../shared/errors';
 import { TransporterImportController } from './transporter-import.controller';
 import { productValidators } from './product.validators';
 import { ProductImportController } from './product-import.controller';
+import { LoadingPointImportController } from './loading-point-import.controller';
 
 const transporterCsvUpload = multer({
   storage: multer.memoryStorage(),
@@ -41,6 +42,7 @@ export function createMastersProtectedRoutes(
   controller: MastersController,
   transporterImportController: TransporterImportController,
   productImportController: ProductImportController,
+  loadingPointImportController: LoadingPointImportController,
 ): Router {
   const router = Router();
 
@@ -146,6 +148,13 @@ export function createMastersProtectedRoutes(
 
   // Settings → Loading Points — origins used by dispatch and load creation.
   router.post(
+    '/loading-points/import',
+    canWrite,
+    transporterCsvUpload.single('file'),
+    requireTransporterCsvFile,
+    asyncHandler(loadingPointImportController.import),
+  );
+  router.post(
     '/loading-points',
     canWrite,
     validate(loadingPointValidators.create),
@@ -155,6 +164,13 @@ export function createMastersProtectedRoutes(
     '/loading-points',
     validate(loadingPointValidators.list),
     asyncHandler(controller.listLoadingPoints),
+  );
+  // Distinct cities with at least one loading point — feeds the city filter dropdown. Declared
+  // before '/loading-points/:loadingPointId' so the literal segment isn't captured as an id.
+  router.get(
+    '/loading-points/cities',
+    validate(loadingPointValidators.listCities),
+    asyncHandler(controller.listLoadingPointCities),
   );
   router.get(
     '/loading-points/:loadingPointId',

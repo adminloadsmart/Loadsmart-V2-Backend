@@ -40,6 +40,10 @@ export interface ListLoadingPointsInput extends PaginationInput {
   status?: LoadingPointStatus;
 }
 
+export interface ListLoadingPointCitiesInput {
+  status?: LoadingPointStatus;
+}
+
 export interface ListLoadingPointsQuery {
   page?: string | number;
   limit?: string | number;
