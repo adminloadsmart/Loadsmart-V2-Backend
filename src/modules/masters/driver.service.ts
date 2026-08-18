@@ -11,7 +11,7 @@ import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverBankVerificationStatus } from './utils/drivers.types';
 import { DriverRepository } from './driver.repository';
 import { Paginated, paginate } from './utils/masters.types';
-import { SarathiClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
+import { UlipClient, SarathiDrivingLicenceResult } from '../../adapters/ulip.client';
 import { StorageService } from '../storage/storage.service';
 import {
   AddBankDetailsInput,
@@ -29,7 +29,7 @@ export class DriverService {
   constructor(
     private readonly driverRepository: DriverRepository,
     private readonly dataSource: DataSource,
-    private readonly sarathiClient: SarathiClient,
+    private readonly ulipClient: UlipClient,
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
   ) {}
@@ -83,7 +83,7 @@ export class DriverService {
     dateOfBirth: string,
   ): Promise<SarathiDrivingLicenceResult> {
     try {
-      return await this.sarathiClient.lookupDrivingLicence(licenseNumber, dateOfBirth);
+      return await this.ulipClient.lookupDrivingLicence(licenseNumber, dateOfBirth);
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
     }

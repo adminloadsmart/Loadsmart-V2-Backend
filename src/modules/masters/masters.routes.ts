@@ -54,7 +54,7 @@ export function createMastersProtectedRoutes(
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle or driver — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
-  // Throttles POST /drivers/verify-dl — it fans out to IDfy's paid Sarathi lookup. Same
+  // Throttles POST /drivers/verify-dl — it fans out to ULIP's Sarathi lookup. Same
   // createIpRateLimit + env-driven limit/window pattern as auth.routes.ts.
   const verifyDriverDlRateLimit = createIpRateLimit({
     keyPrefix: 'verify-dl',

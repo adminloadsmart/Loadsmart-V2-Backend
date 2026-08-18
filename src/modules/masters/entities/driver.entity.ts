@@ -59,7 +59,7 @@ export class DriverEntity {
   @Column({ name: 'date_of_joining', type: 'date', nullable: true })
   dateOfJoining!: string | null;
 
-  // Required by the Sarathi DL check (IDfy's verify_with_source needs id_number + date_of_birth
+  // Required by the Sarathi DL check (ULIP's lookup needs the licence number + date_of_birth
   // together), so it's captured on the driver even though nothing else in the product needs it yet.
   @Column({ name: 'date_of_birth', type: 'date', nullable: true })
   dateOfBirth!: string | null;

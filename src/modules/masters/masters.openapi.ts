@@ -1146,12 +1146,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.verifyDriverDl',
     ...write(
-      'Check a driving licence + date of birth against the Sarathi registry via IDfy, before the ' +
-        'driver record exists — step 2 of the "Add a driver" form. Submits an async IDfy task and ' +
-        'polls for the result before responding. Falls back to manual_review if IDFY_API_KEY/' +
-        'IDFY_ACCOUNT_ID/IDFY_TASK_ID/IDFY_GROUP_ID are unset, the registry has no match, or the ' +
-        'call fails — the form then switches to photo uploads and typed-in details, submitted as ' +
-        'part of drivers/onboard.',
+      'Check a driving licence + date of birth against the Sarathi registry via ULIP, before the ' +
+        'driver record exists — step 2 of the "Add a driver" form. Falls back to manual_review if ' +
+        'ULIP_BASE_URL/ULIP_USERNAME/ULIP_PASSWORD/ULIP_DL_INDEX are unset, the registry has no ' +
+        'match, or the call fails — the form then switches to photo uploads and typed-in details, ' +
+        'submitted as part of drivers/onboard.',
     ),
     request: { body: json(mastersValidators.verifyDriverDl.shape.body) },
     responses: {

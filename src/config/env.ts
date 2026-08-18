@@ -71,12 +71,12 @@ export const env = {
     'DRIVER_VERIFY_DL_RATE_LIMIT_WINDOW_SECONDS',
     60,
   ),
-  // IDfy's `verify_with_source` DL check (Sarathi registry). SarathiClient falls back to
-  // manual_review whenever any of these is missing, so the app runs fine without them.
-  idfyApiKey: process.env.IDFY_API_KEY || undefined,
-  idfyAccountId: process.env.IDFY_ACCOUNT_ID || undefined,
-  idfyBaseUrl: process.env.IDFY_BASE_URL || 'https://eve.idfy.com',
-  // Fixed per this account's IDfy workspace setup, not generated per call.
-  idfyTaskId: process.env.IDFY_TASK_ID || undefined,
-  idfyGroupId: process.env.IDFY_GROUP_ID || undefined,
+  // ULIP's Sarathi driving-licence lookup. UlipClient falls back to manual_review whenever any
+  // of these is missing, so the app runs fine without them.
+  // TODO(ulip): confirm the production base URL once ULIP API access is provisioned.
+  ulipBaseUrl: process.env.ULIP_BASE_URL || undefined,
+  ulipUsername: process.env.ULIP_USERNAME || undefined,
+  ulipPassword: process.env.ULIP_PASSWORD || undefined,
+  // Dataset id for the Sarathi DL query — TODO(ulip): confirm the actual index value.
+  ulipDlIndex: process.env.ULIP_DL_INDEX || undefined,
 };

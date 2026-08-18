@@ -199,7 +199,7 @@ const driverCoreFields = {
   salaryAmount: z.number().nonnegative().max(9999999999).optional(),
 };
 
-/** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
+/** dateOfBirth is required here (unlike driverCoreFields) — ULIP's Sarathi lookup rejects a
  * driving-licence lookup without it, so there's no point accepting the call without one. */
 const driverVerifyDlBody = z.object({
   licenseNumber,

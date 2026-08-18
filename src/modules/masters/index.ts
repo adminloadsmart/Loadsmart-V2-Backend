@@ -20,7 +20,7 @@ import { TransporterRepository } from './transporter.repository';
 import { TransporterService } from './transporter.service';
 import { TransporterImportService } from './transporter-import.service';
 import { TransporterImportController } from './transporter-import.controller';
-import { SarathiClient } from '../../adapters/sarathi.client';
+import { UlipClient } from '../../adapters/ulip.client';
 import { StorageService } from '../storage/storage.service';
 import { ProductRepository } from './product.repository';
 import { ProductService } from './product.service';
@@ -75,11 +75,11 @@ export function createMastersModule(
     dataSource,
     deps.auditService,
   );
-  const sarathiClient = new SarathiClient();
+  const ulipClient = new UlipClient();
   const driverService = new DriverService(
     driverRepository,
     dataSource,
-    sarathiClient,
+    ulipClient,
     deps.auditService,
     deps.storageService,
   );
