@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { IFSC_REGEX, REGISTRATION_NUMBER_REGEX } from './masters.constants';
+import { TRUCK_BODY_TYPES } from './utils/truck-type.types';
 import {
   BODY_TYPES,
   FUEL_TYPES,
@@ -281,7 +282,21 @@ const vehicleVerificationBody = z.object({
 export const mastersValidators = {
   listTruckTypes: z.object({}),
   createTruckType: z.object({
-    body: z.object({ name: z.string().trim().min(1).max(100) }),
+    body: z.object({
+      name: z.string().trim().min(1).max(100),
+      // 3-step picker (Plan Dispatch v2.0 §6.6) — all mandatory for a directly-created truck
+      // type; rows added via "Add from catalog" (addTruckTypesFromCatalog below) skip these and
+      // are edited in later, since the catalog only ever supplies a name.
+      bodyType: z.enum(TRUCK_BODY_TYPES),
+      wheelConfiguration: z
+        .number()
+        .refine(
+          (value) => (WHEEL_COUNTS as readonly number[]).includes(value),
+          'Invalid wheel configuration',
+        ),
+      capacityTons: z.number().positive(),
+      deckVolumeCubicMeters: z.number().positive(),
+    }),
   }),
   deleteTruckType: z.object({ params: truckTypeParams }),
   listTruckTypeCatalog: z.object({}),

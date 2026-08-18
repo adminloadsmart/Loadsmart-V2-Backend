@@ -1,7 +1,9 @@
+import { DataSource } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { CustomerService } from '../customers/customer.service';
 import { ProductService } from '../masters/product.service';
+import { ProductEntity } from '../masters/entities/product.entity';
 import { LoadingPointService } from '../masters/loading-point.service';
 import { toDateString } from '../../shared/utils/date';
 import { paginate, Paginated } from '../masters/utils/masters.types';
@@ -9,10 +11,48 @@ import { RequisitionRepository } from './requisition.repository';
 import { LoadRepository } from './load.repository';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
-import { CreateRequisitionInput, ListRequisitionsInput } from './utils/requisition.interface';
+import {
+  CreateRequisitionInput,
+  ListRequisitionsInput,
+  RequisitionProductLineInput,
+} from './utils/requisition.interface';
+import { RequisitionItemUnit } from './utils/loads.types';
+
+interface ResolvedRequisitionLine {
+  productId: string;
+  quantityTonnes: number;
+  quantity: number | null;
+  unit: RequisitionItemUnit | null;
+}
+
+const MIN_OVERRIDE_REASON_LENGTH = 15; // V-17
+
+/**
+ * Tonnage is the mandatory figure the module runs on; if given directly it always wins ("typing
+ * directly overrides it" — Plan Dispatch v2.0 §4.1). Otherwise derives it from the convenience
+ * quantity+unit using the product's weight per pack — 'tonnes' copies quantity straight across;
+ * any other unit is treated as one pack, weighing `product.weight` in `product.weightUnit`
+ * (kilograms unless the master says otherwise).
+ */
+function resolveLineTonnage(product: ProductEntity, line: RequisitionProductLineInput): number {
+  if (line.quantityTonnes !== undefined) return line.quantityTonnes;
+
+  if (line.unit === 'tonnes') return line.quantity!;
+
+  if (!product.weight) {
+    throw new ValidationError(
+      `Product ${product.id} has no weight set in the master — enter tonnage directly for this line`,
+    );
+  }
+  const perUnitTonnes = (product.weightUnit ?? 'kg').trim().toLowerCase().startsWith('ton')
+    ? Number(product.weight)
+    : Number(product.weight) / 1000;
+  return line.quantity! * perUnitTonnes;
+}
 
 export class RequisitionService {
   constructor(
+    private readonly dataSource: DataSource,
     private readonly repository: RequisitionRepository,
     private readonly loadRepository: LoadRepository,
     private readonly customerService: CustomerService,
@@ -23,7 +63,8 @@ export class RequisitionService {
 
   /**
    * Captures the complete customer order — every referenced master record must be
-   * approved/active before Sales can create a requisition against it.
+   * approved/active before Sales can create a requisition against it. A requisition can hold
+   * multiple products (Plan Dispatch v2.0 R-02), each its own RequisitionItemEntity row.
    */
   async create(
     tenantId: string,
@@ -31,8 +72,11 @@ export class RequisitionService {
     input: CreateRequisitionInput,
   ): Promise<RequisitionEntity> {
     try {
+      if (!input.products?.length) {
+        throw new ValidationError('At least one product line is required'); // V-02
+      }
       if (input.expectedDeliveryDate < toDateString(new Date())) {
-        throw new ValidationError('expectedDeliveryDate cannot be in the past');
+        throw new ValidationError('expectedDeliveryDate cannot be in the past'); // V-09
       }
 
       const customer = await this.customerService.assertActive(tenantId, input.customerId);
@@ -45,9 +89,21 @@ export class RequisitionService {
         );
       }
 
-      const product = await this.productService.get(tenantId, input.productId);
-      if (product.status !== 'active') {
-        throw new ConflictError(`Product ${input.productId} is not active`);
+      // Every product line active — FMS-LOAD-012 "only approved, active master records can be
+      // selected" applies per line, not just once. Resolve each line's tonnage here too, while
+      // the product (and its weight-per-pack) is already in hand.
+      const resolvedLines: ResolvedRequisitionLine[] = [];
+      for (const line of input.products) {
+        const product = await this.productService.get(tenantId, line.productId);
+        if (product.status !== 'active') {
+          throw new ConflictError(`Product ${line.productId} is not active`);
+        }
+        resolvedLines.push({
+          productId: line.productId,
+          quantityTonnes: resolveLineTonnage(product, line),
+          quantity: line.quantity ?? null,
+          unit: line.unit ?? null,
+        });
       }
 
       const loadingPoint = await this.loadingPointService.get(tenantId, input.loadingPointId);
@@ -55,18 +111,57 @@ export class RequisitionService {
         throw new ConflictError(`Loading point ${input.loadingPointId} is not active`);
       }
 
-      const requisition = await this.repository.create({
-        tenantId,
-        customerId: input.customerId,
-        productId: input.productId,
-        quantityTonnes: String(input.quantityTonnes),
-        dispatchedTonnes: '0',
-        loadingPointId: input.loadingPointId,
-        customerDeliveryPointId: input.customerDeliveryPointId,
-        expectedDeliveryDate: input.expectedDeliveryDate,
-        customerPoNumber: input.customerPoNumber.trim(),
-        status: 'open',
-        createdBy: actorId,
+      // C-05 — amber, overridable: the PO/SO number already in use on another requisition.
+      const customerPoNumber = input.customerPoNumber.trim();
+      const clash = await this.repository.findByPoNumber(tenantId, customerPoNumber);
+      const c05Override = input.overrides?.find((override) => override.checkId === 'C05');
+      if (clash) {
+        if (!c05Override) {
+          throw new ConflictError(
+            `PO/SO number "${customerPoNumber}" is already used on requisition ${clash.id} — override with a reason to proceed`,
+          );
+        }
+        if (c05Override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
+          throw new ValidationError(
+            `Override reason must be at least ${MIN_OVERRIDE_REASON_LENGTH} characters`, // V-17
+          );
+        }
+      }
+
+      const quantityTonnes = resolvedLines
+        .reduce((sum, line) => sum + line.quantityTonnes, 0)
+        .toFixed(2);
+
+      const requisition = await this.dataSource.transaction(async (manager) => {
+        const created = await this.repository.create(
+          {
+            tenantId,
+            customerId: input.customerId,
+            quantityTonnes,
+            dispatchedTonnes: '0',
+            loadingPointId: input.loadingPointId,
+            customerDeliveryPointId: input.customerDeliveryPointId,
+            expectedDeliveryDate: input.expectedDeliveryDate,
+            customerPoNumber,
+            status: 'open',
+            createdBy: actorId,
+          },
+          manager,
+        );
+
+        await this.repository.createItems(
+          resolvedLines.map((line) => ({
+            tenantId,
+            requisitionId: created.id,
+            productId: line.productId,
+            quantityTonnes: line.quantityTonnes.toFixed(2),
+            quantity: line.quantity === null ? null : String(line.quantity),
+            unit: line.unit,
+          })),
+          manager,
+        );
+
+        return created;
       });
 
       await this.auditService.log({
@@ -74,10 +169,15 @@ export class RequisitionService {
         userId: actorId,
         action: 'REQUISITION_CREATED',
         resourceType: 'requisition',
-        newData: { id: requisition.id, quantityTonnes: requisition.quantityTonnes },
+        newData: {
+          id: requisition.id,
+          quantityTonnes: requisition.quantityTonnes,
+          productLines: resolvedLines.length,
+          ...(c05Override ? { c05Override: { reason: c05Override.reason, by: actorId } } : {}),
+        },
       });
 
-      return requisition;
+      return (await this.repository.findById(tenantId, requisition.id)) ?? requisition;
     } catch (error) {
       rethrow(error, 'Failed to create requisition');
     }

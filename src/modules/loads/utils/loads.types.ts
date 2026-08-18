@@ -7,11 +7,40 @@
 export const REQUISITION_STATUSES = ['open', 'fully_dispatched', 'closed'] as const;
 export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
 
+/** The "Unit" dropdown on a requisition's product line (Plan Dispatch v2.0 §4.1) — a convenience
+ *  quantity is entered in one of these and converted to tonnage via the product's weight per
+ *  pack; 'tonnes' copies the quantity straight into tonnage. */
+export const REQUISITION_ITEM_UNITS = [
+  'tonnes',
+  'bags',
+  'boxes',
+  'cartons',
+  'drums',
+  'pallets',
+  'pieces',
+] as const;
+export type RequisitionItemUnit = (typeof REQUISITION_ITEM_UNITS)[number];
+
 export const LOAD_SOURCE_TYPES = ['own_fleet', 'market'] as const;
 export type LoadSourceType = (typeof LOAD_SOURCE_TYPES)[number];
 
 export const FREIGHT_TYPES = ['per_ton', 'flat'] as const;
 export type FreightType = (typeof FREIGHT_TYPES)[number];
+
+/** Market truck lines only, chosen at Dispatch Planning (Plan Dispatch v2.0 §6.3/R-16):
+ *  `set_expected_price` requires a target rate; `ask_for_quotes` leaves the rate open until
+ *  Assignment. */
+export const FREIGHT_MODES = ['set_expected_price', 'ask_for_quotes'] as const;
+export type FreightMode = (typeof FREIGHT_MODES)[number];
+
+/** Advisory-only fit verdicts (never block — see loads/utils/fit-engine.ts). Weight-based only in
+ *  this build; deck-volume/"cubes out" checks are deferred pending structured product dimensions. */
+export const FIT_VERDICTS = [
+  'good_fit',
+  'some_unused_capacity',
+  'smaller_vehicle_available',
+] as const;
+export type FitVerdict = (typeof FIT_VERDICTS)[number];
 
 /**
  * The load's single, unified movement status — Advance/Balance payment are tracked

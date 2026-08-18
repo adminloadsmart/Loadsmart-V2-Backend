@@ -42,7 +42,9 @@ import { CustomerImportEntity } from '../modules/customers/entities/customer-imp
 import { ProductEntity } from '../modules/masters/entities/product.entity';
 import { ProductSubItemEntity } from '../modules/masters/entities/product-sub-item.entity';
 import { RequisitionEntity } from '../modules/loads/entities/requisition.entity';
+import { RequisitionItemEntity } from '../modules/loads/entities/requisition-item.entity';
 import { LoadEntity } from '../modules/loads/entities/load.entity';
+import { LoadCargoItemEntity } from '../modules/loads/entities/load-cargo-item.entity';
 import { LoadPaymentEntity } from '../modules/loads/entities/load-payment.entity';
 import { LoadActivityEntity } from '../modules/loads/entities/load-activity.entity';
 
@@ -95,7 +97,9 @@ export const AppDataSource = new DataSource({
     ProductSubItemEntity,
     // loads module
     RequisitionEntity,
+    RequisitionItemEntity,
     LoadEntity,
+    LoadCargoItemEntity,
     LoadPaymentEntity,
     LoadActivityEntity,
   ], // every new module adds its entity here

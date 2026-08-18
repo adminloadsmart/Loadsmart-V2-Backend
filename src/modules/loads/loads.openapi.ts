@@ -41,14 +41,20 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.createRequisition',
     ...manageRequisitions(
-      'Capture the complete customer order. Every referenced customer/product/loading ' +
-        'point must be approved/active, and the delivery point must belong to the given customer.',
+      'Capture the complete customer order — one or more product lines, each with its own ' +
+        'tonnage. Every referenced customer/product/loading point must be approved/active, and ' +
+        'the delivery point must belong to the given customer. A PO/SO number already used on ' +
+        'another requisition (C-05) is an amber, overridable check.',
     ),
     request: { body: json(requisitionValidators.create.shape.body) },
     responses: {
       201: { description: 'Created requisition, status "open", 0 tonnes dispatched' },
       400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'A referenced master record is not active', ...errorContent },
+      409: {
+        description:
+          'A referenced master record is not active, or the PO/SO number is already in use and no override was given',
+        ...errorContent,
+      },
     },
   });
 
@@ -108,19 +114,29 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.planDispatch',
     ...manageDispatch(
-      'Plan how a requisition moves — one truck line per planned truck, own fleet or market. ' +
-        'Splits the requisition into one Load per truck; partial dispatch is allowed and the ' +
-        'requisition stays open with the remainder visible.',
+      'Plan how a requisition moves — one truck line per planned truck, own fleet (multi-vehicle: ' +
+        'one load per selected vehicle, all sharing the same cargo mix, created already "assigned") ' +
+        'or market (truck-type + count, freight position captured now, transporter/vehicle/driver ' +
+        'captured later at Assignment). Splits the requisition into one Load per truck; partial ' +
+        'dispatch is allowed and the requisition stays open with the remainder visible.',
     ),
     request: {
       params: dispatchPlanningValidators.plan.shape.params,
       body: json(dispatchPlanningValidators.plan.shape.body),
     },
     responses: {
-      201: { description: '{ requisition, loads, capacitySummary }' },
-      400: { description: 'Validation failed', ...errorContent },
+      201: {
+        description:
+          '{ requisition, loads, capacitySummary, allocationByProduct, fitVerdicts, complianceWarnings }',
+      },
+      400: {
+        description: 'Validation failed, or a cargo mix exceeds truck capacity',
+        ...errorContent,
+      },
       409: {
-        description: 'Requisition not found or closed, or a referenced vehicle is not active',
+        description:
+          'Requisition not found/closed, a referenced vehicle/truck type is not usable, or a ' +
+          'vehicle fails the C-01/C-02/C-03 duplicate-use checks',
         ...errorContent,
       },
     },
@@ -175,22 +191,22 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.assignLoad',
     ...manageDispatch(
-      'Load Assignment. Own-fleet: resolves/validates the driver (defaults to the ' +
-        "vehicle's primary linked driver) and surfaces a non-blocking compliance warning if the " +
-        'vehicle has an expired document. Market: requires vehicleNumber/driverNumber (free text) ' +
-        'plus freight terms.',
+      'Load Assignment — market loads only. Own-fleet loads are assigned at Dispatch Planning ' +
+        '(vehicle+driver already known there) and 409 if sent here. Requires transporterId, ' +
+        'vehicleNumber/driverNumber (free text) and freightType; freightValue defaults to the ' +
+        'target rate captured at planning if omitted (the negotiation landed on the original ask).',
     ),
     request: {
       params: loadValidators.assign.shape.params,
       body: json(loadValidators.assign.shape.body),
     },
     responses: {
-      200: { description: '{ load, complianceWarning }' },
-      400: {
-        description: 'Validation failed / missing required field for this source type',
+      200: { description: 'Updated load' },
+      400: { description: 'Validation failed', ...errorContent },
+      409: {
+        description: 'Load is own-fleet, or is not in the "created" state',
         ...errorContent,
       },
-      409: { description: 'Load is not in the "created" state', ...errorContent },
     },
   });
 
@@ -214,7 +230,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
         description: 'A file is not a confirmed upload for the expected purpose',
         ...errorContent,
       },
-      409: { description: 'Load is not in the "assigned" state', ...errorContent },
+      409: {
+        description:
+          'Load is not in the "assigned" state, or the E-LR number is already used on another load (C-04)',
+        ...errorContent,
+      },
     },
   });
 

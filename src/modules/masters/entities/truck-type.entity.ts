@@ -8,6 +8,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { VehicleEntity } from './vehicle.entity';
+import { TRUCK_BODY_TYPES, TruckBodyType } from '../utils/truck-type.types';
 
 /**
  * Per-tenant truck-type master ("Settings → Truck Types"). Replaces the old fixed VEHICLE_TYPES
@@ -30,6 +31,32 @@ export class TruckTypeEntity {
 
   @Column({ type: 'varchar', length: 100 })
   name!: string;
+
+  // --- Structured picker fields (Plan Dispatch v2.0 §6.6) — nullable: rows created via the
+  // "Add from catalog" bulk-by-name flow (truck-type.service.ts's addFromCatalog) have none of
+  // these set until an org_admin edits them; only the direct 3-step-picker POST /truck-types
+  // requires all four. Dispatch Planning's market-line capacity check (loads/dispatch-planning.
+  // service.ts) rejects a truck type with no capacityTons set, rather than the DB enforcing NOT
+  // NULL — see masters.validators.ts's createTruckType for where these are actually required.
+
+  @Column({ name: 'body_type', type: 'enum', enum: [...TRUCK_BODY_TYPES], nullable: true })
+  bodyType!: TruckBodyType | null;
+
+  /** Axle/wheel count — reuses masters/utils/vehicle.type.ts's WHEEL_COUNTS value set. */
+  @Column({ name: 'wheel_configuration', type: 'smallint', nullable: true })
+  wheelConfiguration!: number | null;
+
+  @Column({ name: 'capacity_tons', type: 'numeric', precision: 6, scale: 2, nullable: true })
+  capacityTons!: string | null;
+
+  @Column({
+    name: 'deck_volume_cubic_meters',
+    type: 'numeric',
+    precision: 8,
+    scale: 2,
+    nullable: true,
+  })
+  deckVolumeCubicMeters!: string | null;
 
   /** Backs the "IN FLEET" column — see truck-type.repository.ts's use of loadRelationCountAndMap. */
   @OneToMany(() => VehicleEntity, (vehicle) => vehicle.truckType)
