@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditLogEntity } from './audit.entity';
 
 export class AuditRepository {
@@ -8,9 +8,15 @@ export class AuditRepository {
     this.repo = dataSource.getRepository(AuditLogEntity);
   }
 
-  async create(data: Partial<AuditLogEntity>): Promise<AuditLogEntity> {
-    const entity = this.repo.create(data);
-    return this.repo.save(entity);
+  // manager lets a caller running inside dataSource.transaction(...) log against the same
+  // transaction (see organization.repository.ts for the identical pattern) — without it, logging
+  // a row that references something created earlier in that same uncommitted transaction (e.g.
+  // the org a signup just created) hits a separate connection that can't see it yet and fails an
+  // FK check every time, not just under contention.
+  async create(data: Partial<AuditLogEntity>, manager?: EntityManager): Promise<AuditLogEntity> {
+    const repo = manager ? manager.getRepository(AuditLogEntity) : this.repo;
+    const entity = repo.create(data);
+    return repo.save(entity);
   }
 
   findById(id: string): Promise<AuditLogEntity | null> {

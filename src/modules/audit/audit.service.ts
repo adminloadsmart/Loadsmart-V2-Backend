@@ -1,3 +1,4 @@
+import { EntityManager } from 'typeorm';
 import { AuditRepository } from './audit.repository';
 import { AuditAction, AuditResourceType } from './audit.types';
 
@@ -15,17 +16,23 @@ export interface AuditLogInput {
 export class AuditService {
   constructor(private readonly auditRepository: AuditRepository) {}
 
-  async log(entry: AuditLogInput): Promise<void> {
-    await this.auditRepository.create({
-      tenantId: entry.tenantId,
-      userId: entry.userId,
-      action: entry.action,
-      resource_type: entry.resourceType ?? null,
-      old_data: entry.oldData ?? null,
-      new_data: entry.newData ?? null,
-      ip_address: entry.ipAddress ?? null,
-      userAgent: entry.userAgent ?? null,
-    });
+  // manager: pass the transaction's EntityManager when logging something created/updated earlier
+  // in that same transaction (e.g. an org a signup just created) — otherwise this writes through a
+  // separate connection that can't see the uncommitted row yet and fails an FK check.
+  async log(entry: AuditLogInput, manager?: EntityManager): Promise<void> {
+    await this.auditRepository.create(
+      {
+        tenantId: entry.tenantId,
+        userId: entry.userId,
+        action: entry.action,
+        resource_type: entry.resourceType ?? null,
+        old_data: entry.oldData ?? null,
+        new_data: entry.newData ?? null,
+        ip_address: entry.ipAddress ?? null,
+        userAgent: entry.userAgent ?? null,
+      },
+      manager,
+    );
   }
 
   // Separate from log(): audit.middleware.ts's per-request access log stores the raw HTTP method
