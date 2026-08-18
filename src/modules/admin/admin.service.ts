@@ -52,7 +52,11 @@ export class AdminService {
     try {
       const scoped = { ...input, ...this.reviewerScopeFilter(actingUser) };
       const { items, total } = await this.organizationService.listOrganizations(scoped);
-      return paginate(items, total, input);
+      return paginate(
+        items.map((organization) => this.toPublicOrganization(organization)),
+        total,
+        input,
+      );
     } catch (error) {
       rethrow(error, 'Failed to list organizations');
     }
@@ -67,10 +71,18 @@ export class AdminService {
         this.organizationDocumentService.listByOrganization(organizationId),
         this.organizationJourneyStageService.getTrail(organizationId),
       ]);
-      return { ...organization, documents, journeyStageHistory };
+      return { ...this.toPublicOrganization(organization), documents, journeyStageHistory };
     } catch (error) {
       rethrow(error, 'Failed to get organization');
     }
+  }
+
+  private toPublicOrganization(
+    organization: OrganizationEntity,
+  ): Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'> {
+    const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
+      organization;
+    return publicOrganization;
   }
 
   private reviewerScopeFilter(actingUser: AuthenticatedUser): {
@@ -174,15 +186,40 @@ export class AdminService {
         input,
       );
 
+      // Keep the organization in the pending review lifecycle, but move its onboarding marker
+      // back to business details so the org admin can correct and resubmit rejected documents.
+      if (input.verificationStatus === 'invalid') {
+        await this.organizationService.updateOrganization(organizationId, {
+          onboardingStep: 'business_details',
+        });
+        await this.auditService.log({
+          tenantId: organizationId,
+          userId: actingUser.id,
+          action: 'ORGANIZATION_ONBOARDING_REOPENED',
+          resourceType: 'organization',
+          newData: {
+            organizationId,
+            onboardingStep: 'business_details',
+            invalidDocumentId: document.id,
+            invalidDocumentType: document.documentType,
+            rejectionReason: document.rejectionReason,
+          },
+        });
+      }
+
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,
-        action: 'ORGANIZATION_DOCUMENT_VERIFIED',
+        action:
+          document.verificationStatus === 'invalid'
+            ? 'ORGANIZATION_DOCUMENT_REJECTED'
+            : 'ORGANIZATION_DOCUMENT_VERIFIED',
         resourceType: 'organization_document',
         newData: {
           documentId,
           documentType: document.documentType,
           verificationStatus: document.verificationStatus,
+          rejectionReason: document.rejectionReason,
         },
       });
 

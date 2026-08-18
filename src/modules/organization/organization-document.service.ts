@@ -44,6 +44,20 @@ export class OrganizationDocumentService {
     );
   }
 
+  async removeActiveDocumentType(
+    organizationId: string,
+    documentType: OrganizationDocumentInput['documentType'],
+    actingUserId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    return this.organizationDocumentRepository.softDeleteActiveByType(
+      organizationId,
+      documentType,
+      actingUserId,
+      manager,
+    );
+  }
+
   // Platform-admin action (PATCH /admin/organizations/:organizationId/documents/:documentId) —
   // the only place a document's verificationStatus can be changed today (no automated gov-API
   // verification wired up yet).
@@ -51,7 +65,7 @@ export class OrganizationDocumentService {
     organizationId: string,
     documentId: string,
     actingUserId: string,
-    input: { verificationStatus: DocumentVerificationStatus },
+    input: { verificationStatus: DocumentVerificationStatus; reason?: string },
   ): Promise<OrganizationDocumentEntity> {
     const document = await this.organizationDocumentRepository.findActiveById(documentId);
     if (!document || document.organizationId !== organizationId) {
@@ -63,6 +77,9 @@ export class OrganizationDocumentService {
     const updated = await this.organizationDocumentRepository.updateVerificationStatus(documentId, {
       verificationStatus: input.verificationStatus,
       verifiedAt: input.verificationStatus === 'pending' ? null : new Date(),
+      // Cleared on any status other than reject — mirrors DriverRepository.approve nulling
+      // rejectionReason back out.
+      rejectionReason: input.verificationStatus === 'invalid' ? (input.reason ?? null) : null,
       updatedBy: actingUserId,
     });
     if (!updated) {

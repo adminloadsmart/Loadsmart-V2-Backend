@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "node ./node_modules/typescript-native/bin/tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "dev": "ts-node-dev --respawn --transpile-only -r reflect-metadata src/server.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

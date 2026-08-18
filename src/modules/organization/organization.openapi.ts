@@ -88,10 +88,15 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
               properties: {
                 documentType: {
                   type: 'string',
-                  enum: ['gst_certificate', 'udyam', 'cin', 'shop_establishment'],
+                  enum: [
+                    'gst_certificate',
+                    'udyam',
+                    'cin',
+                    'shop_establishment',
+                    'shopboard_premises_photo',
+                  ],
                 },
                 documentNo: { type: 'string' },
-                isGovtVerified: { type: 'string', enum: ['Yes', 'No'], default: 'No' },
                 documentFront: { type: 'string', format: 'binary' },
                 documentBack: { type: 'string', format: 'binary' },
                 shopPremisesPhoto: { type: 'string', format: 'binary' },

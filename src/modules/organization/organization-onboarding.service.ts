@@ -38,13 +38,34 @@ export class OrganizationOnboardingService {
     documents: OrganizationDocumentEntity[],
   ): OrganizationOnboardingProgress {
     const onboardingStep = this.resolveOnboardingStep(organization, documents);
+    const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
+      organization;
+
+    // A rejected document is actionable onboarding work, even though the organization remains
+    // in the post-submit `pending` lifecycle state. Return the business-details step so the org
+    // admin can see the rejection reason and upload a replacement.
+    const hasInvalidDocument = documents.some(
+      (document) => document.verificationStatus === 'invalid',
+    );
+    if (
+      organization.status === 'pending' &&
+      (hasInvalidDocument || organization.onboardingStep === 'business_details')
+    ) {
+      return {
+        onboardingStatus: 'incomplete',
+        onboardingStep: 'business_details',
+        nextStep: 'business_details',
+        organization: publicOrganization,
+        documents,
+      };
+    }
 
     if (organization.status === 'active') {
       return {
         onboardingStatus: 'completed',
         onboardingStep: 'submitted',
         nextStep: 'submitted',
-        organization,
+        organization: publicOrganization,
         documents,
       };
     }
@@ -54,7 +75,7 @@ export class OrganizationOnboardingService {
         onboardingStatus: 'submitted',
         onboardingStep,
         nextStep: onboardingStep,
-        organization,
+        organization: publicOrganization,
         documents,
       };
     }
@@ -63,7 +84,7 @@ export class OrganizationOnboardingService {
       onboardingStatus: 'incomplete',
       onboardingStep,
       nextStep: this.resolveNextStep(onboardingStep, organization),
-      organization,
+      organization: publicOrganization,
       documents,
     };
   }
@@ -72,17 +93,25 @@ export class OrganizationOnboardingService {
     organization: OrganizationEntity,
     documents: OrganizationDocumentEntity[],
   ): OrganizationOnboardingProgress & {
-    organization: OrganizationEntity;
+    organization: Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'>;
     documents: OrganizationDocumentEntity[];
     reviewData: OrganizationReviewData;
   } {
     const state = this.buildOnboardingState(organization, documents);
     return {
       ...state,
-      organization,
+      organization: this.toPublicOrganization(organization),
       documents,
       reviewData: this.buildReviewData(organization, documents),
     };
+  }
+
+  private toPublicOrganization(
+    organization: OrganizationEntity,
+  ): Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'> {
+    const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
+      organization;
+    return publicOrganization;
   }
 
   nextStepAfterCompanyDetails(
@@ -149,6 +178,9 @@ export class OrganizationOnboardingService {
 
   private assertDocumentsReady(documents: OrganizationDocumentEntity[]): void {
     this.assertDocumentsPresent(documents);
+    if (documents.some((document) => document.verificationStatus === 'invalid')) {
+      throw new ValidationError('Replace all invalid documents before resubmitting');
+    }
     const invalidDocuments = documents.filter(
       (document) => !document.documentNumber && !document.fileKey,
     );
@@ -228,12 +260,11 @@ export class OrganizationOnboardingService {
         pinCode: organization.pinCode,
       },
       referralCode: organization.referralCode?.code ?? null,
-      shopboardPremisesPhotoKey: organization.shopboardPremisesPhotoKey,
       documents: documents.map((document) => ({
         documentType: document.documentType,
         documentNumber: document.documentNumber,
         documentUrl: document.fileKey,
-        isVaild: document.isVaild,
+        verificationStatus: document.verificationStatus,
       })),
     };
   }

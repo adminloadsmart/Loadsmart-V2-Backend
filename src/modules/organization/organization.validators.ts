@@ -30,7 +30,7 @@ export const organizationValidators = {
     body: z.object({
       documentType,
       documentNo: z.string().trim().min(1).optional(),
-      isGovtVerified: z.enum(['Yes', 'No']).default('No'),
+      replaceDocumentType: documentType.optional(),
     }),
   }),
   submitOrganization: z.object({

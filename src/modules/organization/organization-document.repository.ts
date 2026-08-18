@@ -50,10 +50,11 @@ export class OrganizationDocumentRepository {
         manager,
       );
       if (existing) {
-        existing.documentNumber = document.documentNumber ?? null;
+        // A file-only re-upload may omit the document number. Keep the previously submitted
+        // number instead of erasing it during replacement.
+        existing.documentNumber = document.documentNumber ?? existing.documentNumber;
         existing.fileKey = document.documentUrl ?? null;
         existing.backFileKey = document.backFileKey ?? null;
-        existing.isGovtVerified = document.isGovtVerified ?? false;
         existing.verificationStatus = 'pending' as DocumentVerificationStatus;
         existing.verifiedAt = null;
         existing.updatedBy = actingUserId;
@@ -67,9 +68,7 @@ export class OrganizationDocumentRepository {
         documentNumber: document.documentNumber ?? null,
         fileKey: document.documentUrl ?? null,
         backFileKey: document.backFileKey ?? null,
-        isGovtVerified: document.isGovtVerified ?? false,
         verificationStatus: 'pending' as DocumentVerificationStatus,
-        isVaild: false,
         createdBy: actingUserId,
         updatedBy: actingUserId,
       });
@@ -98,10 +97,24 @@ export class OrganizationDocumentRepository {
     data: {
       verificationStatus: DocumentVerificationStatus;
       verifiedAt: Date | null;
+      rejectionReason: string | null;
       updatedBy: string;
     },
   ): Promise<OrganizationDocumentEntity | null> {
     await this.repo.update({ id }, data);
     return this.findActiveById(id);
+  }
+
+  async softDeleteActiveByType(
+    organizationId: string,
+    documentType: OrganizationDocumentInput['documentType'],
+    actingUserId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = manager ? manager.getRepository(OrganizationDocumentEntity) : this.repo;
+    await repo.update(
+      { organizationId, documentType, deletedAt: IsNull() },
+      { deletedAt: new Date(), updatedBy: actingUserId },
+    );
   }
 }
