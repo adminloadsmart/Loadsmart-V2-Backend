@@ -17,6 +17,7 @@ export const ORGANIZATION_DOCUMENT_TYPES = [
   'udyam',
   'cin',
   'shop_establishment',
+  'shopboard_premises_photo',
 ] as const;
 export type OrganizationDocumentType = (typeof ORGANIZATION_DOCUMENT_TYPES)[number];
 
@@ -36,7 +37,6 @@ export interface OrganizationDocumentInput {
   documentNumber?: string;
   documentUrl?: string;
   backFileKey?: string;
-  isGovtVerified?: boolean;
 }
 
 @Entity({ schema: 'auth', name: 'organization_documents' })
@@ -76,9 +76,6 @@ export class OrganizationDocumentEntity {
   @Column({ name: 'back_file_key', type: 'varchar', nullable: true })
   backFileKey!: string | null;
 
-  @Column({ name: 'is_govt_verified', type: 'boolean', default: false })
-  isGovtVerified!: boolean;
-
   @Column({
     name: 'verification_status',
     type: 'enum',
@@ -86,9 +83,6 @@ export class OrganizationDocumentEntity {
     default: 'pending',
   })
   verificationStatus!: DocumentVerificationStatus;
-
-  @Column({ name: 'is_vaild', type: 'boolean', default: false })
-  isVaild!: boolean;
 
   // Self-declared, as printed on this specific document — see OrganizationDocumentInput above.
   @Column({ name: 'registered_name', type: 'varchar', nullable: true })

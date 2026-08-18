@@ -1,6 +1,7 @@
 /* Organization onboarding — DTOs and shared onboarding-state types. */
 
 import {
+  DocumentVerificationStatus,
   OrganizationDocumentEntity,
   OrganizationDocumentInput,
 } from './entities/organization-document.entity';
@@ -34,7 +35,7 @@ export interface OrganizationAddressInput {
 export interface SaveBusinessDetailsInput {
   documentType: OrganizationDocumentInput['documentType'];
   documentNo?: string;
-  isGovtVerified: 'Yes' | 'No';
+  replaceDocumentType?: OrganizationDocumentInput['documentType'];
 }
 
 export interface SubmitOrganizationInput {
@@ -49,7 +50,7 @@ export type OrganizationOnboardingProgress = {
   onboardingStatus: OnboardingStatus;
   onboardingStep: OrganizationOnboardingStep;
   nextStep: OnboardingStep;
-  organization: OrganizationEntity | null;
+  organization: Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'> | null;
   documents: OrganizationDocumentEntity[];
 };
 
@@ -68,11 +69,10 @@ export type OrganizationReviewData = {
     pinCode: string | null;
   };
   referralCode: string | null;
-  shopboardPremisesPhotoKey: string | null;
   documents: Array<{
     documentType: string;
     documentNumber: string | null;
     documentUrl: string | null;
-    isVaild: boolean;
+    verificationStatus: DocumentVerificationStatus;
   }>;
 };

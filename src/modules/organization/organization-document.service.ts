@@ -44,6 +44,20 @@ export class OrganizationDocumentService {
     );
   }
 
+  async removeActiveDocumentType(
+    organizationId: string,
+    documentType: OrganizationDocumentInput['documentType'],
+    actingUserId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    return this.organizationDocumentRepository.softDeleteActiveByType(
+      organizationId,
+      documentType,
+      actingUserId,
+      manager,
+    );
+  }
+
   // Platform-admin action (PATCH /admin/organizations/:organizationId/documents/:documentId) —
   // the only place a document's verificationStatus can be changed today (no automated gov-API
   // verification wired up yet).
