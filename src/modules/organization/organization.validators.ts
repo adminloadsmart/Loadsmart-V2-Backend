@@ -30,6 +30,7 @@ export const organizationValidators = {
     body: z.object({
       documentType,
       documentNo: z.string().trim().min(1).optional(),
+      replaceDocumentType: documentType.optional(),
     }),
   }),
   submitOrganization: z.object({

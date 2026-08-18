@@ -791,7 +791,7 @@ export class AuthService {
     files: {
       documentFront: Express.Multer.File;
       documentBack?: Express.Multer.File;
-      shopPremisesPhoto: Express.Multer.File;
+      shopPremisesPhoto?: Express.Multer.File;
     },
   ) {
     if (!user.tenantId) {
@@ -802,8 +802,27 @@ export class AuthService {
     if (!isTenantAccessible(current.status)) {
       throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
     }
-    if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
+    if (current.status === 'active' || (current.submittedAt && current.status !== 'pending')) {
       throw new AuthorizationError('Organization has already been submitted');
+    }
+
+    if (current.status === 'pending') {
+      const existingDocuments = await this.organizationDocumentService.listByOrganization(
+        user.tenantId,
+      );
+      const hasInvalidDocument = existingDocuments.some(
+        (document) => document.verificationStatus === 'invalid',
+      );
+      // An invalid document takes precedence over other documents still awaiting review: the
+      // admin must be able to log in and replace every invalid document. Once the invalid rows
+      // are replaced, they become pending and the normal pending-review block applies again.
+      if (!hasInvalidDocument) {
+        throw new AuthorizationError('Organization verification is pending. Please wait.');
+      }
+    }
+
+    if (!files.shopPremisesPhoto && !current.shopboardPremisesPhotoKey) {
+      throw new ValidationError('Shop-board premises photo is required');
     }
 
     const [documentFront, documentBack, shopPremisesPhoto] = await Promise.all([
@@ -831,26 +850,37 @@ export class AuthService {
             files.documentBack.buffer,
           )
         : Promise.resolve(null),
-      this.storageService.uploadTenantFile(
-        user.tenantId,
-        user.id,
-        {
-          purpose: 'organizations/shopboard-premises',
-          fileName: files.shopPremisesPhoto.originalname,
-          mimeType: files.shopPremisesPhoto.mimetype,
-          sizeBytes: files.shopPremisesPhoto.size,
-        },
-        files.shopPremisesPhoto.buffer,
-      ),
+      files.shopPremisesPhoto
+        ? this.storageService.uploadTenantFile(
+            user.tenantId,
+            user.id,
+            {
+              purpose: 'organizations/shopboard-premises',
+              fileName: files.shopPremisesPhoto.originalname,
+              mimeType: files.shopPremisesPhoto.mimetype,
+              sizeBytes: files.shopPremisesPhoto.size,
+            },
+            files.shopPremisesPhoto.buffer,
+          )
+        : Promise.resolve(null),
     ]);
 
     return this.dataSource.transaction(async (manager) => {
+      if (input.replaceDocumentType && input.replaceDocumentType !== input.documentType) {
+        await this.organizationDocumentService.removeActiveDocumentType(
+          user.tenantId!,
+          input.replaceDocumentType,
+          user.id,
+          manager,
+        );
+      }
+
       const organization = await this.organizationService.updateOrganization(
         user.tenantId!,
         {
-          shopboardPremisesPhotoKey: shopPremisesPhoto.key,
+          ...(shopPremisesPhoto ? { shopboardPremisesPhotoKey: shopPremisesPhoto.key } : {}),
           status: current.status === 'draft' ? 'partial_pending' : current.status,
-          onboardingStep: 'review_submit',
+          onboardingStep: current.status === 'pending' ? 'business_details' : 'review_submit',
         },
         manager,
       );
@@ -865,10 +895,14 @@ export class AuthService {
             documentUrl: documentFront.key,
             ...(documentBack ? { backFileKey: documentBack.key } : {}),
           },
-          {
-            documentType: 'shopboard_premises_photo',
-            documentUrl: shopPremisesPhoto.key,
-          },
+          ...(shopPremisesPhoto
+            ? [
+                {
+                  documentType: 'shopboard_premises_photo' as const,
+                  documentUrl: shopPremisesPhoto.key,
+                },
+              ]
+            : []),
         ],
         manager,
       );
@@ -886,7 +920,20 @@ export class AuthService {
     if (!isTenantAccessible(current.status)) {
       throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
     }
-    if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
+    const currentDocuments = await this.organizationDocumentService.listByOrganization(
+      user.tenantId,
+    );
+    const hasInvalidDocument = currentDocuments.some(
+      (document) => document.verificationStatus === 'invalid',
+    );
+    const isCorrectionResubmission =
+      current.status === 'pending' &&
+      (current.onboardingStep === 'business_details' || hasInvalidDocument);
+    if (
+      current.status === 'active' ||
+      (current.status === 'pending' && !isCorrectionResubmission) ||
+      (current.submittedAt && !isCorrectionResubmission)
+    ) {
       throw new AuthorizationError('Organization has already been submitted');
     }
 
@@ -1063,6 +1110,23 @@ export class AuthService {
     if (user.role.name !== ORG_ADMIN_ROLE || !user.tenantId) return;
 
     const organization = await this.organizationService.getOrganizationStatus(user.tenantId);
+
+    // A pending organization can be reopened only when the reviewer has marked one or more
+    // documents invalid. In that case the org admin must be able to log in and replace the bad
+    // document. Any pending document still means the review is in progress and must block login.
+    if (organization.status === 'pending') {
+      const documents = await this.organizationDocumentService.listByOrganization(user.tenantId);
+      const hasInvalidDocument = documents.some(
+        (document) => document.verificationStatus === 'invalid',
+      );
+
+      // Invalid documents are actionable even when another document is still pending. The login
+      // response will carry the incomplete/business_details onboarding state and all invalid rows.
+      if (hasInvalidDocument) return;
+
+      throw new AuthorizationError('Organization verification is pending. Please wait.');
+    }
+
     if (organization.status !== 'active' && organization.status !== 'draft') {
       const messages = {
         pending: 'Organization verification is pending. Please wait.',

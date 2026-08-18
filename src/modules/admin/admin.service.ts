@@ -186,6 +186,14 @@ export class AdminService {
         input,
       );
 
+      // Keep the organization in the pending review lifecycle, but move its onboarding marker
+      // back to business details so the org admin can correct and resubmit rejected documents.
+      if (input.verificationStatus === 'invalid') {
+        await this.organizationService.updateOrganization(organizationId, {
+          onboardingStep: 'business_details',
+        });
+      }
+
       await this.auditService.log({
         tenantId: organizationId,
         userId: actingUser.id,

@@ -50,7 +50,9 @@ export class OrganizationDocumentRepository {
         manager,
       );
       if (existing) {
-        existing.documentNumber = document.documentNumber ?? null;
+        // A file-only re-upload may omit the document number. Keep the previously submitted
+        // number instead of erasing it during replacement.
+        existing.documentNumber = document.documentNumber ?? existing.documentNumber;
         existing.fileKey = document.documentUrl ?? null;
         existing.backFileKey = document.backFileKey ?? null;
         existing.verificationStatus = 'pending' as DocumentVerificationStatus;
@@ -101,5 +103,18 @@ export class OrganizationDocumentRepository {
   ): Promise<OrganizationDocumentEntity | null> {
     await this.repo.update({ id }, data);
     return this.findActiveById(id);
+  }
+
+  async softDeleteActiveByType(
+    organizationId: string,
+    documentType: OrganizationDocumentInput['documentType'],
+    actingUserId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = manager ? manager.getRepository(OrganizationDocumentEntity) : this.repo;
+    await repo.update(
+      { organizationId, documentType, deletedAt: IsNull() },
+      { deletedAt: new Date(), updatedBy: actingUserId },
+    );
   }
 }

@@ -41,6 +41,25 @@ export class OrganizationOnboardingService {
     const { shopboardPremisesPhotoKey: _shopboardPremisesPhotoKey, ...publicOrganization } =
       organization;
 
+    // A rejected document is actionable onboarding work, even though the organization remains
+    // in the post-submit `pending` lifecycle state. Return the business-details step so the org
+    // admin can see the rejection reason and upload a replacement.
+    const hasInvalidDocument = documents.some(
+      (document) => document.verificationStatus === 'invalid',
+    );
+    if (
+      organization.status === 'pending' &&
+      (hasInvalidDocument || organization.onboardingStep === 'business_details')
+    ) {
+      return {
+        onboardingStatus: 'incomplete',
+        onboardingStep: 'business_details',
+        nextStep: 'business_details',
+        organization: publicOrganization,
+        documents,
+      };
+    }
+
     if (organization.status === 'active') {
       return {
         onboardingStatus: 'completed',
@@ -159,6 +178,9 @@ export class OrganizationOnboardingService {
 
   private assertDocumentsReady(documents: OrganizationDocumentEntity[]): void {
     this.assertDocumentsPresent(documents);
+    if (documents.some((document) => document.verificationStatus === 'invalid')) {
+      throw new ValidationError('Replace all invalid documents before resubmitting');
+    }
     const invalidDocuments = documents.filter(
       (document) => !document.documentNumber && !document.fileKey,
     );

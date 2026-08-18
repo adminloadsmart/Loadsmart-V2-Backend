@@ -35,6 +35,7 @@ export interface OrganizationAddressInput {
 export interface SaveBusinessDetailsInput {
   documentType: OrganizationDocumentInput['documentType'];
   documentNo?: string;
+  replaceDocumentType?: OrganizationDocumentInput['documentType'];
 }
 
 export interface SubmitOrganizationInput {

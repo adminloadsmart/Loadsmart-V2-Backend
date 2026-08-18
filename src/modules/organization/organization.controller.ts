@@ -37,7 +37,7 @@ export class OrganizationController {
     const result = await this.authService.saveBusinessDetails(req.user!, req.body, {
       documentFront: files.documentFront![0],
       documentBack: files.documentBack?.[0],
-      shopPremisesPhoto: files.shopPremisesPhoto![0],
+      shopPremisesPhoto: files.shopPremisesPhoto?.[0],
     });
     respond(res, result);
   };

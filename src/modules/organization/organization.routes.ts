@@ -26,7 +26,10 @@ function requireOrganizationBusinessFiles(
   next: Parameters<import('express').RequestHandler>[2],
 ) {
   const files = req.files as Record<string, Express.Multer.File[] | undefined>;
-  const requiredFields = ['documentFront', 'shopPremisesPhoto'];
+  // A rejected business document can be replaced without forcing the user to upload the
+  // already-approved shop-premises photo again. The service still requires one when the org has
+  // no existing shop-premises photo.
+  const requiredFields = ['documentFront'];
   const missing = requiredFields.filter((field) => !files[field]?.[0]);
   if (missing.length) {
     next(new ValidationError(`Missing required file fields: ${missing.join(', ')}`));
