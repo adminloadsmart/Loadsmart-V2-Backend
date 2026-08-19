@@ -369,6 +369,10 @@ export class DispatchPlanningService {
     const smallerFit = await this.findSmallerFitSuggestion(tenantId, truckType, cargoTonnes);
     const fit = computeFitVerdict(cargoTonnes, capacityTons, smallerFit !== null);
 
+    // Balance isn't a client input — Plan Dispatch v2.0 §6.3/§6.4: "Balance is calculated
+    // automatically as 100 minus advance."
+    const advancePercentage = line.advancePercentage ?? 30;
+
     const row: CreateLoadData = {
       tenantId,
       requisitionId,
@@ -379,10 +383,8 @@ export class DispatchPlanningService {
       feetWheels: truckType.wheelConfiguration ? `${truckType.wheelConfiguration} WH` : null,
       freightMode: line.freightMode,
       expectedRate: line.expectedRate === undefined ? null : String(line.expectedRate),
-      advancePercentage:
-        line.advancePercentage === undefined ? '30' : String(line.advancePercentage),
-      balancePercentage:
-        line.balancePercentage === undefined ? '70' : String(line.balancePercentage),
+      advancePercentage: String(advancePercentage),
+      balancePercentage: String(100 - advancePercentage),
       createdBy: actorId,
     };
 

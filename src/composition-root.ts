@@ -124,6 +124,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // services as direct constructor args" pattern dashboards uses below.
   const loads = createLoadsModule(dataSource, {
     auditService: audit.service,
+    authService: auth.service,
     storageService: storage.service,
     customerService: customers.service,
     vehicleService: masters.vehicleService,

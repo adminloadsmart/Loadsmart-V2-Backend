@@ -475,6 +475,12 @@ export class AuthService {
     return user;
   }
 
+  // Same "thin wrapper, external callers depend on AuthService not AuthRepository" rule as
+  // getUserById above, batched variant — for the loads module's audit-trail actor names.
+  async getUsersByIds(userIds: string[]) {
+    return this.authRepository.findByIds(userIds);
+  }
+
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
     const staffIds = items.map((user) => user.id);

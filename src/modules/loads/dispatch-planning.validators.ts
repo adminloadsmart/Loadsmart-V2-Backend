@@ -27,8 +27,9 @@ const marketLine = z
     cargoMix: z.array(cargoMixLine).min(1),
     freightMode: z.enum(FREIGHT_MODES),
     expectedRate: z.number().positive().optional(),
+    // Balance isn't submitted — it's 100 minus this, derived server-side in
+    // dispatch-planning.service.ts's buildMarketLine (Plan Dispatch v2.0 §6.3/§6.4).
     advancePercentage: z.number().min(0).max(100).default(30),
-    balancePercentage: z.number().min(0).max(100).default(70),
   })
   .strict()
   .refine(
