@@ -6,7 +6,7 @@ const uuid = z.string().uuid();
 const mobile = z
   .string()
   .trim()
-  .transform((v) => v.replace(/[\s-]/g, ''))
+  .transform((v) => v.replace(/^\+/, '').replace(/[\s-]/g, ''))
   .refine((v) => /^\d{10,15}$/.test(v), 'Expected a 10-15 digit mobile number');
 const pinCode = z
   .string()

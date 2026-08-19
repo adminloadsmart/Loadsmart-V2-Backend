@@ -23,8 +23,10 @@ const aliases: Record<keyof CreateCustomerInput, string[]> = {
   deliveryPoints: [
     'deliverypoints',
     'deliverypoint',
+    'deliveryunloadingpoints',
     'deliverylocations',
     'locations',
+    'unloadingpoints',
     'deliveryaddress',
   ],
   billingAddressLine1: ['billingaddressline1', 'billingaddress1', 'billingaddress'],
@@ -74,6 +76,49 @@ function numberValue(raw: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
+function paymentTermsValue(raw: string | undefined): Partial<CreateCustomerInput> {
+  if (raw === undefined) return {};
+
+  const result: Partial<CreateCustomerInput> = {};
+  const creditDays = raw.match(/credit\s*(\d+(?:\.\d+)?)\s*days?/i);
+  const advancePercentage = raw.match(/advance\s*(\d+(?:\.\d+)?)\s*%/i);
+  const balancePercentage = raw.match(/balance\s*(\d+(?:\.\d+)?)\s*%/i);
+
+  if (creditDays) result.creditDays = Number(creditDays[1]);
+  if (advancePercentage) result.advancePercentage = Number(advancePercentage[1]);
+  if (balancePercentage) result.balancePercentage = Number(balancePercentage[1]);
+
+  // Also support a plain numeric value when this column is used for credit days.
+  if (!creditDays && !advancePercentage && !balancePercentage) {
+    const parsed = numberValue(raw);
+    if (parsed !== undefined && Number.isFinite(parsed)) result.creditDays = parsed;
+  }
+
+  return result;
+}
+
+function deliveryPointsValue(raw: string | undefined): CreateCustomerInput['deliveryPoints'] {
+  if (raw === undefined) return undefined;
+
+  // The preferred CSV representation is JSON so it can carry the exact same
+  // delivery point objects accepted by POST /customers. Keep the pipe format
+  // for existing CSV files that only contain location names.
+  if (raw.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [{ location: '' }];
+      return parsed as CreateCustomerInput['deliveryPoints'];
+    } catch {
+      return [{ location: '' }];
+    }
+  }
+
+  return raw
+    .split(/[|;]/)
+    .map((location) => ({ location: location.trim() }))
+    .filter((p) => p.location);
+}
+
 export function parseCustomerCsv(buffer: Buffer): ParsedCustomerCsv {
   let records: Record<string, string>[];
   try {
@@ -119,12 +164,13 @@ export function parseCustomerCsv(buffer: Buffer): ParsedCustomerCsv {
         field === 'balancePercentage' ||
         field === 'creditDays'
       ) {
-        (data as Record<string, unknown>)[field] = numberValue(raw);
+        if (field === 'creditDays' && normalizeHeader(header) === 'paymentterms') {
+          Object.assign(data, paymentTermsValue(raw));
+        } else {
+          (data as Record<string, unknown>)[field] = numberValue(raw);
+        }
       } else if (field === 'deliveryPoints') {
-        data.deliveryPoints = raw
-          ?.split('|')
-          .map((location) => ({ location: location.trim() }))
-          .filter((p) => p.location);
+        data.deliveryPoints = deliveryPointsValue(raw);
       } else {
         (data as Record<string, unknown>)[field] = raw;
       }
