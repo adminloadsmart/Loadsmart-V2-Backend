@@ -3,7 +3,7 @@ import multer, { FileFilterCallback } from 'multer';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
 import { requirePermission } from '../../shared/middleware/require-permission.middleware';
-import { CUSTOMERS_CREATE, CUSTOMERS_READ } from '../../shared/constants/permissions';
+import { CUSTOMERS_CREATE } from '../../shared/constants/permissions';
 import { CustomerImportController } from './customer-import.controller';
 import { ValidationError } from '../../shared/errors';
 
@@ -46,6 +46,5 @@ export function createCustomerImportRoutes(controller: CustomerImportController)
     requireCsvFile,
     asyncHandler(controller.import),
   );
-  router.get('/:importId', requirePermission(CUSTOMERS_READ), asyncHandler(controller.get));
   return router;
 }

@@ -1,11 +1,10 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { customerValidators } from './customer.validators';
 import { CustomerService } from './customer.service';
-import { CustomerImportEntity, CustomerImportStatus } from './entities/customer-import.entity';
 import { parseCustomerCsv, ParsedCustomerCsv } from './customer-import.mapper';
 import { CreateCustomerInput } from './customer.types';
 import { CustomerEntity } from './entities/customer.entity';
-import { NotFoundError, ValidationError } from '../../shared/errors';
+import { ValidationError } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 
 export interface ImportRowError {
@@ -14,7 +13,6 @@ export interface ImportRowError {
   message: string;
 }
 export interface ImportReport {
-  importId?: string;
   totalRows: number;
   validRows: number;
   created: number;
@@ -25,14 +23,11 @@ export interface ImportReport {
 }
 
 export class CustomerImportService {
-  private readonly imports: Repository<CustomerImportEntity>;
   constructor(
     private readonly dataSource: DataSource,
     private readonly customers: CustomerService,
     private readonly audit: AuditService,
-  ) {
-    this.imports = dataSource.getRepository(CustomerImportEntity);
-  }
+  ) {}
 
   private async inspect(
     parsed: ParsedCustomerCsv,
@@ -98,35 +93,7 @@ export class CustomerImportService {
     return query.getOne();
   }
 
-  private async saveImport(
-    tenantId: string,
-    actorId: string,
-    fileName: string,
-    status: CustomerImportStatus,
-    report: ImportReport,
-  ) {
-    return this.imports.save(
-      this.imports.create({
-        tenantId,
-        uploadedBy: actorId,
-        fileName,
-        status,
-        totalRows: report.totalRows,
-        createdRows: report.created,
-        skippedRows: report.skipped,
-        failedRows: report.failed,
-        columnMapping: report.columnMapping,
-        errors: report.errors,
-      }),
-    );
-  }
-
-  async preview(
-    tenantId: string,
-    actorId: string,
-    fileName: string,
-    buffer: Buffer,
-  ): Promise<ImportReport> {
+  async preview(tenantId: string, buffer: Buffer): Promise<ImportReport> {
     const parsed = this.parse(buffer);
     const inspected = await this.inspect(parsed, tenantId);
     const report: ImportReport = {
@@ -138,8 +105,7 @@ export class CustomerImportService {
       columnMapping: parsed.mapping,
       errors: inspected.errors,
     };
-    const saved = await this.saveImport(tenantId, actorId, fileName, 'previewed', report);
-    return { ...report, importId: saved.id };
+    return report;
   }
 
   async import(
@@ -172,15 +138,12 @@ export class CustomerImportService {
         });
       }
     }
-    const status: CustomerImportStatus = report.failed ? 'completed_with_errors' : 'completed';
-    const saved = await this.saveImport(tenantId, actorId, fileName, status, report);
     await this.audit.log({
       tenantId,
       userId: actorId,
       action: 'CUSTOMER_BULK_IMPORTED',
       resourceType: 'customer',
       newData: {
-        importId: saved.id,
         fileName,
         totalRows: report.totalRows,
         created: report.created,
@@ -188,7 +151,7 @@ export class CustomerImportService {
         failed: report.failed,
       },
     });
-    return { ...report, importId: saved.id };
+    return report;
   }
 
   private parse(buffer: Buffer): ParsedCustomerCsv {
@@ -197,11 +160,5 @@ export class CustomerImportService {
     } catch (error) {
       throw new ValidationError(error instanceof Error ? error.message : 'Invalid CSV file');
     }
-  }
-
-  async get(tenantId: string, id: string) {
-    const value = await this.imports.findOne({ where: { id, tenantId } });
-    if (!value) throw new NotFoundError('Import not found');
-    return value;
   }
 }
