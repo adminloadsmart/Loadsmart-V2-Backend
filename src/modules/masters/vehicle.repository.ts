@@ -107,6 +107,7 @@ export class VehicleRepository {
         truckType: true,
         driverLinks: { driver: true },
         telemetryMeta: true,
+        serviceUsage: true,
       },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
