@@ -1148,14 +1148,14 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     ...write(
       'Check a driving licence + date of birth against the Sarathi registry via IDfy, before the ' +
         'driver record exists — step 2 of the "Add a driver" form. Submits an async IDfy task and ' +
-        'polls for the result before responding. Falls back to manual_review if IDFY_API_KEY/' +
-        'IDFY_ACCOUNT_ID/IDFY_TASK_ID/IDFY_GROUP_ID are unset, the registry has no match, or the ' +
-        'call fails — the form then switches to photo uploads and typed-in details, submitted as ' +
-        'part of drivers/onboard.',
+        'polls for the result before responding. As of 2026-08 (IDfy credits exhausted), always ' +
+        'falls back to verified (without registry fields) — whether IDFY_API_KEY/IDFY_ACCOUNT_ID/' +
+        'IDFY_TASK_ID/IDFY_GROUP_ID are unset, the call fails, or IDfy completes the task but ' +
+        'reports no match. Revert to manual_review on those paths once IDfy credits are restored.',
     ),
     request: { body: json(mastersValidators.verifyDriverDl.shape.body) },
     responses: {
-      200: { description: 'verified (with registry fields) or manual_review' },
+      200: { description: 'verified (with registry fields when available)' },
       400: { description: 'Validation failed', ...errorContent },
     },
   });
