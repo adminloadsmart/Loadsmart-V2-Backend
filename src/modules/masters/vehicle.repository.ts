@@ -68,6 +68,8 @@ export class VehicleRepository {
         driverLinks: { driver: true },
         truckType: true,
         telemetryMeta: true,
+        serviceUsage: true,
+        operationalStatus: true,
       },
     });
   }

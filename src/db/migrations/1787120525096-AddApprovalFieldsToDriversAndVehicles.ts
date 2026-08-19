@@ -1,11 +1,10 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 // Commit d96b1c7 ("added approval and rejection functionality for customers, vehicles, and
-// drivers") added approved_by/approved_at/rejection_reason to DriverEntity and VehicleEntity, and
-// rejection_reason to CustomerEntity (approved_by/approved_at already existed there), plus new
-// 'pending'/'rejected' status values for drivers and vehicles ('rejected' only for customers,
-// which already had 'pending') — but never shipped a migration. This backfills the DB to match
-// those entities.
+// drivers") added approved_by/approved_at/rejection_reason to DriverEntity and VehicleEntity,
+// plus new 'pending'/'rejected' status values for drivers and vehicles ('rejected' only for
+// customers, which already had 'pending') — but never shipped a migration. Customer
+// rejection_reason is owned by AddCustomerRejectionReason1787000003000.
 export class AddApprovalFieldsToDriversAndVehicles1787120525096 implements MigrationInterface {
   name = 'AddApprovalFieldsToDriversAndVehicles1787120525096';
 
@@ -24,10 +23,6 @@ export class AddApprovalFieldsToDriversAndVehicles1787120525096 implements Migra
     await queryRunner.query(
       `ALTER TABLE "masters"."vehicles" ADD "rejection_reason" character varying`,
     );
-    await queryRunner.query(
-      `ALTER TABLE "customers"."customers" ADD "rejection_reason" character varying`,
-    );
-
     await queryRunner.query(`ALTER TYPE "masters"."drivers_status_enum" ADD VALUE 'pending'`);
     await queryRunner.query(`ALTER TYPE "masters"."drivers_status_enum" ADD VALUE 'rejected'`);
     await queryRunner.query(`ALTER TYPE "masters"."vehicles_status_enum" ADD VALUE 'pending'`);
@@ -71,7 +66,6 @@ export class AddApprovalFieldsToDriversAndVehicles1787120525096 implements Migra
       `ALTER TYPE "masters"."drivers_status_enum_old" RENAME TO "drivers_status_enum"`,
     );
 
-    await queryRunner.query(`ALTER TABLE "customers"."customers" DROP COLUMN "rejection_reason"`);
     await queryRunner.query(`ALTER TABLE "masters"."vehicles" DROP COLUMN "rejection_reason"`);
     await queryRunner.query(`ALTER TABLE "masters"."vehicles" DROP COLUMN "approved_at"`);
     await queryRunner.query(`ALTER TABLE "masters"."vehicles" DROP COLUMN "approved_by"`);
