@@ -4,6 +4,7 @@ import {
   FREIGHT_TYPES,
   LOAD_SOURCE_TYPES,
   LOAD_STATUSES,
+  LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
 } from './utils/loads.types';
 
@@ -12,13 +13,21 @@ const params = z.object({ loadId: uuid });
 
 export const loadValidators = {
   list: z.object({
-    query: pagination.extend({
-      requisitionId: uuid.optional(),
-      status: z.enum(LOAD_STATUSES).optional(),
-      sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
-      transporterId: uuid.optional(),
-      vehicleId: uuid.optional(),
-    }),
+    query: pagination
+      .extend({
+        requisitionId: uuid.optional(),
+        status: z.enum(LOAD_STATUSES).optional(),
+        // The Trips Home-page tab filter (Active/Completed) — a status-group shorthand, not a
+        // narrower version of `status` above, so the two aren't combined in one request.
+        group: z.enum(LOAD_STATUS_GROUPS).optional(),
+        sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
+        transporterId: uuid.optional(),
+        vehicleId: uuid.optional(),
+      })
+      .refine(
+        (data) => !(data.status && data.group),
+        'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',
+      ),
   }),
   get: z.object({ params }),
   getActivities: z.object({ params }),

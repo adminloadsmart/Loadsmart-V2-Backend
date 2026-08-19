@@ -38,7 +38,6 @@ import { TransporterEntity } from '../modules/masters/entities/transporter.entit
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
 import { FileEntity } from '../modules/storage/entities/file.entity';
-import { CustomerImportEntity } from '../modules/customers/entities/customer-import.entity';
 import { ProductEntity } from '../modules/masters/entities/product.entity';
 import { ProductSubItemEntity } from '../modules/masters/entities/product-sub-item.entity';
 import { RequisitionEntity } from '../modules/loads/entities/requisition.entity';
@@ -92,7 +91,6 @@ export const AppDataSource = new DataSource({
     CustomerEntity,
     CustomerDeliveryPointEntity,
     FileEntity,
-    CustomerImportEntity,
     ProductEntity,
     ProductSubItemEntity,
     // loads module

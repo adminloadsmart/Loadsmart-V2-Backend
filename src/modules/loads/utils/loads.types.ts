@@ -62,6 +62,28 @@ export const LOAD_STATUSES = [
 ] as const;
 export type LoadStatus = (typeof LOAD_STATUSES)[number];
 
+/** Trips Home-page tab boundary — a delivered-but-unsettled market load already reads as
+ *  "no longer active" rather than "done", so 'delivered' groups with 'closed'. Both derive from
+ *  LOAD_STATUSES by filtering, so they can't drift out of sync with the canonical order above. */
+export const COMPLETED_LOAD_STATUSES: readonly LoadStatus[] = ['delivered', 'closed'];
+export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
+  (status) => !COMPLETED_LOAD_STATUSES.includes(status),
+);
+export const LOAD_STATUS_GROUPS = ['active', 'completed'] as const;
+export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
+
+/** The subset of LOAD_STATUSES the trip-detail screen's "step N of 6" counts against — excludes
+ *  'created' (pre-trip order intake, not a physical trip step) and 'closed' (back-office
+ *  payment/paperwork closure, not a movement step). */
+export const TRIP_PROGRESS_STATUSES: readonly LoadStatus[] = [
+  'assigned',
+  'loading_confirmed',
+  'at_plant',
+  'in_transit',
+  'reached_delivery_point',
+  'delivered',
+];
+
 /** The subset of LOAD_STATUSES settable via PATCH /loads/:id/status (manual tracking —
  *  this build has no GPS/geofence automation).
  *  'delivered' is only reachable via uploadPod(); 'closed' only via the payment/POD flows. */

@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
 import { StorageService } from '../storage/storage.service';
 import { CustomerService } from '../customers/customer.service';
 import { VehicleService } from '../masters/vehicle.service';
@@ -24,6 +25,7 @@ export function createLoadsModule(
   dataSource: DataSource,
   deps: {
     auditService: AuditService;
+    authService: AuthService;
     storageService: StorageService;
     customerService: CustomerService;
     vehicleService: VehicleService;
@@ -34,7 +36,7 @@ export function createLoadsModule(
   },
 ) {
   const loadActivityRepository = new LoadActivityRepository(dataSource);
-  const loadActivityService = new LoadActivityService(loadActivityRepository);
+  const loadActivityService = new LoadActivityService(loadActivityRepository, deps.authService);
 
   const requisitionRepository = new RequisitionRepository(dataSource);
   const loadRepository = new LoadRepository(dataSource);

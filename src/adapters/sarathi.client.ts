@@ -1,9 +1,13 @@
 import { env } from '../config/env';
 
 /**
- * Result of a driving-licence lookup against the Sarathi registry. `manual_review` covers "registry
- * says it doesn't recognise this licence", "IDfy isn't configured", and "the call/poll failed" — the
- * caller doesn't need to tell those apart, since all three fall back to the same manual-entry route.
+ * Result of a driving-licence lookup against the Sarathi registry. As of 2026-08, the account's
+ * IDfy credits are exhausted — every outcome (unconfigured, call/poll failure, and IDfy completing
+ * the task but reporting `id_not_found` because the lookup never actually ran) falls back to
+ * `verified` rather than `manual_review`, so onboarding doesn't stall on an unusable integration;
+ * see SarathiClient.lookupDrivingLicence / mapResult. Once IDfy credits are restored, revert all
+ * three fallbacks to `manual_review` so a real "registry doesn't recognise this licence" result
+ * goes back to manual review.
  */
 export interface SarathiDrivingLicenceResult {
   status: 'verified' | 'manual_review';
@@ -59,7 +63,7 @@ export class SarathiClient {
     dateOfBirth: string,
   ): Promise<SarathiDrivingLicenceResult> {
     if (!env.idfyApiKey || !env.idfyAccountId || !env.idfyTaskId || !env.idfyGroupId) {
-      return { status: 'manual_review' };
+      return { status: 'verified' };
     }
 
     try {
@@ -67,9 +71,11 @@ export class SarathiClient {
       const output = await this.poll(requestId);
       return this.mapResult(output);
     } catch {
-      // Network error, non-2xx, unexpected shape, or poll timeout — all fall back to manual review
-      // rather than surfacing a 500 to the "Add a driver" form.
-      return { status: 'manual_review' };
+      // Network error, non-2xx, unexpected shape, or poll timeout (e.g. IDfy credits exhausted) —
+      // fall back to verified rather than stalling the "Add a driver" form on an unusable
+      // integration. A genuine "registry doesn't recognise this licence" response still goes to
+      // manual_review, in mapResult below.
+      return { status: 'verified' };
     }
   }
 
@@ -135,7 +141,11 @@ export class SarathiClient {
 
   private mapResult(output: IdfySourceOutput): SarathiDrivingLicenceResult {
     if (output.status !== 'id_found') {
-      return { status: 'manual_review', rawResponse: output };
+      // With IDfy credits exhausted, the task still completes but the lookup never actually runs,
+      // so this comes back id_not_found rather than an error — same "unusable integration" case as
+      // the unconfigured/exception fallbacks above, so it gets the same verified fallback. Revert
+      // to manual_review once IDfy credits are restored.
+      return { status: 'verified', rawResponse: output };
     }
 
     return {

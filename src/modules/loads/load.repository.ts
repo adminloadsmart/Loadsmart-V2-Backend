@@ -2,7 +2,13 @@ import { DataSource, EntityManager, FindOptionsWhere, In, Repository } from 'typ
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { ListLoadsInput } from './utils/load.interface';
-import { FreightMode, LoadSourceType, LoadStatus } from './utils/loads.types';
+import {
+  ACTIVE_LOAD_STATUSES,
+  COMPLETED_LOAD_STATUSES,
+  FreightMode,
+  LoadSourceType,
+  LoadStatus,
+} from './utils/loads.types';
 
 /** Between Assignment and Delivered — a vehicle on a load in one of these statuses is "on a live
  *  trip elsewhere" (C-02). Deliberately excludes 'created' (own-fleet loads never sit there, per
@@ -75,6 +81,29 @@ export class LoadRepository {
     return repo.findOne({ where: { id, tenantId }, relations: { cargoItems: { product: true } } });
   }
 
+  /** Read-only, wide-relation counterpart to findById — the Trip Detail screen's source. Kept
+   *  separate rather than widening findById itself: findById backs assertExists, which gates
+   *  every write path (assign/confirmLoading/updateStatus/uploadPod/closeLoad) as well as get(),
+   *  so widening it would add these joins to every status mutation, not just the read path. */
+  findDetailById(
+    tenantId: string,
+    id: string,
+    manager?: EntityManager,
+  ): Promise<LoadEntity | null> {
+    const repo = manager?.getRepository(LoadEntity) ?? this.loads;
+    return repo.findOne({
+      where: { id, tenantId },
+      relations: {
+        cargoItems: { product: true },
+        vehicle: true,
+        driver: true,
+        transporter: true,
+        truckType: true,
+        requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+      },
+    });
+  }
+
   findByRequisitionId(tenantId: string, requisitionId: string): Promise<LoadEntity[]> {
     return this.loads.find({
       where: { tenantId, requisitionId },
@@ -125,22 +154,71 @@ export class LoadRepository {
   }
 
   async list(tenantId: string, filters: ListLoadsFilters): Promise<[LoadEntity[], number]> {
-    const { page, limit, requisitionId, status, sourceType, transporterId, vehicleId } = filters;
+    const { page, limit, requisitionId, status, group, sourceType, transporterId, vehicleId } =
+      filters;
 
     const where: FindOptionsWhere<LoadEntity> = { tenantId };
     if (requisitionId) where.requisitionId = requisitionId;
     if (status) where.status = status;
+    // Mutually exclusive with `status` — enforced by the validator's .refine(), see
+    // load.validators.ts. The Trips Home-page tab filter (Active/Completed).
+    if (group) {
+      where.status = In(group === 'active' ? ACTIVE_LOAD_STATUSES : COMPLETED_LOAD_STATUSES);
+    }
     if (sourceType) where.sourceType = sourceType;
     if (transporterId) where.transporterId = transporterId;
     if (vehicleId) where.vehicleId = vehicleId;
 
     return this.loads.findAndCount({
       where,
-      relations: { cargoItems: true },
+      relations: {
+        vehicle: true,
+        transporter: true,
+        requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+      },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+  }
+
+  /** One GROUP BY query bucketed into {active, completed} — backs the Trips Home-page tab
+   *  counts. Runs alongside the paginated list() call (see LoadService.list) so the whole
+   *  endpoint costs 2 queries, not N+1. */
+  async countByGroup(
+    tenantId: string,
+    filters: Pick<ListLoadsFilters, 'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId'>,
+  ): Promise<{ active: number; completed: number }> {
+    const qb = this.loads
+      .createQueryBuilder('load')
+      .select('load.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('load.tenant_id = :tenantId', { tenantId })
+      .groupBy('load.status');
+    if (filters.requisitionId) {
+      qb.andWhere('load.requisition_id = :requisitionId', { requisitionId: filters.requisitionId });
+    }
+    if (filters.sourceType) {
+      qb.andWhere('load.source_type = :sourceType', { sourceType: filters.sourceType });
+    }
+    if (filters.transporterId) {
+      qb.andWhere('load.transporter_id = :transporterId', { transporterId: filters.transporterId });
+    }
+    if (filters.vehicleId) {
+      qb.andWhere('load.vehicle_id = :vehicleId', { vehicleId: filters.vehicleId });
+    }
+
+    const rows = await qb.getRawMany<{ status: LoadStatus; count: string }>();
+    const completedStatuses: readonly string[] = COMPLETED_LOAD_STATUSES;
+    return rows.reduce(
+      (acc, row) => {
+        const count = Number(row.count);
+        if (completedStatuses.includes(row.status)) acc.completed += count;
+        else acc.active += count;
+        return acc;
+      },
+      { active: 0, completed: 0 },
+    );
   }
 
   async createMany(rows: CreateLoadData[], manager: EntityManager): Promise<LoadEntity[]> {

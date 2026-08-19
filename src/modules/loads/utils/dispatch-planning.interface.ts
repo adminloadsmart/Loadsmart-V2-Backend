@@ -26,8 +26,9 @@ export interface MarketTruckLineInput {
    *  still captured later at Assignment. */
   freightMode: FreightMode;
   expectedRate?: number; // required iff freightMode === 'set_expected_price'
-  advancePercentage?: number; // defaults 30
-  balancePercentage?: number; // defaults 70
+  /** Balance isn't a separate input — Plan Dispatch v2.0 §6.3/§6.4: "Balance is calculated
+   *  automatically as 100 minus advance." Defaults 30 (balance defaults to 70). */
+  advancePercentage?: number;
 }
 
 export type TruckLineInput = OwnFleetTruckLineInput | MarketTruckLineInput;
