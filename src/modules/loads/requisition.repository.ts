@@ -129,4 +129,12 @@ export class RequisitionRepository {
     );
     return result.affected === 1 ? this.findById(tenantId, id) : null;
   }
+
+  /** Hard delete. The caller (RequisitionService.delete) has already confirmed no loads exist —
+   *  `requisition_items` cascade-deletes at the DB level (ON DELETE CASCADE) regardless. The
+   *  `loads.loads → requisitions` FK is ON DELETE RESTRICT, so even a caller that skipped that
+   *  check would fail loudly here rather than silently orphaning a load. */
+  async delete(tenantId: string, id: string): Promise<void> {
+    await this.requisitions.delete({ id, tenantId });
+  }
 }

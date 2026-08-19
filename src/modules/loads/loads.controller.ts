@@ -68,6 +68,15 @@ export class LoadsController {
     respond(res, requisition);
   };
 
+  deleteRequisition = async (req: Request<RequisitionParams>, res: Response) => {
+    await this.requisitionService.delete(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.requisitionId,
+    );
+    respond(res, { success: true });
+  };
+
   // --- Dispatch Planning ---
 
   planDispatch = async (req: Request<RequisitionParams>, res: Response) => {

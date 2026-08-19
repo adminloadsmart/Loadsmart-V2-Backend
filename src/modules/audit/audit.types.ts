@@ -62,6 +62,7 @@ export const AUDIT_ACTIONS = [
   // shared platform-wide audit log, same convention every other write-heavy module follows.
   'REQUISITION_CREATED',
   'REQUISITION_CLOSED',
+  'REQUISITION_DELETED',
   'DISPATCH_PLANNED',
   'LOAD_ASSIGNED',
   'LOAD_LOADING_CONFIRMED',

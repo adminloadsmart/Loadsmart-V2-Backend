@@ -55,4 +55,7 @@ export const requisitionValidators = {
     params,
     body: z.object({ reason: z.string().trim().min(1) }).strict(),
   }),
+  // Hard delete — only allowed while the requisition has zero loads against it (undoes a
+  // mistaken create). Once any load exists, `close` is the only removal-adjacent action.
+  delete: z.object({ params }),
 };

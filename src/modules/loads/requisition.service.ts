@@ -255,4 +255,38 @@ export class RequisitionService {
       rethrow(error, 'Failed to close requisition');
     }
   }
+
+  /** Hard delete — undoes a mistaken create. Only allowed while zero loads exist against the
+   *  requisition; once one does, `close` is the only removal-adjacent action (Dispatch Planning
+   *  has already committed capacity/tonnage against it). */
+  async delete(tenantId: string, actorId: string, id: string): Promise<void> {
+    try {
+      const existing = await this.repository.findById(tenantId, id);
+      if (!existing) throw new NotFoundError(`Requisition ${id} not found`);
+
+      const loads = await this.loadRepository.findByRequisitionId(tenantId, id);
+      if (loads.length > 0) {
+        throw new ConflictError(
+          `Cannot delete requisition ${id} — ${loads.length} load(s) already exist against it; close it instead`,
+        );
+      }
+
+      await this.repository.delete(tenantId, id);
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'REQUISITION_DELETED',
+        resourceType: 'requisition',
+        oldData: {
+          id,
+          status: existing.status,
+          quantityTonnes: existing.quantityTonnes,
+          customerPoNumber: existing.customerPoNumber,
+        },
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to delete requisition');
+    }
+  }
 }

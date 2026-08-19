@@ -50,6 +50,14 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(requisitionValidators.close),
     asyncHandler(controller.closeRequisition),
   );
+  // Hard delete — only while zero loads exist against the requisition (undoes a mistaken
+  // create); once one does, close it instead.
+  router.delete(
+    '/requisitions/:requisitionId',
+    canManageRequisitions,
+    validate(requisitionValidators.delete),
+    asyncHandler(controller.deleteRequisition),
+  );
 
   // --- Dispatch Planning — splits a requisition into one Load per planned truck. ---
   router.post(

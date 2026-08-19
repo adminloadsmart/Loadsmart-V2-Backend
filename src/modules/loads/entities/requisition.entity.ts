@@ -18,7 +18,9 @@ import { REQUISITION_STATUSES, RequisitionStatus } from '../utils/loads.types';
 /**
  * A Requisition captures the complete customer order — Sales creates it; Dispatch
  * Planning splits it into one or more Loads (one truck = one load, see load.entity.ts).
- * No delete flow — a requisition is either open, fully dispatched, or manually closed.
+ * Deletable only while it has zero loads against it (RequisitionService.delete — undoes a
+ * mistaken create; the loads→requisitions FK is ON DELETE RESTRICT, enforcing this at the DB
+ * layer too). Once any load exists, the only removal-adjacent action is manually closing it.
  *
  * A requisition can hold multiple products (Plan Dispatch v2.0 R-02) — each is its own
  * RequisitionItemEntity row, not a column here. `quantityTonnes`/`dispatchedTonnes` stay as

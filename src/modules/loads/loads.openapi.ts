@@ -106,6 +106,26 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/requisitions/{requisitionId}`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.deleteRequisition',
+    ...manageRequisitions(
+      'Delete a requisition that has no loads created against it yet — undoes a mistaken ' +
+        'create. Once any load exists, close it instead.',
+    ),
+    request: { params: requisitionValidators.delete.shape.params },
+    responses: {
+      200: { description: 'Deleted' },
+      404: { description: 'Requisition not found', ...errorContent },
+      409: {
+        description: 'One or more loads already exist against this requisition',
+        ...errorContent,
+      },
+    },
+  });
+
   // --- Dispatch Planning ---
 
   registry.registerPath({
