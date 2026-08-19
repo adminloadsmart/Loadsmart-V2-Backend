@@ -11,10 +11,20 @@ import {
 } from '../../shared/constants/permissions';
 import { CustomerController } from './customer.controller';
 import { customerValidators } from './customer.validators';
+import { CustomerImportController } from './customer-import.controller';
+import { createCustomerImportRoutes } from './customer-import.routes';
 
-export function createCustomerRoutes(controller: CustomerController): Router {
+export function createCustomerRoutes(
+  controller: CustomerController,
+  importController: CustomerImportController,
+): Router {
   const router = Router();
   router.use(requireTenant);
+
+  // Mounted before the dynamic ':customerId' routes below so the literal 'import' segment is
+  // never captured as an id.
+  router.use('/import', createCustomerImportRoutes(importController));
+
   router.post(
     '/',
     requirePermission(CUSTOMERS_CREATE),

@@ -159,7 +159,6 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/maintenance', router: maintenance.router },
       { path: '/admin', router: admin.router },
       { path: '/dashboards', router: dashboards.router },
-      { path: '/customers/import', router: customers.importRouter },
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
