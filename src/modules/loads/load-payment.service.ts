@@ -9,7 +9,7 @@ import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
 import { RecordAdvanceInput, RecordBalanceInput } from './utils/load-payment.interface';
 
-function computeShareAmount(load: LoadEntity, percentage: string): string {
+export function computeShareAmount(load: LoadEntity, percentage: string): string {
   const pct = Number(percentage) / 100;
   const freightValue = Number(load.freightValue ?? 0);
   const base =

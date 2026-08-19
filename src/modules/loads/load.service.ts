@@ -5,11 +5,19 @@ import { StorageService } from '../storage/storage.service';
 import { paginate, Paginated } from '../masters/utils/masters.types';
 import { LoadRepository } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
+import { computeShareAmount } from './load-payment.service';
 import { LoadActivityService } from './load-activity.service';
 import { LoadEntity } from './entities/load.entity';
-import { LoadActivityEntity } from './entities/load-activity.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
-import { LOAD_STATUSES, MANUAL_TRACKING_STATUSES, ManualTrackingStatus } from './utils/loads.types';
+import {
+  LOAD_STATUSES,
+  LoadSourceType,
+  LoadStatus,
+  MANUAL_TRACKING_STATUSES,
+  ManualTrackingStatus,
+  TRIP_PROGRESS_STATUSES,
+} from './utils/loads.types';
+import { LoadActivityWithActor } from './utils/load-activity.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
@@ -20,11 +28,154 @@ import {
 
 const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 
+/** One row of the Trips Home-page table — a flattened, display-ready projection of a Load plus
+ *  its requisition's route/customer (neither of which the LoadEntity carries directly). */
+export interface TripListRow {
+  id: string;
+  status: LoadStatus;
+  requisitionId: string;
+  route: {
+    loadingPointTitle: string;
+    loadingPointCity: string;
+    deliveryPointLocation: string;
+    deliveryPointCity: string | null;
+  } | null;
+  customer: { id: string; name: string } | null;
+  vehicleNumber: string | null;
+  source: { type: LoadSourceType; label: string };
+  createdAt: string;
+}
+
+export interface ListTripsResult extends Paginated<TripListRow> {
+  /** Tab counts for the whole tenant (scoped by the same non-group filters as the list itself),
+   *  independent of which `group` — if any — the caller requested. */
+  counts: { active: number; completed: number };
+}
+
+/** One entry of the trip-detail screen's 8-step progress stepper — walks LOAD_STATUSES in the
+ *  true backend order (loading_confirmed before at_plant). */
+export interface TripStepperStep {
+  key: LoadStatus;
+  label: string;
+  completed: boolean;
+  current: boolean;
+  /** ISO timestamp from the matching *_At column; null for 'created'/'assigned', which have no
+   *  dedicated timestamp column on LoadEntity. */
+  at: string | null;
+}
+
+export interface TripNextAction {
+  nextStatus: LoadStatus | null;
+  /** 0 before 'assigned'; 1-6 while moving through TRIP_PROGRESS_STATUSES; capped at 6 once
+   *  'closed'. */
+  stepNumber: number;
+  totalSteps: number;
+  lastUpdate: { status: LoadStatus; at: string | null };
+  advance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
+  balance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
+}
+
 export interface LoadDetailView {
   load: LoadEntity;
-  timeline: LoadActivityEntity[];
+  timeline: LoadActivityWithActor[];
   payments: LoadPaymentEntity[];
   ewayBillExpiry: EwayBillExpiry;
+  stepper: TripStepperStep[];
+  nextAction: TripNextAction;
+}
+
+function humanizeStatus(status: LoadStatus): string {
+  const words = status.split('_');
+  return `${words[0].charAt(0).toUpperCase()}${words[0].slice(1)} ${words.slice(1).join(' ')}`.trim();
+}
+
+function toTripListRow(load: LoadEntity): TripListRow {
+  const req = load.requisition;
+  return {
+    id: load.id,
+    status: load.status,
+    requisitionId: load.requisitionId,
+    route: req
+      ? {
+          loadingPointTitle: req.loadingPoint.title,
+          loadingPointCity: req.loadingPoint.city,
+          deliveryPointLocation: req.customerDeliveryPoint.location,
+          deliveryPointCity: req.customerDeliveryPoint.city ?? null,
+        }
+      : null,
+    customer: req ? { id: req.customer.id, name: req.customer.name } : null,
+    vehicleNumber: load.vehicleNumber,
+    source:
+      load.sourceType === 'own_fleet'
+        ? { type: 'own_fleet', label: 'Own fleet' }
+        : {
+            type: 'market',
+            label: load.transporter ? `Market · ${load.transporter.name}` : 'Market',
+          },
+    createdAt: load.createdAt.toISOString(),
+  };
+}
+
+/** Walks LOAD_STATUSES by index — the same indexing LoadService.updateStatus uses — to build
+ *  the trip-detail screen's 8-step progress stepper. */
+function buildStepper(load: LoadEntity): TripStepperStep[] {
+  const currentIndex = LOAD_STATUSES.indexOf(load.status);
+  const timestampByStatus: Partial<Record<LoadStatus, Date | null>> = {
+    loading_confirmed: load.loadingConfirmedAt,
+    at_plant: load.atPlantAt,
+    in_transit: load.inTransitAt,
+    reached_delivery_point: load.reachedDeliveryPointAt,
+    delivered: load.deliveredAt,
+    closed: load.closedAt,
+  };
+  return LOAD_STATUSES.map((status, index) => ({
+    key: status,
+    label: humanizeStatus(status),
+    completed: index < currentIndex,
+    current: index === currentIndex,
+    at: timestampByStatus[status]?.toISOString() ?? null,
+  }));
+}
+
+/** Next-action panel — what stage comes next, tracking/advance-due info. Advance/balance
+ *  applicability and paid-state mirror the exact gating LoadPaymentService.recordAdvance/
+ *  recordBalance already enforce (market-only, gated by loadingConfirmedAt/deliveredAt). */
+function buildNextAction(load: LoadEntity): TripNextAction {
+  const currentIndex = LOAD_STATUSES.indexOf(load.status);
+  const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
+
+  const progressIndex = TRIP_PROGRESS_STATUSES.indexOf(load.status);
+  const stepNumber =
+    load.status === 'closed'
+      ? TRIP_PROGRESS_STATUSES.length
+      : progressIndex === -1
+        ? 0
+        : progressIndex + 1;
+
+  const isMarket = load.sourceType === 'market';
+  const advanceAmount =
+    isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
+  const balanceAmount =
+    isMarket && load.freightValue ? computeShareAmount(load, load.balancePercentage ?? '0') : null;
+
+  return {
+    nextStatus,
+    stepNumber,
+    totalSteps: TRIP_PROGRESS_STATUSES.length,
+    lastUpdate: { status: load.status, at: load.updatedAt?.toISOString() ?? null },
+    advance: {
+      applicable: isMarket,
+      amount: advanceAmount,
+      paid: Boolean(load.advancePaidAt),
+      paidAt: load.advancePaidAt?.toISOString() ?? null,
+    },
+    balance: {
+      applicable: isMarket,
+      amount: balanceAmount,
+      paid: Boolean(load.balancePaidAt),
+      paidAt: load.balancePaidAt?.toISOString() ?? null,
+    },
+  };
 }
 
 export class LoadService {
@@ -442,11 +593,25 @@ export class LoadService {
     }
   }
 
-  /** Load Detail — status, documents (resolved to download URLs), payments, and the
-   *  full chronological activity timeline. */
+  /** Wide-relation counterpart to assertExists, for the read-only Detail path only — see
+   *  load.repository.ts's findDetailById doc comment for why this isn't just assertExists. */
+  private async assertDetailExists(tenantId: string, id: string): Promise<LoadEntity> {
+    try {
+      const load = await this.repository.findDetailById(tenantId, id);
+      if (!load) throw new NotFoundError(`Load ${id} not found`);
+      return load;
+    } catch (error) {
+      rethrow(error, 'Failed to verify load exists');
+    }
+  }
+
+  /** Load Detail / Trip Detail — status, documents (resolved to download URLs), payments, the
+   *  full chronological activity timeline (with actor names), the 8-step progress stepper, and
+   *  the next-action panel (next stage, tracking/advance-due info). This is the single trip
+   *  detail screen — see loads.openapi.ts. */
   async get(tenantId: string, actorRole: string, loadId: string): Promise<LoadDetailView> {
     try {
-      const load = await this.assertExists(tenantId, loadId);
+      const load = await this.assertDetailExists(tenantId, loadId);
       const [timeline, payments, loadWithUrls] = await Promise.all([
         this.loadActivityService.listByLoad(tenantId, loadId),
         this.loadPaymentRepository.listByLoad(tenantId, loadId),
@@ -458,16 +623,30 @@ export class LoadService {
         timeline,
         payments,
         ewayBillExpiry: this.getEwayBillExpiry(load),
+        stepper: buildStepper(load),
+        nextAction: buildNextAction(load),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch load');
     }
   }
 
-  async list(tenantId: string, input: ListLoadsInput): Promise<Paginated<LoadEntity>> {
+  /** Trips Home-page list — one row per load with its route/customer/vehicle-source resolved,
+   *  plus tenant-wide Active/Completed tab counts (independent of which group, if any, was
+   *  requested) so the UI can render both tab badges from a single call. */
+  async list(tenantId: string, input: ListLoadsInput): Promise<ListTripsResult> {
     try {
-      const [items, total] = await this.repository.list(tenantId, input);
-      return paginate(items, total, input);
+      const { requisitionId, sourceType, transporterId, vehicleId } = input;
+      const [[items, total], counts] = await Promise.all([
+        this.repository.list(tenantId, input),
+        this.repository.countByGroup(tenantId, {
+          requisitionId,
+          sourceType,
+          transporterId,
+          vehicleId,
+        }),
+      ]);
+      return { ...paginate(items.map(toTripListRow), total, input), counts };
     } catch (error) {
       rethrow(error, 'Failed to list loads');
     }

@@ -3,6 +3,7 @@ import {
   EntityManager,
   FindOptionsWhere,
   ILike,
+  In,
   IsNull,
   MoreThan,
   Repository,
@@ -38,6 +39,15 @@ export class AuthRepository {
 
   findUserById(id: string): Promise<UserEntity | null> {
     return this.users.findOne({ where: { id, deletedAt: IsNull() }, relations: { role: true } });
+  }
+
+  // Batched — for resolving many actor ids at once (e.g. a load's audit-trail timeline), not a
+  // per-row lookup. Deliberately does NOT filter deletedAt like the finders above: a historical
+  // audit-trail row should still show the actor's name even if that staff member has since been
+  // offboarded.
+  findByIds(ids: string[]): Promise<UserEntity[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.users.find({ where: { id: In(ids) }, relations: { role: true } });
   }
 
   async createUser(

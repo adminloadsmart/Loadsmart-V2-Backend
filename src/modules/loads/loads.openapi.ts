@@ -149,10 +149,21 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/loads`,
     tags: [TAGS.LOADS],
     operationId: 'loads.listLoads',
-    ...authenticated('List loads for the tenant, paginated and optionally filtered.'),
+    ...authenticated(
+      'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
+        'completed` is the Trips Home-page tab filter (completed = delivered + closed), mutually ' +
+        "exclusive with `status`. Each row's `route`/`customer` come from the load's requisition; " +
+        '`source.label` is "Own fleet" or "Market · {transporter name}".',
+    ),
     request: { query: loadValidators.list.shape.query },
     responses: {
-      200: { description: 'Paginated loads — { data: { items, page, limit, total, totalPages } }' },
+      200: {
+        description:
+          'Paginated trips — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
+          'counts: { active, completed } } }. `counts` is tenant-wide (scoped by any non-group ' +
+          'filters given) and independent of which group, if any, was requested — lets the UI ' +
+          'render both tab badges from one call.',
+      },
     },
   });
 
@@ -162,13 +173,19 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.getLoad',
     ...authenticated(
-      'Load Detail — status, assignment, documents (resolved to download URLs), ' +
-        'payments, computed e-way-bill expiry, and the full chronological activity timeline. This ' +
-        'is the only load/trip detail screen.',
+      'Load / Trip Detail — status, assignment, documents (resolved to download URLs), ' +
+        'payments, computed e-way-bill expiry, the full chronological activity timeline (now with ' +
+        "each entry's actor name/role resolved), an 8-step progress stepper, and a next-action " +
+        'panel (next stage, "step N of 6", tracking/advance-due info). This is the single trip ' +
+        'detail screen — GET /loads/{loadId}/activities returns the same timeline entries alone.',
     ),
     request: { params: loadValidators.get.shape.params },
     responses: {
-      200: { description: '{ load, timeline, payments, ewayBillExpiry }' },
+      200: {
+        description:
+          '{ load, timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
+          'TripStepperStep[], nextAction: TripNextAction }',
+      },
       404: { description: 'Load not found', ...errorContent },
     },
   });
@@ -178,10 +195,14 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/loads/{loadId}/activities`,
     tags: [TAGS.LOADS],
     operationId: 'loads.listLoadActivities',
-    ...authenticated("List a load's activity timeline on its own, most recent last."),
+    ...authenticated(
+      "List a load's activity timeline on its own, most recent last, with each entry's actor " +
+        'name/role resolved. GET /loads/{loadId} embeds this same timeline alongside the rest of ' +
+        'the trip detail screen — prefer that endpoint unless only the timeline is needed.',
+    ),
     request: { params: loadValidators.getActivities.shape.params },
     responses: {
-      200: { description: 'Load activities, chronological' },
+      200: { description: 'LoadActivityWithActor[], chronological' },
     },
   });
 
