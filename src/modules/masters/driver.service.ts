@@ -171,6 +171,16 @@ export class DriverService {
       const licenseChanged =
         licenseNumber !== undefined && licenseNumber !== existing.licenseNumber;
 
+      if (input.phoneNumber !== undefined && input.phoneNumber !== existing.phoneNumber) {
+        const phoneOwner = await this.driverRepository.findByPhoneNumber(
+          tenantId,
+          input.phoneNumber,
+        );
+        if (phoneOwner) {
+          throw new ConflictError('A driver with this phone number already exists');
+        }
+      }
+
       const driver = await this.driverRepository.update(tenantId, driverId, {
         ...input,
         licenseNumber,
