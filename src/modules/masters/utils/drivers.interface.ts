@@ -32,6 +32,7 @@ export interface CreateDriverInput {
 
 export interface UpdateDriverInput {
   fullName?: string;
+  phoneNumber?: string;
   licenseNumber?: string;
   licenseExpiry?: string;
   dateOfJoining?: string;
