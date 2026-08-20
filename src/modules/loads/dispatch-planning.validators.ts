@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import { VEHICLE_OPERATIONAL_STATUSES, VEHICLE_STATUSES } from '../masters/utils/vehicle.type';
 import { FREIGHT_MODES } from './utils/loads.types';
 
 const uuid = z.string().uuid();
@@ -57,5 +59,14 @@ export const dispatchPlanningValidators = {
         overrides: z.array(override).max(1).optional(),
       })
       .strict(),
+  }),
+  // Vehicle picker for this requisition's own-fleet truck lines — same status/operationalStatus
+  // filters as masters' GET /vehicles (masters.validators.ts's listVehicles).
+  availableVehicles: z.object({
+    params,
+    query: pagination.extend({
+      status: z.enum(VEHICLE_STATUSES).optional(),
+      operationalStatus: z.enum(VEHICLE_OPERATIONAL_STATUSES).optional(),
+    }),
   }),
 };

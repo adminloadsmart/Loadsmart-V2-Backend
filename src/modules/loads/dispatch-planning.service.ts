@@ -1,8 +1,9 @@
 import { DataSource, EntityManager } from 'typeorm';
-import { ConflictError, ValidationError, rethrow } from '../../shared/errors';
+import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { VehicleService, resolveDocumentStatus } from '../masters/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/utils/vehicle.type';
+import { ListVehiclesInput } from '../masters/utils/vehicle.interface';
 import { TruckTypeService } from '../masters/truck-type.service';
 import { TruckTypeEntity } from '../masters/entities/truck-type.entity';
 import { RequisitionRepository } from './requisition.repository';
@@ -12,7 +13,9 @@ import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
 import { computeFitVerdict, FitResult } from './utils/fit-engine';
 import {
+  AvailableVehicleRow,
   CapacitySummary,
+  ListAvailableVehiclesResult,
   MarketTruckLineInput,
   OwnFleetTruckLineInput,
   PlanDispatchInput,
@@ -252,6 +255,52 @@ export class DispatchPlanningService {
     //     );
     //   }
     // }
+  }
+
+  /** Dispatch Planning's vehicle picker — the base masters vehicle list, annotated per-row with
+   *  whether it can actually go on this requisition right now. Read-only mirror of
+   *  assertVehicleChecks' C-02/C-01b, so the reason shown here matches what submit-time would
+   *  reject. */
+  async listAvailableVehicles(
+    tenantId: string,
+    requisitionId: string,
+    filters: ListVehiclesInput,
+  ): Promise<ListAvailableVehiclesResult> {
+    try {
+      const requisition = await this.requisitionRepository.findById(tenantId, requisitionId);
+      if (!requisition) throw new NotFoundError(`Requisition ${requisitionId} not found`);
+
+      const { items, page, limit, total, totalPages } = await this.vehicleService.listVehicles(
+        tenantId,
+        filters,
+      );
+
+      const vehicleIds = items.map((vehicle) => vehicle.id);
+      const [activeElsewhere, inThisRequisition] = vehicleIds.length
+        ? await Promise.all([
+            this.loadRepository.findActiveByVehicles(tenantId, vehicleIds),
+            this.loadRepository.findByRequisitionAndVehicles(tenantId, requisitionId, vehicleIds),
+          ])
+        : [[], []];
+      const activeElsewhereIds = new Set(activeElsewhere.map((load) => load.vehicleId));
+      const inThisRequisitionIds = new Set(inThisRequisition.map((load) => load.vehicleId));
+
+      const rows: AvailableVehicleRow[] = items.map((vehicle) => {
+        const unavailableReason =
+          vehicle.status !== 'active'
+            ? vehicle.status
+            : activeElsewhereIds.has(vehicle.id)
+              ? 'on_active_load'
+              : inThisRequisitionIds.has(vehicle.id)
+                ? 'already_in_requisition'
+                : null;
+        return { ...vehicle, isAvailable: unavailableReason === null, unavailableReason };
+      });
+
+      return { items: rows, page, limit, total, totalPages };
+    } catch (error) {
+      rethrow(error, 'Failed to list available vehicles');
+    }
   }
 
   private async buildRowsForLine(
