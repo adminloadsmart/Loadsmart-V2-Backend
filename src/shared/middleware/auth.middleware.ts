@@ -34,6 +34,10 @@ export const createAuth = (authRepository: AuthRepository): RequestHandler => {
       throw new AuthenticationError('Invalid or expired token');
     }
 
+    if (decoded.portal !== 'organization' && decoded.portal !== 'platform') {
+      throw new AuthenticationError('Invalid or expired token');
+    }
+
     if (await isTokenBlocked(decoded.jti)) {
       throw new AuthenticationError('Token has been revoked');
     }

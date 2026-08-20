@@ -53,6 +53,7 @@ import {
   LogoutInput,
   CreatePasswordInput,
   SaveUserDetailsInput,
+  LoginPortal,
 } from './auth.types';
 import {
   SaveCompanyDetailsInput,
@@ -77,6 +78,7 @@ type AuthSession = {
   onboardingStatus: OnboardingStatus;
   onboardingStep: OnboardingStep;
   nextStep: OnboardingStep;
+  portal: LoginPortal;
 };
 
 export class AuthService {
@@ -180,15 +182,17 @@ export class AuthService {
       }
     }
 
-    return this.issueTokenPairForUser(user);
+    return this.issueTokenPairForUser(user, 'organization');
   }
 
   async requestLoginOtp(input: RequestLoginOtpInput) {
     const phoneNumber = this.normalizePhone(input.phoneNumber);
     const user = await this.authRepository.findUserByPhone(phoneNumber);
     if (!user) {
-      throw new AuthenticationError('Unable to send OTP');
+      throw new AuthenticationError('User is not registered');
     }
+
+    this.assertPortalAccess(user, input.portal);
 
     const loginToken = await this.requestOtpCode({
       phoneNumber,
@@ -196,6 +200,7 @@ export class AuthService {
       ttlSeconds: env.loginOtpTtlSeconds,
       cooldownSeconds: env.loginOtpResendCooldownSeconds,
       otpLabel: 'login',
+      portal: input.portal,
     });
 
     return {
@@ -223,7 +228,7 @@ export class AuthService {
       throw new AuthenticationError('Invalid or expired login OTP');
     }
 
-    return this.buildAuthSession(user);
+    return this.buildAuthSession(user, input.portal);
   }
 
   async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
@@ -667,14 +672,14 @@ export class AuthService {
   }
 
   async login(input: LoginInput, ipAddress: string | null) {
-    return this.loginWithPhone(input.phoneNumber, input.password, ipAddress);
+    return this.loginWithPhone(input.phoneNumber, input.password, input.portal, ipAddress);
   }
 
   async refresh(input: RefreshInput) {
     const { refreshToken } = input;
 
     const tokenHash = hashToken(refreshToken);
-    const stored = await this.authRepository.claimRefreshToken(tokenHash);
+    const stored = await this.authRepository.claimRefreshToken(tokenHash, input.portal);
     if (!stored) {
       throw new AuthenticationError('Invalid or expired refresh token');
     }
@@ -684,7 +689,11 @@ export class AuthService {
       throw new AuthenticationError('Invalid or expired refresh token');
     }
 
-    return this.buildAuthSession(user);
+    if (stored.portal !== input.portal) {
+      throw new AuthenticationError('Invalid or expired refresh token');
+    }
+
+    return this.buildAuthSession(user, input.portal);
   }
 
   async logout(input: LogoutInput) {
@@ -809,6 +818,7 @@ export class AuthService {
         ORG_ADMIN_ROLE,
         permissions,
         user.permissionsVersion,
+        'organization',
       );
       await this.auditService.log(
         {
@@ -1069,8 +1079,9 @@ export class AuthService {
     ttlSeconds: number;
     cooldownSeconds: number;
     otpLabel: string;
+    portal?: LoginPortal;
   }) {
-    const { phoneNumber, purpose, ttlSeconds, cooldownSeconds, otpLabel } = input;
+    const { phoneNumber, purpose, ttlSeconds, cooldownSeconds, otpLabel, portal } = input;
     const cooldownKey = this.otpCooldownKey(purpose, phoneNumber);
     if (await redisManager.get(cooldownKey)) {
       throw new RateLimitError('Please wait before requesting another OTP');
@@ -1085,7 +1096,7 @@ export class AuthService {
       ttlSeconds,
     );
     await redisManager.delete(this.otpAttemptsKey(purpose, phoneNumber));
-    return signToken({ phoneNumber, purpose: otpLabel }, ttlSeconds);
+    return signToken({ phoneNumber, purpose: otpLabel, ...(portal ? { portal } : {}) }, ttlSeconds);
   }
 
   private async verifyOtpCode(input: {
@@ -1131,7 +1142,12 @@ export class AuthService {
     await redisManager.delete(attemptsKey);
   }
 
-  private async loginWithPhone(phoneNumber: string, password: string, ipAddress: string | null) {
+  private async loginWithPhone(
+    phoneNumber: string,
+    password: string,
+    portal: LoginPortal,
+    ipAddress: string | null,
+  ) {
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const recentFailures = await this.authRepository.countRecentFailedAttempts(
       normalizedPhone,
@@ -1157,10 +1173,11 @@ export class AuthService {
       throw new AuthenticationError('Invalid credentials');
     }
 
-    return this.buildAuthSession(user);
+    return this.buildAuthSession(user, portal);
   }
 
-  private async buildAuthSession(user: UserEntity): Promise<AuthSession> {
+  private async buildAuthSession(user: UserEntity, portal: LoginPortal): Promise<AuthSession> {
+    this.assertPortalAccess(user, portal);
     await this.assertOrganizationActiveForLogin(user);
 
     const permissions = await this.roleService.getEffectivePermissions(user.id);
@@ -1170,6 +1187,7 @@ export class AuthService {
       user.role.name,
       permissions,
       user.permissionsVersion,
+      portal,
     );
     const progress = await this.getOnboardingProgress(user);
 
@@ -1185,7 +1203,14 @@ export class AuthService {
       onboardingStatus: progress.onboardingStatus,
       onboardingStep: progress.onboardingStep,
       nextStep: progress.nextStep,
+      portal,
     };
+  }
+
+  private assertPortalAccess(user: UserEntity, portal: LoginPortal): void {
+    if (user.role.scope !== portal) {
+      throw new AuthorizationError('This account cannot access this portal');
+    }
   }
 
   private async assertOrganizationActiveForLogin(user: UserEntity): Promise<void> {
@@ -1274,12 +1299,15 @@ export class AuthService {
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues
    *  a token pair for them — the common path used by verifyOtp/login/refresh. */
-  private async issueTokenPairForUser(user: {
-    id: string;
-    tenantId: string | null;
-    role: { name: string };
-    permissionsVersion: number;
-  }) {
+  private async issueTokenPairForUser(
+    user: {
+      id: string;
+      tenantId: string | null;
+      role: { name: string };
+      permissionsVersion: number;
+    },
+    portal: LoginPortal,
+  ) {
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     return this.issueTokenPair(
       user.id,
@@ -1287,6 +1315,7 @@ export class AuthService {
       user.role.name,
       permissions,
       user.permissionsVersion,
+      portal,
     );
   }
 
@@ -1296,10 +1325,20 @@ export class AuthService {
     role: string,
     permissions: string[],
     permissionsVersion: number,
+    portal: LoginPortal,
   ) {
     const jti = randomUUID();
     const accessToken = signToken(
-      { id: userId, tenantId, role, permissions, permissionsVersion, jti, purpose: 'access' },
+      {
+        id: userId,
+        tenantId,
+        role,
+        permissions,
+        permissionsVersion,
+        jti,
+        purpose: 'access',
+        portal,
+      },
       env.accessTokenTtlSeconds,
     );
 
@@ -1308,6 +1347,7 @@ export class AuthService {
       userId,
       tokenHash: hashToken(rawRefreshToken),
       expiresAt: new Date(Date.now() + env.refreshTokenTtlMs),
+      portal,
     });
 
     return { accessToken, refreshToken: rawRefreshToken };

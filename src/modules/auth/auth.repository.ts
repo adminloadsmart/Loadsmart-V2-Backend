@@ -13,6 +13,7 @@ import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { LoginAttemptEntity } from './entities/login-attempt.entity';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { NotFoundError } from '../../shared/errors';
+import { LoginPortal } from './auth.types';
 
 export class AuthRepository {
   private readonly users: Repository<UserEntity>;
@@ -201,6 +202,7 @@ export class AuthRepository {
     userId: string;
     tokenHash: string;
     expiresAt: Date;
+    portal: LoginPortal;
   }): Promise<RefreshTokenEntity> {
     const token = this.refreshTokens.create({ ...data, revokedAt: null });
     return this.refreshTokens.save(token);
@@ -218,12 +220,16 @@ export class AuthRepository {
   // revokeRefreshToken as two separate calls — that gap let the same refresh token be used
   // twice by concurrent requests both passing the read check before either revoked it. Only the
   // request whose UPDATE actually matched a still-active row (affected === 1) wins the claim.
-  async claimRefreshToken(tokenHash: string): Promise<RefreshTokenEntity | null> {
+  async claimRefreshToken(
+    tokenHash: string,
+    portal: LoginPortal,
+  ): Promise<RefreshTokenEntity | null> {
     const result = await this.refreshTokens
       .createQueryBuilder()
       .update(RefreshTokenEntity)
       .set({ revokedAt: () => 'now()' })
       .where('token_hash = :tokenHash', { tokenHash })
+      .andWhere('portal = :portal', { portal })
       .andWhere('revoked_at IS NULL')
       .andWhere('expires_at > :now', { now: new Date() })
       .execute();

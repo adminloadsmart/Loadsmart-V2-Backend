@@ -11,6 +11,9 @@ export class RefreshTokenEntity {
   @Column({ name: 'token_hash' })
   tokenHash!: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  portal!: 'organization' | 'platform' | null;
+
   @Column({ name: 'expires_at' })
   expiresAt!: Date;
 
