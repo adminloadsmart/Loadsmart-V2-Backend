@@ -243,7 +243,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: SALES_CS_ROLE,
     scope: 'organization',
-    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_READ, FILES_READ, FILES_UPLOAD],
   },
   {
     name: DISPATCH_ROLE,
