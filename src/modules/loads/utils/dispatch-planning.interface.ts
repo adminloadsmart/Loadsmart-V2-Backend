@@ -1,3 +1,6 @@
+import { VehicleEntity } from '../../masters/entities/vehicle.entity';
+import { VehicleStatus } from '../../masters/utils/vehicle.type';
+import { Paginated } from '../../masters/utils/masters.types';
 import { FitVerdict, FreightMode } from './loads.types';
 import { OverrideInput } from './override.interface';
 
@@ -57,3 +60,15 @@ export interface TruckLineFitVerdict {
   verdict: FitVerdict;
   weightUtilizationPercent: number;
 }
+
+/** One row of the Dispatch Planning vehicle picker — a vehicle plus whether it can actually be
+ *  put on this requisition right now, mirroring assertVehicleChecks' own precedence: a non-
+ *  'active' vehicle status blocks first, then C-02 (on a live trip elsewhere), then C-01b
+ *  (already used earlier in this requisition). null once none of those apply. */
+export interface AvailableVehicleRow extends VehicleEntity {
+  isAvailable: boolean;
+  unavailableReason:
+    Exclude<VehicleStatus, 'active'> | 'on_active_load' | 'already_in_requisition' | null;
+}
+
+export type ListAvailableVehiclesResult = Paginated<AvailableVehicleRow>;

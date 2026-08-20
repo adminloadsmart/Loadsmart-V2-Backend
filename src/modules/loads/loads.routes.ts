@@ -66,6 +66,12 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(dispatchPlanningValidators.plan),
     asyncHandler(controller.planDispatch),
   );
+  // Vehicle picker for the plan above — flags each vehicle with why it can't be assigned here.
+  router.get(
+    '/requisitions/:requisitionId/available-vehicles',
+    validate(dispatchPlanningValidators.availableVehicles),
+    asyncHandler(controller.listAvailableVehicles),
+  );
 
   // --- Loads ---
   router.get('/loads', validate(loadValidators.list), asyncHandler(controller.listLoads));

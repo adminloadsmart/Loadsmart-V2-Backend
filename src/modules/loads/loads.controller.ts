@@ -11,6 +11,7 @@ import {
   ListRequisitionsInput,
   RequisitionParams,
 } from './utils/requisition.interface';
+import { ListVehiclesInput } from '../masters/utils/vehicle.interface';
 import { PlanDispatchInput } from './utils/dispatch-planning.interface';
 import {
   AssignLoadInput,
@@ -87,6 +88,15 @@ export class LoadsController {
       req.body as PlanDispatchInput,
     );
     respond(res, result, 201);
+  };
+
+  listAvailableVehicles = async (req: Request<RequisitionParams>, res: Response) => {
+    const result = await this.dispatchPlanningService.listAvailableVehicles(
+      requireTenantId(req),
+      req.params.requisitionId,
+      req.validatedQuery as ListVehiclesInput,
+    );
+    respond(res, result);
   };
 
   // --- Loads ---
