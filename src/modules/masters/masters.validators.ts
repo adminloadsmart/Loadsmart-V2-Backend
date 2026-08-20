@@ -434,6 +434,7 @@ export const mastersValidators = {
     body: z
       .object({
         fullName: z.string().min(1).max(150).optional(),
+        phoneNumber: driverCoreFields.phoneNumber.optional(),
         licenseNumber: licenseNumber.optional(),
         licenseExpiry: isoDate.optional(),
         dateOfJoining: isoDate.optional(),
