@@ -162,6 +162,33 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/requisitions/{requisitionId}/available-vehicles`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listAvailableVehicles',
+    ...authenticated(
+      "Vehicle picker for the own-fleet truck lines above — the tenant's vehicles, paginated " +
+        'and optionally filtered (same status/operationalStatus/search filters as ' +
+        'GET /masters/vehicles), each annotated with isAvailable and, when false, why: a non-' +
+        '"active" vehicle status, "on_active_load" (on a live trip elsewhere, C-02), or ' +
+        '"already_in_requisition" (already used earlier in this requisition, C-01b). Mirrors ' +
+        'the same checks POST .../dispatch-plan enforces, so nothing flagged available here ' +
+        'should 409 there.',
+    ),
+    request: {
+      params: dispatchPlanningValidators.availableVehicles.shape.params,
+      query: dispatchPlanningValidators.availableVehicles.shape.query,
+    },
+    responses: {
+      200: {
+        description:
+          'Paginated vehicles — { data: { items: AvailableVehicleRow[], page, limit, total, totalPages } }',
+      },
+      404: { description: 'Requisition not found', ...errorContent },
+    },
+  });
+
   // --- Loads ---
 
   registry.registerPath({
