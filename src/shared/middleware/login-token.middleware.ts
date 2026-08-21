@@ -2,10 +2,12 @@ import { RequestHandler } from 'express';
 import { AuthenticationError } from '../errors';
 import { extractBearerToken, verifyToken } from '../utils/token';
 import { normalizePhoneNumber } from '../utils/phone-number';
+import { LoginPortal } from '../../modules/auth/auth.types';
 
 interface LoginTokenPayload {
   phoneNumber: string;
   purpose: string;
+  portal: LoginPortal;
 }
 
 /**
@@ -32,6 +34,13 @@ export const verifyLoginToken: RequestHandler = (req, _res, next) => {
     throw new AuthenticationError('Invalid login token');
   }
 
-  req.loginPayload = { phoneNumber: normalizePhoneNumber(payload.phoneNumber) };
+  if (payload.portal !== 'organization' && payload.portal !== 'platform') {
+    throw new AuthenticationError('Invalid login token');
+  }
+
+  req.loginPayload = {
+    phoneNumber: normalizePhoneNumber(payload.phoneNumber),
+    portal: payload.portal,
+  };
   next();
 };

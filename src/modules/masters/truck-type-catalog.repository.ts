@@ -1,5 +1,6 @@
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { TruckTypeCatalogEntity } from './entities/truck-type-catalog.entity';
+import { TruckTypeCatalogConfiguration } from './utils/truck-type-catalog-configurations.constants';
 
 export class TruckTypeCatalogRepository {
   private readonly catalog: Repository<TruckTypeCatalogEntity>;
@@ -21,6 +22,31 @@ export class TruckTypeCatalogRepository {
 
     const rows = missing.map((name) =>
       this.catalog.create({ name, createdBy: actorId, deletedAt: null }),
+    );
+    await this.catalog.save(rows);
+  }
+
+  /** Same idempotent-by-name shape as seedMissing, but carrying the structured body/wheel/capacity
+   *  fields (Plan Dispatch v2.0 §6.6's Market Fleet picker) rather than just a name. */
+  async seedMissingConfigurations(
+    configurations: readonly TruckTypeCatalogConfiguration[],
+    actorId: string | null,
+  ): Promise<void> {
+    const existing = await this.list();
+    const existingNames = new Set(existing.map((entry) => entry.name));
+    const missing = configurations.filter((config) => !existingNames.has(config.name));
+    if (missing.length === 0) return;
+
+    const rows = missing.map((config) =>
+      this.catalog.create({
+        name: config.name,
+        bodyType: config.bodyType,
+        wheelConfiguration: config.wheelConfiguration,
+        capacityTons: String(config.capacityTons),
+        deckVolumeCubicMeters: String(config.deckVolumeCubicMeters),
+        createdBy: actorId,
+        deletedAt: null,
+      }),
     );
     await this.catalog.save(rows);
   }

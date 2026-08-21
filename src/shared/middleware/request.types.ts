@@ -1,4 +1,5 @@
 import { Role } from '../constants/roles';
+import { LoginPortal } from '../../modules/auth/auth.types';
 
 export interface AuthenticatedUser {
   id: string;
@@ -23,6 +24,7 @@ export interface AuthenticatedUser {
   // role.service.ts's assignRole/grantPermission/revokePermission takes effect promptly instead
   // of waiting for this token to expire or for the client to hit /auth/refresh.
   permissionsVersion: number;
+  portal: LoginPortal;
   jti?: string;
   exp?: number;
 }
@@ -33,6 +35,7 @@ export interface SignupPayload {
 
 export interface LoginPayload {
   phoneNumber: string;
+  portal: LoginPortal;
 }
 
 declare global {

@@ -74,6 +74,7 @@ export const authValidators = {
   requestLoginOtp: z.object({
     body: z.object({
       phoneNumber: z.string().trim().min(10),
+      portal: z.enum(['organization', 'platform']),
     }),
   }),
   verifyOtp: z.object({
@@ -91,6 +92,7 @@ export const authValidators = {
     body: z.object({
       phoneNumber: z.string().trim().min(10),
       password: z.string().min(1),
+      portal: z.enum(['organization', 'platform']),
     }),
   }),
   createPassword: z.object({
@@ -112,6 +114,7 @@ export const authValidators = {
   refresh: z.object({
     body: z.object({
       refreshToken: z.string().min(1),
+      portal: z.enum(['organization', 'platform']),
     }),
   }),
   logout: z.object({

@@ -26,8 +26,12 @@ export class AuthController {
   };
 
   verifyLoginOtp = async (req: Request, res: Response) => {
-    const { phoneNumber } = req.loginPayload!;
-    const tokens = await this.authService.verifyLoginOtp({ phoneNumber, otp: req.body.otp });
+    const { phoneNumber, portal } = req.loginPayload!;
+    const tokens = await this.authService.verifyLoginOtp({
+      phoneNumber,
+      otp: req.body.otp,
+      portal,
+    });
     respond(res, tokens);
   };
 

@@ -6,7 +6,10 @@ export interface SignupInput {
 
 export interface RequestLoginOtpInput {
   phoneNumber: string;
+  portal: LoginPortal;
 }
+
+export type LoginPortal = 'organization' | 'platform';
 
 export interface VerifyOtpInput {
   phoneNumber: string;
@@ -17,6 +20,7 @@ export interface VerifyOtpInput {
 export interface VerifyLoginOtpInput {
   phoneNumber: string;
   otp: string;
+  portal: LoginPortal;
 }
 
 export interface SaveUserDetailsInput {
@@ -74,10 +78,12 @@ export interface ListOrganizationUsersInput {
 export interface LoginInput {
   phoneNumber: string;
   password: string;
+  portal: LoginPortal;
 }
 
 export interface RefreshInput {
   refreshToken: string;
+  portal: LoginPortal;
 }
 
 export interface LogoutInput {
