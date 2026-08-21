@@ -168,10 +168,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.listAvailableVehicles',
     ...authenticated(
-      "Vehicle picker for the own-fleet truck lines above — the tenant's vehicles, paginated " +
-        'and optionally filtered (same status/operationalStatus/search filters as ' +
-        'GET /masters/vehicles), each annotated with isAvailable and, when false, why: a non-' +
-        '"active" vehicle status, "on_active_load" (on a live trip elsewhere, C-02), or ' +
+      "Vehicle picker for the own-fleet truck lines above — only status: 'active' vehicles " +
+        '(never inactive/under_maintenance/pending/rejected), paginated and optionally filtered ' +
+        'further by operationalStatus/search. Each is annotated with isAvailable and, when ' +
+        'false, why: "on_active_load" (on a live trip elsewhere, C-02) or ' +
         '"already_in_requisition" (already used earlier in this requisition, C-01b). Mirrors ' +
         'the same checks POST .../dispatch-plan enforces, so nothing flagged available here ' +
         'should 409 there.',

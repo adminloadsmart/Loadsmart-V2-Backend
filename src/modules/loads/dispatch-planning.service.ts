@@ -257,10 +257,11 @@ export class DispatchPlanningService {
     // }
   }
 
-  /** Dispatch Planning's vehicle picker — the base masters vehicle list, annotated per-row with
-   *  whether it can actually go on this requisition right now. Read-only mirror of
-   *  assertVehicleChecks' C-02/C-01b, so the reason shown here matches what submit-time would
-   *  reject. */
+  /** Dispatch Planning's vehicle picker — the base masters vehicle list, hard-filtered to
+   *  status: 'active' (non-active vehicles can never be picked here — buildOwnFleetLine below
+   *  rejects them outright), annotated per-row with whether it can actually go on this
+   *  requisition right now. Read-only mirror of assertVehicleChecks' C-02/C-01b, so the reason
+   *  shown here matches what submit-time would reject. */
   async listAvailableVehicles(
     tenantId: string,
     requisitionId: string,
@@ -272,7 +273,7 @@ export class DispatchPlanningService {
 
       const { items, page, limit, total, totalPages } = await this.vehicleService.listVehicles(
         tenantId,
-        filters,
+        { ...filters, status: 'active' },
       );
 
       const vehicleIds = items.map((vehicle) => vehicle.id);
@@ -286,14 +287,11 @@ export class DispatchPlanningService {
       const inThisRequisitionIds = new Set(inThisRequisition.map((load) => load.vehicleId));
 
       const rows: AvailableVehicleRow[] = items.map((vehicle) => {
-        const unavailableReason =
-          vehicle.status !== 'active'
-            ? vehicle.status
-            : activeElsewhereIds.has(vehicle.id)
-              ? 'on_active_load'
-              : inThisRequisitionIds.has(vehicle.id)
-                ? 'already_in_requisition'
-                : null;
+        const unavailableReason = activeElsewhereIds.has(vehicle.id)
+          ? 'on_active_load'
+          : inThisRequisitionIds.has(vehicle.id)
+            ? 'already_in_requisition'
+            : null;
         return { ...vehicle, isAvailable: unavailableReason === null, unavailableReason };
       });
 

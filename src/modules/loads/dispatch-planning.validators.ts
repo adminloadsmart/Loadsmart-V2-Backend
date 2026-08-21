@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
-import { VEHICLE_OPERATIONAL_STATUSES, VEHICLE_STATUSES } from '../masters/utils/vehicle.type';
+import { VEHICLE_OPERATIONAL_STATUSES } from '../masters/utils/vehicle.type';
 import { FREIGHT_MODES } from './utils/loads.types';
 
 const uuid = z.string().uuid();
@@ -60,12 +60,12 @@ export const dispatchPlanningValidators = {
       })
       .strict(),
   }),
-  // Vehicle picker for this requisition's own-fleet truck lines — same status/operationalStatus
-  // filters as masters' GET /vehicles (masters.validators.ts's listVehicles).
+  // Vehicle picker for this requisition's own-fleet truck lines — always status: 'active'
+  // vehicles only (forced server-side in dispatch-planning.service.ts), so `status` isn't a
+  // caller filter here. `operationalStatus` still is, same values as masters' GET /vehicles.
   availableVehicles: z.object({
     params,
     query: pagination.extend({
-      status: z.enum(VEHICLE_STATUSES).optional(),
       operationalStatus: z.enum(VEHICLE_OPERATIONAL_STATUSES).optional(),
     }),
   }),
