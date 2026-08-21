@@ -12,7 +12,11 @@ import {
 } from './utils/masters.interface';
 import { ListComplianceAlertsInput, ListVehiclesInput } from './utils/vehicle.interface';
 import { ListDriversInput } from './utils/drivers.interface';
-import { AddTruckTypesFromCatalogInput, CreateTruckTypeInput } from './utils/truck-type.interface';
+import {
+  AddTruckTypesFromCatalogInput,
+  CreateTruckTypeInput,
+  ResolveTruckTypeInput,
+} from './utils/truck-type.interface';
 import {
   CreateLoadingPointInput,
   ListLoadingPointCitiesInput,
@@ -63,6 +67,15 @@ export class MastersController {
       req.body as AddTruckTypesFromCatalogInput,
     );
     respond(res, truckTypes, 201);
+  };
+
+  resolveTruckType = async (req: Request, res: Response) => {
+    const truckType = await this.truckTypeService.resolveFromCatalog(
+      requireTenantId(req),
+      req.user!.id,
+      req.body as ResolveTruckTypeInput,
+    );
+    respond(res, truckType, 200);
   };
 
   createTruckType = async (req: Request, res: Response) => {

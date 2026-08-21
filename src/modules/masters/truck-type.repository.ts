@@ -1,6 +1,7 @@
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { TruckTypeEntity } from './entities/truck-type.entity';
 import { CreateTruckTypeData, TruckTypeWithVehicleCount } from './utils/truck-type.interface';
+import { TruckBodyType } from './utils/truck-type.types';
 
 export class TruckTypeRepository {
   private readonly truckTypes: Repository<TruckTypeEntity>;
@@ -20,6 +21,24 @@ export class TruckTypeRepository {
 
   findByName(tenantId: string, name: string): Promise<TruckTypeEntity | null> {
     return this.truckTypes.findOneBy({ tenantId, name, deletedAt: IsNull() });
+  }
+
+  /** This tenant's existing row for an exact body/wheel/capacity combination, if one was already
+   *  created or added from the catalog — backs TruckTypeService.resolveFromCatalog's get-or-create,
+   *  so repeat picks of the same combination reuse one row instead of creating duplicates. */
+  findByAttributes(
+    tenantId: string,
+    bodyType: TruckBodyType,
+    wheelConfiguration: number,
+    capacityTons: number,
+  ): Promise<TruckTypeEntity | null> {
+    return this.truckTypes.findOneBy({
+      tenantId,
+      bodyType,
+      wheelConfiguration,
+      capacityTons: String(capacityTons),
+      deletedAt: IsNull(),
+    });
   }
 
   /**

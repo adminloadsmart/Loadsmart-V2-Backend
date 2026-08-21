@@ -28,3 +28,12 @@ export type TruckTypeWithVehicleCount = Omit<TruckTypeEntity, 'vehicles'> & {
 export interface AddTruckTypesFromCatalogInput {
   names: string[];
 }
+
+/** Market Fleet's 3-step picker (body type → wheel configuration → capacity) — resolves straight
+ *  to a usable truckTypeId, get-or-create against the tenant's own list (truck-type.service.ts's
+ *  resolveFromCatalog). */
+export interface ResolveTruckTypeInput {
+  bodyType: TruckBodyType;
+  wheelConfiguration: number;
+  capacityTons: number;
+}

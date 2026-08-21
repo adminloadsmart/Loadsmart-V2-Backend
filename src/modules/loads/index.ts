@@ -56,6 +56,7 @@ export function createLoadsModule(
     loadRepository,
     loadPaymentRepository,
     deps.transporterService,
+    deps.vehicleService,
     deps.storageService,
     loadActivityService,
     deps.auditService,

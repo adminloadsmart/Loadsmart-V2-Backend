@@ -77,6 +77,12 @@ export function createMastersProtectedRoutes(
     validate(mastersValidators.addTruckTypesFromCatalog),
     asyncHandler(controller.addTruckTypesFromCatalog),
   );
+  router.post(
+    '/truck-types/resolve',
+    canWrite,
+    validate(mastersValidators.resolveTruckType),
+    asyncHandler(controller.resolveTruckType),
+  );
   router.get(
     '/truck-types',
     validate(mastersValidators.listTruckTypes),

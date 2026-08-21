@@ -299,6 +299,20 @@ export const mastersValidators = {
     }),
   }),
   deleteTruckType: z.object({ params: truckTypeParams }),
+  // Market Fleet's 3-step picker — body type, then wheel configuration, then capacity — resolved
+  // directly to a usable truckTypeId (get-or-create against this tenant's list).
+  resolveTruckType: z.object({
+    body: z.object({
+      bodyType: z.enum(TRUCK_BODY_TYPES),
+      wheelConfiguration: z
+        .number()
+        .refine(
+          (value) => (WHEEL_COUNTS as readonly number[]).includes(value),
+          'Invalid wheel configuration',
+        ),
+      capacityTons: z.number().positive(),
+    }),
+  }),
   listTruckTypeCatalog: z.object({}),
   addTruckTypesFromCatalog: z.object({
     body: z.object({

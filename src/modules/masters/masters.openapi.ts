@@ -195,6 +195,27 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/truck-types/resolve`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.resolveTruckType',
+    ...write(
+      "Market Fleet's 3-step picker (body type → wheel configuration → capacity) resolved " +
+        "directly to a usable truckTypeId — get-or-create against the tenant's own truck types, " +
+        'backed by the global catalog. No separate "add from catalog" step required first.',
+    ),
+    request: { body: json(mastersValidators.resolveTruckType.shape.body) },
+    responses: {
+      200: { description: 'The matching (or newly created) tenant truck type' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: {
+        description: 'No catalog entry for this body/wheel/capacity combination',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'get',
     path: `${BASE}/truck-types`,
     tags: [TAGS.MASTERS],

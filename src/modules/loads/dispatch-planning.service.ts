@@ -95,6 +95,20 @@ export class DispatchPlanningService {
         const allRows = built.flatMap((line) => line.rows);
         const loads = await this.loadRepository.createMany(allRows, manager);
 
+        // Own-fleet lines take a vehicle off the yard and onto this load — reflect that on the
+        // Fleet page immediately rather than leaving it "Idle" until someone edits it manually.
+        // load.service.ts's closeLoad flips it back once the load is delivered/closed.
+        for (const load of loads) {
+          if (!load.vehicleId) continue;
+          await this.vehicleService.setOperationalStatus(
+            tenantId,
+            actorId,
+            load.vehicleId,
+            { operationalStatus: 'on_trip', reason: `Assigned to load ${load.id}` },
+            manager,
+          );
+        }
+
         // Cargo items + compliance warnings line up with `loads` in the same order `createMany`
         // preserves (repo.create/save keep array order).
         let cursor = 0;
@@ -259,9 +273,10 @@ export class DispatchPlanningService {
 
   /** Dispatch Planning's vehicle picker — the base masters vehicle list, hard-filtered to
    *  status: 'active' (non-active vehicles can never be picked here — buildOwnFleetLine below
-   *  rejects them outright), annotated per-row with whether it can actually go on this
-   *  requisition right now. Read-only mirror of assertVehicleChecks' C-02/C-01b, so the reason
-   *  shown here matches what submit-time would reject. */
+   *  rejects them outright) and to operationalStatus !== 'inactive' (an operationally inactive
+   *  vehicle shouldn't be offered either), annotated per-row with whether it can actually go on
+   *  this requisition right now. Read-only mirror of assertVehicleChecks' C-02/C-01b, so the
+   *  reason shown here matches what submit-time would reject. */
   async listAvailableVehicles(
     tenantId: string,
     requisitionId: string,
@@ -271,9 +286,16 @@ export class DispatchPlanningService {
       const requisition = await this.requisitionRepository.findById(tenantId, requisitionId);
       if (!requisition) throw new NotFoundError(`Requisition ${requisitionId} not found`);
 
-      const { items, page, limit, total, totalPages } = await this.vehicleService.listVehicles(
-        tenantId,
-        { ...filters, status: 'active' },
+      const {
+        items: fetchedVehicles,
+        page,
+        limit,
+        total,
+        totalPages,
+      } = await this.vehicleService.listVehicles(tenantId, { ...filters, status: 'active' });
+
+      const items = fetchedVehicles.filter(
+        (vehicle) => vehicle.operationalStatus?.operationalStatus !== 'inactive',
       );
 
       const vehicleIds = items.map((vehicle) => vehicle.id);

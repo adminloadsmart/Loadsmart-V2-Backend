@@ -1,6 +1,7 @@
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { TruckTypeCatalogEntity } from './entities/truck-type-catalog.entity';
 import { TruckTypeCatalogConfiguration } from './utils/truck-type-catalog-configurations.constants';
+import { TruckBodyType } from './utils/truck-type.types';
 
 export class TruckTypeCatalogRepository {
   private readonly catalog: Repository<TruckTypeCatalogEntity>;
@@ -11,6 +12,21 @@ export class TruckTypeCatalogRepository {
 
   list(): Promise<TruckTypeCatalogEntity[]> {
     return this.catalog.find({ where: { deletedAt: IsNull() }, order: { name: 'ASC' } });
+  }
+
+  /** Resolves the Market Fleet 3-step picker's exact body/wheel/capacity selection to one catalog
+   *  entry — backs TruckTypeService.resolveFromCatalog's get-or-create. */
+  findByAttributes(
+    bodyType: TruckBodyType,
+    wheelConfiguration: number,
+    capacityTons: number,
+  ): Promise<TruckTypeCatalogEntity | null> {
+    return this.catalog.findOneBy({
+      bodyType,
+      wheelConfiguration,
+      capacityTons: String(capacityTons),
+      deletedAt: IsNull(),
+    });
   }
 
   /** Same idempotent shape as truck-type.repository.ts's seedMissing, one level up (global, no tenant). */

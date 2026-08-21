@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { TransporterService } from '../masters/transporter.service';
+import { VehicleService } from '../masters/vehicle.service';
 import { StorageService } from '../storage/storage.service';
 import { paginate, Paginated } from '../masters/utils/masters.types';
 import { LoadRepository } from './load.repository';
@@ -183,6 +184,7 @@ export class LoadService {
     private readonly repository: LoadRepository,
     private readonly loadPaymentRepository: LoadPaymentRepository,
     private readonly transporterService: TransporterService,
+    private readonly vehicleService: VehicleService,
     private readonly storageService: StorageService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
@@ -586,6 +588,16 @@ export class LoadService {
         oldData: { id: loadId },
         newData: { id: loadId, status: 'closed' },
       });
+
+      // Own-fleet loads carry a vehicleId (market loads don't) — release it back to idle now
+      // that this was its one active load (dispatch-planning.service.ts's C-02 check guarantees
+      // a vehicle never has more than one active load at a time).
+      if (updated.vehicleId) {
+        await this.vehicleService.setOperationalStatus(tenantId, actorId, updated.vehicleId, {
+          operationalStatus: 'idle',
+          reason: `Load ${loadId} closed`,
+        });
+      }
 
       return updated;
     } catch (error) {
