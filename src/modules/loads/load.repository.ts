@@ -173,6 +173,7 @@ export class LoadRepository {
       where,
       relations: {
         vehicle: true,
+        driver: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
       },
