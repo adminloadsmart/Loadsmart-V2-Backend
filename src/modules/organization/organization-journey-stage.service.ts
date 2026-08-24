@@ -40,9 +40,15 @@ export class OrganizationJourneyStageService {
   }
 
   // Unpaginated — see OrganizationJourneyStageHistoryRepository.findByOrganization. Embedded
-  // whole into AdminService.getOrganization's response as `journeyStageHistory`; the listing
-  // endpoint only shows the current OrganizationEntity.journeyStage value, no trail.
+  // whole into AdminService.getOrganization's response as `journeyStageHistory`.
   getTrail(organizationId: string) {
     return this.historyRepository.findByOrganization(organizationId);
+  }
+
+  // Batched counterpart to getTrail above, for AdminService.listOrganizations — every item on a
+  // page gets its own `journeyStageHistory`, fetched as one query for the whole page rather than
+  // one per row.
+  getTrails(organizationIds: string[]) {
+    return this.historyRepository.findByOrganizationIds(organizationIds);
   }
 }

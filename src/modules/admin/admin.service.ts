@@ -52,8 +52,14 @@ export class AdminService {
     try {
       const scoped = { ...input, ...this.reviewerScopeFilter(actingUser) };
       const { items, total } = await this.organizationService.listOrganizations(scoped);
+      const trails = await this.organizationJourneyStageService.getTrails(
+        items.map((organization) => organization.id),
+      );
       return paginate(
-        items.map((organization) => this.toPublicOrganization(organization)),
+        items.map((organization) => ({
+          ...this.toPublicOrganization(organization),
+          journeyStageHistory: trails.get(organization.id) ?? [],
+        })),
         total,
         input,
       );
@@ -243,7 +249,7 @@ export class AdminService {
         role: ONLINE_KYC_DESK_ROLE,
         field: 'onlineKycVerifierId',
         action: 'ONLINE_KYC_VERIFIER_ASSIGNED',
-        journeyStage: 'online_kyc',
+        journeyStage: 'online_kyc_handover',
       });
     } catch (error) {
       rethrow(error, 'Failed to assign online verifier');
@@ -260,7 +266,7 @@ export class AdminService {
         role: OFFLINE_KYC_DESK_ROLE,
         field: 'physicalKycAgentId',
         action: 'PHYSICAL_KYC_AGENT_ASSIGNED',
-        journeyStage: 'physical_kyc',
+        journeyStage: 'physical_kyc_handover',
       });
     } catch (error) {
       rethrow(error, 'Failed to assign physical agent');
@@ -351,8 +357,8 @@ export class AdminService {
    *  run first (checked here regardless of role, unlike assertOrgAccessible's ownership check,
    *  since this is a workflow-order rule that binds platform_admin too, not an access-control
    *  one). Once set, this is what approveOrganization below is waiting on to grant platform
-   *  access. Also the journey-stage transition to 'final_approval' — "the ball is back with the
-   *  source verifier" for their final decision. */
+   *  access. Also the journey-stage transition to 'physical_kyc_completed' — "the ball is back
+   *  with the source verifier" for their final decision. */
   async approvePhysicalKyc(actingUser: AuthenticatedUser, organizationId: string) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
@@ -367,7 +373,7 @@ export class AdminService {
 
       const updated = await this.organizationJourneyStageService.recordTransition(
         organizationId,
-        'final_approval',
+        'physical_kyc_completed',
         actingUser.id,
       );
 
@@ -404,6 +410,7 @@ export class AdminService {
 
       await this.organizationService.updateOrganization(organizationId, {
         status: 'active',
+        approvedAt: new Date(),
         decisionReason: null,
       });
 

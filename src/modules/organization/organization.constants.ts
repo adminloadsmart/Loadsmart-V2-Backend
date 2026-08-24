@@ -20,18 +20,18 @@ export function isTenantAccessible(status: OrganizationStatus): boolean {
 // of current stage (mirrors how `status` is already set unconditionally by approve/reject today).
 const JOURNEY_STAGE_ORDER: Record<OrganizationJourneyStage, number> = {
   application_submitted: 0,
-  online_kyc: 1,
+  online_kyc_handover: 1,
   online_kyc_completed: 2,
-  physical_kyc: 3,
-  final_approval: 4,
+  physical_kyc_handover: 3,
+  physical_kyc_completed: 4,
   approved: 5,
   rejected: 5,
 };
 
 // onlineKycVerifierId/physicalKycAgentId are two independent assignment fields that can be set in
 // either order, so assigning the online verifier *after* the physical agent must not regress the
-// stage from 'physical_kyc' back to 'online_kyc' — the assignment itself still succeeds either
-// way, only the stage advance is guarded here.
+// stage from 'physical_kyc_handover' back to 'online_kyc_handover' — the assignment itself still
+// succeeds either way, only the stage advance is guarded here.
 export function nextJourneyStage(
   current: OrganizationJourneyStage | null,
   target: OrganizationJourneyStage,

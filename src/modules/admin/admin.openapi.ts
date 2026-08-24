@@ -59,7 +59,10 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          'Paginated organizations — { data: { items, page, limit, total, totalPages } }',
+          'Paginated organizations — { data: { items, page, limit, total, totalPages } }. Each ' +
+          'item includes journeyStageHistory: the full, chronological trail of journey-stage ' +
+          'transitions it has passed through, each with a timestamp and who caused it — same ' +
+          'shape as GET .../organizations/{organizationId} below.',
       },
     },
   });
@@ -71,9 +74,9 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.getOrganization',
     ...anyReviewer(
       'Get a single organization by id. Includes its documents and full journey-stage history — ' +
-        'application_submitted → online_kyc → physical_kyc → approved/rejected, oldest first, ' +
-        'with who caused each transition and when. The listing endpoint above only exposes the ' +
-        "org's current stage, not this history. Same reviewer-scoping as the listing endpoint " +
+        'application_submitted → online_kyc_handover → physical_kyc_handover → ' +
+        'approved/rejected, oldest first, ' +
+        'with who caused each transition and when. Same reviewer-scoping as the listing endpoint ' +
         "above — an org outside the caller's scope 404s rather than 403s, so it reads as " +
         'nonexistent, not merely forbidden.',
     ),
