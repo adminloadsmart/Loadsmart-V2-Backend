@@ -404,6 +404,7 @@ export class AdminService {
 
       await this.organizationService.updateOrganization(organizationId, {
         status: 'active',
+        approvedAt: new Date(),
         decisionReason: null,
       });
 

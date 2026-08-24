@@ -79,6 +79,7 @@ export class OrganizationService {
       physicalKycApprovedAt: Date | null;
       decisionReason: string | null;
       submittedAt: Date | null;
+      approvedAt: Date | null;
       journeyStage: OrganizationJourneyStage | null;
     }>,
     manager?: EntityManager,

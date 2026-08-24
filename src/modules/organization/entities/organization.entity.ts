@@ -179,6 +179,9 @@ export class OrganizationEntity {
   @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
   submittedAt!: Date | null;
 
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
