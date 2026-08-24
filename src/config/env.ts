@@ -79,4 +79,13 @@ export const env = {
   // Fixed per this account's IDfy workspace setup, not generated per call.
   idfyTaskId: process.env.IDFY_TASK_ID || undefined,
   idfyGroupId: process.env.IDFY_GROUP_ID || undefined,
+  // MSG91's OTP API (Msg91Client) — generates and verifies signup/login OTPs; we never see the
+  // code ourselves. Left optional so the app still boots without them: auth.service.ts falls
+  // back to a fixed dev-only OTP outside production when these aren't set (see
+  // auth.constants.ts's useDevOtpBypass).
+  msg91AuthKey: process.env.MSG91_AUTH_KEY || undefined,
+  // DLT-approved SMS template id, provisioned on the MSG91 dashboard — required by Indian
+  // carriers for delivery, independent of whether the code itself is correct.
+  msg91TemplateId: process.env.MSG91_TEMPLATE_ID || undefined,
+  msg91BaseUrl: process.env.MSG91_BASE_URL || 'https://control.msg91.com',
 };
