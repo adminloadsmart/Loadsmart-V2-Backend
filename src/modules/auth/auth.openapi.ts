@@ -188,6 +188,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'User details saved' },
       400: { description: 'Validation failed', ...errorContent },
       401: { description: 'Missing/invalid access token', ...errorContent },
+      409: { description: 'A user with this email already exists', ...errorContent },
     },
   });
 
