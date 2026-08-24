@@ -43,6 +43,7 @@ export interface TripListRow {
   } | null;
   customer: { id: string; name: string } | null;
   vehicleNumber: string | null;
+  driver: { id: string; fullName: string } | null;
   source: { type: LoadSourceType; label: string };
   createdAt: string;
 }
@@ -92,6 +93,16 @@ function humanizeStatus(status: LoadStatus): string {
 
 function toTripListRow(load: LoadEntity): TripListRow {
   const req = load.requisition;
+
+  // Own-fleet loads snapshot the vehicle's driver at Dispatch Planning time (see
+  // dispatch-planning.service.ts's buildOwnFleetLine), so `load.driver` is null whenever the
+  // vehicle had no driver linked yet at that moment. Fall back to whichever driver-link is
+  // currently active and primary on the vehicle, so the trip still shows a driver once one exists.
+  const currentVehicleDriver = load.vehicle?.driverLinks?.find(
+    (link) => link.status === 'active' && link.isPrimary,
+  )?.driver;
+  const driver = load.driver ?? currentVehicleDriver ?? null;
+
   return {
     id: load.id,
     status: load.status,
@@ -106,6 +117,7 @@ function toTripListRow(load: LoadEntity): TripListRow {
       : null,
     customer: req ? { id: req.customer.id, name: req.customer.name } : null,
     vehicleNumber: load.vehicleNumber,
+    driver: driver ? { id: driver.id, fullName: driver.fullName } : null,
     source:
       load.sourceType === 'own_fleet'
         ? { type: 'own_fleet', label: 'Own fleet' }
