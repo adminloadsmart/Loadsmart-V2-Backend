@@ -46,10 +46,10 @@ export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[
 // participate in.
 export const ORGANIZATION_JOURNEY_STAGES = [
   'application_submitted',
-  'online_kyc',
+  'online_kyc_handover',
   'online_kyc_completed',
-  'physical_kyc',
-  'final_approval',
+  'physical_kyc_handover',
+  'physical_kyc_completed',
   'approved',
   'rejected',
 ] as const;

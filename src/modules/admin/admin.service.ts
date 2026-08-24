@@ -249,7 +249,7 @@ export class AdminService {
         role: ONLINE_KYC_DESK_ROLE,
         field: 'onlineKycVerifierId',
         action: 'ONLINE_KYC_VERIFIER_ASSIGNED',
-        journeyStage: 'online_kyc',
+        journeyStage: 'online_kyc_handover',
       });
     } catch (error) {
       rethrow(error, 'Failed to assign online verifier');
@@ -266,7 +266,7 @@ export class AdminService {
         role: OFFLINE_KYC_DESK_ROLE,
         field: 'physicalKycAgentId',
         action: 'PHYSICAL_KYC_AGENT_ASSIGNED',
-        journeyStage: 'physical_kyc',
+        journeyStage: 'physical_kyc_handover',
       });
     } catch (error) {
       rethrow(error, 'Failed to assign physical agent');
@@ -373,7 +373,7 @@ export class AdminService {
 
       const updated = await this.organizationJourneyStageService.recordTransition(
         organizationId,
-        'final_approval',
+        'physical_kyc_completed',
         actingUser.id,
       );
 
