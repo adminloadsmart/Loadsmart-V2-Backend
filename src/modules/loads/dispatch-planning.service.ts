@@ -273,10 +273,9 @@ export class DispatchPlanningService {
 
   /** Dispatch Planning's vehicle picker — the base masters vehicle list, hard-filtered to
    *  status: 'active' (non-active vehicles can never be picked here — buildOwnFleetLine below
-   *  rejects them outright) and to operationalStatus !== 'inactive' (an operationally inactive
-   *  vehicle shouldn't be offered either), annotated per-row with whether it can actually go on
-   *  this requisition right now. Read-only mirror of assertVehicleChecks' C-02/C-01b, so the
-   *  reason shown here matches what submit-time would reject. */
+   *  rejects them outright), to operationalStatus !== 'on_trip', and to vehicles that would
+   *  actually pass assertVehicleChecks' C-02/C-01b right now (not on an active load elsewhere,
+   *  not already used in this requisition) — so only genuinely selectable vehicles come back. */
   async listAvailableVehicles(
     tenantId: string,
     requisitionId: string,
@@ -295,7 +294,9 @@ export class DispatchPlanningService {
       } = await this.vehicleService.listVehicles(tenantId, { ...filters, status: 'active' });
 
       const items = fetchedVehicles.filter(
-        (vehicle) => vehicle.operationalStatus?.operationalStatus !== 'inactive',
+        (vehicle) =>
+          vehicle?.status !== 'inactive' &&
+          vehicle.operationalStatus?.operationalStatus !== 'on_trip',
       );
 
       const vehicleIds = items.map((vehicle) => vehicle.id);
@@ -308,14 +309,16 @@ export class DispatchPlanningService {
       const activeElsewhereIds = new Set(activeElsewhere.map((load) => load.vehicleId));
       const inThisRequisitionIds = new Set(inThisRequisition.map((load) => load.vehicleId));
 
-      const rows: AvailableVehicleRow[] = items.map((vehicle) => {
-        const unavailableReason = activeElsewhereIds.has(vehicle.id)
-          ? 'on_active_load'
-          : inThisRequisitionIds.has(vehicle.id)
-            ? 'already_in_requisition'
-            : null;
-        return { ...vehicle, isAvailable: unavailableReason === null, unavailableReason };
-      });
+      const rows: AvailableVehicleRow[] = items
+        .map((vehicle): AvailableVehicleRow => {
+          const unavailableReason = activeElsewhereIds.has(vehicle.id)
+            ? 'on_active_load'
+            : inThisRequisitionIds.has(vehicle.id)
+              ? 'already_in_requisition'
+              : null;
+          return { ...vehicle, isAvailable: unavailableReason === null, unavailableReason };
+        })
+        .filter((row) => row.isAvailable);
 
       return { items: rows, page, limit, total, totalPages };
     } catch (error) {

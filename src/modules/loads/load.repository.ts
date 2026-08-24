@@ -172,7 +172,10 @@ export class LoadRepository {
     return this.loads.findAndCount({
       where,
       relations: {
-        vehicle: true,
+        // driverLinks is loaded so toTripListRow can fall back to the vehicle's current driver
+        // when this load's own driverId snapshot is null (e.g. planned before any driver was
+        // linked to the vehicle) — see load.service.ts.
+        vehicle: { driverLinks: { driver: true } },
         driver: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },

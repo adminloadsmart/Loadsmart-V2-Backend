@@ -169,12 +169,12 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.listAvailableVehicles',
     ...authenticated(
       "Vehicle picker for the own-fleet truck lines above — only status: 'active' vehicles " +
-        '(never inactive/under_maintenance/pending/rejected), paginated and optionally filtered ' +
-        'further by operationalStatus/search. Each is annotated with isAvailable and, when ' +
-        'false, why: "on_active_load" (on a live trip elsewhere, C-02) or ' +
-        '"already_in_requisition" (already used earlier in this requisition, C-01b). Mirrors ' +
-        'the same checks POST .../dispatch-plan enforces, so nothing flagged available here ' +
-        'should 409 there.',
+        '(never inactive/under_maintenance/pending/rejected), not on_trip, and not blocked by ' +
+        'the same checks POST .../dispatch-plan enforces at submit time: "on_active_load" (on a ' +
+        'live trip elsewhere, C-02) or "already_in_requisition" (already used earlier in this ' +
+        'requisition, C-01b). Vehicles failing either check are excluded from the response ' +
+        'entirely, not just flagged — so nothing returned here should 409 there. Paginated and ' +
+        'optionally filtered further by operationalStatus/search.',
     ),
     request: {
       params: dispatchPlanningValidators.availableVehicles.shape.params,
@@ -200,7 +200,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
         'completed` is the Trips Home-page tab filter (completed = delivered + closed), mutually ' +
         "exclusive with `status`. Each row's `route`/`customer` come from the load's requisition; " +
-        '`source.label` is "Own fleet" or "Market · {transporter name}".',
+        '`source.label` is "Own fleet" or "Market · {transporter name}". `driver` is the load\'s ' +
+        "own snapshot from Dispatch Planning time, falling back to the vehicle's current active " +
+        'primary driver-link when that snapshot is null (own-fleet loads planned before any ' +
+        'driver was linked to the vehicle).',
     ),
     request: { query: loadValidators.list.shape.query },
     responses: {
