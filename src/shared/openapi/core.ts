@@ -17,6 +17,7 @@ export const TAGS = {
   MASTERS: 'masters',
   ADMIN: 'admin',
   DASHBOARDS: 'dashboards',
+  ANALYTICS: 'analytics',
   CUSTOMERS: 'customers',
   STORAGE: 'files',
   LOADS: 'loads',
