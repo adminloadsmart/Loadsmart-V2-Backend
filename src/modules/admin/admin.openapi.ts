@@ -74,7 +74,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.getOrganization',
     ...anyReviewer(
       'Get a single organization by id. Includes its documents and full journey-stage history — ' +
-        'application_submitted → online_kyc → physical_kyc → approved/rejected, oldest first, ' +
+        'application_submitted → online_kyc_handover → physical_kyc_handover → ' +
+        'approved/rejected, oldest first, ' +
         'with who caused each transition and when. Same reviewer-scoping as the listing endpoint ' +
         "above — an org outside the caller's scope 404s rather than 403s, so it reads as " +
         'nonexistent, not merely forbidden.',

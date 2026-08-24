@@ -40,8 +40,8 @@ export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[
 // OrganizationJourneyStageService.recordTransition as a side effect of submit/assign/complete/
 // approve/reject — see organization-journey-stage.service.ts. Same single-source-of-truth
 // convention as the two enums above. online_kyc_completed is the handover moment to
-// offline_kyc_desk (set by AdminService.completeOnlineKyc); final_approval is the offline agent's
-// approval landing back with the source verifier (set by AdminService.approvePhysicalKyc) —
+// offline_kyc_desk (set by AdminService.completeOnlineKyc); physical_kyc_completed is the offline
+// agent's approval landing back with the source verifier (set by AdminService.approvePhysicalKyc) —
 // see organization.constants.ts's JOURNEY_STAGE_ORDER for the forward-only ordering these two
 // participate in.
 export const ORGANIZATION_JOURNEY_STAGES = [

@@ -357,8 +357,8 @@ export class AdminService {
    *  run first (checked here regardless of role, unlike assertOrgAccessible's ownership check,
    *  since this is a workflow-order rule that binds platform_admin too, not an access-control
    *  one). Once set, this is what approveOrganization below is waiting on to grant platform
-   *  access. Also the journey-stage transition to 'final_approval' — "the ball is back with the
-   *  source verifier" for their final decision. */
+   *  access. Also the journey-stage transition to 'physical_kyc_completed' — "the ball is back
+   *  with the source verifier" for their final decision. */
   async approvePhysicalKyc(actingUser: AuthenticatedUser, organizationId: string) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
