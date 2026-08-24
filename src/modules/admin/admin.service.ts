@@ -52,8 +52,14 @@ export class AdminService {
     try {
       const scoped = { ...input, ...this.reviewerScopeFilter(actingUser) };
       const { items, total } = await this.organizationService.listOrganizations(scoped);
+      const trails = await this.organizationJourneyStageService.getTrails(
+        items.map((organization) => organization.id),
+      );
       return paginate(
-        items.map((organization) => this.toPublicOrganization(organization)),
+        items.map((organization) => ({
+          ...this.toPublicOrganization(organization),
+          journeyStageHistory: trails.get(organization.id) ?? [],
+        })),
         total,
         input,
       );

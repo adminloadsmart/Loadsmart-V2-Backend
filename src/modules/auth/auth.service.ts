@@ -9,6 +9,7 @@ import {
   NotFoundError,
   RateLimitError,
   ValidationError,
+  rethrow,
 } from '../../shared/errors';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { signToken, hashToken } from '../../shared/utils/token';
@@ -20,6 +21,7 @@ import { OrganizationDocumentService } from '../organization/organization-docume
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { StorageService } from '../storage/storage.service';
+import { Msg91Client } from '../../adapters/msg91.client';
 import { isTenantAccessible } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -31,7 +33,8 @@ import {
   MAX_FAILED_ATTEMPTS,
   MAX_OTP_ATTEMPTS,
   SIGNUP_RESEND_COOLDOWN_SECONDS,
-  SIGNUP_STATIC_OTP,
+  DEV_BYPASS_OTP,
+  useDevOtpBypass,
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
 import {
@@ -92,6 +95,7 @@ export class AuthService {
     private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
+    private readonly msg91Client: Msg91Client,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -103,29 +107,13 @@ export class AuthService {
       throw new ConflictError('A user with this phone number already exists');
     }
 
-    // Independent of the OTP's own TTL — without this, repeat calls for the same phone number
-    // each overwrite the OTP and (once real SMS delivery is wired up, see SIGNUP_STATIC_OTP)
-    // resend an SMS with no cooldown, an SMS-bombing vector even within a single OTP's validity window.
-    const cooldownKey = `signup:${phoneNumber}:cooldown`;
-    if (await redisManager.get(cooldownKey)) {
-      throw new RateLimitError('Please wait before requesting another OTP');
-    }
-    await redisManager.set(cooldownKey, '1', SIGNUP_RESEND_COOLDOWN_SECONDS);
-
-    // const otp = randomInt(100000, 1000000).toString();
-    const otp = SIGNUP_STATIC_OTP;
-    await redisManager.set(
-      `signup:${phoneNumber}`,
-      JSON.stringify({ phoneNumber, otp }),
-      env.signupOtpTtlSeconds,
-    );
-    // A fresh OTP always gets a fresh guess budget — otherwise a stale counter from a previous
-    // OTP cycle would unfairly shrink this one's.
-    await redisManager.delete(`signup:${phoneNumber}:attempts`);
-    //  if (env.nodeEnv !== 'production') {
-    //     console.log(`OTP for ${phoneNumber}: ${otp}`); // TODO: replace with real SMS/email delivery once notifications module is wired up
-    //   }
-    const signupToken = signToken({ phoneNumber, purpose: 'signup' }, env.signupOtpTtlSeconds);
+    const signupToken = await this.requestOtpCode({
+      phoneNumber,
+      purpose: 'signup',
+      ttlSeconds: env.signupOtpTtlSeconds,
+      cooldownSeconds: SIGNUP_RESEND_COOLDOWN_SECONDS,
+      otpLabel: 'signup',
+    });
 
     return {
       signupToken,
@@ -137,33 +125,17 @@ export class AuthService {
   async verifyOtp(input: VerifyOtpInput) {
     const { phoneNumber, otp, password: requestedPassword } = input;
 
-    const redisKey = `signup:${phoneNumber}`;
-    const attemptsKey = `signup:${phoneNumber}:attempts`;
-
-    const stored = await redisManager.get(redisKey);
-    if (!stored) {
-      throw new AuthenticationError('OTP expired, please sign up again');
-    }
-
-    // Counted here — before checking whether the guess is right — so the cap can't be bypassed
-    // by any future reordering; a correct guess still costs nothing since success deletes both
-    // keys immediately below. Keyed by phone (not by which signup token presents it), since an
-    // attacker can self-mint unlimited signup tokens for a victim's phone via public
-    // POST /auth/signup — the OTP itself is the only real proof of ownership.
-    const attempts = await redisManager.incr(attemptsKey, env.signupOtpTtlSeconds);
-    if (attempts > MAX_OTP_ATTEMPTS) {
-      await redisManager.delete(redisKey);
-      await redisManager.delete(attemptsKey);
-      throw new AuthenticationError('Too many incorrect attempts, please sign up again');
-    }
-
-    const { otp: storedOtp } = JSON.parse(stored) as { phoneNumber: string; otp: string };
-    if (otp !== storedOtp) {
-      throw new AuthenticationError('Invalid OTP');
-    }
-
-    await redisManager.delete(redisKey);
-    await redisManager.delete(attemptsKey);
+    // Keyed by phone (not by which signup token presents it), since an attacker can self-mint
+    // unlimited signup tokens for a victim's phone via public POST /auth/signup — the OTP itself
+    // is the only real proof of ownership.
+    await this.verifyOtpCode({
+      phoneNumber,
+      otp,
+      purpose: 'signup',
+      ttlSeconds: env.signupOtpTtlSeconds,
+      invalidOtpMessage: 'Invalid OTP',
+      tooManyAttemptsMessage: 'Too many incorrect attempts, please sign up again',
+    });
 
     let user = await this.authRepository.findUserByPhone(phoneNumber);
     if (!user) {
@@ -219,7 +191,6 @@ export class AuthService {
       purpose: 'login',
       ttlSeconds: env.loginOtpTtlSeconds,
       invalidOtpMessage: 'Invalid OTP',
-      expiredMessage: 'OTP expired, please request a new login OTP',
       tooManyAttemptsMessage: 'Too many incorrect attempts, please request a new login OTP',
     });
 
@@ -1088,13 +1059,19 @@ export class AuthService {
     }
     await redisManager.set(cooldownKey, '1', cooldownSeconds);
 
-    // The app still has no SMS/email delivery integration, so both OTP flows use a fixed code.
-    const otp = SIGNUP_STATIC_OTP;
-    await redisManager.set(
-      this.otpRedisKey(purpose, phoneNumber),
-      JSON.stringify({ phoneNumber, otp }),
-      ttlSeconds,
-    );
+    if (useDevOtpBypass()) {
+      // Dev-only: no MSG91 call, no real SMS — DEV_BYPASS_OTP is the only code verifyOtpCode
+      // will accept while the bypass is active.
+    } else {
+      try {
+        await this.msg91Client.sendOtp(phoneNumber);
+      } catch (error) {
+        rethrow(error, `Failed to send OTP to ${phoneNumber}`);
+      }
+    }
+
+    // A fresh OTP always gets a fresh guess budget — otherwise a stale counter from a previous
+    // OTP cycle would unfairly shrink this one's.
     await redisManager.delete(this.otpAttemptsKey(purpose, phoneNumber));
     return signToken({ phoneNumber, purpose: otpLabel, ...(portal ? { portal } : {}) }, ttlSeconds);
   }
@@ -1105,41 +1082,40 @@ export class AuthService {
     purpose: 'signup' | 'login';
     ttlSeconds: number;
     invalidOtpMessage: string;
-    expiredMessage: string;
     tooManyAttemptsMessage: string;
   }) {
-    const {
-      phoneNumber,
-      otp,
-      purpose,
-      ttlSeconds,
-      invalidOtpMessage,
-      expiredMessage,
-      tooManyAttemptsMessage,
-    } = input;
+    const { phoneNumber, otp, purpose, ttlSeconds, invalidOtpMessage, tooManyAttemptsMessage } =
+      input;
 
-    const redisKey = this.otpRedisKey(purpose, phoneNumber);
     const attemptsKey = this.otpAttemptsKey(purpose, phoneNumber);
 
-    const stored = await redisManager.get(redisKey);
-    if (!stored) {
-      throw new AuthenticationError(expiredMessage);
-    }
-
+    // Counted here — before checking whether the guess is right — so the cap can't be bypassed
+    // by any future reordering; a correct guess still costs nothing since success deletes the
+    // key immediately below. Also spares a paid MSG91 call once the guess budget is already
+    // exhausted.
     const attempts = await redisManager.incr(attemptsKey, ttlSeconds);
     if (attempts > MAX_OTP_ATTEMPTS) {
-      await redisManager.delete(redisKey);
       await redisManager.delete(attemptsKey);
       throw new AuthenticationError(tooManyAttemptsMessage);
     }
 
-    const { otp: storedOtp } = JSON.parse(stored) as { phoneNumber: string; otp: string };
-    if (otp !== storedOtp) {
+    let matched: boolean;
+    if (useDevOtpBypass()) {
+      matched = otp === DEV_BYPASS_OTP;
+    } else {
+      try {
+        matched = await this.msg91Client.verifyOtp(phoneNumber, otp);
+      } catch (error) {
+        rethrow(error, `Failed to verify OTP for ${phoneNumber}`);
+      }
+    }
+
+    if (!matched) {
       throw new AuthenticationError(invalidOtpMessage);
     }
 
-    await redisManager.delete(redisKey);
     await redisManager.delete(attemptsKey);
+    await redisManager.delete(this.otpCooldownKey(purpose, phoneNumber));
   }
 
   private async loginWithPhone(
