@@ -10,10 +10,26 @@ import { TenancyGateway } from './tenancy.gateway';
 // write and additionally requires the org to be fully approved — see isTenantWriteAccessible.
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+// Storage upload endpoints org_admin must be able to reach while onboarding (org status
+// draft/pending/partial_pending, not yet approved) — e.g. uploading business/KYC documents via
+// the generic /files flow. Only these two writes are exempt from the approval gate below; every
+// other write on every other router, and DELETE /files/:fileId itself, still requires
+// isTenantWriteAccessible (i.e. an active org). See storage.routes.ts for the route definitions.
+const WRITE_APPROVAL_EXEMPT_ROUTES: ReadonlyArray<{ method: string; test: RegExp }> = [
+  { method: 'POST', test: /^\/files\/?$/ },
+  { method: 'POST', test: /^\/files\/[^/]+\/confirm\/?$/ },
+];
+
+function isWriteApprovalExempt(method: string, path: string): boolean {
+  return WRITE_APPROVAL_EXEMPT_ROUTES.some(
+    (route) => route.method === method && route.test.test(path),
+  );
+}
+
 export class TenancyGatewayLocal implements TenancyGateway {
   constructor(private readonly organizationService: OrganizationService) {}
 
-  async assertTenantActive(tenantId: string, method: string): Promise<void> {
+  async assertTenantActive(tenantId: string, method: string, path: string): Promise<void> {
     const organization = await this.organizationService.getOrganizationStatus(tenantId);
     if (!isTenantAccessible(organization.status)) {
       throw new AuthorizationError(
@@ -22,7 +38,11 @@ export class TenancyGatewayLocal implements TenancyGateway {
       );
     }
 
-    if (!SAFE_METHODS.has(method) && !isTenantWriteAccessible(organization.status)) {
+    if (
+      !SAFE_METHODS.has(method) &&
+      !isWriteApprovalExempt(method, path) &&
+      !isTenantWriteAccessible(organization.status)
+    ) {
       throw new AuthorizationError(
         `Organization is ${organization.status} and cannot make changes until it is approved`,
         { reason: 'ORGANIZATION_NOT_APPROVED', status: organization.status },
