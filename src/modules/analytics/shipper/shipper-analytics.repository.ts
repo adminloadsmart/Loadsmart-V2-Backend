@@ -1,21 +1,42 @@
-import { DataSource } from 'typeorm';
-import { LoadEntity } from '../loads/entities/load.entity';
-import { LanePerformanceItem, TonnageByProductItem } from './utils/analytics.interface';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
+import { LoadEntity } from '../../loads/entities/load.entity';
+import {
+  LanePerformanceItem,
+  ShipperAnalyticsRangeInput,
+  TonnageByProductItem,
+} from './shipper-analytics.interface';
 
 // A moved load is anything that has progressed beyond dispatch planning. Delivery-only
 // metrics below still use delivered_at as their denominator, so active loads do not count as
 // late or on-time before delivery has happened.
 const MOVED_LOADS = `load.status <> 'created'`;
 
-export class AnalyticsRepository {
+function applyDateRange(
+  query: SelectQueryBuilder<LoadEntity>,
+  range: ShipperAnalyticsRangeInput,
+): SelectQueryBuilder<LoadEntity> {
+  if (range.from) {
+    query.andWhere('load.created_at >= CAST(:analyticsFrom AS date)', {
+      analyticsFrom: range.from,
+    });
+  }
+  if (range.to) {
+    query.andWhere("load.created_at < CAST(:analyticsTo AS date) + INTERVAL '1 day'", {
+      analyticsTo: range.to,
+    });
+  }
+  return query;
+}
+
+export class ShipperAnalyticsRepository {
   private readonly loads;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
   }
 
-  async getCards(tenantId: string) {
-    const row = await this.loads
+  async getCards(tenantId: string, range: ShipperAnalyticsRangeInput) {
+    const query = this.loads
       .createQueryBuilder('load')
       .select('COUNT(*)', 'loadsMoved')
       .addSelect('COALESCE(SUM(load.planned_capacity_tonnes), 0)', 'tonnage')
@@ -34,12 +55,12 @@ export class AnalyticsRepository {
       )
       .innerJoin('load.requisition', 'requisition')
       .where('load.tenant_id = :tenantId', { tenantId })
-      .andWhere(MOVED_LOADS)
-      .getRawOne<{
-        loadsMoved: string;
-        tonnage: string;
-        onTimePercentage: string;
-      }>();
+      .andWhere(MOVED_LOADS);
+    const row = await applyDateRange(query, range).getRawOne<{
+      loadsMoved: string;
+      tonnage: string;
+      onTimePercentage: string | null;
+    }>();
 
     return {
       loadsMoved: Number(row?.loadsMoved ?? 0),
@@ -51,8 +72,11 @@ export class AnalyticsRepository {
     };
   }
 
-  async getTonnageByProduct(tenantId: string): Promise<TonnageByProductItem[]> {
-    const rows = await this.loads
+  async getTonnageByProduct(
+    tenantId: string,
+    range: ShipperAnalyticsRangeInput,
+  ): Promise<TonnageByProductItem[]> {
+    const query = this.loads
       .createQueryBuilder('load')
       .select('cargo.product_id', 'productId')
       .addSelect('product.product_details', 'productName')
@@ -63,8 +87,12 @@ export class AnalyticsRepository {
       .andWhere(MOVED_LOADS)
       .groupBy('cargo.product_id')
       .addGroupBy('product.product_details')
-      .orderBy('tonnes', 'DESC')
-      .getRawMany<{ productId: string; productName: string; tonnes: string }>();
+      .orderBy('tonnes', 'DESC');
+    const rows = await applyDateRange(query, range).getRawMany<{
+      productId: string;
+      productName: string;
+      tonnes: string;
+    }>();
 
     return rows.map((row) => ({
       productId: row.productId,
@@ -73,14 +101,21 @@ export class AnalyticsRepository {
     }));
   }
 
-  async getLanePerformance(tenantId: string): Promise<LanePerformanceItem[]> {
-    const rows = await this.loads
+  async getLanePerformance(
+    tenantId: string,
+    range: ShipperAnalyticsRangeInput,
+  ): Promise<LanePerformanceItem[]> {
+    const query = this.loads
       .createQueryBuilder('load')
       .select(
         `CONCAT_WS(
           ' - ',
           NULLIF(TRIM(loading_point.city), ''),
-          NULLIF(TRIM(delivery_point.city), '')
+          COALESCE(
+            NULLIF(TRIM(delivery_point.city), ''),
+            NULLIF(TRIM(delivery_point.location), ''),
+            'Unknown'
+          )
         )`,
         'lane',
       )
@@ -106,13 +141,14 @@ export class AnalyticsRepository {
       .andWhere(MOVED_LOADS)
       .groupBy('loading_point.city')
       .addGroupBy('delivery_point.city')
-      .orderBy('loads', 'DESC')
-      .getRawMany<{
-        lane: string;
-        loads: string;
-        avgTatMinutes: string | null;
-        onTimePercentage: string | null;
-      }>();
+      .addGroupBy('delivery_point.location')
+      .orderBy('loads', 'DESC');
+    const rows = await applyDateRange(query, range).getRawMany<{
+      lane: string;
+      loads: string;
+      avgTatMinutes: string | null;
+      onTimePercentage: string | null;
+    }>();
 
     return rows.map((row) => ({
       lane: row.lane,

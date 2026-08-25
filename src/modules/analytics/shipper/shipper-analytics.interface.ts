@@ -23,3 +23,8 @@ export interface ShipperAnalyticsOverview {
   tonnageByProduct: TonnageByProductItem[];
   lanePerformance: LanePerformanceItem[];
 }
+
+export interface ShipperAnalyticsRangeInput {
+  from?: string;
+  to?: string;
+}
