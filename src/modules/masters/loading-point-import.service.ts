@@ -3,7 +3,7 @@ import { AuditService } from '../audit/audit.service';
 import { loadingPointValidators } from './loading-point.validators';
 import { LoadingPointService } from './loading-point.service';
 import { CreateLoadingPointInput } from './utils/loading-point.interface';
-import { parseLoadingPointCsv, ParsedLoadingPointCsv } from './loading-point-import.mapper';
+import { parseLoadingPointExcel, ParsedLoadingPointExcel } from './loading-point-import.mapper';
 
 export interface LoadingPointImportRowError {
   row: number;
@@ -34,7 +34,7 @@ export class LoadingPointImportService {
     fileName: string,
     buffer: Buffer,
   ): Promise<LoadingPointImportReport> {
-    const parsed = this.parse(buffer);
+    const parsed = await this.parse(buffer);
     const valid: { row: number; input: CreateLoadingPointInput }[] = [];
     const errors: LoadingPointImportRowError[] = [];
 
@@ -82,11 +82,11 @@ export class LoadingPointImportService {
     return report;
   }
 
-  private parse(buffer: Buffer): ParsedLoadingPointCsv {
+  private async parse(buffer: Buffer): Promise<ParsedLoadingPointExcel> {
     try {
-      return parseLoadingPointCsv(buffer);
+      return await parseLoadingPointExcel(buffer);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid CSV file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
     }
   }
 }

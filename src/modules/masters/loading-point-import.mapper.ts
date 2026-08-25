@@ -1,4 +1,4 @@
-import { parse } from 'csv-parse/sync';
+import { parseSpreadsheetRows } from '../../shared/utils/spreadsheet';
 import { CreateLoadingPointInput } from './utils/loading-point.interface';
 
 export const LOADING_POINT_IMPORT_MAX_ROWS = 5000;
@@ -8,7 +8,7 @@ export interface ParsedLoadingPointRow {
   input: Partial<CreateLoadingPointInput>;
 }
 
-export interface ParsedLoadingPointCsv {
+export interface ParsedLoadingPointExcel {
   rows: ParsedLoadingPointRow[];
   mapping: Record<string, keyof CreateLoadingPointInput>;
 }
@@ -60,26 +60,13 @@ const FIELD_BY_HEADER: Record<string, keyof CreateLoadingPointInput> = {
   contactemail: 'contactPersonEmail',
 };
 
-export function parseLoadingPointCsv(buffer: Buffer): ParsedLoadingPointCsv {
-  let records: Record<string, string>[];
-  try {
-    records = parse(buffer.toString('utf8').replace(/^\uFEFF/, ''), {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      bom: true,
-      relax_column_count: false,
-    }) as Record<string, string>[];
-  } catch (error) {
-    throw new Error(
-      `Invalid CSV: ${error instanceof Error ? error.message : 'unable to parse file'}`,
-      { cause: error },
-    );
-  }
+export async function parseLoadingPointExcel(buffer: Buffer): Promise<ParsedLoadingPointExcel> {
+  const records = await parseSpreadsheetRows(buffer);
 
-  if (!records.length) throw new Error('CSV must contain a header and at least one data row');
+  if (!records.length)
+    throw new Error('Excel file must contain a header and at least one data row');
   if (records.length > LOADING_POINT_IMPORT_MAX_ROWS)
-    throw new Error(`CSV cannot contain more than ${LOADING_POINT_IMPORT_MAX_ROWS} rows`);
+    throw new Error(`Excel file cannot contain more than ${LOADING_POINT_IMPORT_MAX_ROWS} rows`);
 
   const headers = Object.keys(records[0]);
   const mapping: Record<string, keyof CreateLoadingPointInput> = {};

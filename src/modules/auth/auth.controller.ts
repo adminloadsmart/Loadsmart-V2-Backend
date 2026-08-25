@@ -20,7 +20,6 @@ export class AuthController {
     const tokens = await this.authService.verifyOtp({
       phoneNumber,
       otp: req.body.otp,
-      password: req.body.password,
     });
     respond(res, tokens);
   };
