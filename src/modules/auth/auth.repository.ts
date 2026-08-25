@@ -168,9 +168,14 @@ export class AuthRepository {
       department: string | null;
       coverage: string;
     }>,
+    manager?: EntityManager,
   ): Promise<UserEntity> {
-    await this.users.update({ id: userId }, data);
-    const user = await this.findUserById(userId);
+    const users = manager ? manager.getRepository(UserEntity) : this.users;
+    await users.update({ id: userId }, data);
+    const user = await users.findOne({
+      where: { id: userId, deletedAt: IsNull() },
+      relations: { role: true },
+    });
     if (!user) throw new NotFoundError(`User ${userId} not found`);
     return user;
   }

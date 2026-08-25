@@ -74,8 +74,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     description:
       'Requires the signup token returned by POST /v1/auth/signup, sent via the Authorization header ' +
       '(checked by verifySignupToken before this handler runs) — not the main access/refresh pair. ' +
-      'On first verification, creates the user if needed and returns onboarding state. An optional ' +
-      'password may be supplied; it must be at least 6 characters. If omitted, a password is generated.',
+      'On first verification, creates the user if needed and returns onboarding state.',
     security: [{ [signupTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyOtp.shape.body) },
     responses: {
@@ -180,7 +179,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'auth.saveUserDetails',
     summary: "Save the caller's first-step user details",
     ...authenticated(
-      'Saves the authenticated user name and optional email, designation, and department. ' +
+      'Saves the authenticated user name, password, and optional email, designation, and department. ' +
         'Select Others for designation to provide manualDesignation.',
     ),
     request: { body: json(authValidators.saveUserDetails.shape.body) },

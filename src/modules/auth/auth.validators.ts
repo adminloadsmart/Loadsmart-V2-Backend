@@ -39,6 +39,7 @@ const userDetailsSchema = z
       .max(100, 'Name must not exceed 100 characters')
       .regex(/^[A-Za-z]+(?:[ ]+[A-Za-z]+)*$/, 'Name may contain only alphabets and spaces'),
     email: z.string().trim().email('Email ID must be a valid email address').optional(),
+    password: passwordSchema.optional(),
     designation: z.enum(DESIGNATIONS).optional(),
     manualDesignation: z
       .string()
@@ -80,7 +81,6 @@ export const authValidators = {
   verifyOtp: z.object({
     body: z.object({
       otp: z.string().length(4, 'OTP must be 4 digits long'),
-      password: z.string().min(6, 'Password must be at least 6 characters long').optional(),
     }),
   }),
   verifyLoginOtp: z.object({
