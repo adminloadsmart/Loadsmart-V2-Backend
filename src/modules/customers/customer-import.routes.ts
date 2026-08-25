@@ -11,19 +11,19 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback: FileFilterCallback) => {
-    const isCsv = file.originalname.toLowerCase().endsWith('.csv');
-    if (!isCsv) callback(new Error('Only .csv files are accepted'));
+    const isExcel = file.originalname.toLowerCase().endsWith('.xlsx');
+    if (!isExcel) callback(new Error('Only .xlsx files are accepted'));
     else callback(null, true);
   },
 });
 
-function requireCsvFile(
+function requireExcelFile(
   req: Parameters<import('express').RequestHandler>[0],
   _res: Parameters<import('express').RequestHandler>[1],
   next: Parameters<import('express').RequestHandler>[2],
 ) {
   if (!req.file) {
-    next(new ValidationError('A CSV file is required in the "file" form field'));
+    next(new ValidationError('An Excel file is required in the "file" form field'));
     return;
   }
   next();
@@ -36,14 +36,14 @@ export function createCustomerImportRoutes(controller: CustomerImportController)
     '/preview',
     requirePermission(CUSTOMERS_CREATE),
     upload.single('file'),
-    requireCsvFile,
+    requireExcelFile,
     asyncHandler(controller.preview),
   );
   router.post(
     '/',
     requirePermission(CUSTOMERS_CREATE),
     upload.single('file'),
-    requireCsvFile,
+    requireExcelFile,
     asyncHandler(controller.import),
   );
   return router;

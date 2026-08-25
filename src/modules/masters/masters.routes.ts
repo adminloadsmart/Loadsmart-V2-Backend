@@ -16,23 +16,23 @@ import { productValidators } from './product.validators';
 import { ProductImportController } from './product-import.controller';
 import { LoadingPointImportController } from './loading-point-import.controller';
 
-const transporterCsvUpload = multer({
+const mastersExcelUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback: FileFilterCallback) => {
-    if (!file.originalname.toLowerCase().endsWith('.csv'))
-      callback(new Error('Only .csv files are accepted'));
+    if (!file.originalname.toLowerCase().endsWith('.xlsx'))
+      callback(new Error('Only .xlsx files are accepted'));
     else callback(null, true);
   },
 });
 
-function requireTransporterCsvFile(
+function requireMastersExcelFile(
   req: Parameters<import('express').RequestHandler>[0],
   _res: Parameters<import('express').RequestHandler>[1],
   next: Parameters<import('express').RequestHandler>[2],
 ) {
   if (!req.file) {
-    next(new ValidationError('A CSV file is required in the "file" form field'));
+    next(new ValidationError('An Excel file is required in the "file" form field'));
     return;
   }
   next();
@@ -104,8 +104,8 @@ export function createMastersProtectedRoutes(
   router.post(
     '/products/import',
     canWrite,
-    transporterCsvUpload.single('file'),
-    requireTransporterCsvFile,
+    mastersExcelUpload.single('file'),
+    requireMastersExcelFile,
     asyncHandler(productImportController.import),
   );
 
@@ -156,8 +156,8 @@ export function createMastersProtectedRoutes(
   router.post(
     '/loading-points/import',
     canWrite,
-    transporterCsvUpload.single('file'),
-    requireTransporterCsvFile,
+    mastersExcelUpload.single('file'),
+    requireMastersExcelFile,
     asyncHandler(loadingPointImportController.import),
   );
   router.post(
@@ -216,8 +216,8 @@ export function createMastersProtectedRoutes(
   router.post(
     '/transporters/import',
     requirePermission(MASTERS_WRITE),
-    transporterCsvUpload.single('file'),
-    requireTransporterCsvFile,
+    mastersExcelUpload.single('file'),
+    requireMastersExcelFile,
     asyncHandler(transporterImportController.import),
   );
   router.get(

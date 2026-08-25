@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
 import { customerValidators } from './customer.validators';
 import { CustomerService } from './customer.service';
-import { parseCustomerCsv, ParsedCustomerCsv } from './customer-import.mapper';
+import { parseCustomerExcel, ParsedCustomerExcel } from './customer-import.mapper';
 import { CreateCustomerInput } from './customer.types';
 import { CustomerEntity } from './entities/customer.entity';
 import { ValidationError } from '../../shared/errors';
@@ -30,7 +30,7 @@ export class CustomerImportService {
   ) {}
 
   private async inspect(
-    parsed: ParsedCustomerCsv,
+    parsed: ParsedCustomerExcel,
     tenantId: string,
   ): Promise<{
     valid: { row: number; input: CreateCustomerInput }[];
@@ -94,7 +94,7 @@ export class CustomerImportService {
   }
 
   async preview(tenantId: string, buffer: Buffer): Promise<ImportReport> {
-    const parsed = this.parse(buffer);
+    const parsed = await this.parse(buffer);
     const inspected = await this.inspect(parsed, tenantId);
     const report: ImportReport = {
       totalRows: parsed.rows.length,
@@ -115,7 +115,7 @@ export class CustomerImportService {
     fileName: string,
     buffer: Buffer,
   ): Promise<ImportReport> {
-    const parsed = this.parse(buffer);
+    const parsed = await this.parse(buffer);
     const inspected = await this.inspect(parsed, tenantId);
     const report: ImportReport = {
       totalRows: parsed.rows.length,
@@ -154,11 +154,11 @@ export class CustomerImportService {
     return report;
   }
 
-  private parse(buffer: Buffer): ParsedCustomerCsv {
+  private async parse(buffer: Buffer): Promise<ParsedCustomerExcel> {
     try {
-      return parseCustomerCsv(buffer);
+      return await parseCustomerExcel(buffer);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid CSV file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
     }
   }
 }

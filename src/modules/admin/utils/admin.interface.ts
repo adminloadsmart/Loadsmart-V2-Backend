@@ -2,7 +2,10 @@ import {
   OrganizationJourneyStage,
   OrganizationStatus,
 } from '../../organization/entities/organization.entity';
-import { DocumentVerificationStatus } from '../../organization/entities/organization-document.entity';
+import {
+  DocumentVerificationStatus,
+  OrganizationDocumentType,
+} from '../../organization/entities/organization-document.entity';
 import { DateFilter } from '../../../shared/utils/date-filter';
 import { PaginationInput } from './admin.types';
 
@@ -23,6 +26,16 @@ export interface UpdateOrganizationInput {
 export interface VerifyOrganizationDocumentInput {
   verificationStatus: DocumentVerificationStatus;
   reason?: string;
+}
+
+// Admin/reviewer-driven attach-or-replace — see admin.service.ts's uploadOrganizationDocument.
+// fileKey/backFileKey reference an already-uploaded, already-confirmed file (via POST /files +
+// POST /files/:fileId/confirm), not raw bytes — this endpoint never handles a multipart body.
+export interface UploadOrganizationDocumentInput {
+  documentType: OrganizationDocumentType;
+  documentNumber?: string;
+  fileKey: string;
+  backFileKey?: string;
 }
 
 export interface AssignReviewerInput {

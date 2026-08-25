@@ -3,6 +3,7 @@ import {
   ORGANIZATION_JOURNEY_STAGES,
   ORGANIZATION_STATUSES,
 } from '../organization/entities/organization.entity';
+import { ORGANIZATION_DOCUMENT_TYPES } from '../organization/entities/organization-document.entity';
 import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { REFERRAL_CODE_SETTABLE_STATUSES } from '../organization/referral-code.service';
@@ -74,6 +75,21 @@ export const adminValidators = {
           });
         }
       }),
+  }),
+
+  // Admin/reviewer-driven attach-or-replace of one document type — separate from
+  // verifyOrganizationDocument above, which only ever flips verificationStatus, never the file
+  // itself. fileKey/backFileKey must already be a confirmed upload (via POST /files + .../confirm)
+  // — this endpoint never accepts raw file bytes; see admin.service.ts's
+  // uploadOrganizationDocument for the storageService.getByKey check that enforces that.
+  uploadOrganizationDocument: z.object({
+    params: organizationParams,
+    body: z.object({
+      documentType: z.enum(ORGANIZATION_DOCUMENT_TYPES),
+      documentNumber: z.string().trim().min(1).optional(),
+      fileKey: z.string().trim().min(1),
+      backFileKey: z.string().trim().min(1).optional(),
+    }),
   }),
 
   // Record-keeping/routing assignment — see admin.service.ts's assignReviewer for the role check

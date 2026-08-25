@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'crypto';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
 import {
@@ -22,7 +22,10 @@ import { OrganizationOnboardingService } from '../organization/organization-onbo
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { StorageService } from '../storage/storage.service';
 import { Msg91Client } from '../../adapters/msg91.client';
-import { isTenantAccessible } from '../organization/organization.constants';
+import {
+  isTenantAccessible,
+  isTenantWriteAccessible,
+} from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { RoleService } from '../roles/role.service';
@@ -123,7 +126,7 @@ export class AuthService {
   }
 
   async verifyOtp(input: VerifyOtpInput) {
-    const { phoneNumber, otp, password: requestedPassword } = input;
+    const { phoneNumber, otp } = input;
 
     // Keyed by phone (not by which signup token presents it), since an attacker can self-mint
     // unlimited signup tokens for a victim's phone via public POST /auth/signup — the OTP itself
@@ -140,18 +143,11 @@ export class AuthService {
     let user = await this.authRepository.findUserByPhone(phoneNumber);
     if (!user) {
       const roleId = await this.roleService.findRoleIdByName(ORG_ADMIN_ROLE);
-      const password = requestedPassword ?? this.generatePassword();
-      const passwordHash = await bcrypt.hash(password, 10);
       user = await this.authRepository.createUser({
         phoneNumber,
         tenantId: null,
         roleId,
-        passwordHash,
       });
-
-      if (env.nodeEnv === 'development') {
-        console.log(`[development] Generated signup password for ${phoneNumber}: ${password}`);
-      }
     }
 
     return this.issueTokenPairForUser(user, 'organization');
@@ -216,20 +212,49 @@ export class AuthService {
 
   async saveUserDetails(user: AuthenticatedUser, input: SaveUserDetailsInput) {
     try {
-      if (input.email) {
-        const existingByEmail = await this.authRepository.findUserByEmail(input.email);
-        if (existingByEmail && existingByEmail.id !== user.id) {
-          throw new ConflictError('A user with this email already exists');
-        }
+      const existingByEmail = input.email
+        ? await this.authRepository.findUserByEmail(input.email)
+        : null;
+      if (existingByEmail && existingByEmail.id !== user.id) {
+        throw new ConflictError('A user with this email already exists');
       }
 
-      const updated = await this.authRepository.updateUser(user.id, {
-        fullName: input.name,
-        email: input.email ?? null,
-        designation: input.designation ?? null,
-        manualDesignation: input.manualDesignation ?? null,
-        department: input.department ?? null,
+      const updated = await this.dataSource.transaction(async (manager) => {
+        const current = await manager.getRepository(UserEntity).findOne({
+          where: { id: user.id, deletedAt: IsNull() },
+          relations: { role: true },
+        });
+        if (!current) {
+          throw new NotFoundError(`User ${user.id} not found`);
+        }
+
+        if (input.password && current.passwordHash) {
+          throw new ConflictError('Password already exists');
+        }
+
+        const nextUser = await this.authRepository.updateUser(
+          user.id,
+          {
+            fullName: input.name,
+            email: input.email ?? null,
+            designation: input.designation ?? null,
+            manualDesignation: input.manualDesignation ?? null,
+            department: input.department ?? null,
+          },
+          manager,
+        );
+
+        if (input.password) {
+          const passwordHash = await bcrypt.hash(input.password, 10);
+          await this.authRepository.setUserPassword(nextUser.id, passwordHash, manager);
+        }
+
+        return nextUser;
       });
+
+      if (!updated) {
+        throw new NotFoundError(`User ${user.id} not found`);
+      }
 
       await this.auditService.log({
         tenantId: user.tenantId,
@@ -359,6 +384,14 @@ export class AuthService {
     if (actingUser.role !== ORG_ADMIN_ROLE || !actingUser.tenantId) {
       throw new AuthorizationError('Only an org admin can invite teammates');
     }
+
+    const organization = await this.organizationService.getOrganizationStatus(actingUser.tenantId);
+    if (!isTenantWriteAccessible(organization.status)) {
+      throw new AuthorizationError(
+        `Organization is ${organization.status} and cannot invite teammates until it is approved`,
+      );
+    }
+
     const { fullName, phoneNumber, roleId } = input;
 
     const role = await this.roleService.getRoleById(roleId);
@@ -695,6 +728,15 @@ export class AuthService {
     await this.authRepository.revokeAllRefreshTokensForUser(user.id);
     await blockToken(user.jti, user.exp);
     await invalidateUserExistsCache(user.id);
+  }
+
+  // Called by admin.service.ts whenever an org's status becomes rejected/suspended, so every
+  // member's stored refresh token stops working immediately instead of waiting for it to expire
+  // naturally. Unlike deleteAccount above, this acts on other users' sessions (not the caller's
+  // own), so there's no single jti to blocklist here — see assertOrganizationActiveForLogin for
+  // the complementary check that also blocks a rejected/suspended org's login/refresh outright.
+  async revokeAllSessionsForTenant(tenantId: string): Promise<void> {
+    await this.authRepository.revokeAllRefreshTokensForTenant(tenantId);
   }
 
   async getOrganization(tenantId: string) {
@@ -1202,38 +1244,22 @@ export class AuthService {
 
   private async assertOrganizationActiveForLogin(user: UserEntity): Promise<void> {
     // A new org admin has no organization yet and must be allowed to log in to complete
-    // onboarding. Existing org admins may log in while their organization is still in draft or
-    // after it has been approved and marked active.
-    if (user.role.name !== ORG_ADMIN_ROLE || !user.tenantId) return;
+    // onboarding; platform-scope roles never have a tenantId either — both skip this check
+    // entirely. Every other tenant-scoped user (org_admin or an invited teammate) is gated the
+    // same way createTenantScope gates their per-request access — rejected/suspended orgs can't
+    // log in or refresh at all; draft/pending/partial_pending orgs log in fine and get read-only
+    // access instead (see isTenantWriteAccessible / TenancyGatewayLocal.assertTenantActive),
+    // rather than being locked out of the app entirely while awaiting approval.
+    if (!user.tenantId) return;
 
     const organization = await this.organizationService.getOrganizationStatus(user.tenantId);
-
-    // A pending organization can be reopened only when the reviewer has marked one or more
-    // documents invalid. In that case the org admin must be able to log in and replace the bad
-    // document. Any pending document still means the review is in progress and must block login.
-    if (organization.status === 'pending') {
-      const documents = await this.organizationDocumentService.listByOrganization(user.tenantId);
-      const hasInvalidDocument = documents.some(
-        (document) => document.verificationStatus === 'invalid',
-      );
-
-      // Invalid documents are actionable even when another document is still pending. The login
-      // response will carry the incomplete/business_details onboarding state and all invalid rows.
-      if (hasInvalidDocument) return;
-
-      throw new AuthorizationError('Organization verification is pending. Please wait.');
-    }
-
-    if (organization.status !== 'active' && organization.status !== 'draft') {
-      const messages = {
-        pending: 'Organization verification is pending. Please wait.',
-        partial_pending: 'Organization verification is pending. Please wait.',
-        draft: 'Please complete your organization verification to continue.',
+    if (!isTenantAccessible(organization.status)) {
+      const messages: Record<'rejected' | 'suspended', string> = {
         rejected: 'Organization verification was rejected.',
         suspended: 'Organization access is suspended.',
-      } as const;
+      };
 
-      throw new AuthorizationError(messages[organization.status]);
+      throw new AuthorizationError(messages[organization.status as 'rejected' | 'suspended']);
     }
   }
 

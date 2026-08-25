@@ -12,8 +12,10 @@ export type VehicleFuelType = (typeof FUEL_TYPES)[number];
 export const BODY_TYPES = ['open', 'closed', 'flat_bed', 'container', 'low_bed'] as const;
 export type VehicleBodyType = (typeof BODY_TYPES)[number];
 
-/** Axle/wheel configurations offered in the fleet form. */
-export const WHEEL_COUNTS = [6, 10, 12, 14, 16, 18] as const;
+/** Axle/wheel configurations offered in the fleet form — also reused by the truck-type catalog
+ *  (masters/utils/truck-type-catalog-configurations.constants.ts), which is why 4 (LCVs) and 22
+ *  (multi-axle trailers) are included even though they're rarer on a typical own-fleet vehicle. */
+export const WHEEL_COUNTS = [4, 6, 10, 12, 14, 16, 18, 22] as const;
 export type VehicleWheelCount = (typeof WHEEL_COUNTS)[number];
 
 /** How the vehicle is held: owned outright, on lease, or attached from a third-party operator. */

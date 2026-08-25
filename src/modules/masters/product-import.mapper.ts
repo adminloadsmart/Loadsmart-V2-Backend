@@ -1,15 +1,15 @@
-import { parse } from 'csv-parse/sync';
+import { parseSpreadsheetRows } from '../../shared/utils/spreadsheet';
 import { CreateProductInput } from './utils/product.interface';
 
 export const PRODUCT_IMPORT_MAX_ROWS = 5000;
 
-export interface ParsedProductCsvRow {
+export interface ParsedProductExcelRow {
   row: number;
   input: Partial<CreateProductInput>;
 }
 
-export interface ParsedProductCsv {
-  rows: ParsedProductCsvRow[];
+export interface ParsedProductExcel {
+  rows: ParsedProductExcelRow[];
   mapping: Record<string, string>;
 }
 
@@ -59,25 +59,12 @@ function parseSubItems(raw: string | undefined): { name: string }[] | undefined 
     .map((name) => ({ name }));
 }
 
-export function parseProductCsv(buffer: Buffer): ParsedProductCsv {
-  let records: Record<string, string>[];
-  try {
-    records = parse(buffer.toString('utf8'), {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      bom: true,
-      relax_column_count: false,
-    }) as Record<string, string>[];
-  } catch (error) {
-    throw new Error(
-      `Invalid CSV: ${error instanceof Error ? error.message : 'unable to parse file'}`,
-      { cause: error },
-    );
-  }
-  if (!records.length) throw new Error('CSV must contain a header and at least one data row');
+export async function parseProductExcel(buffer: Buffer): Promise<ParsedProductExcel> {
+  const records = await parseSpreadsheetRows(buffer);
+  if (!records.length)
+    throw new Error('Excel file must contain a header and at least one data row');
   if (records.length > PRODUCT_IMPORT_MAX_ROWS)
-    throw new Error(`CSV cannot contain more than ${PRODUCT_IMPORT_MAX_ROWS} rows`);
+    throw new Error(`Excel file cannot contain more than ${PRODUCT_IMPORT_MAX_ROWS} rows`);
 
   const mapping: Record<string, string> = {};
   for (const header of Object.keys(records[0])) {

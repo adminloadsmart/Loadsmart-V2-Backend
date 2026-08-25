@@ -168,9 +168,14 @@ export class AuthRepository {
       department: string | null;
       coverage: string;
     }>,
+    manager?: EntityManager,
   ): Promise<UserEntity> {
-    await this.users.update({ id: userId }, data);
-    const user = await this.findUserById(userId);
+    const users = manager ? manager.getRepository(UserEntity) : this.users;
+    await users.update({ id: userId }, data);
+    const user = await users.findOne({
+      where: { id: userId, deletedAt: IsNull() },
+      relations: { role: true },
+    });
     if (!user) throw new NotFoundError(`User ${userId} not found`);
     return user;
   }
@@ -244,6 +249,22 @@ export class AuthRepository {
 
   async revokeAllRefreshTokensForUser(userId: string): Promise<void> {
     await this.refreshTokens.update({ userId, revokedAt: IsNull() }, { revokedAt: new Date() });
+  }
+
+  // Bulk equivalent of revokeAllRefreshTokensForUser, for when an org (not a single user) loses
+  // access — e.g. admin.service.ts's reject/deny/suspend paths. RefreshTokenEntity has no
+  // tenantId column of its own, so this joins through auth.users.tenant_id via a subquery rather
+  // than looping revokeAllRefreshTokensForUser per user.
+  async revokeAllRefreshTokensForTenant(tenantId: string): Promise<void> {
+    await this.refreshTokens
+      .createQueryBuilder()
+      .update(RefreshTokenEntity)
+      .set({ revokedAt: () => 'now()' })
+      .where('revoked_at IS NULL')
+      .andWhere('user_id IN (SELECT id FROM auth.users WHERE tenant_id = :tenantId)', {
+        tenantId,
+      })
+      .execute();
   }
 
   async recordLoginAttempt(data: {
