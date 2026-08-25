@@ -15,6 +15,17 @@ export function isTenantAccessible(status: OrganizationStatus): boolean {
   return TENANT_ACCESSIBLE_STATUSES.includes(status);
 }
 
+// A second, stricter allow-list layered on top of TENANT_ACCESSIBLE_STATUSES: an org must be
+// fully approved before its users can change anything. Draft/pending/partial_pending orgs pass
+// isTenantAccessible (so they can log in and read) but not this one, so TenancyGatewayLocal
+// blocks their write requests until admin approval flips status to 'active'. Any future status
+// defaults to read-only-at-best (fails closed) simply by not being added here.
+export const TENANT_WRITE_ACCESSIBLE_STATUSES: readonly OrganizationStatus[] = ['active'];
+
+export function isTenantWriteAccessible(status: OrganizationStatus): boolean {
+  return TENANT_WRITE_ACCESSIBLE_STATUSES.includes(status);
+}
+
 // Ordering for OrganizationJourneyStageService.recordTransition's forward-only guard.
 // approved/rejected are terminal decisions, ranked equal-highest so either always wins regardless
 // of current stage (mirrors how `status` is already set unconditionally by approve/reject today).

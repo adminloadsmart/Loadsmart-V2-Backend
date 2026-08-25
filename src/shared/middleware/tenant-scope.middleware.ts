@@ -24,7 +24,7 @@ export const createTenantScope = (tenancyGateway: TenancyGateway): RequestHandle
       throw new AuthorizationError('Tenant mismatch');
     }
 
-    await tenancyGateway.assertTenantActive(tenantId);
+    await tenancyGateway.assertTenantActive(tenantId, req.method);
     next();
   };
 };

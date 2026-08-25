@@ -246,6 +246,22 @@ export class AuthRepository {
     await this.refreshTokens.update({ userId, revokedAt: IsNull() }, { revokedAt: new Date() });
   }
 
+  // Bulk equivalent of revokeAllRefreshTokensForUser, for when an org (not a single user) loses
+  // access — e.g. admin.service.ts's reject/deny/suspend paths. RefreshTokenEntity has no
+  // tenantId column of its own, so this joins through auth.users.tenant_id via a subquery rather
+  // than looping revokeAllRefreshTokensForUser per user.
+  async revokeAllRefreshTokensForTenant(tenantId: string): Promise<void> {
+    await this.refreshTokens
+      .createQueryBuilder()
+      .update(RefreshTokenEntity)
+      .set({ revokedAt: () => 'now()' })
+      .where('revoked_at IS NULL')
+      .andWhere('user_id IN (SELECT id FROM auth.users WHERE tenant_id = :tenantId)', {
+        tenantId,
+      })
+      .execute();
+  }
+
   async recordLoginAttempt(data: {
     email: string;
     success: boolean;

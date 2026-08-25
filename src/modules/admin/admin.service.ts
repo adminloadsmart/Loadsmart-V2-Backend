@@ -6,6 +6,7 @@ import {
   OrganizationJourneyStage,
 } from '../organization/entities/organization.entity';
 import { AuthService } from '../auth/auth.service';
+import { isTenantAccessible } from '../organization/organization.constants';
 import {
   ReferralCodeService,
   resolveReferralCodeStatus,
@@ -168,6 +169,13 @@ export class AdminService {
         oldData: { status: before.status, decisionReason: before.decisionReason },
         newData: { status: organization.status, decisionReason: organization.decisionReason },
       });
+
+      // This blunt PATCH can set status to anything, including 'suspended' — cut off the org's
+      // members' sessions the moment they lose access, same as the dedicated reject/deny path
+      // below, instead of leaving already-issued refresh tokens usable until they expire.
+      if (!isTenantAccessible(organization.status)) {
+        await this.authService.revokeAllSessionsForTenant(organizationId);
+      }
 
       return organization;
     } catch (error) {
@@ -501,6 +509,10 @@ export class AdminService {
         resourceType: 'organization',
         newData: { status: 'rejected', reason, journeyStage: organization.journeyStage },
       });
+
+      // Cut off the org's members' sessions the moment they lose access — see updateOrganization
+      // for the equivalent on the blunt admin PATCH path.
+      await this.authService.revokeAllSessionsForTenant(organizationId);
 
       return organization;
     } catch (error) {
