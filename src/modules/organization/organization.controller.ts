@@ -31,12 +31,10 @@ export class OrganizationController {
   saveBusinessDetails = async (req: Request, res: Response) => {
     const files = (req.files ?? {}) as {
       documentFront?: Express.Multer.File[];
-      documentBack?: Express.Multer.File[];
       shopPremisesPhoto?: Express.Multer.File[];
     };
     const result = await this.authService.saveBusinessDetails(req.user!, req.body, {
-      documentFront: files.documentFront![0],
-      documentBack: files.documentBack?.[0],
+      documentFront: files.documentFront ?? [],
       shopPremisesPhoto: files.shopPremisesPhoto?.[0],
     });
     respond(res, result);

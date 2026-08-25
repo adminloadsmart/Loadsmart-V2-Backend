@@ -76,7 +76,7 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     tags: [TAGS.AUTH],
     operationId: 'auth.saveBusinessDetails',
     ...authenticated(
-      "Save the caller's document metadata and upload the document front, document back, and one shop-premises file to S3. The endpoint accepts JPG, JPEG, PNG, and PDF files.",
+      "Save the caller's GST document metadata, registered address, and uploads for the front side plus one shop-premises file to S3. Upload either one PDF or multiple JPG/PNG images for the GST front side.",
     ),
     request: {
       body: {
@@ -97,8 +97,22 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
                   ],
                 },
                 documentNo: { type: 'string' },
-                documentFront: { type: 'string', format: 'binary' },
-                documentBack: { type: 'string', format: 'binary' },
+                registeredAddress: {
+                  type: 'object',
+                  required: ['addressLine1', 'city', 'state', 'pinCode'],
+                  properties: {
+                    addressLine1: { type: 'string' },
+                    addressLine2: { type: 'string' },
+                    city: { type: 'string' },
+                    state: { type: 'string' },
+                    pinCode: { type: 'string' },
+                  },
+                },
+                documentFront: {
+                  type: 'array',
+                  items: { type: 'string', format: 'binary' },
+                  description: 'One PDF or multiple GST front-side images',
+                },
                 shopPremisesPhoto: { type: 'string', format: 'binary' },
               },
             },

@@ -10,7 +10,7 @@ import { ValidationError } from '../../shared/errors';
 
 const organizationBusinessUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 11 },
   fileFilter: (_req, file, callback: FileFilterCallback) => {
     if (!['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'].includes(file.mimetype)) {
       callback(new ValidationError('Only JPG, JPEG, PNG, and PDF files are accepted'));
@@ -55,8 +55,7 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
   router.post(
     '/organization/business',
     organizationBusinessUpload.fields([
-      { name: 'documentFront', maxCount: 1 },
-      { name: 'documentBack', maxCount: 1 },
+      { name: 'documentFront', maxCount: 10 },
       { name: 'shopPremisesPhoto', maxCount: 1 },
     ]),
     requireOrganizationBusinessFiles,

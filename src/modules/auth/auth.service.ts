@@ -870,8 +870,7 @@ export class AuthService {
     user: AuthenticatedUser,
     input: SaveBusinessDetailsInput,
     files: {
-      documentFront: Express.Multer.File;
-      documentBack?: Express.Multer.File;
+      documentFront: Express.Multer.File[];
       shopPremisesPhoto?: Express.Multer.File;
     },
   ) {
@@ -902,38 +901,49 @@ export class AuthService {
       }
     }
 
+    const tenantId = user.tenantId;
+    if (!tenantId) {
+      throw new AuthorizationError('Missing organization context');
+    }
+
+    if (!files.documentFront.length) {
+      throw new ValidationError('At least one document file is required');
+    }
+
+    const pdfFiles = files.documentFront.filter((file) => file.mimetype === 'application/pdf');
+    const imageFiles = files.documentFront.filter((file) =>
+      ['image/jpeg', 'image/jpg', 'image/png'].includes(file.mimetype),
+    );
+    if (pdfFiles.length > 0 && imageFiles.length > 0) {
+      throw new ValidationError('Upload either one PDF or multiple images for the document');
+    }
+    if (pdfFiles.length > 0 && files.documentFront.length > 1) {
+      throw new ValidationError('Only one PDF file can be uploaded for the document');
+    }
+
     if (!files.shopPremisesPhoto && !current.shopboardPremisesPhotoKey) {
       throw new ValidationError('Shop-board premises photo is required');
     }
 
-    const [documentFront, documentBack, shopPremisesPhoto] = await Promise.all([
-      this.storageService.uploadTenantFile(
-        user.tenantId,
-        user.id,
-        {
-          purpose: 'kyc',
-          fileName: files.documentFront.originalname,
-          mimeType: files.documentFront.mimetype,
-          sizeBytes: files.documentFront.size,
-        },
-        files.documentFront.buffer,
-      ),
-      files.documentBack
-        ? this.storageService.uploadTenantFile(
-            user.tenantId,
+    const [documentFrontFiles, shopPremisesPhoto] = await Promise.all([
+      Promise.all(
+        files.documentFront.map((file) =>
+          this.storageService.uploadTenantFile(
+            tenantId,
             user.id,
             {
               purpose: 'kyc',
-              fileName: files.documentBack.originalname,
-              mimeType: files.documentBack.mimetype,
-              sizeBytes: files.documentBack.size,
+              fileName: file.originalname,
+              mimeType: file.mimetype,
+              sizeBytes: file.size,
             },
-            files.documentBack.buffer,
-          )
-        : Promise.resolve(null),
+            file.buffer,
+          ),
+        ),
+      ),
       files.shopPremisesPhoto
         ? this.storageService.uploadTenantFile(
-            user.tenantId,
+            tenantId,
             user.id,
             {
               purpose: 'organizations/shopboard-premises',
@@ -945,11 +955,12 @@ export class AuthService {
           )
         : Promise.resolve(null),
     ]);
+    const documentUrls = documentFrontFiles.map((file) => file.key);
 
     return this.dataSource.transaction(async (manager) => {
       if (input.replaceDocumentType && input.replaceDocumentType !== input.documentType) {
         await this.organizationDocumentService.removeActiveDocumentType(
-          user.tenantId!,
+          tenantId,
           input.replaceDocumentType,
           user.id,
           manager,
@@ -957,7 +968,7 @@ export class AuthService {
       }
 
       const organization = await this.organizationService.updateOrganization(
-        user.tenantId!,
+        tenantId,
         {
           ...(shopPremisesPhoto ? { shopboardPremisesPhotoKey: shopPremisesPhoto.key } : {}),
           status: current.status === 'draft' ? 'partial_pending' : current.status,
@@ -967,14 +978,14 @@ export class AuthService {
       );
 
       const documents = await this.organizationDocumentService.upsertDocuments(
-        user.tenantId!,
+        tenantId,
         user.id,
         [
           {
             documentType: input.documentType,
             documentNumber: input.documentNo,
-            documentUrl: documentFront.key,
-            ...(documentBack ? { backFileKey: documentBack.key } : {}),
+            documentUrls,
+            registeredAddress: input.registeredAddress,
           },
           ...(shopPremisesPhoto
             ? [

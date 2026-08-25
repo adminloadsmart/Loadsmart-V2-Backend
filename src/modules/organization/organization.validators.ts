@@ -16,6 +16,13 @@ const addressSchema = z.object({
 });
 
 const documentType = z.enum(ORGANIZATION_DOCUMENT_TYPES);
+const registeredAddressSchema = z.object({
+  addressLine1: z.string().trim().min(1),
+  addressLine2: z.string().trim().min(1).optional(),
+  city: z.string().trim().min(1),
+  state: z.string().trim().min(1),
+  pinCode: z.string().regex(/^\d{6}$/, 'PIN Code must be exactly 6 digits'),
+});
 
 export const organizationValidators = {
   createOrganization: z.object({
@@ -27,11 +34,22 @@ export const organizationValidators = {
     }),
   }),
   saveBusinessDetails: z.object({
-    body: z.object({
-      documentType,
-      documentNo: z.string().trim().min(1).optional(),
-      replaceDocumentType: documentType.optional(),
-    }),
+    body: z
+      .object({
+        documentType,
+        documentNo: z.string().trim().min(1).optional(),
+        replaceDocumentType: documentType.optional(),
+        registeredAddress: registeredAddressSchema.optional(),
+      })
+      .superRefine((value, ctx) => {
+        if (value.documentType === 'gst_certificate' && !value.registeredAddress) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['registeredAddress'],
+            message: 'Registered address is required for GST certificate uploads',
+          });
+        }
+      }),
   }),
   submitOrganization: z.object({
     body: z.object({

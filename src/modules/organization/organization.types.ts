@@ -36,6 +36,15 @@ export interface SaveBusinessDetailsInput {
   documentType: OrganizationDocumentInput['documentType'];
   documentNo?: string;
   replaceDocumentType?: OrganizationDocumentInput['documentType'];
+  registeredAddress?: OrganizationRegisteredAddressInput;
+}
+
+export interface OrganizationRegisteredAddressInput {
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  pinCode: string;
 }
 
 export interface SubmitOrganizationInput {
@@ -73,6 +82,8 @@ export type OrganizationReviewData = {
     documentType: string;
     documentNumber: string | null;
     documentUrl: string | null;
+    documentUrls: string[];
+    registeredAddress: OrganizationRegisteredAddressInput | null;
     verificationStatus: DocumentVerificationStatus;
   }>;
 };
