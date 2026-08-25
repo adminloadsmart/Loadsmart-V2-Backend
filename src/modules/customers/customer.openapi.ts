@@ -16,7 +16,7 @@ import {
 import { customerValidators } from './customer.validators';
 
 const BASE = `${API_VERSION_PREFIX}/customers`;
-const csvFileBody = {
+const excelFileBody = {
   content: {
     'multipart/form-data': {
       schema: {
@@ -26,7 +26,7 @@ const csvFileBody = {
           file: {
             type: 'string' as const,
             format: 'binary',
-            description: 'CSV file, maximum 5 MB.',
+            description: 'Excel file (.xlsx), maximum 5 MB.',
           },
         },
       },
@@ -42,14 +42,14 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'customers.importPreview',
     ...permissionGated(
       [CUSTOMERS_CREATE],
-      'Dry-run a customer CSV import: parses and validates every row (including duplicate/' +
+      'Dry-run a customer Excel import: parses and validates every row (including duplicate/' +
         'existing-customer checks) without creating anything. Returns the same report shape as ' +
         'the real import, with created always 0.',
     ),
-    request: { body: csvFileBody },
+    request: { body: excelFileBody },
     responses: {
       200: { description: 'Import report (nothing created)' },
-      400: { description: 'Invalid CSV or missing file', ...errorContent },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
       403: { description: 'Forbidden', ...errorContent },
     },
   });
@@ -60,15 +60,15 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'customers.import',
     ...permissionGated(
       [CUSTOMERS_CREATE],
-      'Bulk import customers from a CSV file. Column headers are fuzzy-matched (e.g. ' +
+      'Bulk import customers from an Excel file. Column headers are fuzzy-matched (e.g. ' +
         '"Customer Name", "Mobile No"); only name and mobile are required columns. Rows that ' +
         'fail validation or duplicate an existing customer (by mobile, or mobile/GSTIN) are ' +
         'skipped rather than overwritten.',
     ),
-    request: { body: csvFileBody },
+    request: { body: excelFileBody },
     responses: {
       201: { description: 'Import report with created/skipped/failed row counts' },
-      400: { description: 'Invalid CSV or missing file', ...errorContent },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
       403: { description: 'Forbidden', ...errorContent },
     },
   });

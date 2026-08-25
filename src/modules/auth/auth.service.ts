@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'crypto';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
 import {
@@ -126,7 +126,7 @@ export class AuthService {
   }
 
   async verifyOtp(input: VerifyOtpInput) {
-    const { phoneNumber, otp, password: requestedPassword } = input;
+    const { phoneNumber, otp } = input;
 
     // Keyed by phone (not by which signup token presents it), since an attacker can self-mint
     // unlimited signup tokens for a victim's phone via public POST /auth/signup — the OTP itself
@@ -143,18 +143,11 @@ export class AuthService {
     let user = await this.authRepository.findUserByPhone(phoneNumber);
     if (!user) {
       const roleId = await this.roleService.findRoleIdByName(ORG_ADMIN_ROLE);
-      const password = requestedPassword ?? this.generatePassword();
-      const passwordHash = await bcrypt.hash(password, 10);
       user = await this.authRepository.createUser({
         phoneNumber,
         tenantId: null,
         roleId,
-        passwordHash,
       });
-
-      if (env.nodeEnv === 'development') {
-        console.log(`[development] Generated signup password for ${phoneNumber}: ${password}`);
-      }
     }
 
     return this.issueTokenPairForUser(user, 'organization');
@@ -219,20 +212,49 @@ export class AuthService {
 
   async saveUserDetails(user: AuthenticatedUser, input: SaveUserDetailsInput) {
     try {
-      if (input.email) {
-        const existingByEmail = await this.authRepository.findUserByEmail(input.email);
-        if (existingByEmail && existingByEmail.id !== user.id) {
-          throw new ConflictError('A user with this email already exists');
-        }
+      const existingByEmail = input.email
+        ? await this.authRepository.findUserByEmail(input.email)
+        : null;
+      if (existingByEmail && existingByEmail.id !== user.id) {
+        throw new ConflictError('A user with this email already exists');
       }
 
-      const updated = await this.authRepository.updateUser(user.id, {
-        fullName: input.name,
-        email: input.email ?? null,
-        designation: input.designation ?? null,
-        manualDesignation: input.manualDesignation ?? null,
-        department: input.department ?? null,
+      const updated = await this.dataSource.transaction(async (manager) => {
+        const current = await manager.getRepository(UserEntity).findOne({
+          where: { id: user.id, deletedAt: IsNull() },
+          relations: { role: true },
+        });
+        if (!current) {
+          throw new NotFoundError(`User ${user.id} not found`);
+        }
+
+        if (input.password && current.passwordHash) {
+          throw new ConflictError('Password already exists');
+        }
+
+        const nextUser = await this.authRepository.updateUser(
+          user.id,
+          {
+            fullName: input.name,
+            email: input.email ?? null,
+            designation: input.designation ?? null,
+            manualDesignation: input.manualDesignation ?? null,
+            department: input.department ?? null,
+          },
+          manager,
+        );
+
+        if (input.password) {
+          const passwordHash = await bcrypt.hash(input.password, 10);
+          await this.authRepository.setUserPassword(nextUser.id, passwordHash, manager);
+        }
+
+        return nextUser;
       });
+
+      if (!updated) {
+        throw new NotFoundError(`User ${user.id} not found`);
+      }
 
       await this.auditService.log({
         tenantId: user.tenantId,

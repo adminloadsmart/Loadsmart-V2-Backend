@@ -1,4 +1,4 @@
-import { parse } from 'csv-parse/sync';
+import { parseSpreadsheetRows } from '../../shared/utils/spreadsheet';
 import { CreateTransporterInput } from './utils/transporter.interface';
 
 export const TRANSPORTER_IMPORT_MAX_ROWS = 5000;
@@ -8,7 +8,7 @@ export interface ParsedTransporterRow {
   input: Partial<CreateTransporterInput>;
 }
 
-export interface ParsedTransporterCsv {
+export interface ParsedTransporterExcel {
   rows: ParsedTransporterRow[];
   mapping: Record<string, keyof CreateTransporterInput>;
 }
@@ -55,26 +55,13 @@ const FIELD_BY_HEADER: Record<string, keyof CreateTransporterInput> = {
   bankaccountholdername: 'bankAccountHolderName',
 };
 
-export function parseTransporterCsv(buffer: Buffer): ParsedTransporterCsv {
-  let records: Record<string, string>[];
-  try {
-    records = parse(buffer.toString('utf8').replace(/^\uFEFF/, ''), {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      bom: true,
-      relax_column_count: false,
-    }) as Record<string, string>[];
-  } catch (error) {
-    throw new Error(
-      `Invalid CSV: ${error instanceof Error ? error.message : 'unable to parse file'}`,
-      { cause: error },
-    );
-  }
+export async function parseTransporterExcel(buffer: Buffer): Promise<ParsedTransporterExcel> {
+  const records = await parseSpreadsheetRows(buffer);
 
-  if (!records.length) throw new Error('CSV must contain a header and at least one data row');
+  if (!records.length)
+    throw new Error('Excel file must contain a header and at least one data row');
   if (records.length > TRANSPORTER_IMPORT_MAX_ROWS)
-    throw new Error(`CSV cannot contain more than ${TRANSPORTER_IMPORT_MAX_ROWS} rows`);
+    throw new Error(`Excel file cannot contain more than ${TRANSPORTER_IMPORT_MAX_ROWS} rows`);
 
   const headers = Object.keys(records[0]);
   const mapping: Record<string, keyof CreateTransporterInput> = {};

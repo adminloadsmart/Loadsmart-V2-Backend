@@ -14,7 +14,6 @@ export type LoginPortal = 'organization' | 'platform';
 export interface VerifyOtpInput {
   phoneNumber: string;
   otp: string;
-  password?: string;
 }
 
 export interface VerifyLoginOtpInput {
@@ -26,6 +25,7 @@ export interface VerifyLoginOtpInput {
 export interface SaveUserDetailsInput {
   name: string;
   email?: string;
+  password?: string;
   designation?:
     | 'Owner'
     | 'Logistics Manager'
