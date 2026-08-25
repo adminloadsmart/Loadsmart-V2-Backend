@@ -1,4 +1,4 @@
-import { parse } from 'csv-parse/sync';
+import { parseSpreadsheetRows } from '../../shared/utils/spreadsheet';
 import { CreateCustomerInput } from './customer.types';
 
 export const CUSTOMER_IMPORT_MAX_ROWS = 5000;
@@ -43,7 +43,7 @@ export interface ParsedImportRow {
   input: Partial<CreateCustomerInput>;
 }
 
-export interface ParsedCustomerCsv {
+export interface ParsedCustomerExcel {
   rows: ParsedImportRow[];
   mapping: Record<string, keyof CreateCustomerInput>;
 }
@@ -100,9 +100,9 @@ function paymentTermsValue(raw: string | undefined): Partial<CreateCustomerInput
 function deliveryPointsValue(raw: string | undefined): CreateCustomerInput['deliveryPoints'] {
   if (raw === undefined) return undefined;
 
-  // The preferred CSV representation is JSON so it can carry the exact same
+  // The preferred cell representation is JSON so it can carry the exact same
   // delivery point objects accepted by POST /customers. Keep the pipe format
-  // for existing CSV files that only contain location names.
+  // for existing Excel files that only contain location names.
   if (raw.startsWith('[')) {
     try {
       const parsed: unknown = JSON.parse(raw);
@@ -119,25 +119,12 @@ function deliveryPointsValue(raw: string | undefined): CreateCustomerInput['deli
     .filter((p) => p.location);
 }
 
-export function parseCustomerCsv(buffer: Buffer): ParsedCustomerCsv {
-  let records: Record<string, string>[];
-  try {
-    records = parse(buffer.toString('utf8').replace(/^\uFEFF/, ''), {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      bom: true,
-      relax_column_count: false,
-    }) as Record<string, string>[];
-  } catch (error) {
-    throw new Error(
-      `Invalid CSV: ${error instanceof Error ? error.message : 'unable to parse file'}`,
-      { cause: error },
-    );
-  }
-  if (!records.length) throw new Error('CSV must contain a header and at least one data row');
+export async function parseCustomerExcel(buffer: Buffer): Promise<ParsedCustomerExcel> {
+  const records = await parseSpreadsheetRows(buffer);
+  if (!records.length)
+    throw new Error('Excel file must contain a header and at least one data row');
   if (records.length > CUSTOMER_IMPORT_MAX_ROWS) {
-    throw new Error(`CSV cannot contain more than ${CUSTOMER_IMPORT_MAX_ROWS} rows`);
+    throw new Error(`Excel file cannot contain more than ${CUSTOMER_IMPORT_MAX_ROWS} rows`);
   }
 
   const headers = Object.keys(records[0]);

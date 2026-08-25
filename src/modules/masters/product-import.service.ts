@@ -3,7 +3,7 @@ import { AuditService } from '../audit/audit.service';
 import { productValidators } from './product.validators';
 import { ProductService } from './product.service';
 import { CreateProductInput } from './utils/product.interface';
-import { parseProductCsv, ParsedProductCsv } from './product-import.mapper';
+import { parseProductExcel, ParsedProductExcel } from './product-import.mapper';
 
 export interface ProductImportRowError {
   row: number;
@@ -33,7 +33,7 @@ export class ProductImportService {
     fileName: string,
     buffer: Buffer,
   ): Promise<ProductImportReport> {
-    const parsed = this.parse(buffer);
+    const parsed = await this.parse(buffer);
     const valid: { row: number; input: CreateProductInput }[] = [];
     const errors: ProductImportRowError[] = [];
     for (const item of parsed.rows) {
@@ -92,11 +92,11 @@ export class ProductImportService {
     return report;
   }
 
-  private parse(buffer: Buffer): ParsedProductCsv {
+  private async parse(buffer: Buffer): Promise<ParsedProductExcel> {
     try {
-      return parseProductCsv(buffer);
+      return await parseProductExcel(buffer);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid CSV file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
     }
   }
 }

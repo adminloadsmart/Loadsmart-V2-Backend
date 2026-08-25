@@ -34,9 +34,9 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     method: 'post',
     path: `${BASE}/products/import`,
     tags: [TAGS.MASTERS],
-    operationId: 'masters.importProductsCsv',
+    operationId: 'masters.importProductsExcel',
     ...write(
-      'Bulk import products from a CSV file. Each row creates one product and optional sub-items.',
+      'Bulk import products from an Excel file. Each row creates one product and optional sub-items.',
     ),
     request: {
       body: {
@@ -46,7 +46,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
               type: 'object',
               required: ['file'],
               properties: {
-                file: { type: 'string', format: 'binary', description: 'CSV file, maximum 5 MB.' },
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB.',
+                },
               },
             },
           },
@@ -55,7 +59,7 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       201: { description: 'Import report with created and failed row counts' },
-      400: { description: 'Invalid CSV or missing file', ...errorContent },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
     },
   });
   registry.registerPath({
@@ -265,8 +269,8 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     method: 'post',
     path: `${BASE}/loading-points/import`,
     tags: [TAGS.MASTERS],
-    operationId: 'masters.importLoadingPointsCsv',
-    ...write('Bulk import loading points from a CSV file.'),
+    operationId: 'masters.importLoadingPointsExcel',
+    ...write('Bulk import loading points from an Excel file.'),
     request: {
       body: {
         content: {
@@ -275,7 +279,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
               type: 'object',
               required: ['file'],
               properties: {
-                file: { type: 'string', format: 'binary', description: 'CSV file, maximum 5 MB.' },
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB.',
+                },
               },
             },
           },
@@ -284,7 +292,7 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       201: { description: 'Import report with created and failed row counts' },
-      400: { description: 'Invalid CSV or missing file', ...errorContent },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
     },
   });
 
@@ -457,8 +465,8 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     method: 'post',
     path: `${BASE}/transporters/import`,
     tags: [TAGS.MASTERS],
-    operationId: 'masters.importTransportersCsv',
-    ...write('Bulk upload transporters from a CSV file. Organization admin only.'),
+    operationId: 'masters.importTransportersExcel',
+    ...write('Bulk upload transporters from an Excel file. Organization admin only.'),
     request: {
       body: {
         content: {
@@ -467,7 +475,11 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
               type: 'object',
               required: ['file'],
               properties: {
-                file: { type: 'string', format: 'binary', description: 'CSV file, maximum 5 MB.' },
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB.',
+                },
               },
             },
           },
@@ -476,7 +488,7 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       201: { description: 'Import completed with a row-level result report' },
-      400: { description: 'Invalid CSV or missing file', ...errorContent },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
       403: { description: 'Only organization admins can manage transporters', ...errorContent },
     },
   });

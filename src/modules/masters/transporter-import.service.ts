@@ -3,7 +3,7 @@ import { AuditService } from '../audit/audit.service';
 import { mastersValidators } from './masters.validators';
 import { TransporterService } from './transporter.service';
 import { CreateTransporterInput } from './utils/transporter.interface';
-import { parseTransporterCsv, ParsedTransporterCsv } from './transporter-import.mapper';
+import { parseTransporterExcel, ParsedTransporterExcel } from './transporter-import.mapper';
 
 export interface TransporterImportRowError {
   row: number;
@@ -34,7 +34,7 @@ export class TransporterImportService {
     fileName: string,
     buffer: Buffer,
   ): Promise<TransporterImportReport> {
-    const parsed = this.parse(buffer);
+    const parsed = await this.parse(buffer);
     const valid: { row: number; input: CreateTransporterInput }[] = [];
     const errors: TransporterImportRowError[] = [];
     const phones = new Set<string>();
@@ -94,11 +94,11 @@ export class TransporterImportService {
     return report;
   }
 
-  private parse(buffer: Buffer): ParsedTransporterCsv {
+  private async parse(buffer: Buffer): Promise<ParsedTransporterExcel> {
     try {
-      return parseTransporterCsv(buffer);
+      return await parseTransporterExcel(buffer);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid CSV file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
     }
   }
 }
