@@ -16,6 +16,7 @@ const addressSchema = z.object({
 });
 
 const documentType = z.enum(ORGANIZATION_DOCUMENT_TYPES);
+const storageKeys = z.union([z.string().trim().min(1), z.array(z.string().trim().min(1))]);
 const registeredAddressSchema = z.object({
   addressLine1: z.string().trim().min(1),
   addressLine2: z.string().trim().min(1).optional(),
@@ -23,6 +24,16 @@ const registeredAddressSchema = z.object({
   state: z.string().trim().min(1),
   pinCode: z.string().regex(/^\d{6}$/, 'PIN Code must be exactly 6 digits'),
 });
+
+const multipartRegisteredAddressSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}, registeredAddressSchema);
 
 export const organizationValidators = {
   createOrganization: z.object({
@@ -38,7 +49,9 @@ export const organizationValidators = {
       documentType,
       documentNo: z.string().trim().min(1).optional(),
       replaceDocumentType: documentType.optional(),
-      registeredAddress: registeredAddressSchema.optional(),
+      documentFront: storageKeys.optional(),
+      shopPremisesPhoto: z.string().trim().min(1).optional(),
+      registeredAddress: multipartRegisteredAddressSchema.optional(),
     }),
   }),
   submitOrganization: z.object({

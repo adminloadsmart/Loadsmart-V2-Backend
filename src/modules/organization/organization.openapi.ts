@@ -101,7 +101,7 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
           'multipart/form-data': {
             schema: {
               type: 'object',
-              required: ['documentType', 'documentFront', 'shopPremisesPhoto'],
+              required: ['documentType', 'shopPremisesPhoto'],
               properties: {
                 documentType: {
                   type: 'string',
@@ -126,11 +126,19 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
                   },
                 },
                 documentFront: {
-                  type: 'array',
-                  items: { type: 'string', format: 'binary' },
-                  description: 'One PDF or multiple GST front-side images',
+                  oneOf: [
+                    { type: 'string' },
+                    { type: 'array', items: { type: 'string' } },
+                    { type: 'string', format: 'binary' },
+                  ],
+                  description:
+                    'Storage key(s) for confirmed uploads, or one PDF/multiple GST front-side files',
+                  nullable: true,
                 },
-                shopPremisesPhoto: { type: 'string', format: 'binary' },
+                shopPremisesPhoto: {
+                  type: 'string',
+                  description: 'Storage key for a confirmed upload, or a binary file',
+                },
               },
             },
           },

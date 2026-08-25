@@ -876,6 +876,8 @@ export class AuthService {
     files: {
       documentFront: Express.Multer.File[];
       shopPremisesPhoto?: Express.Multer.File;
+      documentFrontKeys?: string[];
+      shopPremisesPhotoKey?: string;
     },
   ) {
     if (!user.tenantId) {
@@ -910,10 +912,6 @@ export class AuthService {
       throw new AuthorizationError('Missing organization context');
     }
 
-    if (!files.documentFront.length) {
-      throw new ValidationError('At least one document file is required');
-    }
-
     const pdfFiles = files.documentFront.filter((file) => file.mimetype === 'application/pdf');
     const imageFiles = files.documentFront.filter((file) =>
       ['image/jpeg', 'image/jpg', 'image/png'].includes(file.mimetype),
@@ -925,7 +923,11 @@ export class AuthService {
       throw new ValidationError('Only one PDF file can be uploaded for the document');
     }
 
-    if (!files.shopPremisesPhoto && !current.shopboardPremisesPhotoKey) {
+    if (
+      !files.shopPremisesPhoto &&
+      !files.shopPremisesPhotoKey &&
+      !current.shopboardPremisesPhotoKey
+    ) {
       throw new ValidationError('Shop-board premises photo is required');
     }
 
@@ -959,7 +961,39 @@ export class AuthService {
           )
         : Promise.resolve(null),
     ]);
-    const documentUrls = documentFrontFiles.map((file) => file.key);
+    const documentFrontKeys = files.documentFrontKeys ?? [];
+    const shopPremisesPhotoKey = files.shopPremisesPhotoKey;
+    const uploadedDocumentKeys = documentFrontFiles.map((file) => file.key);
+
+    await Promise.all(
+      documentFrontKeys.map(async (key) => {
+        const { file } = await this.storageService.getByKey({ tenantId, role: user.role }, key);
+        if (file.purpose !== 'kyc') {
+          throw new ValidationError(`File ${key} was not uploaded for KYC`);
+        }
+        if (file.status !== 'confirmed') {
+          throw new ValidationError(`File ${key} must be confirmed before it can be attached`);
+        }
+      }),
+    );
+    if (shopPremisesPhotoKey) {
+      const { file } = await this.storageService.getByKey(
+        { tenantId, role: user.role },
+        shopPremisesPhotoKey,
+      );
+      if (!['kyc', 'organizations/shopboard-premises'].includes(file.purpose)) {
+        throw new ValidationError(
+          `File ${shopPremisesPhotoKey} was not uploaded for a supported organization document`,
+        );
+      }
+      if (file.status !== 'confirmed') {
+        throw new ValidationError(
+          `File ${shopPremisesPhotoKey} must be confirmed before it can be attached`,
+        );
+      }
+    }
+    const documentUrls = [...documentFrontKeys, ...uploadedDocumentKeys];
+    const shopPremisesKey = shopPremisesPhoto?.key ?? shopPremisesPhotoKey;
 
     return this.dataSource.transaction(async (manager) => {
       if (input.replaceDocumentType && input.replaceDocumentType !== input.documentType) {
@@ -974,7 +1008,7 @@ export class AuthService {
       const organization = await this.organizationService.updateOrganization(
         tenantId,
         {
-          ...(shopPremisesPhoto ? { shopboardPremisesPhotoKey: shopPremisesPhoto.key } : {}),
+          ...(shopPremisesKey ? { shopboardPremisesPhotoKey: shopPremisesKey } : {}),
           status: current.status === 'draft' ? 'partial_pending' : current.status,
           onboardingStep: current.status === 'pending' ? 'business_details' : 'review_submit',
         },
@@ -991,11 +1025,11 @@ export class AuthService {
             documentUrls,
             registeredAddress: input.registeredAddress,
           },
-          ...(shopPremisesPhoto
+          ...(shopPremisesKey
             ? [
                 {
                   documentType: 'shopboard_premises_photo' as const,
-                  documentUrl: shopPremisesPhoto.key,
+                  documentUrl: shopPremisesKey,
                 },
               ]
             : []),

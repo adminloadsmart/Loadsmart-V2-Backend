@@ -42,9 +42,16 @@ export class OrganizationController {
       documentFront?: Express.Multer.File[];
       shopPremisesPhoto?: Express.Multer.File[];
     };
+    const documentFrontKeys = req.body.documentFront
+      ? Array.isArray(req.body.documentFront)
+        ? req.body.documentFront
+        : [req.body.documentFront]
+      : [];
     const result = await this.authService.saveBusinessDetails(req.user!, req.body, {
       documentFront: files.documentFront ?? [],
       shopPremisesPhoto: files.shopPremisesPhoto?.[0],
+      documentFrontKeys,
+      shopPremisesPhotoKey: req.body.shopPremisesPhoto,
     });
     respond(res, result);
   };

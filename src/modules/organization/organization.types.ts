@@ -36,6 +36,8 @@ export interface SaveBusinessDetailsInput {
   documentType: OrganizationDocumentInput['documentType'];
   documentNo?: string;
   replaceDocumentType?: OrganizationDocumentInput['documentType'];
+  documentFront?: string | string[];
+  shopPremisesPhoto?: string;
   registeredAddress?: OrganizationRegisteredAddressInput;
 }
 

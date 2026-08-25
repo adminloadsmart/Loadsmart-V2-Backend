@@ -20,24 +20,6 @@ const organizationBusinessUpload = multer({
   },
 });
 
-function requireOrganizationBusinessFiles(
-  req: Parameters<import('express').RequestHandler>[0],
-  _res: Parameters<import('express').RequestHandler>[1],
-  next: Parameters<import('express').RequestHandler>[2],
-) {
-  const files = req.files as Record<string, Express.Multer.File[] | undefined>;
-  // A rejected business document can be replaced without forcing the user to upload the
-  // already-approved shop-premises photo again. The service still requires one when the org has
-  // no existing shop-premises photo.
-  const requiredFields = ['documentFront'];
-  const missing = requiredFields.filter((field) => !files[field]?.[0]);
-  if (missing.length) {
-    next(new ValidationError(`Missing required file fields: ${missing.join(', ')}`));
-    return;
-  }
-  next();
-}
-
 // Mounted at '/auth' by composition-root.ts (see createOrganizationOnboardingRoutes in
 // index.ts), alongside modules/auth/'s own protectedRouter — the routes here keep their existing
 // /auth/organization* URLs even though the code now lives in modules/organization/. No auth
@@ -59,7 +41,6 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
       { name: 'documentFront', maxCount: 10 },
       { name: 'shopPremisesPhoto', maxCount: 1 },
     ]),
-    requireOrganizationBusinessFiles,
     validate(organizationValidators.saveBusinessDetails),
     asyncHandler(controller.saveBusinessDetails),
   );
