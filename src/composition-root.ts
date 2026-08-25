@@ -23,6 +23,7 @@ import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
 import { createLoadsModule } from './modules/loads';
 import { createAnalyticsModule } from './modules/analytics';
+import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 
@@ -142,6 +143,7 @@ export function buildContainer(dataSource: DataSource): Container {
     customerService: customers.service,
   });
   const analytics = createAnalyticsModule(dataSource);
+  const fleetAnalytics = createFleetAnalyticsModule(dataSource);
 
   return {
     tenancyGateway: auth.tenancyGateway,
@@ -162,6 +164,7 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/admin', router: admin.router },
       { path: '/dashboards', router: dashboards.router },
       { path: '/analytics', router: analytics.router },
+      { path: '/fleet-analytics', router: fleetAnalytics.router },
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },

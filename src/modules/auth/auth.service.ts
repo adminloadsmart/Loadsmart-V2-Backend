@@ -215,36 +215,47 @@ export class AuthService {
   }
 
   async saveUserDetails(user: AuthenticatedUser, input: SaveUserDetailsInput) {
-    const updated = await this.authRepository.updateUser(user.id, {
-      fullName: input.name,
-      email: input.email ?? null,
-      designation: input.designation ?? null,
-      manualDesignation: input.manualDesignation ?? null,
-      department: input.department ?? null,
-    });
+    try {
+      if (input.email) {
+        const existingByEmail = await this.authRepository.findUserByEmail(input.email);
+        if (existingByEmail && existingByEmail.id !== user.id) {
+          throw new ConflictError('A user with this email already exists');
+        }
+      }
 
-    await this.auditService.log({
-      tenantId: user.tenantId,
-      userId: user.id,
-      action: 'ORGANIZATION_USER_DETAILS_SAVED',
-      resourceType: 'user',
-      newData: {
-        userId: updated.id,
-        fullName: updated.fullName,
+      const updated = await this.authRepository.updateUser(user.id, {
+        fullName: input.name,
+        email: input.email ?? null,
+        designation: input.designation ?? null,
+        manualDesignation: input.manualDesignation ?? null,
+        department: input.department ?? null,
+      });
+
+      await this.auditService.log({
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'ORGANIZATION_USER_DETAILS_SAVED',
+        resourceType: 'user',
+        newData: {
+          userId: updated.id,
+          fullName: updated.fullName,
+          email: updated.email,
+          designation: updated.designation,
+          department: updated.department,
+        },
+      });
+
+      return {
+        id: updated.id,
+        name: updated.fullName,
         email: updated.email,
         designation: updated.designation,
+        manualDesignation: updated.manualDesignation,
         department: updated.department,
-      },
-    });
-
-    return {
-      id: updated.id,
-      name: updated.fullName,
-      email: updated.email,
-      designation: updated.designation,
-      manualDesignation: updated.manualDesignation,
-      department: updated.department,
-    };
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to save user details');
+    }
   }
 
   async getProfile(userId: string) {
