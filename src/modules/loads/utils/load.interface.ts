@@ -48,6 +48,7 @@ export interface ListLoadsInput extends PaginationInput {
   sourceType?: LoadSourceType;
   transporterId?: string;
   vehicleId?: string;
+  driverId?: string;
 }
 
 export type LoadParams = { loadId: string };

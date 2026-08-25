@@ -23,6 +23,7 @@ export const loadValidators = {
         sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
         transporterId: uuid.optional(),
         vehicleId: uuid.optional(),
+        driverId: uuid.optional(),
       })
       .refine(
         (data) => !(data.status && data.group),
