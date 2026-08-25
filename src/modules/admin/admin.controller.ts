@@ -13,6 +13,7 @@ import {
   SetReferralCodeStatusInput,
   UpdateOrganizationInput,
   UpdateReferralCodeInput,
+  UploadOrganizationDocumentInput,
   VerifyOrganizationDocumentInput,
   StaffParams,
 } from './utils/admin.interface';
@@ -53,6 +54,15 @@ export class AdminController {
       req.params.organizationId,
       req.params.documentId,
       req.body as VerifyOrganizationDocumentInput,
+    );
+    respond(res, document);
+  };
+
+  uploadOrganizationDocument = async (req: Request<OrganizationParams>, res: Response) => {
+    const document = await this.adminService.uploadOrganizationDocument(
+      req.user!,
+      req.params.organizationId,
+      req.body as UploadOrganizationDocumentInput,
     );
     respond(res, document);
   };
