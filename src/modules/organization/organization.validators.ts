@@ -34,22 +34,12 @@ export const organizationValidators = {
     }),
   }),
   saveBusinessDetails: z.object({
-    body: z
-      .object({
-        documentType,
-        documentNo: z.string().trim().min(1).optional(),
-        replaceDocumentType: documentType.optional(),
-        registeredAddress: registeredAddressSchema.optional(),
-      })
-      .superRefine((value, ctx) => {
-        if (value.documentType === 'gst_certificate' && !value.registeredAddress) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['registeredAddress'],
-            message: 'Registered address is required for GST certificate uploads',
-          });
-        }
-      }),
+    body: z.object({
+      documentType,
+      documentNo: z.string().trim().min(1).optional(),
+      replaceDocumentType: documentType.optional(),
+      registeredAddress: registeredAddressSchema.optional(),
+    }),
   }),
   submitOrganization: z.object({
     body: z.object({
