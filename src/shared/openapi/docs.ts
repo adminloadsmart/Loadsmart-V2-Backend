@@ -11,6 +11,9 @@ import { registerDashboardsOpenApi } from '../../modules/dashboards/dashboards.o
 import { registerCustomersOpenApi } from '../../modules/customers/customer.openapi';
 import { registerStorageOpenApi } from '../../modules/storage/storage.openapi';
 import { registerLoadsOpenApi } from '../../modules/loads/loads.openapi';
+import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper/shipper-analytics.openapi';
+import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
+import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -42,6 +45,9 @@ function getOpenApiDocument() {
     registerCustomersOpenApi(registry);
     registerStorageOpenApi(registry);
     registerLoadsOpenApi(registry);
+    registerShipperAnalyticsOpenApi(registry);
+    registerFleetAnalyticsOpenApi(registry);
+    registerDriverAnalyticsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -66,6 +72,10 @@ function getOpenApiDocument() {
         {
           name: TAGS.DASHBOARDS,
           description: 'Cross-module read models for fleet dashboards (fleet activity summary)',
+        },
+        {
+          name: TAGS.ANALYTICS,
+          description: 'All-time shipper analytics read models',
         },
         { name: TAGS.CUSTOMERS, description: 'Tenant customer management' },
         {

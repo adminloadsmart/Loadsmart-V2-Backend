@@ -154,8 +154,17 @@ export class LoadRepository {
   }
 
   async list(tenantId: string, filters: ListLoadsFilters): Promise<[LoadEntity[], number]> {
-    const { page, limit, requisitionId, status, group, sourceType, transporterId, vehicleId } =
-      filters;
+    const {
+      page,
+      limit,
+      requisitionId,
+      status,
+      group,
+      sourceType,
+      transporterId,
+      vehicleId,
+      driverId,
+    } = filters;
 
     const where: FindOptionsWhere<LoadEntity> = { tenantId };
     if (requisitionId) where.requisitionId = requisitionId;
@@ -168,6 +177,7 @@ export class LoadRepository {
     if (sourceType) where.sourceType = sourceType;
     if (transporterId) where.transporterId = transporterId;
     if (vehicleId) where.vehicleId = vehicleId;
+    if (driverId) where.driverId = driverId;
 
     return this.loads.findAndCount({
       where,
@@ -191,7 +201,10 @@ export class LoadRepository {
    *  endpoint costs 2 queries, not N+1. */
   async countByGroup(
     tenantId: string,
-    filters: Pick<ListLoadsFilters, 'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId'>,
+    filters: Pick<
+      ListLoadsFilters,
+      'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId'
+    >,
   ): Promise<{ active: number; completed: number }> {
     const qb = this.loads
       .createQueryBuilder('load')
@@ -210,6 +223,9 @@ export class LoadRepository {
     }
     if (filters.vehicleId) {
       qb.andWhere('load.vehicle_id = :vehicleId', { vehicleId: filters.vehicleId });
+    }
+    if (filters.driverId) {
+      qb.andWhere('load.driver_id = :driverId', { driverId: filters.driverId });
     }
 
     const rows = await qb.getRawMany<{ status: LoadStatus; count: string }>();

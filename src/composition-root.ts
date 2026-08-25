@@ -22,6 +22,9 @@ import { createDashboardsModule } from './modules/dashboards';
 import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
 import { createLoadsModule } from './modules/loads';
+import { createAnalyticsModule } from './modules/analytics';
+import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
+import { createDriverAnalyticsModule } from './modules/analytics/driver-analytics';
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 
@@ -142,6 +145,9 @@ export function buildContainer(dataSource: DataSource): Container {
     driverService: masters.driverService,
     customerService: customers.service,
   });
+  const analytics = createAnalyticsModule(dataSource);
+  const fleetAnalytics = createFleetAnalyticsModule(dataSource);
+  const driverAnalytics = createDriverAnalyticsModule(dataSource);
 
   return {
     tenancyGateway: auth.tenancyGateway,
@@ -161,6 +167,9 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/maintenance', router: maintenance.router },
       { path: '/admin', router: admin.router },
       { path: '/dashboards', router: dashboards.router },
+      { path: '/analytics', router: analytics.router },
+      { path: '/fleet-analytics', router: fleetAnalytics.router },
+      { path: '/driver-analytics', router: driverAnalytics.router },
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
