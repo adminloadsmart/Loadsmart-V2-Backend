@@ -10,7 +10,7 @@ import { ValidationError } from '../../shared/errors';
 
 const organizationBusinessUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 11 },
   fileFilter: (_req, file, callback: FileFilterCallback) => {
     if (!['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'].includes(file.mimetype)) {
       callback(new ValidationError('Only JPG, JPEG, PNG, and PDF files are accepted'));
@@ -19,24 +19,6 @@ const organizationBusinessUpload = multer({
     callback(null, true);
   },
 });
-
-function requireOrganizationBusinessFiles(
-  req: Parameters<import('express').RequestHandler>[0],
-  _res: Parameters<import('express').RequestHandler>[1],
-  next: Parameters<import('express').RequestHandler>[2],
-) {
-  const files = req.files as Record<string, Express.Multer.File[] | undefined>;
-  // A rejected business document can be replaced without forcing the user to upload the
-  // already-approved shop-premises photo again. The service still requires one when the org has
-  // no existing shop-premises photo.
-  const requiredFields = ['documentFront'];
-  const missing = requiredFields.filter((field) => !files[field]?.[0]);
-  if (missing.length) {
-    next(new ValidationError(`Missing required file fields: ${missing.join(', ')}`));
-    return;
-  }
-  next();
-}
 
 // Mounted at '/auth' by composition-root.ts (see createOrganizationOnboardingRoutes in
 // index.ts), alongside modules/auth/'s own protectedRouter — the routes here keep their existing
@@ -47,6 +29,7 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
   const router = Router();
 
   router.get('/organization', asyncHandler(controller.getOrganization));
+  router.get('/organization/business', asyncHandler(controller.getBusinessDetails));
   router.post(
     '/organization',
     validate(organizationValidators.createOrganization),
@@ -55,11 +38,9 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
   router.post(
     '/organization/business',
     organizationBusinessUpload.fields([
-      { name: 'documentFront', maxCount: 1 },
-      { name: 'documentBack', maxCount: 1 },
+      { name: 'documentFront', maxCount: 10 },
       { name: 'shopPremisesPhoto', maxCount: 1 },
     ]),
-    requireOrganizationBusinessFiles,
     validate(organizationValidators.saveBusinessDetails),
     asyncHandler(controller.saveBusinessDetails),
   );

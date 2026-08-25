@@ -182,11 +182,11 @@ export class OrganizationOnboardingService {
       throw new ValidationError('Replace all invalid documents before resubmitting');
     }
     const invalidDocuments = documents.filter(
-      (document) => !document.documentNumber && !document.fileKey,
+      (document) => !document.documentNumber && !(document.fileKeys?.length ?? document.fileKey),
     );
     if (invalidDocuments.length > 0) {
       throw new ValidationError(
-        'Each document must include either a document number or a document URL',
+        'Each document must include either a document number or at least one uploaded file',
       );
     }
   }
@@ -264,6 +264,16 @@ export class OrganizationOnboardingService {
         documentType: document.documentType,
         documentNumber: document.documentNumber,
         documentUrl: document.fileKey,
+        documentUrls: document.fileKeys ?? (document.fileKey ? [document.fileKey] : []),
+        registeredAddress: document.addressLine1
+          ? {
+              addressLine1: document.addressLine1,
+              addressLine2: document.addressLine2 ?? undefined,
+              city: document.city!,
+              state: document.state!,
+              pinCode: document.pinCode!,
+            }
+          : null,
         verificationStatus: document.verificationStatus,
       })),
     };

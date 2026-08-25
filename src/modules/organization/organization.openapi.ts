@@ -45,6 +45,23 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
   });
 
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/business`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.getBusinessDetails',
+    ...authenticated(
+      "Get the caller's saved GST business details, uploaded document references, and registered address for the business-verification step.",
+    ),
+    responses: {
+      200: { description: 'Business verification details and uploaded document references' },
+      404: {
+        description: 'Caller has a tenantId but no matching organization (data inconsistency)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/organization`,
     tags: [TAGS.AUTH],
@@ -76,7 +93,7 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     tags: [TAGS.AUTH],
     operationId: 'auth.saveBusinessDetails',
     ...authenticated(
-      "Save the caller's document metadata and upload the document front, document back, and one shop-premises file to S3. The endpoint accepts JPG, JPEG, PNG, and PDF files.",
+      "Save the caller's GST document metadata, registered address, and uploads for the front side plus one shop-premises file to S3. Upload either one PDF or multiple JPG/PNG images for the GST front side.",
     ),
     request: {
       body: {
@@ -84,7 +101,7 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
           'multipart/form-data': {
             schema: {
               type: 'object',
-              required: ['documentType', 'documentFront', 'shopPremisesPhoto'],
+              required: ['documentType', 'shopPremisesPhoto'],
               properties: {
                 documentType: {
                   type: 'string',
@@ -97,9 +114,31 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
                   ],
                 },
                 documentNo: { type: 'string' },
-                documentFront: { type: 'string', format: 'binary' },
-                documentBack: { type: 'string', format: 'binary' },
-                shopPremisesPhoto: { type: 'string', format: 'binary' },
+                registeredAddress: {
+                  type: 'object',
+                  required: ['addressLine1', 'city', 'state', 'pinCode'],
+                  properties: {
+                    addressLine1: { type: 'string' },
+                    addressLine2: { type: 'string' },
+                    city: { type: 'string' },
+                    state: { type: 'string' },
+                    pinCode: { type: 'string' },
+                  },
+                },
+                documentFront: {
+                  oneOf: [
+                    { type: 'string' },
+                    { type: 'array', items: { type: 'string' } },
+                    { type: 'string', format: 'binary' },
+                  ],
+                  description:
+                    'Storage key(s) for confirmed uploads, or one PDF/multiple GST front-side files',
+                  nullable: true,
+                },
+                shopPremisesPhoto: {
+                  type: 'string',
+                  description: 'Storage key for a confirmed upload, or a binary file',
+                },
               },
             },
           },

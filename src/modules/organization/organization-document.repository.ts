@@ -44,6 +44,8 @@ export class OrganizationDocumentRepository {
 
     const saved: OrganizationDocumentEntity[] = [];
     for (const document of documents) {
+      const documentUrls =
+        document.documentUrls ?? (document.documentUrl ? [document.documentUrl] : []);
       const existing = await this.findActiveByOrganizationAndType(
         organizationId,
         document.documentType,
@@ -53,8 +55,16 @@ export class OrganizationDocumentRepository {
         // A file-only re-upload may omit the document number. Keep the previously submitted
         // number instead of erasing it during replacement.
         existing.documentNumber = document.documentNumber ?? existing.documentNumber;
-        existing.fileKey = document.documentUrl ?? null;
-        existing.backFileKey = document.backFileKey ?? null;
+        existing.fileKey = documentUrls[0] ?? null;
+        existing.fileKeys = documentUrls.length ? documentUrls : null;
+        existing.backFileKey = null;
+        existing.addressLine1 =
+          document.registeredAddress?.addressLine1 ?? existing.addressLine1 ?? null;
+        existing.addressLine2 =
+          document.registeredAddress?.addressLine2 ?? existing.addressLine2 ?? null;
+        existing.city = document.registeredAddress?.city ?? existing.city ?? null;
+        existing.state = document.registeredAddress?.state ?? existing.state ?? null;
+        existing.pinCode = document.registeredAddress?.pinCode ?? existing.pinCode ?? null;
         existing.verificationStatus = 'pending' as DocumentVerificationStatus;
         existing.verifiedAt = null;
         existing.updatedBy = actingUserId;
@@ -66,8 +76,14 @@ export class OrganizationDocumentRepository {
         organizationId,
         documentType: document.documentType,
         documentNumber: document.documentNumber ?? null,
-        fileKey: document.documentUrl ?? null,
-        backFileKey: document.backFileKey ?? null,
+        fileKey: documentUrls[0] ?? null,
+        fileKeys: documentUrls.length ? documentUrls : null,
+        backFileKey: null,
+        addressLine1: document.registeredAddress?.addressLine1 ?? null,
+        addressLine2: document.registeredAddress?.addressLine2 ?? null,
+        city: document.registeredAddress?.city ?? null,
+        state: document.registeredAddress?.state ?? null,
+        pinCode: document.registeredAddress?.pinCode ?? null,
         verificationStatus: 'pending' as DocumentVerificationStatus,
         createdBy: actingUserId,
         updatedBy: actingUserId,

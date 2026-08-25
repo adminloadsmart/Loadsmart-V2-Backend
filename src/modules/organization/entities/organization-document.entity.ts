@@ -36,7 +36,14 @@ export interface OrganizationDocumentInput {
   documentType: OrganizationDocumentType;
   documentNumber?: string;
   documentUrl?: string;
-  backFileKey?: string;
+  documentUrls?: string[];
+  registeredAddress?: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    pinCode: string;
+  };
 }
 
 @Entity({ schema: 'auth', name: 'organization_documents' })
@@ -72,6 +79,11 @@ export class OrganizationDocumentEntity {
   // binary/file itself; this table only ever stores the reference string.
   @Column({ name: 'file_key', type: 'varchar', nullable: true })
   fileKey!: string | null;
+
+  // Full attachment set for uploads that can contain multiple files (for example GST photos).
+  // `fileKey` keeps the first attachment for compatibility with older single-file consumers.
+  @Column({ name: 'file_keys', type: 'jsonb', nullable: true })
+  fileKeys!: string[] | null;
 
   @Column({ name: 'back_file_key', type: 'varchar', nullable: true })
   backFileKey!: string | null;

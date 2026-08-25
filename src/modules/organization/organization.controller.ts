@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AuthorizationError } from '../../shared/errors';
 import { respond } from '../../shared/responses/respond';
 import { AuthService } from '../auth/auth.service';
 import { InviteOrganizationUserInput, ListOrganizationUsersInput } from '../auth/auth.types';
@@ -19,6 +20,14 @@ export class OrganizationController {
     respond(res, organization);
   };
 
+  getBusinessDetails = async (req: Request, res: Response) => {
+    if (!req.user?.tenantId) {
+      throw new AuthorizationError('Missing organization context');
+    }
+    const businessDetails = await this.authService.getBusinessDetails(req.user.tenantId);
+    respond(res, businessDetails);
+  };
+
   createOrganization = async (req: Request, res: Response) => {
     const result = await this.authService.createOrganization(
       req.user!.id,
@@ -31,13 +40,18 @@ export class OrganizationController {
   saveBusinessDetails = async (req: Request, res: Response) => {
     const files = (req.files ?? {}) as {
       documentFront?: Express.Multer.File[];
-      documentBack?: Express.Multer.File[];
       shopPremisesPhoto?: Express.Multer.File[];
     };
+    const documentFrontKeys = req.body.documentFront
+      ? Array.isArray(req.body.documentFront)
+        ? req.body.documentFront
+        : [req.body.documentFront]
+      : [];
     const result = await this.authService.saveBusinessDetails(req.user!, req.body, {
-      documentFront: files.documentFront![0],
-      documentBack: files.documentBack?.[0],
+      documentFront: files.documentFront ?? [],
       shopPremisesPhoto: files.shopPremisesPhoto?.[0],
+      documentFrontKeys,
+      shopPremisesPhotoKey: req.body.shopPremisesPhoto,
     });
     respond(res, result);
   };

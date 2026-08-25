@@ -1,15 +1,6 @@
 import { z } from 'zod';
 
-const passwordSchema = z
-  .string()
-  .min(8, 'Password must be at least 8 characters long')
-  .refine((value) => /[a-z]/.test(value), 'Password must include at least one lowercase letter')
-  .refine((value) => /[A-Z]/.test(value), 'Password must include at least one uppercase letter')
-  .refine((value) => /[0-9]/.test(value), 'Password must include at least one number')
-  .refine(
-    (value) => /[^A-Za-z0-9]/.test(value),
-    'Password must include at least one special character',
-  );
+const passwordSchema = z.string().min(6, 'Password must be at least 6 characters long');
 
 const DESIGNATIONS = [
   'Owner',
