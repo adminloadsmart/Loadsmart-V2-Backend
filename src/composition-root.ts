@@ -111,6 +111,8 @@ export function buildContainer(dataSource: DataSource): Container {
     authService: auth.service,
     referralCodeService: organization.referralCodeService,
     auditService: audit.service,
+    storageService: storage.service,
+    dataSource,
   });
 
   // No cross-module deps of its own — built before dashboards, which reads its service directly

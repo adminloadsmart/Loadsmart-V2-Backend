@@ -136,6 +136,38 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/organizations/{organizationId}/documents`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.uploadOrganizationDocument',
+    ...onlineReview(
+      "Attach a new document, or replace an existing one's file, on the organization's behalf — " +
+        'e.g. the org struggles to upload themselves, or a submitted file needs correcting ' +
+        'mid-review. Upserts by (organizationId, documentType): creates the row if none exists, ' +
+        'otherwise replaces its file and resets verificationStatus back to pending — same as the ' +
+        "org's own resubmit flow, so replacing an already-verified document un-verifies it. " +
+        'Takes an already-uploaded, already-confirmed fileKey/backFileKey — upload the file(s) ' +
+        'through POST /v1/files (+ POST /v1/files/{fileId}/confirm) first, then pass the ' +
+        'resulting key(s) here; this endpoint never accepts raw file bytes.',
+    ),
+    request: {
+      params: adminValidators.uploadOrganizationDocument.shape.params,
+      body: json(adminValidators.uploadOrganizationDocument.shape.body),
+    },
+    responses: {
+      200: { description: 'Created or replaced document' },
+      400: {
+        description: 'Validation failed, or fileKey/backFileKey not a confirmed upload',
+        ...errorContent,
+      },
+      404: {
+        description: 'Organization not found (or not visible to this reviewer)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/organizations/{organizationId}/online-verifier`,
     tags: [TAGS.ADMIN],

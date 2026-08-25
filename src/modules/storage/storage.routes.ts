@@ -16,9 +16,14 @@ import { storageValidators } from './storage.validators';
 // re-block exactly the callers the global middleware already deliberately let through. A
 // pre-org-creation org_admin (also tenant-less) never reaches this router at all — the global
 // tenant-scope middleware still rejects it, by design (not yet supported — no concrete need for
-// it today; see storage.service.ts's generateUploadUrl/confirmUpload if that changes).
-// DELETE /:fileId keeps requireTenant: deleting stays tenant-owned-only, no tenant-less caller of
-// any kind may use it.
+// it today).
+// A tenant-having org_admin whose org is still draft/pending/partial_pending (not yet approved)
+// *can* reach POST / and POST /:fileId/confirm — TenancyGatewayLocal carries an explicit
+// exemption for exactly these two routes so onboarding uploads (e.g. business/KYC documents)
+// aren't blocked until admin approval. GET routes were never subject to the approval gate at all
+// (reads only need isTenantAccessible). DELETE /:fileId keeps requireTenant and gets no such
+// exemption: deleting stays tenant-owned-only and approval-gated, no tenant-less or unapproved
+// caller of any kind may use it.
 export function createStorageRoutes(controller: StorageController): Router {
   const router = Router();
 

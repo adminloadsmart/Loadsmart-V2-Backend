@@ -1,3 +1,4 @@
+import { DataSource } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
@@ -13,6 +14,7 @@ import {
 } from '../organization/referral-code.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
+import { StorageService } from '../storage/storage.service';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
@@ -32,6 +34,7 @@ import {
   SetReferralCodeStatusInput,
   UpdateOrganizationInput,
   UpdateReferralCodeInput,
+  UploadOrganizationDocumentInput,
   VerifyOrganizationDocumentInput,
 } from './utils/admin.interface';
 import { CreateStaffInput, UpdateStaffInput } from '../auth/auth.types';
@@ -44,6 +47,8 @@ export class AdminService {
     private readonly authService: AuthService,
     private readonly referralCodeService: ReferralCodeService,
     private readonly auditService: AuditService,
+    private readonly storageService: StorageService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /** platform_admin gets every org, unfiltered. online_kyc_desk/offline_kyc_desk only ever see
@@ -240,6 +245,89 @@ export class AdminService {
       return document;
     } catch (error) {
       rethrow(error, 'Failed to verify organization document');
+    }
+  }
+
+  /** Attaches a new document, or replaces an existing one's file, on the org's behalf — e.g. the
+   *  org struggles to upload themselves, or a submitted file needs correcting mid-review. Unlike
+   *  the self-service flow (AuthService.saveBusinessDetails), this never handles raw file bytes:
+   *  the caller uploads through the generic storage endpoints first (POST /files + POST
+   *  /files/:fileId/confirm) and passes the resulting key(s) here — verified below via
+   *  storageService.getByKey so a bogus or still-pending key can't be attached to a document. */
+  async uploadOrganizationDocument(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    input: UploadOrganizationDocumentInput,
+  ) {
+    try {
+      const organization = await this.organizationService.getOrganizationStatus(organizationId);
+      this.assertOrgAccessible(actingUser, organization);
+
+      await this.assertUploadedFile(actingUser, input.fileKey);
+      if (input.backFileKey) {
+        await this.assertUploadedFile(actingUser, input.backFileKey);
+      }
+
+      return await this.dataSource.transaction(async (manager) => {
+        // shopboard_premises_photo is also mirrored onto the organization's own column (stripped
+        // from public responses by toPublicOrganization) — see AuthService.saveBusinessDetails,
+        // which keeps both in sync the same way. Everything else lives only in the document row.
+        if (input.documentType === 'shopboard_premises_photo') {
+          await this.organizationService.updateOrganization(
+            organizationId,
+            { shopboardPremisesPhotoKey: input.fileKey },
+            manager,
+          );
+        }
+
+        const [document] = await this.organizationDocumentService.upsertDocuments(
+          organizationId,
+          actingUser.id,
+          [
+            {
+              documentType: input.documentType,
+              documentNumber: input.documentNumber,
+              documentUrl: input.fileKey,
+              ...(input.backFileKey ? { backFileKey: input.backFileKey } : {}),
+            },
+          ],
+          manager,
+        );
+
+        await this.auditService.log(
+          {
+            tenantId: organizationId,
+            userId: actingUser.id,
+            action: 'ORGANIZATION_DOCUMENT_UPLOADED_BY_ADMIN',
+            resourceType: 'organization_document',
+            newData: {
+              documentId: document.id,
+              documentType: document.documentType,
+              fileKey: document.fileKey,
+              backFileKey: document.backFileKey,
+            },
+          },
+          manager,
+        );
+
+        return document;
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to upload organization document');
+    }
+  }
+
+  /** Admin/reviewer actors are tenant-less — same FileAccessActor shape the platform-scope
+   *  callers of storage.routes.ts already use. Confirms the key is a real upload before it's
+   *  ever written onto a document row; getByKey itself throws NotFoundError for a key that
+   *  doesn't exist at all, this adds the 'was it actually confirmed' check on top. */
+  private async assertUploadedFile(actingUser: AuthenticatedUser, fileKey: string): Promise<void> {
+    const { file } = await this.storageService.getByKey(
+      { tenantId: null, role: actingUser.role },
+      fileKey,
+    );
+    if (file.status !== 'confirmed') {
+      throw new ValidationError(`File ${fileKey} has not been confirmed yet`);
     }
   }
 

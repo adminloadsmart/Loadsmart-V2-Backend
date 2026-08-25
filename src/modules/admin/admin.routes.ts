@@ -65,6 +65,17 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.verifyOrganizationDocument),
   );
 
+  // Attach a new document, or replace an existing one's file, on the org's behalf — e.g. the org
+  // struggles to upload themselves, or a submitted file needs correcting mid-review. Takes an
+  // already-uploaded, already-confirmed fileKey (see POST /files + POST /files/:fileId/confirm),
+  // not raw bytes — same reviewer group as the verify route above, not adminOnly.
+  router.post(
+    '/organizations/:organizationId/documents',
+    requirePermission(...onlineReview),
+    validate(adminValidators.uploadOrganizationDocument),
+    asyncHandler(controller.uploadOrganizationDocument),
+  );
+
   // Assignment/dispatch stays platform_admin-only — online_kyc_desk/offline_kyc_desk don't pick
   // their own cases or hand off to a specific colleague, they just act once assigned.
   router.patch(
