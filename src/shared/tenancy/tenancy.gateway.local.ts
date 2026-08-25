@@ -4,6 +4,7 @@ import {
   isTenantAccessible,
   isTenantWriteAccessible,
 } from '../../modules/organization/organization.constants';
+import { API_VERSION_PREFIX } from '../constants/api';
 import { TenancyGateway } from './tenancy.gateway';
 
 // Methods that only read state. Everything else (POST/PUT/PATCH/DELETE, ...) is treated as a
@@ -15,9 +16,13 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 // the generic /files flow. Only these two writes are exempt from the approval gate below; every
 // other write on every other router, and DELETE /files/:fileId itself, still requires
 // isTenantWriteAccessible (i.e. an active org). See storage.routes.ts for the route definitions.
+// req.path here is the real incoming path INCLUDING the API_VERSION_PREFIX ('/v1/files', ...) —
+// createTenantScope runs ahead of the versioned router mounts in app.ts, not behind them — so the
+// exemption patterns must include that same prefix or they silently never match.
+const UPLOAD_PATH = `${API_VERSION_PREFIX}/files`;
 const WRITE_APPROVAL_EXEMPT_ROUTES: ReadonlyArray<{ method: string; test: RegExp }> = [
-  { method: 'POST', test: /^\/files\/?$/ },
-  { method: 'POST', test: /^\/files\/[^/]+\/confirm\/?$/ },
+  { method: 'POST', test: new RegExp(`^${UPLOAD_PATH}/?$`) },
+  { method: 'POST', test: new RegExp(`^${UPLOAD_PATH}/[^/]+/confirm/?$`) },
 ];
 
 function isWriteApprovalExempt(method: string, path: string): boolean {
