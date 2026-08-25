@@ -13,6 +13,7 @@ import { registerStorageOpenApi } from '../../modules/storage/storage.openapi';
 import { registerLoadsOpenApi } from '../../modules/loads/loads.openapi';
 import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper/shipper-analytics.openapi';
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
+import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -46,6 +47,7 @@ function getOpenApiDocument() {
     registerLoadsOpenApi(registry);
     registerShipperAnalyticsOpenApi(registry);
     registerFleetAnalyticsOpenApi(registry);
+    registerDriverAnalyticsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',

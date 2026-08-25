@@ -660,7 +660,7 @@ export class LoadService {
    *  requested) so the UI can render both tab badges from a single call. */
   async list(tenantId: string, input: ListLoadsInput): Promise<ListTripsResult> {
     try {
-      const { requisitionId, sourceType, transporterId, vehicleId } = input;
+      const { requisitionId, sourceType, transporterId, vehicleId, driverId } = input;
       const [[items, total], counts] = await Promise.all([
         this.repository.list(tenantId, input),
         this.repository.countByGroup(tenantId, {
@@ -668,6 +668,7 @@ export class LoadService {
           sourceType,
           transporterId,
           vehicleId,
+          driverId,
         }),
       ]);
       return { ...paginate(items.map(toTripListRow), total, input), counts };
