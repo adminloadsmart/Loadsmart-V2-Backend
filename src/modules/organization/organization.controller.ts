@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AuthorizationError } from '../../shared/errors';
 import { respond } from '../../shared/responses/respond';
 import { AuthService } from '../auth/auth.service';
 import { InviteOrganizationUserInput, ListOrganizationUsersInput } from '../auth/auth.types';
@@ -17,6 +18,14 @@ export class OrganizationController {
   getOrganization = async (req: Request, res: Response) => {
     const organization = await this.authService.getOrganizationForUser(req.user!);
     respond(res, organization);
+  };
+
+  getBusinessDetails = async (req: Request, res: Response) => {
+    if (!req.user?.tenantId) {
+      throw new AuthorizationError('Missing organization context');
+    }
+    const businessDetails = await this.authService.getBusinessDetails(req.user.tenantId);
+    respond(res, businessDetails);
   };
 
   createOrganization = async (req: Request, res: Response) => {

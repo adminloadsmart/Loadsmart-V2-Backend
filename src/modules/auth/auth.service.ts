@@ -747,6 +747,10 @@ export class AuthService {
     return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
   }
 
+  async getBusinessDetails(tenantId: string) {
+    return this.getOrganization(tenantId);
+  }
+
   async getOrganizationForUser(user: AuthenticatedUser) {
     const currentUser = await this.getUserById(user.id);
     const progress = await this.getOnboardingProgress(currentUser);

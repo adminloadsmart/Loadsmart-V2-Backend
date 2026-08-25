@@ -47,6 +47,7 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
   const router = Router();
 
   router.get('/organization', asyncHandler(controller.getOrganization));
+  router.get('/organization/business', asyncHandler(controller.getBusinessDetails));
   router.post(
     '/organization',
     validate(organizationValidators.createOrganization),

@@ -45,6 +45,23 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
   });
 
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/business`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.getBusinessDetails',
+    ...authenticated(
+      "Get the caller's saved GST business details, uploaded document references, and registered address for the business-verification step.",
+    ),
+    responses: {
+      200: { description: 'Business verification details and uploaded document references' },
+      404: {
+        description: 'Caller has a tenantId but no matching organization (data inconsistency)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/organization`,
     tags: [TAGS.AUTH],
