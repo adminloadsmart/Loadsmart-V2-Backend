@@ -255,13 +255,16 @@ export class AuthRepository {
   // access — e.g. admin.service.ts's reject/deny/suspend paths. RefreshTokenEntity has no
   // tenantId column of its own, so this joins through auth.users.tenant_id via a subquery rather
   // than looping revokeAllRefreshTokensForUser per user.
+  // refresh_tokens.user_id is `varchar` (schema drift — see the InitialSchema migration; it was
+  // never declared uuid like users.id is), so the subquery's id needs an explicit ::text cast to
+  // match it — without it Postgres has no `varchar = uuid` operator and throws 42883 on the IN.
   async revokeAllRefreshTokensForTenant(tenantId: string): Promise<void> {
     await this.refreshTokens
       .createQueryBuilder()
       .update(RefreshTokenEntity)
       .set({ revokedAt: () => 'now()' })
       .where('revoked_at IS NULL')
-      .andWhere('user_id IN (SELECT id FROM auth.users WHERE tenant_id = :tenantId)', {
+      .andWhere('user_id IN (SELECT id::text FROM auth.users WHERE tenant_id = :tenantId)', {
         tenantId,
       })
       .execute();
