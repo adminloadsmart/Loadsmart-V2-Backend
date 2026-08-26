@@ -801,7 +801,11 @@ export class AuthService {
         throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
       }
       if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
-        throw new AuthorizationError('Organization has already been submitted');
+        // Already past this step (e.g. the user navigated back after submitting). Rather than
+        // hard-blocking, return the organization as-is so the caller can redirect forward to
+        // wherever onboarding actually is instead of dead-ending on a resubmit error.
+        const documents = await this.organizationDocumentService.listByOrganization(tenantId);
+        return this.organizationOnboardingService.buildOrganizationResponse(current, documents);
       }
       const onboardingStep = this.organizationOnboardingService.nextStepAfterCompanyDetails(
         current.onboardingStep,
@@ -889,7 +893,11 @@ export class AuthService {
       throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
     }
     if (current.status === 'active' || (current.submittedAt && current.status !== 'pending')) {
-      throw new AuthorizationError('Organization has already been submitted');
+      // Already past this step (e.g. the user navigated back after submitting). Rather than
+      // hard-blocking, return the organization as-is so the caller can redirect forward to
+      // wherever onboarding actually is instead of dead-ending on a resubmit error.
+      const documents = await this.organizationDocumentService.listByOrganization(user.tenantId);
+      return this.organizationOnboardingService.buildOrganizationResponse(current, documents);
     }
 
     if (current.status === 'pending') {
@@ -903,7 +911,12 @@ export class AuthService {
       // admin must be able to log in and replace every invalid document. Once the invalid rows
       // are replaced, they become pending and the normal pending-review block applies again.
       if (!hasInvalidDocument) {
-        throw new AuthorizationError('Organization verification is pending. Please wait.');
+        // Same as above: verification genuinely pending with nothing to correct, so return
+        // current state instead of an error the UI has no good way to recover from.
+        return this.organizationOnboardingService.buildOrganizationResponse(
+          current,
+          existingDocuments,
+        );
       }
     }
 
@@ -1081,7 +1094,13 @@ export class AuthService {
       (current.status === 'pending' && !isCorrectionResubmission) ||
       (current.submittedAt && !isCorrectionResubmission)
     ) {
-      throw new AuthorizationError('Organization has already been submitted');
+      // Already past this step (e.g. the user navigated back after submitting). Rather than
+      // hard-blocking, return the organization as-is so the caller can redirect forward to
+      // wherever onboarding actually is instead of dead-ending on a resubmit error.
+      return this.organizationOnboardingService.buildOrganizationResponse(
+        current,
+        currentDocuments,
+      );
     }
 
     const referralCodeId = input.referralCode
