@@ -61,6 +61,14 @@ export function createCustomerRoutes(
     validate(customerValidators.reject),
     asyncHandler(controller.reject),
   );
+
+  router.patch(
+    '/:customerId/status',
+    requirePermission(CUSTOMERS_WRITE),
+    validate(customerValidators.updateStatus),
+    asyncHandler(controller.updateStatus),
+  );
+
   router.delete(
     '/delete/:customer_id',
     requirePermission(CUSTOMERS_WRITE),

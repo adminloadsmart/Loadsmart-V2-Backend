@@ -62,6 +62,19 @@ export class CustomerController {
         (req.body as { reason: string }).reason,
       ),
     );
+
+  updateStatus = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.service.updateStatus(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        (req.params as unknown as CustomerParams).customerId,
+        (req.body as { status: 'active' | 'inactive' }).status,
+      ),
+    );
+
   delete = async (req: Request, res: Response) => {
     await this.service.delete(
       requireTenantId(req),

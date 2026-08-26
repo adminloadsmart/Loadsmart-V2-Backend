@@ -174,6 +174,36 @@ export class CustomerService {
     }
   }
 
+  async updateStatus(
+    tenantId: string,
+    actorId: string,
+    role: string,
+    id: string,
+    status: 'active' | 'inactive',
+  ) {
+    try {
+      this.assertRole(role, [ORG_ADMIN_ROLE]);
+      const existing = await this.repository.findById(tenantId, id);
+      if (!existing) throw new NotFoundError(`Customer ${id} not found`);
+      if (existing.status !== 'active' && existing.status !== 'inactive')
+        throw new ConflictError('Only active or inactive customers can have their status updated');
+      if (existing.status === status) throw new ConflictError(`Customer is already ${status}`);
+      const value = await this.repository.updateStatus(tenantId, id, actorId, status);
+      if (!value) throw new ConflictError('Customer status update failed');
+      await this.audit.log({
+        tenantId,
+        userId: actorId,
+        action: 'CUSTOMER_STATUS_UPDATED',
+        resourceType: 'customer',
+        oldData: { id, status: existing.status },
+        newData: { id, status },
+      });
+      return value;
+    } catch (error) {
+      rethrow(error, 'Failed to update customer status');
+    }
+  }
+
   async delete(tenantId: string, actorId: string, role: string, id: string): Promise<void> {
     try {
       this.assertRole(role, [ORG_ADMIN_ROLE]);

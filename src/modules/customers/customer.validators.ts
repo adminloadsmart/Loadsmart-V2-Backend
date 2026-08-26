@@ -73,5 +73,6 @@ export const customerValidators = {
   }),
   approve: z.object({ params }),
   reject: z.object({ params, body: z.object({ reason: z.string().trim().min(1) }) }),
+  updateStatus: z.object({ params, body: z.object({ status: z.enum(['active', 'inactive']) }) }),
   delete: z.object({ params: deleteParams }),
 };

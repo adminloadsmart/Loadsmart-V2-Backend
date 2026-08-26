@@ -159,6 +159,13 @@ export class CustomerRepository {
     );
     return result.affected === 1 ? this.findById(tenantId, id) : null;
   }
+  async updateStatus(tenantId: string, id: string, actorId: string, status: 'active' | 'inactive') {
+    const result = await this.customers.update(
+      { id, tenantId, status: status === 'active' ? 'inactive' : 'active', deletedAt: IsNull() },
+      { status, updatedBy: actorId },
+    );
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
 
   async softDelete(
     tenantId: string,
