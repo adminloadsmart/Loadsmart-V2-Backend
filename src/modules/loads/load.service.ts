@@ -45,6 +45,9 @@ export interface TripListRow {
   vehicleNumber: string | null;
   driver: { id: string; fullName: string } | null;
   source: { type: LoadSourceType; label: string };
+  /** Market only — the target/starting rate captured at planning (LoadEntity.expectedRate).
+   *  Always null for own-fleet loads; the Freight column shows "Internal" for those instead. */
+  expectedRate: string | null;
   createdAt: string;
 }
 
@@ -125,6 +128,7 @@ function toTripListRow(load: LoadEntity): TripListRow {
             type: 'market',
             label: load.transporter ? `Market · ${load.transporter.name}` : 'Market',
           },
+    expectedRate: load.sourceType === 'own_fleet' ? null : load.expectedRate,
     createdAt: load.createdAt.toISOString(),
   };
 }
@@ -660,7 +664,7 @@ export class LoadService {
    *  requested) so the UI can render both tab badges from a single call. */
   async list(tenantId: string, input: ListLoadsInput): Promise<ListTripsResult> {
     try {
-      const { requisitionId, sourceType, transporterId, vehicleId, driverId } = input;
+      const { requisitionId, sourceType, transporterId, vehicleId, driverId, search } = input;
       const [[items, total], counts] = await Promise.all([
         this.repository.list(tenantId, input),
         this.repository.countByGroup(tenantId, {
@@ -669,6 +673,7 @@ export class LoadService {
           transporterId,
           vehicleId,
           driverId,
+          search,
         }),
       ]);
       return { ...paginate(items.map(toTripListRow), total, input), counts };
