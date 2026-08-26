@@ -165,6 +165,27 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     },
   });
   registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/{customerId}/status`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.updateStatus',
+    ...permissionGated(
+      [CUSTOMERS_WRITE],
+      "Toggle a customer between 'active' and 'inactive'. Separate from the pending-review " +
+        'approve/reject flow. ORG_ADMIN only.',
+    ),
+    request: {
+      params: customerValidators.updateStatus.shape.params,
+      body: json(customerValidators.updateStatus.shape.body),
+    },
+    responses: {
+      200: { description: 'Customer with updated status' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'Customer not found', ...errorContent },
+      409: { description: 'Invalid status transition', ...errorContent },
+    },
+  });
+  registry.registerPath({
     method: 'delete',
     path: `${BASE}/delete/{customer_id}`,
     tags: [TAGS.CUSTOMERS],
