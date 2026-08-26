@@ -13,6 +13,8 @@ const params = z.object({ loadId: uuid });
 
 export const loadValidators = {
   list: z.object({
+    // `search` (inherited from `pagination`) matches against the load's requisition's customer
+    // name — see LoadRepository.list/countByGroup.
     query: pagination
       .extend({
         requisitionId: uuid.optional(),

@@ -199,11 +199,14 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
         'completed` is the Trips Home-page tab filter (completed = delivered + closed), mutually ' +
-        "exclusive with `status`. Each row's `route`/`customer` come from the load's requisition; " +
-        '`source.label` is "Own fleet" or "Market · {transporter name}". `driver` is the load\'s ' +
-        "own snapshot from Dispatch Planning time, falling back to the vehicle's current active " +
-        'primary driver-link when that snapshot is null (own-fleet loads planned before any ' +
-        'driver was linked to the vehicle).',
+        "exclusive with `status`. `search` matches (case-insensitive, partial) against the load's " +
+        "requisition's customer name. Each row's `route`/`customer` come from the load's " +
+        'requisition; `source.label` is "Own fleet" or "Market · {transporter name}". ' +
+        '`expectedRate` is the planned freight rate — market loads only, always null for ' +
+        'own-fleet (the Freight column shows "Internal" for those instead). `driver` is ' +
+        "the load's own snapshot from Dispatch Planning time, falling back to the vehicle's " +
+        'current active primary driver-link when that snapshot is null (own-fleet loads planned ' +
+        'before any driver was linked to the vehicle).',
     ),
     request: { query: loadValidators.list.shape.query },
     responses: {

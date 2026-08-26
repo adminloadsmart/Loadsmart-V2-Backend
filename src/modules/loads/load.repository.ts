@@ -1,4 +1,12 @@
-import { DataSource, EntityManager, FindOptionsWhere, In, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  FindManyOptions,
+  FindOptionsWhere,
+  ILike,
+  In,
+  Repository,
+} from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { ListLoadsInput } from './utils/load.interface';
@@ -164,6 +172,7 @@ export class LoadRepository {
       transporterId,
       vehicleId,
       driverId,
+      search,
     } = filters;
 
     const where: FindOptionsWhere<LoadEntity> = { tenantId };
@@ -178,6 +187,7 @@ export class LoadRepository {
     if (transporterId) where.transporterId = transporterId;
     if (vehicleId) where.vehicleId = vehicleId;
     if (driverId) where.driverId = driverId;
+    if (search) where.requisition = { customer: { name: ILike(`%${search}%`) } };
 
     return this.loads.findAndCount({
       where,
@@ -204,32 +214,29 @@ export class LoadRepository {
     tenantId: string,
     filters: Pick<
       ListLoadsFilters,
-      'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId'
+      'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
     >,
   ): Promise<{ active: number; completed: number }> {
-    const qb = this.loads
+    const where: FindOptionsWhere<LoadEntity> = { tenantId };
+    if (filters.requisitionId) where.requisitionId = filters.requisitionId;
+    if (filters.sourceType) where.sourceType = filters.sourceType;
+    if (filters.transporterId) where.transporterId = filters.transporterId;
+    if (filters.vehicleId) where.vehicleId = filters.vehicleId;
+    if (filters.driverId) where.driverId = filters.driverId;
+    if (filters.search) where.requisition = { customer: { name: ILike(`%${filters.search}%`) } };
+
+    const findOptions: FindManyOptions<LoadEntity> = { where };
+    // Only needed to join in the customer for the search filter above — every other filter
+    // here targets a plain column on `load` itself.
+    if (filters.search) findOptions.relations = { requisition: { customer: true } };
+
+    const rows = await this.loads
       .createQueryBuilder('load')
+      .setFindOptions(findOptions)
       .select('load.status', 'status')
       .addSelect('COUNT(*)', 'count')
-      .where('load.tenant_id = :tenantId', { tenantId })
-      .groupBy('load.status');
-    if (filters.requisitionId) {
-      qb.andWhere('load.requisition_id = :requisitionId', { requisitionId: filters.requisitionId });
-    }
-    if (filters.sourceType) {
-      qb.andWhere('load.source_type = :sourceType', { sourceType: filters.sourceType });
-    }
-    if (filters.transporterId) {
-      qb.andWhere('load.transporter_id = :transporterId', { transporterId: filters.transporterId });
-    }
-    if (filters.vehicleId) {
-      qb.andWhere('load.vehicle_id = :vehicleId', { vehicleId: filters.vehicleId });
-    }
-    if (filters.driverId) {
-      qb.andWhere('load.driver_id = :driverId', { driverId: filters.driverId });
-    }
-
-    const rows = await qb.getRawMany<{ status: LoadStatus; count: string }>();
+      .groupBy('load.status')
+      .getRawMany<{ status: LoadStatus; count: string }>();
     const completedStatuses: readonly string[] = COMPLETED_LOAD_STATUSES;
     return rows.reduce(
       (acc, row) => {

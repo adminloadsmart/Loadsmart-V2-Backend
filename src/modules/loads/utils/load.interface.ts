@@ -49,6 +49,8 @@ export interface ListLoadsInput extends PaginationInput {
   transporterId?: string;
   vehicleId?: string;
   driverId?: string;
+  /** Matches against the load's requisition's customer name (case-insensitive, partial). */
+  search?: string;
 }
 
 export type LoadParams = { loadId: string };
