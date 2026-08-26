@@ -1,4 +1,4 @@
-import { DataSource, EntityManager, FindOptionsWhere, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { ListLoadsInput } from './utils/load.interface';
@@ -164,6 +164,7 @@ export class LoadRepository {
       transporterId,
       vehicleId,
       driverId,
+      search,
     } = filters;
 
     const where: FindOptionsWhere<LoadEntity> = { tenantId };
@@ -178,6 +179,7 @@ export class LoadRepository {
     if (transporterId) where.transporterId = transporterId;
     if (vehicleId) where.vehicleId = vehicleId;
     if (driverId) where.driverId = driverId;
+    if (search) where.requisition = { customer: { name: ILike(`%${search}%`) } };
 
     return this.loads.findAndCount({
       where,
@@ -203,7 +205,7 @@ export class LoadRepository {
     tenantId: string,
     filters: Pick<
       ListLoadsFilters,
-      'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId'
+      'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
     >,
   ): Promise<{ active: number; completed: number }> {
     const qb = this.loads
@@ -226,6 +228,11 @@ export class LoadRepository {
     }
     if (filters.driverId) {
       qb.andWhere('load.driver_id = :driverId', { driverId: filters.driverId });
+    }
+    if (filters.search) {
+      qb.innerJoin('load.requisition', 'requisition')
+        .innerJoin('requisition.customer', 'customer')
+        .andWhere('customer.name ILIKE :search', { search: `%${filters.search}%` });
     }
 
     const rows = await qb.getRawMany<{ status: LoadStatus; count: string }>();
