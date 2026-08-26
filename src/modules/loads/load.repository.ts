@@ -189,6 +189,7 @@ export class LoadRepository {
         driver: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+        cargoItems: { product: true },
       },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,

@@ -45,6 +45,11 @@ export interface TripListRow {
   vehicleNumber: string | null;
   driver: { id: string; fullName: string } | null;
   source: { type: LoadSourceType; label: string };
+  plannedCapacityTonnes: string;
+  freightValue: string | null;
+  advance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
+  balance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
+  cargoItems: { productId: string; productDetails: string; tonnesPerTruck: string }[];
   createdAt: string;
 }
 
@@ -103,6 +108,14 @@ function toTripListRow(load: LoadEntity): TripListRow {
   )?.driver;
   const driver = load.driver ?? currentVehicleDriver ?? null;
 
+  // Advance/balance amounts mirror buildNextAction's computation below — market-only, derived
+  // from freightValue + plannedCapacityTonnes + the stored percentages via computeShareAmount.
+  const isMarket = load.sourceType === 'market';
+  const advanceAmount =
+    isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
+  const balanceAmount =
+    isMarket && load.freightValue ? computeShareAmount(load, load.balancePercentage ?? '0') : null;
+
   return {
     id: load.id,
     status: load.status,
@@ -125,6 +138,25 @@ function toTripListRow(load: LoadEntity): TripListRow {
             type: 'market',
             label: load.transporter ? `Market · ${load.transporter.name}` : 'Market',
           },
+    plannedCapacityTonnes: load.plannedCapacityTonnes,
+    freightValue: load.freightValue,
+    advance: {
+      applicable: isMarket,
+      amount: advanceAmount,
+      paid: Boolean(load.advancePaidAt),
+      paidAt: load.advancePaidAt?.toISOString() ?? null,
+    },
+    balance: {
+      applicable: isMarket,
+      amount: balanceAmount,
+      paid: Boolean(load.balancePaidAt),
+      paidAt: load.balancePaidAt?.toISOString() ?? null,
+    },
+    cargoItems: (load.cargoItems ?? []).map((item) => ({
+      productId: item.productId,
+      productDetails: item.product.productDetails,
+      tonnesPerTruck: item.tonnesPerTruck,
+    })),
     createdAt: load.createdAt.toISOString(),
   };
 }

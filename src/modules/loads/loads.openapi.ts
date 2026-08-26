@@ -212,7 +212,12 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
           'Paginated trips — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
           'counts: { active, completed } } }. `counts` is tenant-wide (scoped by any non-group ' +
           'filters given) and independent of which group, if any, was requested — lets the UI ' +
-          'render both tab badges from one call.',
+          'render both tab badges from one call. Each row also carries `plannedCapacityTonnes`, ' +
+          '`freightValue` (market-only, null until Assignment confirms a rate), `advance`/`balance` ' +
+          '(`{ applicable, amount, paid, paidAt }` — `applicable`/`amount` are market-only, false/' +
+          "null for own-fleet loads, same shape and computation as the detail endpoint's " +
+          '`nextAction.advance`/`nextAction.balance`), and `cargoItems` (`{ productId, ' +
+          'productDetails, tonnesPerTruck }[]`, the product mix this load carries).',
       },
     },
   });
