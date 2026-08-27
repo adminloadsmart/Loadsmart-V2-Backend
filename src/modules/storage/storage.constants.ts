@@ -33,7 +33,7 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
   },
   'trips/lr': {
     maxSizeBytes: 5 * 1024 * 1024,
-    allowedMimeTypes: ['application/pdf'],
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     keyPrefix: 'trips/lr',
   },
   'masters/vehicle': {
