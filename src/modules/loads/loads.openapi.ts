@@ -233,8 +233,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Load / Trip Detail — status, assignment, documents (resolved to download URLs), ' +
         'payments, computed e-way-bill expiry, the full chronological activity timeline (now with ' +
-        "each entry's actor name/role resolved), an 8-step progress stepper, and a next-action " +
-        'panel (next stage, "step N of 6", tracking/advance-due info). This is the single trip ' +
+        "each entry's actor name/role resolved), an 8-step technical progress stepper, and a " +
+        'next-action panel (next stage, "step N of 4/6" — counted against the load\'s own sourcing ' +
+        'strategy\'s doc lifecycle, Own Fleet 4 stages vs Market 6 including a derived "Payments" ' +
+        'stage, not one shared count — plus tracking/advance-due info). This is the single trip ' +
         'detail screen — GET /loads/{loadId}/activities returns the same timeline entries alone.',
     ),
     request: { params: loadValidators.get.shape.params },

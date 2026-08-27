@@ -72,17 +72,51 @@ export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
 export const LOAD_STATUS_GROUPS = ['active', 'completed'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 
-/** The subset of LOAD_STATUSES the trip-detail screen's "step N of 6" counts against — excludes
- *  'created' (pre-trip order intake, not a physical trip step) and 'closed' (back-office
- *  payment/paperwork closure, not a movement step). */
-export const TRIP_PROGRESS_STATUSES: readonly LoadStatus[] = [
+/**
+ * Plan Dispatch v2.0 §11/R-38 — each sourcing strategy has its own customer/dispatcher-facing
+ * lifecycle length (Own Fleet 4 stages, Market Fleet 6; Loadsmart's 9 has no equivalent yet since
+ * that sourcing strategy doesn't exist in this build — see LOAD_SOURCE_TYPES above). This sits
+ * alongside, not instead of, LOAD_STATUSES above — loading_confirmed/at_plant remain real,
+ * separately-timestamped statuses the trip-detail screen's technical stepper still tracks
+ * (load.service.ts's buildStepper, unchanged), but the doc's simplified lifecycle folds both into
+ * the preceding stage rather than counting them on their own. Consumed only by
+ * load.service.ts's resolveLifecycleStage/buildNextAction.
+ */
+export const OWN_FLEET_LIFECYCLE_STATUSES: readonly LoadStatus[] = [
   'assigned',
-  'loading_confirmed',
-  'at_plant',
   'in_transit',
   'reached_delivery_point',
   'delivered',
 ];
+
+export const MARKET_LIFECYCLE_STATUSES: readonly LoadStatus[] = [
+  'created',
+  'assigned',
+  'in_transit',
+  'reached_delivery_point',
+  'delivered',
+];
+
+/** Market Fleet's 6th doc stage ("Payments") isn't a LoadStatus at all — advance/balance run in
+ *  parallel with movement rather than block it (see LoadEntity's doc comment), so it's a derived
+ *  pseudo-stage keyed off advancePaidAt/balancePaidAt, not a status value. Own Fleet has no
+ *  equivalent (R-17: "Own-fleet movements carry no freight, advance or balance"). */
+export const PAYMENTS_STAGE = 'payments' as const;
+
+/** Doc-exact wording (Plan Dispatch v2.0 §11) for the stage a load is currently "at". Rows for
+ *  loading_confirmed/at_plant/closed intentionally repeat their collapsed target's label — see
+ *  load.service.ts's resolveLifecycleStage, the only place that does the collapsing. */
+export const LIFECYCLE_STAGE_LABELS: Record<LoadStatus | typeof PAYMENTS_STAGE, string> = {
+  created: 'Load created',
+  assigned: 'Truck assigned',
+  loading_confirmed: 'Truck assigned',
+  at_plant: 'Truck assigned',
+  in_transit: 'In-transit',
+  reached_delivery_point: 'Reached unloading point',
+  delivered: 'Delivered',
+  closed: 'Delivered',
+  payments: 'Payments',
+};
 
 /** The subset of LOAD_STATUSES settable via PATCH /loads/:id/status (manual tracking —
  *  this build has no GPS/geofence automation).
