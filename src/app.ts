@@ -21,25 +21,17 @@ export function createApp({
   const app = express();
 
   app.use(helmet());
-  // app.use(
-  //   cors({
-  //     origin: (origin, callback) => {
-  //       // Non-browser clients do not send an Origin header and should remain supported.
-  //       if (!origin || env.corsOrigins.includes(origin)) {
-  //         callback(null, true);
-  //         return;
-  //       }
-
-  //       callback(new Error('Origin is not allowed by CORS'));
-  //     },
-  //     credentials: true,
-
-  //     // origin: '*',
-  //   }),
-  // );
   app.use(
     cors({
-      origin: true,
+      origin: (origin, callback) => {
+        // Non-browser clients do not send an Origin header and should remain supported.
+        if (!origin || env.corsOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error('Origin is not allowed by CORS'));
+      },
       credentials: true,
 
       // origin: '*',
