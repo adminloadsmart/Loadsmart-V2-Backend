@@ -11,12 +11,15 @@ import { LoadActivityService } from './load-activity.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
 import {
+  LIFECYCLE_STAGE_LABELS,
   LOAD_STATUSES,
   LoadSourceType,
   LoadStatus,
   MANUAL_TRACKING_STATUSES,
   ManualTrackingStatus,
-  TRIP_PROGRESS_STATUSES,
+  MARKET_LIFECYCLE_STATUSES,
+  OWN_FLEET_LIFECYCLE_STATUSES,
+  PAYMENTS_STAGE,
 } from './utils/loads.types';
 import { LoadActivityWithActor } from './utils/load-activity.interface';
 import {
@@ -76,10 +79,15 @@ export interface TripStepperStep {
 
 export interface TripNextAction {
   nextStatus: LoadStatus | null;
-  /** 0 before 'assigned'; 1-6 while moving through TRIP_PROGRESS_STATUSES; capped at 6 once
-   *  'closed'. */
+  /** Plan Dispatch v2.0 §11/R-38 — counted against the load's OWN sourcing strategy's lifecycle
+   *  (Own Fleet: 4 steps; Market: 6, the 6th being the derived "Payments" stage), not a single
+   *  shared count across every load — see resolveLifecycleStage below. 0 before the first stage;
+   *  capped at `totalSteps` once fully complete. */
   stepNumber: number;
   totalSteps: number;
+  /** Doc-exact label (Plan Dispatch v2.0 §11) for the stage `stepNumber` currently sits at — e.g.
+   *  "Truck assigned", "In-transit", or (Market only, once both payments clear) "Payments". */
+  currentStageLabel: string;
   lastUpdate: { status: LoadStatus; at: string | null };
   advance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
   balance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
@@ -186,6 +194,25 @@ function buildStepper(load: LoadEntity): TripStepperStep[] {
   }));
 }
 
+/**
+ * Collapses a load's technical LOAD_STATUSES value onto the doc-aligned lifecycle stage it
+ * belongs to (Plan Dispatch v2.0 §11/R-38): loading_confirmed/at_plant fold into the preceding
+ * "Truck assigned"/"Load created" stage (they're still real, separately-timestamped statuses —
+ * see buildStepper's 8-step technical view — just not named separately in the doc's simplified,
+ * per-strategy lifecycle), and 'closed' folds into 'delivered'. Market Fleet's "Payments" stage
+ * isn't a LoadStatus at all — advance/balance run in parallel with movement (LoadEntity's doc
+ * comment) — so it's derived from both payment timestamps being set, independent of whether
+ * `status` still reads 'delivered' or has since moved to 'closed'.
+ */
+function resolveLifecycleStage(load: LoadEntity): LoadStatus | typeof PAYMENTS_STAGE {
+  if (load.sourceType === 'market' && load.advancePaidAt && load.balancePaidAt) {
+    return PAYMENTS_STAGE;
+  }
+  if (load.status === 'loading_confirmed' || load.status === 'at_plant') return 'assigned';
+  if (load.status === 'closed') return 'delivered';
+  return load.status;
+}
+
 /** Next-action panel — what stage comes next, tracking/advance-due info. Advance/balance
  *  applicability and paid-state mirror the exact gating LoadPaymentService.recordAdvance/
  *  recordBalance already enforce (market-only, gated by loadingConfirmedAt/deliveredAt). */
@@ -193,15 +220,16 @@ function buildNextAction(load: LoadEntity): TripNextAction {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
 
-  const progressIndex = TRIP_PROGRESS_STATUSES.indexOf(load.status);
-  const stepNumber =
-    load.status === 'closed'
-      ? TRIP_PROGRESS_STATUSES.length
-      : progressIndex === -1
-        ? 0
-        : progressIndex + 1;
-
   const isMarket = load.sourceType === 'market';
+  // Own Fleet's doc lifecycle is 4 stages; Market's is 6 (5 real statuses + the derived
+  // "Payments" stage) — R-38, not one shared count across every load regardless of strategy.
+  const lifecycleStatuses = isMarket ? MARKET_LIFECYCLE_STATUSES : OWN_FLEET_LIFECYCLE_STATUSES;
+  const totalSteps = lifecycleStatuses.length + (isMarket ? 1 : 0);
+
+  const currentStage = resolveLifecycleStage(load);
+  const stepNumber =
+    currentStage === PAYMENTS_STAGE ? totalSteps : lifecycleStatuses.indexOf(currentStage) + 1;
+
   const advanceAmount =
     isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
   const balanceAmount =
@@ -210,7 +238,8 @@ function buildNextAction(load: LoadEntity): TripNextAction {
   return {
     nextStatus,
     stepNumber,
-    totalSteps: TRIP_PROGRESS_STATUSES.length,
+    totalSteps,
+    currentStageLabel: LIFECYCLE_STAGE_LABELS[currentStage],
     lastUpdate: { status: load.status, at: load.updatedAt?.toISOString() ?? null },
     advance: {
       applicable: isMarket,
