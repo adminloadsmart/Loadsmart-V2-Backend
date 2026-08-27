@@ -4,7 +4,7 @@ import { TransporterService } from '../masters/transporter.service';
 import { VehicleService } from '../masters/vehicle.service';
 import { StorageService } from '../storage/storage.service';
 import { paginate, Paginated } from '../masters/utils/masters.types';
-import { LoadRepository } from './load.repository';
+import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadActivityService } from './load-activity.service';
 import { LoadEntity } from './entities/load.entity';
@@ -201,7 +201,9 @@ export class LoadService {
   }
 
   /** Ops attaches invoice/e-way bill/E-LR and confirms loading — triggers tracking and,
-   *  for market loads, enables advance payment. */
+   *  for market loads, enables advance payment. Documents may be submitted one at a time or all
+   *  together (load.validators.ts's confirmLoading allows any non-empty subset); this only flips
+   *  the load to loading_confirmed once all three end up present on the row. */
   async confirmLoading(
     tenantId: string,
     actorId: string,
@@ -216,46 +218,68 @@ export class LoadService {
       }
 
       // C-04 — LR numbers are statutory and can never repeat, checked across every load in the
-      // tenant regardless of status. Blocking, no override.
-      if (input.elrNumber?.trim()) {
-        const clash = await this.repository.findByElrNumber(tenantId, input.elrNumber.trim());
+      // tenant regardless of status. Blocking, no override. Only checked when this call is
+      // actually setting/changing the number — otherwise a partial-submission caller resubmitting
+      // its own already-stored elrNumber would self-clash against the row it's about to update.
+      const nextElrNumber = input.elrNumber?.trim();
+      if (nextElrNumber && nextElrNumber !== load.elrNumber) {
+        const clash = await this.repository.findByElrNumber(tenantId, nextElrNumber);
         if (clash) {
           throw new ConflictError(
-            `E-LR number "${input.elrNumber.trim()}" is already used on load ${clash.id}`,
+            `E-LR number "${nextElrNumber}" is already used on load ${clash.id}`,
           );
         }
       }
 
-      await this.assertLoadDocumentUpload(
-        tenantId,
-        actorRole,
-        input.invoiceFileKey,
-        'loads/invoice',
-      );
-      await this.assertLoadDocumentUpload(
-        tenantId,
-        actorRole,
-        input.ewayBillFileKey,
-        'loads/eway-bill',
-      );
-      await this.assertLoadDocumentUpload(tenantId, actorRole, input.elrFileKey, 'trips/lr');
+      // Verify only the documents submitted this call — previously-saved keys were already
+      // verified (as confirmed uploads for the right purpose) when they were first submitted.
+      if (input.invoiceFileKey) {
+        await this.assertLoadDocumentUpload(
+          tenantId,
+          actorRole,
+          input.invoiceFileKey,
+          'loads/invoice',
+        );
+      }
+      if (input.ewayBillFileKey) {
+        await this.assertLoadDocumentUpload(
+          tenantId,
+          actorRole,
+          input.ewayBillFileKey,
+          'loads/eway-bill',
+        );
+      }
+      if (input.elrFileKey) {
+        await this.assertLoadDocumentUpload(tenantId, actorRole, input.elrFileKey, 'trips/lr');
+      }
 
       const now = new Date();
-      const updated = await this.repository.update(tenantId, loadId, {
-        status: 'loading_confirmed',
-        invoiceNumber: input.invoiceNumber.trim(),
-        invoiceFileKey: input.invoiceFileKey,
-        ewayBillNumber: input.ewayBillNumber.trim(),
-        ewayBillFileKey: input.ewayBillFileKey,
-        ewayBillGeneratedAt: now,
-        elrNumber: input.elrNumber?.trim() ?? null,
-        elrFileKey: input.elrFileKey,
-        loadingConfirmedAt: now,
-        loadingConfirmedBy: actorId,
-        updatedBy: actorId,
-      });
+      const fields: UpdateLoadData = { updatedBy: actorId };
+      if (input.invoiceNumber !== undefined) fields.invoiceNumber = input.invoiceNumber.trim();
+      if (input.invoiceFileKey !== undefined) fields.invoiceFileKey = input.invoiceFileKey;
+      if (input.ewayBillNumber !== undefined) fields.ewayBillNumber = input.ewayBillNumber.trim();
+      if (input.ewayBillFileKey !== undefined) {
+        fields.ewayBillFileKey = input.ewayBillFileKey;
+        // Stamped when the e-way bill is actually uploaded (this call), not whenever the last
+        // document happens to land — getEwayBillExpiry's 2-hour clock runs from generation time.
+        fields.ewayBillGeneratedAt = now;
+      }
+      if (input.elrNumber !== undefined) fields.elrNumber = nextElrNumber ?? null;
+      if (input.elrFileKey !== undefined) fields.elrFileKey = input.elrFileKey;
+
+      // Step 1 — persist whatever arrived this call as a plain partial update, then re-read.
+      // Completeness below is decided from this fresh, post-write row rather than an in-memory
+      // merge of the pre-write read above: that's what lets two concurrent calls, each landing
+      // one of the last two missing documents, both correctly see the full set once both writes
+      // commit — deciding from the pre-write view would let both conclude "still incomplete".
+      let updated = await this.repository.update(tenantId, loadId, fields);
       if (!updated) throw new ConflictError('Confirming loading failed');
 
+      const uploadedMetadata: Record<string, unknown> = {};
+      if (input.invoiceNumber !== undefined) uploadedMetadata.invoiceNumber = input.invoiceNumber;
+      if (input.ewayBillNumber !== undefined)
+        uploadedMetadata.ewayBillNumber = input.ewayBillNumber;
+      if (input.elrFileKey !== undefined) uploadedMetadata.elrNumber = input.elrNumber ?? null;
       await this.loadActivityService.record(
         tenantId,
         loadId,
@@ -263,24 +287,51 @@ export class LoadService {
         'DOCUMENT_UPLOADED',
         null,
         null,
-        { invoiceNumber: input.invoiceNumber, ewayBillNumber: input.ewayBillNumber },
+        uploadedMetadata,
       );
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        actorId,
-        'STATUS_CHANGED',
-        'assigned',
-        'loading_confirmed',
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: actorId,
-        action: 'LOAD_LOADING_CONFIRMED',
-        resourceType: 'load',
-        oldData: { id: loadId, status: 'assigned' },
-        newData: { id: loadId, status: 'loading_confirmed' },
-      });
+
+      const isComplete =
+        !!updated.invoiceNumber &&
+        !!updated.invoiceFileKey &&
+        !!updated.ewayBillNumber &&
+        !!updated.ewayBillFileKey &&
+        !!updated.elrFileKey; // elrNumber intentionally excluded — same asymmetry as before
+
+      if (isComplete && updated.status === 'assigned') {
+        // Step 2 — conditional flip. WHERE status IN ('assigned') is both the business guard and
+        // the race guard: if two concurrent calls each complete the set at the same instant, only
+        // one UPDATE matches, so only one call ever logs STATUS_CHANGED/the audit entry.
+        const confirmed = await this.repository.updateStatus(
+          tenantId,
+          loadId,
+          ['assigned'],
+          'loading_confirmed',
+          { loadingConfirmedAt: now, loadingConfirmedBy: actorId, updatedBy: actorId },
+        );
+        if (confirmed) {
+          updated = confirmed;
+          await this.loadActivityService.record(
+            tenantId,
+            loadId,
+            actorId,
+            'STATUS_CHANGED',
+            'assigned',
+            'loading_confirmed',
+          );
+          await this.auditService.log({
+            tenantId,
+            userId: actorId,
+            action: 'LOAD_LOADING_CONFIRMED',
+            resourceType: 'load',
+            oldData: { id: loadId, status: 'assigned' },
+            newData: { id: loadId, status: 'loading_confirmed' },
+          });
+        } else {
+          // Lost the race — a concurrent call already completed the transition and logged
+          // STATUS_CHANGED/the audit entry. Reflect current state without duplicating those.
+          updated = await this.assertExists(tenantId, loadId);
+        }
+      }
 
       return updated;
     } catch (error) {
