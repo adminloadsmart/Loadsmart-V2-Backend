@@ -28,7 +28,7 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
   },
   'trips/pod': {
     maxSizeBytes: 5 * 1024 * 1024,
-    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     keyPrefix: 'trips/pod',
   },
   'trips/lr': {
