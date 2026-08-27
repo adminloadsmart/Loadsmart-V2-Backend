@@ -20,6 +20,9 @@ export interface CreateRequisitionInput {
   products: RequisitionProductLineInput[];
   loadingPointId: string;
   customerDeliveryPointId: string;
+  /** When the truck is expected to pick up from the loading point — must not be after
+   *  expectedDeliveryDate. */
+  pickupDate: string;
   expectedDeliveryDate: string;
   customerPoNumber: string;
   /** C-05 (duplicate PO/SO number) is the only overridable check at this stage. */
@@ -34,11 +37,13 @@ export interface ListRequisitionsInput extends PaginationInput {
 
 export interface CreateRequisitionData {
   tenantId: string;
+  code: string;
   customerId: string;
   quantityTonnes: string;
   dispatchedTonnes: string;
   loadingPointId: string;
   customerDeliveryPointId: string;
+  pickupDate: string;
   expectedDeliveryDate: string;
   customerPoNumber: string;
   status: RequisitionStatus;

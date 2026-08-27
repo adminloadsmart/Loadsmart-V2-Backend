@@ -14,7 +14,7 @@ export interface CreateRequisitionItemData {
 }
 
 /** Fields the requisitions search box matches against, OR'd together. */
-const SEARCH_FIELDS: (keyof RequisitionEntity)[] = ['customerPoNumber'];
+const SEARCH_FIELDS: (keyof RequisitionEntity)[] = ['code', 'customerPoNumber'];
 
 export class RequisitionRepository {
   private readonly requisitions: Repository<RequisitionEntity>;
@@ -62,6 +62,10 @@ export class RequisitionRepository {
       customerPoNumber,
       ...(excludeId ? { id: Not(excludeId) } : {}),
     });
+  }
+
+  findByCode(tenantId: string, code: string): Promise<RequisitionEntity | null> {
+    return this.requisitions.findOneBy({ tenantId, code });
   }
 
   async list(

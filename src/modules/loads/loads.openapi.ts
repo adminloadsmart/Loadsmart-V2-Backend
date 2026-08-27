@@ -48,7 +48,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { body: json(requisitionValidators.create.shape.body) },
     responses: {
-      201: { description: 'Created requisition, status "open", 0 tonnes dispatched' },
+      201: {
+        description:
+          'Created requisition, status "open", 0 tonnes dispatched, with an auto-generated ' +
+          '"REQ-nnnn" display code',
+      },
       400: { description: 'Validation failed', ...errorContent },
       409: {
         description:
@@ -283,7 +287,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Updated load' },
       400: { description: 'Validation failed', ...errorContent },
       409: {
-        description: 'Load is own-fleet, or is not in the "created" state',
+        description:
+          'Load is own-fleet, is not in the "created" state, or the vehicle number is already ' +
+          'on another active load elsewhere (C-07)',
         ...errorContent,
       },
     },

@@ -5,6 +5,7 @@ import {
   FindOptionsWhere,
   ILike,
   In,
+  Not,
   Repository,
 } from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
@@ -31,6 +32,9 @@ const ACTIVE_VEHICLE_STATUSES: LoadStatus[] = [
 
 export interface CreateLoadData {
   tenantId: string;
+  /** Assigned by DispatchPlanningService.planDispatch right before createMany — every row built
+   *  by buildRowsForLine still needs one before it reaches the DB (the column is NOT NULL). */
+  code?: string;
   requisitionId: string;
   sourceType: LoadSourceType;
   status?: LoadStatus; // own-fleet lands 'assigned' directly (R-35); market defaults to 'created'
@@ -161,6 +165,28 @@ export class LoadRepository {
     return this.loads.findOneBy({ tenantId, elrNumber });
   }
 
+  /** C-07 — the vehicle number (a market load's free-text plate, entered at Assignment) is
+   *  already on another active/live load in the tenant. Own-fleet duplicate use is already
+   *  caught by vehicleId-based C-01/C-02; this is the same guarantee for market loads, whose
+   *  vehicle is a plain string rather than a VehicleEntity FK. `excludeLoadId` lets re-assigning
+   *  the same load to the same plate (a retry) pass without tripping on itself. */
+  findActiveByVehicleNumber(
+    tenantId: string,
+    vehicleNumber: string,
+    excludeLoadId?: string,
+  ): Promise<LoadEntity | null> {
+    return this.loads.findOneBy({
+      tenantId,
+      vehicleNumber,
+      status: In(ACTIVE_VEHICLE_STATUSES),
+      ...(excludeLoadId ? { id: Not(excludeLoadId) } : {}),
+    });
+  }
+
+  findByCode(tenantId: string, code: string): Promise<LoadEntity | null> {
+    return this.loads.findOneBy({ tenantId, code });
+  }
+
   async list(tenantId: string, filters: ListLoadsFilters): Promise<[LoadEntity[], number]> {
     const {
       page,
@@ -175,19 +201,28 @@ export class LoadRepository {
       search,
     } = filters;
 
-    const where: FindOptionsWhere<LoadEntity> = { tenantId };
-    if (requisitionId) where.requisitionId = requisitionId;
-    if (status) where.status = status;
+    const base: FindOptionsWhere<LoadEntity> = { tenantId };
+    if (requisitionId) base.requisitionId = requisitionId;
+    if (status) base.status = status;
     // Mutually exclusive with `status` — enforced by the validator's .refine(), see
     // load.validators.ts. The Trips Home-page tab filter (Active/Completed).
     if (group) {
-      where.status = In(group === 'active' ? ACTIVE_LOAD_STATUSES : COMPLETED_LOAD_STATUSES);
+      base.status = In(group === 'active' ? ACTIVE_LOAD_STATUSES : COMPLETED_LOAD_STATUSES);
     }
-    if (sourceType) where.sourceType = sourceType;
-    if (transporterId) where.transporterId = transporterId;
-    if (vehicleId) where.vehicleId = vehicleId;
-    if (driverId) where.driverId = driverId;
-    if (search) where.requisition = { customer: { name: ILike(`%${search}%`) } };
+    if (sourceType) base.sourceType = sourceType;
+    if (transporterId) base.transporterId = transporterId;
+    if (vehicleId) base.vehicleId = vehicleId;
+    if (driverId) base.driverId = driverId;
+
+    // Matches the load's own REQ-nnnn-Lx code or its requisition's customer name — a dispatcher
+    // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS
+    // for the same convention on the requisition side).
+    const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
+      ? [
+          { ...base, code: ILike(`%${search}%`) },
+          { ...base, requisition: { customer: { name: ILike(`%${search}%`) } } },
+        ]
+      : base;
 
     return this.loads.findAndCount({
       where,
@@ -217,13 +252,19 @@ export class LoadRepository {
       'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
     >,
   ): Promise<{ active: number; completed: number }> {
-    const where: FindOptionsWhere<LoadEntity> = { tenantId };
-    if (filters.requisitionId) where.requisitionId = filters.requisitionId;
-    if (filters.sourceType) where.sourceType = filters.sourceType;
-    if (filters.transporterId) where.transporterId = filters.transporterId;
-    if (filters.vehicleId) where.vehicleId = filters.vehicleId;
-    if (filters.driverId) where.driverId = filters.driverId;
-    if (filters.search) where.requisition = { customer: { name: ILike(`%${filters.search}%`) } };
+    const base: FindOptionsWhere<LoadEntity> = { tenantId };
+    if (filters.requisitionId) base.requisitionId = filters.requisitionId;
+    if (filters.sourceType) base.sourceType = filters.sourceType;
+    if (filters.transporterId) base.transporterId = filters.transporterId;
+    if (filters.vehicleId) base.vehicleId = filters.vehicleId;
+    if (filters.driverId) base.driverId = filters.driverId;
+
+    const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = filters.search
+      ? [
+          { ...base, code: ILike(`%${filters.search}%`) },
+          { ...base, requisition: { customer: { name: ILike(`%${filters.search}%`) } } },
+        ]
+      : base;
 
     const findOptions: FindManyOptions<LoadEntity> = { where };
     // Only needed to join in the customer for the search filter above — every other filter

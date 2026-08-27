@@ -278,6 +278,22 @@ export class LoadService {
       if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
       if (!input.freightType) throw new ValidationError('freightType is required');
 
+      // C-07 — this plate can't already be on another live load, own-fleet or market. Own-fleet
+      // duplicate use is caught earlier by vehicleId-based C-01/C-02 at Dispatch Planning; this
+      // is the same guarantee for a market load's free-text vehicle number. No override — same
+      // as C-02, a truck cannot physically be on two active trips at once.
+      const vehicleNumber = input.vehicleNumber.trim().toUpperCase();
+      const clash = await this.repository.findActiveByVehicleNumber(
+        tenantId,
+        vehicleNumber,
+        loadId,
+      );
+      if (clash) {
+        throw new ConflictError(
+          `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.id}, status ${clash.status})`,
+        );
+      }
+
       // The agreed rate — defaults to the target rate captured at planning if the caller doesn't
       // override it (e.g. the counter-offer negotiation landed on the original target).
       const freightValue =
@@ -286,7 +302,7 @@ export class LoadService {
       const updated = await this.repository.update(tenantId, loadId, {
         status: 'assigned',
         transporterId: input.transporterId,
-        vehicleNumber: input.vehicleNumber.trim(),
+        vehicleNumber,
         driverNumber: input.driverNumber.trim(),
         freightType: input.freightType,
         freightValue,

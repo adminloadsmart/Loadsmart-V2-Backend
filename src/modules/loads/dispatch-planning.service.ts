@@ -8,10 +8,12 @@ import { TruckTypeService } from '../masters/truck-type.service';
 import { TruckTypeEntity } from '../masters/entities/truck-type.entity';
 import { RequisitionRepository } from './requisition.repository';
 import { LoadRepository, CreateLoadData } from './load.repository';
+import { CodeSequenceRepository } from './code-sequence.repository';
 import { LoadActivityService } from './load-activity.service';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
 import { computeFitVerdict, FitResult } from './utils/fit-engine';
+import { formatLoadCode } from './utils/code.util';
 import {
   AvailableVehicleRow,
   CapacitySummary,
@@ -49,6 +51,7 @@ export class DispatchPlanningService {
     private readonly dataSource: DataSource,
     private readonly requisitionRepository: RequisitionRepository,
     private readonly loadRepository: LoadRepository,
+    private readonly codeSequenceRepository: CodeSequenceRepository,
     private readonly vehicleService: VehicleService,
     private readonly truckTypeService: TruckTypeService,
     private readonly loadActivityService: LoadActivityService,
@@ -93,6 +96,21 @@ export class DispatchPlanningService {
         }
 
         const allRows = built.flatMap((line) => line.rows);
+
+        // REQ-nnnn-Lx — restarts at 1 per requisition and keeps counting across dispatch rounds
+        // (a later partial-dispatch call against the same requisition continues from where the
+        // previous one left off), same worked examples as Plan Dispatch v2.0. Sequential, not
+        // Promise.all: each call takes a row lock on the same counter row, so awaiting one at a
+        // time is both correct and no slower than they'd serialize to anyway.
+        for (const row of allRows) {
+          const loadSequenceValue = await this.codeSequenceRepository.next(
+            'load',
+            requisitionId,
+            manager,
+          );
+          row.code = formatLoadCode(requisition.code, loadSequenceValue);
+        }
+
         const loads = await this.loadRepository.createMany(allRows, manager);
 
         // Own-fleet lines take a vehicle off the yard and onto this load — reflect that on the
@@ -255,20 +273,20 @@ export class DispatchPlanningService {
     }
 
     // C-03 — the vehicle appears on an earlier closed load. Amber: overridable with a reason.
-    // const closed = await this.loadRepository.findClosedByVehicles(tenantId, allVehicleIds, manager);
-    // if (closed.length > 0) {
-    //   const override = input.overrides?.find((entry) => entry.checkId === 'C03');
-    //   if (!override) {
-    //     throw new ConflictError(
-    //       `Vehicle ${closed[0].vehicleId} was used on an earlier closed load (${closed[0].id}) — override with a reason to reuse it`,
-    //     );
-    //   }
-    //   if (override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
-    //     throw new ValidationError(
-    //       `Override reason must be at least ${MIN_OVERRIDE_REASON_LENGTH} characters`, // V-17
-    //     );
-    //   }
-    // }
+    const closed = await this.loadRepository.findClosedByVehicles(tenantId, allVehicleIds, manager);
+    if (closed.length > 0) {
+      const override = input.overrides?.find((entry) => entry.checkId === 'C03');
+      if (!override) {
+        throw new ConflictError(
+          `Vehicle ${closed[0].vehicleId} was used on an earlier closed load (${closed[0].id}) — override with a reason to reuse it`,
+        );
+      }
+      if (override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
+        throw new ValidationError(
+          `Override reason must be at least ${MIN_OVERRIDE_REASON_LENGTH} characters`, // V-17
+        );
+      }
+    }
   }
 
   /** Dispatch Planning's vehicle picker — the base masters vehicle list, hard-filtered to

@@ -11,6 +11,7 @@ import { ProductService } from '../masters/product.service';
 
 import { RequisitionRepository } from './requisition.repository';
 import { RequisitionService } from './requisition.service';
+import { CodeSequenceRepository } from './code-sequence.repository';
 import { LoadRepository } from './load.repository';
 import { LoadService } from './load.service';
 import { LoadPaymentRepository } from './load-payment.repository';
@@ -41,11 +42,13 @@ export function createLoadsModule(
   const requisitionRepository = new RequisitionRepository(dataSource);
   const loadRepository = new LoadRepository(dataSource);
   const loadPaymentRepository = new LoadPaymentRepository(dataSource);
+  const codeSequenceRepository = new CodeSequenceRepository(dataSource);
 
   const requisitionService = new RequisitionService(
     dataSource,
     requisitionRepository,
     loadRepository,
+    codeSequenceRepository,
     deps.customerService,
     deps.productService,
     deps.loadingPointService,
@@ -74,6 +77,7 @@ export function createLoadsModule(
     dataSource,
     requisitionRepository,
     loadRepository,
+    codeSequenceRepository,
     deps.vehicleService,
     deps.truckTypeService,
     loadActivityService,
