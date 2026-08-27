@@ -19,13 +19,19 @@ export interface AssignLoadInput {
   freightValue?: number;
 }
 
+/** Any subset of the three document pairs may be submitted per call — invoiceNumber+
+ *  invoiceFileKey and ewayBillNumber+ewayBillFileKey must arrive together, elrFileKey may
+ *  arrive without elrNumber (unchanged asymmetry), and at least one document must be present
+ *  (see load.validators.ts's confirmLoading). Completeness is decided against the load's
+ *  persisted row, not a single call's payload — the load only flips to loading_confirmed once
+ *  all three are present, whether accumulated across calls or sent together in one. */
 export interface ConfirmLoadingInput {
-  invoiceNumber: string;
-  invoiceFileKey: string;
-  ewayBillNumber: string;
-  ewayBillFileKey: string;
+  invoiceNumber?: string;
+  invoiceFileKey?: string;
+  ewayBillNumber?: string;
+  ewayBillFileKey?: string;
   elrNumber?: string;
-  elrFileKey: string;
+  elrFileKey?: string;
 }
 
 export interface UpdateLoadStatusInput {
