@@ -16,6 +16,15 @@ import { FLEET_DRIVER_LINK_STATUSES, FleetDriverLinkStatus } from '../utils/flee
 @Index('fleet_driver_links_tenant_id_idx', ['tenantId'])
 @Index('fleet_driver_links_vehicle_id_idx', ['vehicleId'])
 @Index('fleet_driver_links_driver_id_idx', ['driverId'])
+// Backs "at most one primary driver per vehicle" (see fleet-driver-link.service.ts's linkDriver/
+// setPrimaryDriver) at the DB level — those methods already check-then-act inside a transaction,
+// but two concurrent calls against the same vehicle can each pass that check before either
+// commits. This turns that race into a clean unique-violation instead of two simultaneously
+// active primary links.
+@Index('fleet_driver_links_vehicle_active_primary_unique', ['tenantId', 'vehicleId'], {
+  unique: true,
+  where: '"is_primary" = true AND "status" = \'active\' AND "deleted_at" IS NULL',
+})
 export class FleetDriverLinkEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

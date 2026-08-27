@@ -548,6 +548,25 @@ export class AuthService {
     const existing = await this.authRepository.findUserById(staffId);
     if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
 
+    // Checked before any mutation below: role assignment and permission grants/revokes each
+    // commit immediately and force-invalidate the target's session (a permissions_version bump),
+    // so a phone/email conflict discovered afterward would otherwise leave that already
+    // committed while the caller sees this whole request reported as failed.
+    const normalizedPhone = phoneNumber ? this.normalizePhone(phoneNumber) : undefined;
+    const [existingByPhone, existingByEmail] = await Promise.all([
+      normalizedPhone
+        ? this.authRepository.findUserByPhone(normalizedPhone)
+        : Promise.resolve(null),
+      // Same undefined-drops-the-where gotcha as createStaffUser — only call when email is set.
+      email ? this.authRepository.findUserByEmail(email) : Promise.resolve(null),
+    ]);
+    if (existingByPhone && existingByPhone.id !== staffId) {
+      throw new ConflictError('A user with this phone number already exists');
+    }
+    if (existingByEmail && existingByEmail.id !== staffId) {
+      throw new ConflictError('A user with this email already exists');
+    }
+
     if (roleId !== undefined) {
       const role = await this.roleService.getRoleById(roleId);
       if (!STAFF_ASSIGNABLE_ROLES.includes(role.name)) {
@@ -568,21 +587,6 @@ export class AuthService {
       for (const id of currentIds) {
         if (!nextIds.has(id)) await this.roleService.revokePermission(actingUser, staffId, id);
       }
-    }
-
-    const normalizedPhone = phoneNumber ? this.normalizePhone(phoneNumber) : undefined;
-    const [existingByPhone, existingByEmail] = await Promise.all([
-      normalizedPhone
-        ? this.authRepository.findUserByPhone(normalizedPhone)
-        : Promise.resolve(null),
-      // Same undefined-drops-the-where gotcha as createStaffUser — only call when email is set.
-      email ? this.authRepository.findUserByEmail(email) : Promise.resolve(null),
-    ]);
-    if (existingByPhone && existingByPhone.id !== staffId) {
-      throw new ConflictError('A user with this phone number already exists');
-    }
-    if (existingByEmail && existingByEmail.id !== staffId) {
-      throw new ConflictError('A user with this email already exists');
     }
 
     const profileFields: Partial<{

@@ -161,6 +161,8 @@ export class AdminService {
   ) {
     try {
       const before = await this.organizationService.getOrganizationStatus(organizationId);
+      this.assertOrgAccessible(actingUser, before);
+
       const organization = await this.organizationService.updateOrganization(organizationId, {
         status: input.status,
         decisionReason: input.reason,
@@ -381,6 +383,9 @@ export class AdminService {
     },
   ) {
     try {
+      const existing = await this.organizationService.getOrganizationStatus(organizationId);
+      this.assertOrgAccessible(actingUser, existing);
+
       const target = await this.authService.getUserById(userId);
       if (target.role.name !== opts.role) {
         throw new ValidationError(`User ${userId} does not have the "${opts.role}" role`);

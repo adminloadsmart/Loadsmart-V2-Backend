@@ -8,7 +8,15 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     }
 
     res.status(err.statusCode).json({
-      error: { code: err.code, message: err.message, details: err.details },
+      error: {
+        code: err.code,
+        message: err.message,
+        // `isOperational` already distinguishes "expected error, details are safe to show" from
+        // "unexpected failure" — InternalError sets it false and its `details` is whatever raw
+        // error rethrow() caught (a TypeORM QueryFailedError carries the literal failing SQL and
+        // its bound parameters as own properties), which must never reach the client.
+        ...(err.isOperational ? { details: err.details } : {}),
+      },
     });
     return;
   }
