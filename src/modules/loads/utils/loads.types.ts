@@ -78,9 +78,9 @@ export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
  * that sourcing strategy doesn't exist in this build — see LOAD_SOURCE_TYPES above). This sits
  * alongside, not instead of, LOAD_STATUSES above — loading_confirmed/at_plant remain real,
  * separately-timestamped statuses the trip-detail screen's technical stepper still tracks
- * (load.service.ts's buildStepper, unchanged), but the doc's simplified lifecycle folds both into
- * the preceding stage rather than counting them on their own. Consumed only by
- * load.service.ts's resolveLifecycleStage/buildNextAction.
+ * (utils/trip-view.ts's buildStepper, unchanged), but the doc's simplified lifecycle folds both
+ * into the preceding stage rather than counting them on their own. Consumed only by
+ * utils/trip-view.ts's resolveLifecycleStage/buildNextAction.
  */
 export const OWN_FLEET_LIFECYCLE_STATUSES: readonly LoadStatus[] = [
   'assigned',
@@ -105,7 +105,7 @@ export const PAYMENTS_STAGE = 'payments' as const;
 
 /** Doc-exact wording (Plan Dispatch v2.0 §11) for the stage a load is currently "at". Rows for
  *  loading_confirmed/at_plant/closed intentionally repeat their collapsed target's label — see
- *  load.service.ts's resolveLifecycleStage, the only place that does the collapsing. */
+ *  utils/trip-view.ts's resolveLifecycleStage, the only place that does the collapsing. */
 export const LIFECYCLE_STAGE_LABELS: Record<LoadStatus | typeof PAYMENTS_STAGE, string> = {
   created: 'Load created',
   assigned: 'Truck assigned',
