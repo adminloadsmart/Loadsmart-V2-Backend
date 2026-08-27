@@ -46,6 +46,7 @@ import { LoadEntity } from '../modules/loads/entities/load.entity';
 import { LoadCargoItemEntity } from '../modules/loads/entities/load-cargo-item.entity';
 import { LoadPaymentEntity } from '../modules/loads/entities/load-payment.entity';
 import { LoadActivityEntity } from '../modules/loads/entities/load-activity.entity';
+import { CodeSequenceEntity } from '../modules/loads/entities/code-sequence.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -100,6 +101,7 @@ export const AppDataSource = new DataSource({
     LoadCargoItemEntity,
     LoadPaymentEntity,
     LoadActivityEntity,
+    CodeSequenceEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,

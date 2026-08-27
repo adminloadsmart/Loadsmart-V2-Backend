@@ -44,12 +44,20 @@ import {
 @Index('loads_tenant_status_idx', ['tenantId', 'status'])
 @Index('loads_tenant_requisition_idx', ['tenantId', 'requisitionId'])
 @Index('loads_tenant_vehicle_idx', ['tenantId', 'vehicleId'])
+@Index('loads_tenant_vehicle_number_idx', ['tenantId', 'vehicleNumber'])
+@Index('loads_tenant_code_unique', ['tenantId', 'code'], { unique: true })
 export class LoadEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
+
+  /** Display code `REQ-nnnn-Lx` — `x` restarts at 1 per requisition (Plan Dispatch v2.0's
+   *  worked examples), generated at Dispatch Planning from CodeSequenceRepository scoped to
+   *  this load's requisitionId. The UUID `id` stays the FK/lookup key everywhere else. */
+  @Column({ type: 'varchar', length: 30 })
+  code!: string;
 
   @Column({ name: 'requisition_id', type: 'uuid' })
   requisitionId!: string;

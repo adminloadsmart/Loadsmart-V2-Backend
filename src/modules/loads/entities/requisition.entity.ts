@@ -31,12 +31,19 @@ import { REQUISITION_STATUSES, RequisitionStatus } from '../utils/loads.types';
 @Index('requisitions_tenant_id_idx', ['tenantId'])
 @Index('requisitions_tenant_status_idx', ['tenantId', 'status'])
 @Index('requisitions_tenant_customer_idx', ['tenantId', 'customerId'])
+@Index('requisitions_tenant_code_unique', ['tenantId', 'code'], { unique: true })
 export class RequisitionEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
+
+  /** Display code `REQ-nnnn` — generated once at create from CodeSequenceRepository, scoped per
+   *  tenant. The UUID `id` above stays the FK/lookup key everywhere; `code` is what's shown,
+   *  searched and referenced by a dispatcher (Plan Dispatch v2.0's worked examples). */
+  @Column({ type: 'varchar', length: 20 })
+  code!: string;
 
   @Column({ name: 'customer_id', type: 'uuid' })
   customerId!: string;
@@ -71,6 +78,11 @@ export class RequisitionEntity {
   @ManyToOne(() => CustomerDeliveryPointEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'customer_delivery_point_id' })
   customerDeliveryPoint!: CustomerDeliveryPointEntity;
+
+  /** When the truck is expected to pick the goods up from `loadingPoint` — distinct from, and
+   *  must not be after, `expectedDeliveryDate` below. */
+  @Column({ name: 'pickup_date', type: 'date' })
+  pickupDate!: string;
 
   @Column({ name: 'expected_delivery_date', type: 'date' })
   expectedDeliveryDate!: string;

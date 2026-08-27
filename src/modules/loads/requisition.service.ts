@@ -9,6 +9,7 @@ import { toDateString } from '../../shared/utils/date';
 import { paginate, Paginated } from '../masters/utils/masters.types';
 import { RequisitionRepository } from './requisition.repository';
 import { LoadRepository } from './load.repository';
+import { CodeSequenceRepository } from './code-sequence.repository';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
 import {
@@ -17,6 +18,7 @@ import {
   RequisitionProductLineInput,
 } from './utils/requisition.interface';
 import { RequisitionItemUnit } from './utils/loads.types';
+import { formatRequisitionCode } from './utils/code.util';
 
 interface ResolvedRequisitionLine {
   productId: string;
@@ -55,6 +57,7 @@ export class RequisitionService {
     private readonly dataSource: DataSource,
     private readonly repository: RequisitionRepository,
     private readonly loadRepository: LoadRepository,
+    private readonly codeSequenceRepository: CodeSequenceRepository,
     private readonly customerService: CustomerService,
     private readonly productService: ProductService,
     private readonly loadingPointService: LoadingPointService,
@@ -75,8 +78,14 @@ export class RequisitionService {
       if (!input.products?.length) {
         throw new ValidationError('At least one product line is required'); // V-02
       }
+      if (input.pickupDate < toDateString(new Date())) {
+        throw new ValidationError('pickupDate cannot be in the past');
+      }
       if (input.expectedDeliveryDate < toDateString(new Date())) {
         throw new ValidationError('expectedDeliveryDate cannot be in the past'); // V-09
+      }
+      if (input.pickupDate > input.expectedDeliveryDate) {
+        throw new ValidationError('pickupDate cannot be after expectedDeliveryDate');
       }
 
       const customer = await this.customerService.assertActive(tenantId, input.customerId);
@@ -133,14 +142,23 @@ export class RequisitionService {
         .toFixed(2);
 
       const requisition = await this.dataSource.transaction(async (manager) => {
+        const sequenceValue = await this.codeSequenceRepository.next(
+          'requisition',
+          tenantId,
+          manager,
+        );
+        const code = formatRequisitionCode(sequenceValue);
+
         const created = await this.repository.create(
           {
             tenantId,
+            code,
             customerId: input.customerId,
             quantityTonnes,
             dispatchedTonnes: '0',
             loadingPointId: input.loadingPointId,
             customerDeliveryPointId: input.customerDeliveryPointId,
+            pickupDate: input.pickupDate,
             expectedDeliveryDate: input.expectedDeliveryDate,
             customerPoNumber,
             status: 'open',
@@ -171,6 +189,7 @@ export class RequisitionService {
         resourceType: 'requisition',
         newData: {
           id: requisition.id,
+          code: requisition.code,
           quantityTonnes: requisition.quantityTonnes,
           productLines: resolvedLines.length,
           ...(c05Override ? { c05Override: { reason: c05Override.reason, by: actorId } } : {}),
@@ -280,6 +299,7 @@ export class RequisitionService {
         resourceType: 'requisition',
         oldData: {
           id,
+          code: existing.code,
           status: existing.status,
           quantityTonnes: existing.quantityTonnes,
           customerPoNumber: existing.customerPoNumber,

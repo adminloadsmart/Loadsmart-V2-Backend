@@ -37,6 +37,7 @@ export const requisitionValidators = {
         products: z.array(productLine).min(1), // R-02
         loadingPointId: uuid,
         customerDeliveryPointId: uuid,
+        pickupDate: isoDateSchema,
         expectedDeliveryDate: isoDateSchema,
         customerPoNumber: z.string().trim().min(1).max(100),
         overrides: z.array(override).max(1).optional(),
