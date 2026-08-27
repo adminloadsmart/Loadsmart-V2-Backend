@@ -5,6 +5,7 @@ import {
   LoadStatus,
   LoadStatusGroup,
   ManualTrackingStatus,
+  SealStatus,
 } from './loads.types';
 
 /** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
@@ -31,12 +32,15 @@ export interface UpdateLoadStatusInput {
   toStatus: ManualTrackingStatus;
 }
 
-/** Exactly one of {podFileKey} or {podReceiverName + podQuantityReceived} — enforced by the
- *  validator's `.refine` and re-checked in the service. */
+/** The delivery receipt — photo of the signed/stamped POD, who took it, what came off the truck,
+ *  and the seal check, all captured together in one submission. Only podRemarks is optional. */
 export interface UploadPodInput {
-  podFileKey?: string;
-  podReceiverName?: string;
-  podQuantityReceived?: number;
+  podFileKey: string;
+  podReceiverName: string;
+  podReceiverMobile: string;
+  podReceiverDesignation: string;
+  podQuantityReceived: number;
+  sealStatus: SealStatus;
   podRemarks?: string;
 }
 

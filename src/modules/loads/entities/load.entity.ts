@@ -24,6 +24,8 @@ import {
   LOAD_STATUSES,
   LoadSourceType,
   LoadStatus,
+  SEAL_STATUSES,
+  SealStatus,
 } from '../utils/loads.types';
 
 /**
@@ -183,13 +185,24 @@ export class LoadEntity {
   @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt!: Date | null;
 
-  // --- E-POD — exactly one of {podFileKey} or {podReceiverName/podQuantityReceived} is set. ---
+  // --- E-POD — podFileKey, podReceiverName, podReceiverMobile, podReceiverDesignation,
+  // podQuantityReceived and sealStatus are all captured together at uploadPod; only podRemarks
+  // is optional. ---
 
   @Column({ name: 'pod_file_key', type: 'text', nullable: true })
   podFileKey!: string | null;
 
   @Column({ name: 'pod_receiver_name', type: 'varchar', length: 150, nullable: true })
   podReceiverName!: string | null;
+
+  /** 10-digit mobile number the delivery receipt is copied to. Storage only for now — there's no
+   *  notification/SMS delivery infra in this build yet (notifications module is a stub) to
+   *  actually send that copy. */
+  @Column({ name: 'pod_receiver_mobile', type: 'varchar', length: 10, nullable: true })
+  podReceiverMobile!: string | null;
+
+  @Column({ name: 'pod_receiver_designation', type: 'varchar', length: 150, nullable: true })
+  podReceiverDesignation!: string | null;
 
   @Column({
     name: 'pod_quantity_received',
@@ -199,6 +212,10 @@ export class LoadEntity {
     nullable: true,
   })
   podQuantityReceived!: string | null;
+
+  /** See SEAL_STATUSES' doc comment (loads.types.ts) — advisory, never blocks. */
+  @Column({ name: 'seal_status', type: 'enum', enum: [...SEAL_STATUSES], nullable: true })
+  sealStatus!: SealStatus | null;
 
   @Column({ name: 'pod_remarks', type: 'varchar', nullable: true })
   podRemarks!: string | null;

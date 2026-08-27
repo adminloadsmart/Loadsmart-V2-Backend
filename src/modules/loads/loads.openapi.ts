@@ -344,9 +344,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.uploadPod',
     ...manageDocuments(
-      'Record proof of delivery — exactly one of a document upload or a filled form. ' +
-        'Marks the load Delivered; own-fleet loads close immediately, market loads wait for the ' +
-        'balance payment.',
+      'Record proof of delivery — the delivery receipt photo, receiver name/mobile/designation, ' +
+        'quantity received and seal-on-arrival check are all required together (only podRemarks ' +
+        'is optional). A broken seal never blocks — recorded on the activity/audit trail only, ' +
+        'advisory pending a future exceptions/escalations module. Marks the load Delivered; ' +
+        'own-fleet loads close immediately, market loads wait for the balance payment.',
     ),
     request: {
       params: loadValidators.uploadPod.shape.params,
@@ -354,7 +356,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Updated load' },
-      400: { description: 'Neither or both of {document, form} were provided', ...errorContent },
+      400: { description: 'A required delivery-receipt field is missing', ...errorContent },
       409: { description: 'Loading has not been confirmed yet', ...errorContent },
     },
   });

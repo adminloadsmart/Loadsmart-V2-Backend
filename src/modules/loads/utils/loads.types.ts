@@ -42,6 +42,13 @@ export const FIT_VERDICTS = [
 ] as const;
 export type FitVerdict = (typeof FIT_VERDICTS)[number];
 
+/** E-POD's seal-check field — captured alongside the delivery receipt, never blocks `uploadPod`.
+ *  A 'broken' seal has no escalation workflow to route to yet (no exceptions/escalations module
+ *  exists in this build); it's recorded on the load's activity/audit trail so it's visible, not
+ *  acted on automatically — see load.service.ts's uploadPod. */
+export const SEAL_STATUSES = ['intact', 'broken'] as const;
+export type SealStatus = (typeof SEAL_STATUSES)[number];
+
 /**
  * The load's single, unified movement status — Advance/Balance payment are tracked
  * separately (LoadEntity.advancePaidAt/balancePaidAt) since they run in

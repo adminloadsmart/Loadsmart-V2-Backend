@@ -6,6 +6,7 @@ import {
   LOAD_STATUSES,
   LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
+  SEAL_STATUSES,
 } from './utils/loads.types';
 
 const uuid = z.string().uuid();
@@ -69,21 +70,23 @@ export const loadValidators = {
     body: z.object({ toStatus: z.enum(MANUAL_TRACKING_STATUSES) }).strict(),
   }),
 
+  // The delivery receipt — photo, receiver details and the seal check are all captured together
+  // in one submission; only podRemarks is optional.
   uploadPod: z.object({
     params,
     body: z
       .object({
-        podFileKey: z.string().trim().min(1).optional(),
-        podReceiverName: z.string().trim().min(1).max(150).optional(),
-        podQuantityReceived: z.number().nonnegative().optional(),
+        podFileKey: z.string().trim().min(1),
+        podReceiverName: z.string().trim().min(1).max(150),
+        podReceiverMobile: z
+          .string()
+          .trim()
+          .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+        podReceiverDesignation: z.string().trim().min(1).max(150),
+        podQuantityReceived: z.number().nonnegative(),
+        sealStatus: z.enum(SEAL_STATUSES),
         podRemarks: z.string().trim().max(500).optional(),
       })
-      .strict()
-      .refine(
-        (data) =>
-          Boolean(data.podFileKey) !==
-          Boolean(data.podReceiverName && data.podQuantityReceived !== undefined),
-        'Provide exactly one of a POD document (podFileKey) or a filled POD form (podReceiverName + podQuantityReceived)',
-      ),
+      .strict(),
   }),
 };

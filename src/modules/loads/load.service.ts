@@ -341,9 +341,14 @@ export class LoadService {
     }
   }
 
-  /** Exactly one of {document upload} or {receiver name + quantity + remarks}. Marks
-   *  the load Delivered; own-fleet loads close immediately (no payment gate), market loads wait
-   *  for the balance payment (see load-payment.service.ts's recordBalance). */
+  /** The delivery receipt — photo, receiver name/mobile/designation, quantity received, and the
+   *  seal check are all required together (only podRemarks is optional). Marks the load
+   *  Delivered; own-fleet loads close immediately (no payment gate), market loads wait for the
+   *  balance payment (see load-payment.service.ts's recordBalance).
+   *
+   *  A 'broken' sealStatus is never a hard block — there's no exceptions/escalations module in
+   *  this build to route it to yet — it's just recorded, clearly flagged, on the load's activity
+   *  and audit trail so it's visible to whoever looks. Revisit once that module exists. */
   async uploadPod(
     tenantId: string,
     actorId: string,
@@ -363,23 +368,17 @@ export class LoadService {
         throw new ConflictError('E-POD can only be recorded once loading is confirmed');
       }
 
-      const hasDocument = Boolean(input.podFileKey);
-      const hasForm = Boolean(input.podReceiverName && input.podQuantityReceived !== undefined);
-      if (hasDocument === hasForm) {
-        throw new ValidationError('Provide exactly one of a POD document or a filled POD form');
-      }
-
-      if (input.podFileKey) {
-        await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
-      }
+      await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
 
       const updated = await this.repository.update(tenantId, loadId, {
         status: 'delivered',
         deliveredAt: new Date(),
-        podFileKey: input.podFileKey ?? null,
-        podReceiverName: input.podReceiverName ?? null,
-        podQuantityReceived:
-          input.podQuantityReceived === undefined ? null : String(input.podQuantityReceived),
+        podFileKey: input.podFileKey,
+        podReceiverName: input.podReceiverName,
+        podReceiverMobile: input.podReceiverMobile,
+        podReceiverDesignation: input.podReceiverDesignation,
+        podQuantityReceived: String(input.podQuantityReceived),
+        sealStatus: input.sealStatus,
         podRemarks: input.podRemarks ?? null,
         updatedBy: actorId,
       });
@@ -394,6 +393,7 @@ export class LoadService {
         null,
         {
           pod: true,
+          sealStatus: input.sealStatus,
         },
       );
       await this.loadActivityService.record(
@@ -410,7 +410,7 @@ export class LoadService {
         action: 'LOAD_POD_RECORDED',
         resourceType: 'load',
         oldData: { id: loadId, status: load.status },
-        newData: { id: loadId, status: 'delivered' },
+        newData: { id: loadId, status: 'delivered', sealStatus: input.sealStatus },
       });
 
       // TODO: notify Accounts for balance payment once real notification/queue
