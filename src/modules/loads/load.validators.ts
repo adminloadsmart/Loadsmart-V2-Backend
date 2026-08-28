@@ -51,18 +51,40 @@ export const loadValidators = {
       .strict(),
   }),
 
+  // Any subset of the three document pairs may be submitted per call — invoice/e-way bill/E-LR
+  // can be uploaded one at a time or all together (LoadService.confirmLoading only flips the
+  // load to loading_confirmed once all three end up present on the row).
   confirmLoading: z.object({
     params,
     body: z
       .object({
-        invoiceNumber: z.string().trim().min(1).max(50),
-        invoiceFileKey: z.string().trim().min(1),
-        ewayBillNumber: z.string().trim().min(1).max(50),
-        ewayBillFileKey: z.string().trim().min(1),
+        invoiceNumber: z.string().trim().min(1).max(50).optional(),
+        invoiceFileKey: z.string().trim().min(1).optional(),
+        ewayBillNumber: z.string().trim().min(1).max(50).optional(),
+        ewayBillFileKey: z.string().trim().min(1).optional(),
         elrNumber: z.string().trim().max(50).optional(),
-        elrFileKey: z.string().trim().min(1),
+        elrFileKey: z.string().trim().min(1).optional(),
       })
-      .strict(),
+      .strict()
+      .refine(
+        (data) => (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined),
+        'invoiceNumber and invoiceFileKey must be submitted together',
+      )
+      .refine(
+        (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
+        'ewayBillNumber and ewayBillFileKey must be submitted together',
+      )
+      .refine(
+        (data) => data.elrNumber === undefined || data.elrFileKey !== undefined,
+        'elrNumber cannot be submitted without elrFileKey',
+      )
+      .refine(
+        (data) =>
+          data.invoiceFileKey !== undefined ||
+          data.ewayBillFileKey !== undefined ||
+          data.elrFileKey !== undefined,
+        'At least one document (invoice, e-way bill, or E-LR) must be submitted',
+      ),
   }),
 
   updateStatus: z.object({

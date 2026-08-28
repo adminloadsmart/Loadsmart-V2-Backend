@@ -303,16 +303,25 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.confirmLoading',
     ...manageDocuments(
-      'Attach invoice/e-way bill/E-LR and confirm loading. File keys must be confirmed ' +
-        'uploads from POST /files with the matching purpose (loads/invoice, loads/eway-bill, ' +
-        'trips/lr). Triggers tracking and, for market loads, enables advance payment.',
+      'Attach invoice/e-way bill/E-LR. Documents may be submitted one at a time or all ' +
+        'together — invoiceNumber+invoiceFileKey and ewayBillNumber+ewayBillFileKey must each ' +
+        'arrive as a pair, elrFileKey may arrive without elrNumber, and at least one document ' +
+        'must be present per call. The load stays "assigned" until all three documents are ' +
+        'present (accumulated across calls or sent at once), at which point it flips to ' +
+        '"loading_confirmed" and tracking/advance payment (market loads) are enabled. File keys ' +
+        'must be confirmed uploads from POST /files with the matching purpose (loads/invoice, ' +
+        'loads/eway-bill, trips/lr).',
     ),
     request: {
       params: loadValidators.confirmLoading.shape.params,
       body: json(loadValidators.confirmLoading.shape.body),
     },
     responses: {
-      200: { description: 'Loading confirmed' },
+      200: {
+        description:
+          'Document(s) saved; load remains "assigned" until all three are present, then flips ' +
+          'to "loading_confirmed"',
+      },
       400: {
         description: 'A file is not a confirmed upload for the expected purpose',
         ...errorContent,
