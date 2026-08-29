@@ -16,6 +16,11 @@ export interface CreateCustomerInput {
   mobile: string;
   email?: string;
   gstin?: string;
+  contactPersonName?: string;
+  contactPersonNumber?: string;
+  contactPersonEmail?: string;
+  contactPersonDesignation?: string;
+  contactPersonDesignationOther?: string;
   deliveryPoints?: DeliveryPointInput[];
   advancePercentage?: number;
   balancePercentage?: number;
@@ -35,6 +40,11 @@ export interface UpdateCustomerInput {
   mobile?: string;
   email?: string | null;
   gstin?: string | null;
+  contactPersonName?: string | null;
+  contactPersonNumber?: string | null;
+  contactPersonEmail?: string | null;
+  contactPersonDesignation?: string | null;
+  contactPersonDesignationOther?: string | null;
   deliveryPoints?: DeliveryPointInput[];
   advancePercentage?: number | null;
   balancePercentage?: number | null;
