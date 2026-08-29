@@ -25,6 +25,7 @@ export class ProductEntity {
   @Column({ name: 'product_details', type: 'varchar', length: 255 }) productDetails!: string;
   @Column({ name: 'hsn_code', type: 'varchar', length: 20, nullable: true }) hsnCode!:
     string | null;
+  @Column({ type: 'varchar', length: 30, nullable: true }) packaging!: string | null;
   @Column({ name: 'invoice_value', type: 'numeric', precision: 15, scale: 2, nullable: true })
   invoiceValue!: string | null;
   @Column({ name: 'billing_unit', type: 'varchar', length: 30, nullable: true }) billingUnit!:

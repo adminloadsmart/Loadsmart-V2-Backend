@@ -16,6 +16,7 @@ export interface ParsedProductExcel {
 const aliases: Record<keyof CreateProductInput, string[]> = {
   productDetails: ['productdetails', 'product', 'productname', 'name'],
   hsnCode: ['hsncode', 'hsn', 'hsnnumber'],
+  packaging: ['packaging', 'package', 'packagetype'],
   invoiceValue: ['invoicevalue', 'invoice', 'rate', 'price'],
   billingUnit: ['billingunit', 'unit', 'billing'],
   dimensions: ['dimensions', 'dimension', 'size'],

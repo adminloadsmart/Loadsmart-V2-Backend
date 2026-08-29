@@ -9,6 +9,7 @@ const fields = {
     .string()
     .trim()
     .regex(/^\d{4,8}$/, 'HSN code must contain 4 to 8 digits'),
+  packaging: z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']),
   invoiceValue: z.number().nonnegative(),
   billingUnit: z.string().trim().max(30),
   dimensions: z.string().trim().max(100),
@@ -31,6 +32,7 @@ export const productValidators = {
       .object({
         productDetails: fields.productDetails,
         hsnCode: fields.hsnCode.optional(),
+        packaging: fields.packaging.optional(),
         invoiceValue: fields.invoiceValue.optional(),
         billingUnit: fields.billingUnit.optional(),
         dimensions: fields.dimensions.optional(),
