@@ -23,6 +23,7 @@ export class ProductService {
           tenantId,
           productDetails: input.productDetails.trim(),
           hsnCode: input.hsnCode?.trim() ?? null,
+          packaging: input.packaging ?? null,
           invoiceValue: input.invoiceValue == null ? null : String(input.invoiceValue),
           billingUnit: input.billingUnit?.trim() ?? null,
           dimensions: input.dimensions?.trim() ?? null,
@@ -86,7 +87,14 @@ export class ProductService {
       const data = Object.fromEntries(
         Object.entries(fields).filter(([, value]) => value !== undefined),
       );
-      for (const key of ['productDetails', 'hsnCode', 'billingUnit', 'dimensions', 'weightUnit'])
+      for (const key of [
+        'productDetails',
+        'hsnCode',
+        'packaging',
+        'billingUnit',
+        'dimensions',
+        'weightUnit',
+      ])
         if (typeof data[key] === 'string') data[key] = data[key].trim();
       if ('invoiceValue' in data)
         data.invoiceValue = data.invoiceValue == null ? null : String(data.invoiceValue);

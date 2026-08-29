@@ -7,6 +7,7 @@ export interface ProductSubItemInput {
 export interface CreateProductInput {
   productDetails: string;
   hsnCode?: string;
+  packaging?: string;
   invoiceValue?: number;
   billingUnit?: string;
   dimensions?: string;
@@ -17,6 +18,7 @@ export interface CreateProductInput {
 export interface UpdateProductInput {
   productDetails?: string;
   hsnCode?: string | null;
+  packaging?: string | null;
   invoiceValue?: number | null;
   billingUnit?: string | null;
   dimensions?: string | null;
