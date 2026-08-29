@@ -15,6 +15,7 @@ export interface AssignLoadInput {
   transporterId: string;
   vehicleNumber: string;
   driverNumber: string;
+  driverName?: string;
   freightType: FreightType;
   freightValue?: number;
 }

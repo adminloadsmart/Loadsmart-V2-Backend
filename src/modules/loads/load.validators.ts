@@ -44,7 +44,8 @@ export const loadValidators = {
       .object({
         transporterId: uuid,
         vehicleNumber: z.string().trim().min(1).max(20),
-        driverNumber: z.string().trim().min(1).max(20),
+        driverNumber: z.string().trim().min(1).max(20).optional(),
+        driverName: z.string().trim().min(1).max(150).optional(),
         freightType: z.enum(FREIGHT_TYPES),
         freightValue: z.number().nonnegative().optional(),
       })

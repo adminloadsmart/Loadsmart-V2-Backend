@@ -278,8 +278,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     ...manageDispatch(
       'Load Assignment — market loads only. Own-fleet loads are assigned at Dispatch Planning ' +
         '(vehicle+driver already known there) and 409 if sent here. Requires transporterId, ' +
-        'vehicleNumber/driverNumber (free text) and freightType; freightValue defaults to the ' +
-        'target rate captured at planning if omitted (the negotiation landed on the original ask).',
+        'vehicleNumber/driverNumber (free text), an optional driverName, and freightType; ' +
+        'freightValue defaults to the target rate captured at planning if omitted (the ' +
+        'negotiation landed on the original ask).',
     ),
     request: {
       params: loadValidators.assign.shape.params,

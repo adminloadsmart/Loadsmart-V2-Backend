@@ -115,6 +115,12 @@ export class LoadEntity {
   @Column({ name: 'driver_number', type: 'varchar', length: 20, nullable: true })
   driverNumber!: string | null;
 
+  /** Market only — free-text name of an external driver not in the Driver master, entered at
+   *  Assignment. Optional; independent of driverNumber (their phone number). Own-fleet loads
+   *  never populate this. */
+  @Column({ name: 'driver_name', type: 'varchar', length: 150, nullable: true })
+  driverName!: string | null;
+
   /** Market only. */
   @Column({ name: 'transporter_id', type: 'uuid', nullable: true })
   transporterId!: string | null;

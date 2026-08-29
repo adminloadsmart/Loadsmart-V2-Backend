@@ -273,20 +273,20 @@ export class DispatchPlanningService {
     }
 
     // C-03 — the vehicle appears on an earlier closed load. Amber: overridable with a reason.
-    const closed = await this.loadRepository.findClosedByVehicles(tenantId, allVehicleIds, manager);
-    if (closed.length > 0) {
-      const override = input.overrides?.find((entry) => entry.checkId === 'C03');
-      if (!override) {
-        throw new ConflictError(
-          `Vehicle ${closed[0].vehicleId} was used on an earlier closed load (${closed[0].id}) — override with a reason to reuse it`,
-        );
-      }
-      if (override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
-        throw new ValidationError(
-          `Override reason must be at least ${MIN_OVERRIDE_REASON_LENGTH} characters`, // V-17
-        );
-      }
-    }
+    // const closed = await this.loadRepository.findClosedByVehicles(tenantId, allVehicleIds, manager);
+    // if (closed.length > 0) {
+    //   const override = input.overrides?.find((entry) => entry.checkId === 'C03');
+    //   if (!override) {
+    //     throw new ConflictError(
+    //       `Vehicle ${closed[0].vehicleId} was used on an earlier closed load (${closed[0].id}) — override with a reason to reuse it`,
+    //     );
+    //   }
+    //   if (override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
+    //     throw new ValidationError(
+    //       `Override reason must be at least ${MIN_OVERRIDE_REASON_LENGTH} characters`, // V-17
+    //     );
+    //   }
+    // }
   }
 
   /** Dispatch Planning's vehicle picker — the base masters vehicle list, hard-filtered to

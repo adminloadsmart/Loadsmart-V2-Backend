@@ -92,7 +92,7 @@ export class LoadService {
       if (!input.transporterId) throw new ValidationError('transporterId is required');
       await this.transporterService.getTransporter(tenantId, input.transporterId);
       if (!input.vehicleNumber?.trim()) throw new ValidationError('vehicleNumber is required');
-      if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
+      // if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
       if (!input.freightType) throw new ValidationError('freightType is required');
 
       // C-07 — this plate can't already be on another live load, own-fleet or market. Own-fleet
@@ -121,6 +121,7 @@ export class LoadService {
         transporterId: input.transporterId,
         vehicleNumber,
         driverNumber: input.driverNumber.trim(),
+        driverName: input.driverName?.trim() ?? null,
         freightType: input.freightType,
         freightValue,
         updatedBy: actorId,
@@ -146,6 +147,7 @@ export class LoadService {
           status: 'assigned',
           vehicleNumber: updated.vehicleNumber,
           driverNumber: updated.driverNumber,
+          driverName: updated.driverName,
         },
       });
 
