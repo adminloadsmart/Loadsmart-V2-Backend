@@ -25,6 +25,21 @@ export class CustomerEntity {
   @Column({ type: 'varchar', length: 15 }) mobile!: string;
   @Column({ type: 'varchar', nullable: true }) email!: string | null;
   @Column({ type: 'varchar', length: 15, nullable: true }) gstin!: string | null;
+  @Column({ name: 'contact_person_name', type: 'varchar', length: 150, nullable: true })
+  contactPersonName!: string | null;
+  @Column({ name: 'contact_person_number', type: 'varchar', length: 20, nullable: true })
+  contactPersonNumber!: string | null;
+  @Column({ name: 'contact_person_email', type: 'varchar', length: 255, nullable: true })
+  contactPersonEmail!: string | null;
+  @Column({ name: 'contact_person_designation', type: 'varchar', length: 100, nullable: true })
+  contactPersonDesignation!: string | null;
+  @Column({
+    name: 'contact_person_designation_other',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  contactPersonDesignationOther!: string | null;
   @Column({ name: 'advance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
   advancePercentage!: string | null;
   @Column({ name: 'balance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
