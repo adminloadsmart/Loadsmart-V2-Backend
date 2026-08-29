@@ -120,7 +120,7 @@ export class LoadService {
         status: 'assigned',
         transporterId: input.transporterId,
         vehicleNumber,
-        driverNumber: input.driverNumber.trim(),
+        driverNumber: input.driverNumber?.trim() ?? null,
         driverName: input.driverName?.trim() ?? null,
         freightType: input.freightType,
         freightValue,
