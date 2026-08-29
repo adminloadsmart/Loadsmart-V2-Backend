@@ -32,7 +32,9 @@ export interface TripListRow {
   } | null;
   customer: { id: string; name: string } | null;
   vehicleNumber: string | null;
-  driver: { id: string; fullName: string } | null;
+  /** Own-fleet: the Driver-master row backing this load's driver snapshot. Market: the free-text
+   *  driverName entered at Assignment, with `id: null` since no Driver-master row backs it. */
+  driver: { id: string | null; fullName: string } | null;
   source: { type: LoadSourceType; label: string };
   plannedCapacityTonnes: string;
   freightValue: string | null;
@@ -112,7 +114,11 @@ export function toTripListRow(load: LoadEntity): TripListRow {
       : null,
     customer: req ? { id: req.customer.id, name: req.customer.name } : null,
     vehicleNumber: load.vehicleNumber,
-    driver: driver ? { id: driver.id, fullName: driver.fullName } : null,
+    driver: driver
+      ? { id: driver.id, fullName: driver.fullName }
+      : load.driverName
+        ? { id: null, fullName: load.driverName }
+        : null,
     source:
       load.sourceType === 'own_fleet'
         ? { type: 'own_fleet', label: 'Own fleet' }

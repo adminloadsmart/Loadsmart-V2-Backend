@@ -208,9 +208,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
         'requisition; `source.label` is "Own fleet" or "Market · {transporter name}". ' +
         '`expectedRate` is the planned freight rate — market loads only, always null for ' +
         'own-fleet (the Freight column shows "Internal" for those instead). `driver` is ' +
-        "the load's own snapshot from Dispatch Planning time, falling back to the vehicle's " +
-        'current active primary driver-link when that snapshot is null (own-fleet loads planned ' +
-        'before any driver was linked to the vehicle).',
+        "the load's own snapshot from Dispatch Planning time (own-fleet), falling back to the " +
+        "vehicle's current active primary driver-link when that snapshot is null (own-fleet " +
+        'loads planned before any driver was linked to the vehicle), or to the free-text ' +
+        'driverName entered at Assignment for market loads (`id: null` in that case).',
     ),
     request: { query: loadValidators.list.shape.query },
     responses: {
