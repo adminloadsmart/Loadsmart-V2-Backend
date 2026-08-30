@@ -22,8 +22,13 @@ import {
  *  its requisition's route/customer (neither of which the LoadEntity carries directly). */
 export interface TripListRow {
   id: string;
+  /** Display code `LOAD-nnnn` — see load.entity.ts's doc comment. */
+  code: string;
   status: LoadStatus;
   requisitionId: string;
+  /** The parent requisition's own display code `REQ-nnnn` — null only if the requisition
+   *  relation somehow wasn't loaded (never happens via LoadRepository.list). */
+  requisitionCode: string | null;
   route: {
     loadingPointTitle: string;
     loadingPointCity: string;
@@ -102,8 +107,10 @@ export function toTripListRow(load: LoadEntity): TripListRow {
 
   return {
     id: load.id,
+    code: load.code,
     status: load.status,
     requisitionId: load.requisitionId,
+    requisitionCode: req?.code ?? null,
     route: req
       ? {
           loadingPointTitle: req.loadingPoint.title,

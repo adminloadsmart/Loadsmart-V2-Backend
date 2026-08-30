@@ -97,18 +97,17 @@ export class DispatchPlanningService {
 
         const allRows = built.flatMap((line) => line.rows);
 
-        // REQ-nnnn-Lx — restarts at 1 per requisition and keeps counting across dispatch rounds
-        // (a later partial-dispatch call against the same requisition continues from where the
-        // previous one left off), same worked examples as Plan Dispatch v2.0. Sequential, not
+        // LOAD-nnnn — an independent, tenant-wide sequence, unrelated to the parent
+        // requisition's own code or to which dispatch round created it. Sequential, not
         // Promise.all: each call takes a row lock on the same counter row, so awaiting one at a
         // time is both correct and no slower than they'd serialize to anyway.
         for (const row of allRows) {
           const loadSequenceValue = await this.codeSequenceRepository.next(
             'load',
-            requisitionId,
+            tenantId,
             manager,
           );
-          row.code = formatLoadCode(requisition.code, loadSequenceValue);
+          row.code = formatLoadCode(loadSequenceValue);
         }
 
         const loads = await this.loadRepository.createMany(allRows, manager);
@@ -122,7 +121,7 @@ export class DispatchPlanningService {
             tenantId,
             actorId,
             load.vehicleId,
-            { operationalStatus: 'on_trip', reason: `Assigned to load ${load.id}` },
+            { operationalStatus: 'on_trip', reason: `Assigned to load ${load.code}` },
             manager,
           );
         }
@@ -260,7 +259,7 @@ export class DispatchPlanningService {
     );
     if (inRequisition.length > 0) {
       throw new ConflictError(
-        `Vehicle ${inRequisition[0].vehicleId} is already planned on load ${inRequisition[0].id} in this requisition`,
+        `Vehicle ${inRequisition[0].vehicleId} is already planned on load ${inRequisition[0].code} in this requisition`,
       );
     }
 
@@ -268,7 +267,7 @@ export class DispatchPlanningService {
     const active = await this.loadRepository.findActiveByVehicles(tenantId, allVehicleIds, manager);
     if (active.length > 0) {
       throw new ConflictError(
-        `Vehicle ${active[0].vehicleId} is already on an active load elsewhere (load ${active[0].id}, status ${active[0].status})`,
+        `Vehicle ${active[0].vehicleId} is already on an active load elsewhere (load ${active[0].code}, status ${active[0].status})`,
       );
     }
 

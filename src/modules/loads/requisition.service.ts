@@ -127,7 +127,7 @@ export class RequisitionService {
       if (clash) {
         if (!c05Override) {
           throw new ConflictError(
-            `PO/SO number "${customerPoNumber}" is already used on requisition ${clash.id} — override with a reason to proceed`,
+            `PO/SO number "${customerPoNumber}" is already used on requisition ${clash.code} — override with a reason to proceed`,
           );
         }
         if (c05Override.reason.trim().length < MIN_OVERRIDE_REASON_LENGTH) {
@@ -234,7 +234,7 @@ export class RequisitionService {
       const requisition = await this.repository.findById(tenantId, id);
       if (!requisition) throw new NotFoundError(`Requisition ${id} not found`);
       if (requisition.status === 'closed') {
-        throw new ConflictError(`Requisition ${id} is closed`);
+        throw new ConflictError(`Requisition ${requisition.code} is closed`);
       }
       return requisition;
     } catch (error) {
@@ -286,7 +286,7 @@ export class RequisitionService {
       const loads = await this.loadRepository.findByRequisitionId(tenantId, id);
       if (loads.length > 0) {
         throw new ConflictError(
-          `Cannot delete requisition ${id} — ${loads.length} load(s) already exist against it; close it instead`,
+          `Cannot delete requisition ${existing.code} — ${loads.length} load(s) already exist against it; close it instead`,
         );
       }
 

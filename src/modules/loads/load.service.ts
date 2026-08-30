@@ -107,7 +107,7 @@ export class LoadService {
       );
       if (clash) {
         throw new ConflictError(
-          `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.id}, status ${clash.status})`,
+          `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.code}, status ${clash.status})`,
         );
       }
 
@@ -228,7 +228,7 @@ export class LoadService {
         const clash = await this.repository.findByElrNumber(tenantId, nextElrNumber);
         if (clash) {
           throw new ConflictError(
-            `E-LR number "${nextElrNumber}" is already used on load ${clash.id}`,
+            `E-LR number "${nextElrNumber}" is already used on load ${clash.code}`,
           );
         }
       }

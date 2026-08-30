@@ -214,7 +214,7 @@ export class LoadRepository {
     if (vehicleId) base.vehicleId = vehicleId;
     if (driverId) base.driverId = driverId;
 
-    // Matches the load's own REQ-nnnn-Lx code or its requisition's customer name — a dispatcher
+    // Matches the load's own LOAD-nnnn code or its requisition's customer name — a dispatcher
     // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS
     // for the same convention on the requisition side).
     const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
