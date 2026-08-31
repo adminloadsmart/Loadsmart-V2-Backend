@@ -19,8 +19,10 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'dashboards.getFleetActivity',
     ...authenticated(
       'Fleet activity summary for the tenant over a date range (defaults to the last 15 days). ' +
-        'kmCovered, maintenanceCost, and fleetPnl are always null today — tracking, maintenance, ' +
-        'and payments have no dated distance/cost/earning records yet to aggregate.',
+        'activeTrips and operationalBreakdown are live counts (not scoped to the date range) — ' +
+        'activeTrips is the number of loads currently in a non-completed status with a vehicle ' +
+        'assigned. kmCovered, maintenanceCost, and fleetPnl are always null today — tracking, ' +
+        'maintenance, and payments have no dated distance/cost/earning records yet to aggregate.',
     ),
     request: { query: dashboardsValidators.getFleetActivity.shape.query },
     responses: {
