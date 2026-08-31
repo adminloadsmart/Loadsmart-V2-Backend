@@ -13,8 +13,8 @@ export class CodeSequenceRepository {
   /**
    * Atomically returns the next integer for (entityKind, scopeId), row-locked inside the
    * caller's transaction so two concurrent creates against the same scope can never see the
-   * same value. `scopeId` is the tenant for requisition codes (REQ-nnnn) and the requisition
-   * for load codes (REQ-nnnn-Lx, restarting at 1 per requisition).
+   * same value. `scopeId` is always the tenant here — both requisition codes (REQ-nnnn) and
+   * load codes (LOAD-nnnn) are independent, tenant-wide sequences.
    *
    * Must be called with the transactional `manager` from `dataSource.transaction(...)` — the
    * row lock only holds for the lifetime of that transaction. The very first call for a given

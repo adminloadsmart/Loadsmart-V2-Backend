@@ -53,10 +53,10 @@ export class LoadEntity {
   @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
 
-  /** Display code `REQ-nnnn-Lx` — `x` restarts at 1 per requisition (Plan Dispatch v2.0's
-   *  worked examples), generated at Dispatch Planning from CodeSequenceRepository scoped to
-   *  this load's requisitionId. The UUID `id` stays the FK/lookup key everywhere else. */
-  @Column({ type: 'varchar', length: 30 })
+  /** Display code `LOAD-nnnn` — an independent, tenant-wide sequential number generated at
+   *  Dispatch Planning from CodeSequenceRepository, unrelated to the parent requisition's own
+   *  `REQ-nnnn` code. The UUID `id` stays the FK/lookup key everywhere else. */
+  @Column({ type: 'varchar', length: 20 })
   code!: string;
 
   @Column({ name: 'requisition_id', type: 'uuid' })

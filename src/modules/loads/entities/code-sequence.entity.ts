@@ -2,11 +2,11 @@ import { Entity, Column, PrimaryGeneratedColumn, UpdateDateColumn, Unique } from
 
 /**
  * A tiny per-scope counter backing every human-readable code this module hands out —
- * `REQ-nnnn` requisition codes (`entity: 'requisition'`, `scopeId`: tenantId) and `REQ-nnnn-Lx`
- * load codes (`entity: 'load'`, `scopeId`: requisitionId — restarts at 1 per requisition, same
- * as Plan Dispatch v2.0's worked examples). Incremented under a row lock inside the same
- * transaction as the record it numbers — see code-sequence.repository.ts's `next` — so two
- * concurrent creates against the same scope can never be handed the same value.
+ * `REQ-nnnn` requisition codes and `LOAD-nnnn` load codes, both `scopeId`: tenantId (`entity:
+ * 'requisition'` / `entity: 'load'` respectively) — independent, tenant-wide sequences; a load's
+ * code carries no relationship to its parent requisition's. Incremented under a row lock inside
+ * the same transaction as the record it numbers — see code-sequence.repository.ts's `next` — so
+ * two concurrent creates against the same scope can never be handed the same value.
  */
 @Entity({ schema: 'loads', name: 'code_sequences' })
 @Unique('code_sequences_entity_scope_unique', ['entity', 'scopeId'])
