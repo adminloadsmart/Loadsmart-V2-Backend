@@ -1171,6 +1171,23 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/verify-vahan`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyVehicleVahan',
+    ...write(
+      'Check a registration number against the VAHAN registry via ULIP, before the vehicle ' +
+        'record exists — preflight for the "Add a vehicle" form. Falls back to manual_review ' +
+        'when ULIP_USERNAME/ULIP_PASSWORD are unset or the call fails.',
+    ),
+    request: { body: json(mastersValidators.verifyVehicleVahan.shape.body) },
+    responses: {
+      200: { description: 'verified/not_found/manual_review, with registry fields when available' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
   // --- Driver onboarding ---
 
   registry.registerPath({
@@ -1179,16 +1196,13 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.verifyDriverDl',
     ...write(
-      'Check a driving licence + date of birth against the Sarathi registry via IDfy, before the ' +
-        'driver record exists — step 2 of the "Add a driver" form. Submits an async IDfy task and ' +
-        'polls for the result before responding. As of 2026-08 (IDfy credits exhausted), always ' +
-        'falls back to verified (without registry fields) — whether IDFY_API_KEY/IDFY_ACCOUNT_ID/' +
-        'IDFY_TASK_ID/IDFY_GROUP_ID are unset, the call fails, or IDfy completes the task but ' +
-        'reports no match. Revert to manual_review on those paths once IDfy credits are restored.',
+      'Check a driving licence + date of birth against the Sarathi registry via ULIP, before the ' +
+        'driver record exists — step 2 of the "Add a driver" form. Falls back to manual_review ' +
+        'when ULIP_USERNAME/ULIP_PASSWORD are unset or the call fails.',
     ),
     request: { body: json(mastersValidators.verifyDriverDl.shape.body) },
     responses: {
-      200: { description: 'verified (with registry fields when available)' },
+      200: { description: 'verified/not_found/manual_review, with registry fields when available' },
       400: { description: 'Validation failed', ...errorContent },
     },
   });

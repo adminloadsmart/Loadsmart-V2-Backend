@@ -54,12 +54,18 @@ export function createMastersProtectedRoutes(
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle or driver — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
-  // Throttles POST /drivers/verify-dl — it fans out to IDfy's paid Sarathi lookup. Same
+  // Throttles POST /drivers/verify-dl — it fans out to ULIP's SARATHI lookup. Same
   // createIpRateLimit + env-driven limit/window pattern as auth.routes.ts.
   const verifyDriverDlRateLimit = createIpRateLimit({
     keyPrefix: 'verify-dl',
     limit: env.driverVerifyDlRateLimitMax,
     windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
+  // Throttles POST /vehicles/verify-vahan — it fans out to ULIP's VAHAN lookup.
+  const verifyVehicleVahanRateLimit = createIpRateLimit({
+    keyPrefix: 'verify-vahan',
+    limit: env.vehicleVerifyVahanRateLimitMax,
+    windowSeconds: env.vehicleVerifyVahanRateLimitWindowSeconds,
   });
 
   // Settings → Truck Types — vehicles.truckTypeId references these, so declared first.
@@ -239,6 +245,16 @@ export function createMastersProtectedRoutes(
     '/transporters/:transporterId',
     validate(mastersValidators.deleteTransporter),
     asyncHandler(controller.deleteTransporter),
+  );
+
+  // Preflight for "Add a vehicle" — checks a registration number before the vehicle exists, so it
+  // has no :vehicleId param. Declared before '/vehicles/onboard' for the same reason as drivers.
+  router.post(
+    '/vehicles/verify-vahan',
+    verifyVehicleVahanRateLimit,
+    canWrite,
+    validate(mastersValidators.verifyVehicleVahan),
+    asyncHandler(controller.verifyVehicleVahan),
   );
 
   // Backs the single "Save vehicle" button — whole form, one transaction. Declared before

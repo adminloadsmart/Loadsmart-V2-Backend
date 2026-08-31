@@ -88,4 +88,16 @@ export const env = {
   // carriers for delivery, independent of whether the code itself is correct.
   msg91TemplateId: process.env.MSG91_TEMPLATE_ID || undefined,
   msg91BaseUrl: process.env.MSG91_BASE_URL || 'https://control.msg91.com',
+  // ULIP (DPIIT's Unified Logistics Interface Platform) — SARATHI driving-licence and VAHAN
+  // vehicle registry checks (UlipClient). Left optional so the app still boots without them;
+  // UlipClient falls back to manual_review whenever either is missing.
+  ulipBaseUrl: process.env.ULIP_BASE_URL || 'https://www.ulipstaging.dpiit.gov.in/ulip/v1.0.0',
+  ulipUsername: process.env.ULIP_USERNAME || undefined,
+  ulipPassword: process.env.ULIP_PASSWORD || undefined,
+  // Throttles POST /vehicles/verify-vahan — same pattern as driverVerifyDlRateLimit above.
+  vehicleVerifyVahanRateLimitMax: numberWithDefault('VEHICLE_VERIFY_VAHAN_RATE_LIMIT_MAX', 3),
+  vehicleVerifyVahanRateLimitWindowSeconds: numberWithDefault(
+    'VEHICLE_VERIFY_VAHAN_RATE_LIMIT_WINDOW_SECONDS',
+    60,
+  ),
 };

@@ -207,6 +207,10 @@ const driverVerifyDlBody = z.object({
   dateOfBirth: isoDate,
 });
 
+const vehicleVerifyVahanBody = z.object({
+  registrationNumber,
+});
+
 const driverVerificationBody = z.object({
   verificationType: z.enum(DRIVER_VERIFICATION_TYPES),
   verificationStatus: z.enum(DRIVER_VERIFICATION_STATUSES),
@@ -420,6 +424,12 @@ export const mastersValidators = {
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteVehicleDocument: z.object({ params: vehicleDocumentParams }),
+
+  /**
+   * Preflight check for "Add a vehicle", before the vehicle exists — no vehicleId param. Mirrors
+   * verifyDriverDl below.
+   */
+  verifyVehicleVahan: z.object({ body: vehicleVerifyVahanBody }),
 
   /**
    * Preflight check for step 2 of "Add a driver", before the driver exists — no driverId param.

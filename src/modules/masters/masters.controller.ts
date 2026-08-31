@@ -616,6 +616,11 @@ export class MastersController {
     respond(res, usage);
   };
 
+  verifyVehicleVahan = async (req: Request, res: Response) => {
+    const result = await this.vehicleService.checkVehicleRegistration(req.body.registrationNumber);
+    respond(res, result);
+  };
+
   recordVehicleVerification = async (req: Request<VehicleParams>, res: Response) => {
     const snapshot = await this.vehicleService.recordVerification(
       requireTenantId(req),

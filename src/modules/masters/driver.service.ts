@@ -11,7 +11,7 @@ import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverBankVerificationStatus } from './utils/drivers.types';
 import { DriverRepository } from './driver.repository';
 import { Paginated, paginate } from './utils/masters.types';
-import { SarathiClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
+import { UlipClient, UlipDrivingLicenceResult } from '../../adapters/ulip.client';
 import { StorageService } from '../storage/storage.service';
 import {
   AddBankDetailsInput,
@@ -29,7 +29,7 @@ export class DriverService {
   constructor(
     private readonly driverRepository: DriverRepository,
     private readonly dataSource: DataSource,
-    private readonly sarathiClient: SarathiClient,
+    private readonly ulipClient: UlipClient,
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
   ) {}
@@ -76,14 +76,14 @@ export class DriverService {
    * before the driver record exists — so this never touches `driverRepository`. The caller (the
    * onboarding form) decides what to do with the result: bundle it into `onboardDriver.verification`
    * on `verified`, or switch to the manual-entry fields (photo uploads + typed-in details) and submit
-   * that instead on `manual_review`.
+   * that instead on `manual_review`. Backed by ULIP's SARATHI lookup (UlipClient), not IDfy.
    */
   async checkDrivingLicence(
     licenseNumber: string,
     dateOfBirth: string,
-  ): Promise<SarathiDrivingLicenceResult> {
+  ): Promise<UlipDrivingLicenceResult> {
     try {
-      return await this.sarathiClient.lookupDrivingLicence(licenseNumber, dateOfBirth);
+      return await this.ulipClient.verifyDrivingLicence(licenseNumber, dateOfBirth);
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
     }

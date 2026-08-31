@@ -17,6 +17,7 @@ import {
 import { VehicleRepository } from './vehicle.repository';
 import { TruckTypeService } from './truck-type.service';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
+import { UlipClient, UlipVehicleResult } from '../../adapters/ulip.client';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './masters.constants';
 import { Paginated, paginate } from './utils/masters.types';
 import {
@@ -54,7 +55,21 @@ export class VehicleService {
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    private readonly ulipClient: UlipClient,
   ) {}
+
+  /**
+   * Preflight check used by the "Verify registration" step of the Add-a-vehicle form, before the
+   * vehicle record exists — mirrors DriverService.checkDrivingLicence. Not persisted; the caller
+   * bundles the result into recordVerification (standalone, or as part of onboardVehicle).
+   */
+  async checkVehicleRegistration(registrationNumber: string): Promise<UlipVehicleResult> {
+    try {
+      return await this.ulipClient.verifyVehicle(registrationNumber);
+    } catch (error) {
+      rethrow(error, 'Failed to check vehicle registration against VAHAN');
+    }
+  }
 
   /**
    * Only called internally, by onboardVehicle — there is no standalone create-vehicle route.
