@@ -9,6 +9,7 @@ import { DashboardsRepository } from './dashboards.repository';
 import { DEFAULT_RANGE_DAYS } from './dashboards.constants';
 import {
   FleetActivityDateRange,
+  FleetActivityMetrics,
   FleetActivityRangeInput,
   FleetActivitySummary,
   ListPendingApprovalsResult,
@@ -47,48 +48,8 @@ export class DashboardsService {
   ): Promise<FleetActivitySummary> {
     try {
       const range = this.resolveRange(input);
-
-      // Reuses vehicleService.listVehicles' existing tenant-scoping/soft-delete filtering rather
-      // than adding a parallel counting query — `limit: 1` keeps each call cheap while `.total`
-      // (from the underlying findAndCount) still reflects the full matching count.
-      const [all, onTrip, idle, warnOnAssign, inactive] = await Promise.all([
-        this.vehicleService.listVehicles(tenantId, { page: 1, limit: 1 }),
-        this.vehicleService.listVehicles(tenantId, {
-          page: 1,
-          limit: 1,
-          operationalStatus: 'on_trip',
-        }),
-        this.vehicleService.listVehicles(tenantId, {
-          page: 1,
-          limit: 1,
-          operationalStatus: 'idle',
-        }),
-        this.vehicleService.listVehicles(tenantId, {
-          page: 1,
-          limit: 1,
-          operationalStatus: 'warn_on_assign',
-        }),
-        this.vehicleService.listVehicles(tenantId, {
-          page: 1,
-          limit: 1,
-          operationalStatus: 'inactive',
-        }),
-      ]);
-
-      return {
-        range,
-        fleetSize: all.total,
-        trucksRunningNow: onTrip.total,
-        operationalBreakdown: {
-          onTrip: onTrip.total,
-          idle: idle.total,
-          warnOnAssign: warnOnAssign.total,
-          inactive: inactive.total,
-        },
-        kmCovered: null,
-        maintenanceCost: null,
-        fleetPnl: null,
-      };
+      const metrics = await this.getFleetActivityMetrics(tenantId);
+      return { range, ...metrics };
     } catch (error) {
       rethrow(error, 'Failed to fetch fleet activity');
     }
@@ -108,9 +69,10 @@ export class DashboardsService {
         throw new InternalError('Failed to resolve loads-summary date range', { filter, input });
       }
 
-      const [tripCounts, dailyRows] = await Promise.all([
+      const [tripCounts, dailyRows, fleetActivity] = await Promise.all([
         this.dashboardsRepository.getTripCounts(tenantId, range),
         this.dashboardsRepository.getDailyAggregates(tenantId, range),
+        this.getFleetActivityMetrics(tenantId),
       ]);
 
       const days = enumerateIstDates(range);
@@ -142,6 +104,7 @@ export class DashboardsService {
         tonnesShippedTotal,
         freightSpendPerDay,
         freightSpendTotal,
+        fleetActivity,
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch loads summary');
@@ -202,6 +165,47 @@ export class DashboardsService {
     } catch (error) {
       rethrow(error, 'Failed to list pending approvals');
     }
+  }
+
+  /** Live vehicle operational-status snapshot, shared by getFleetActivity and getLoadsSummary —
+   *  not date-scoped (see FleetOperationalBreakdown), so it's safe to reuse verbatim for both. */
+  private async getFleetActivityMetrics(tenantId: string): Promise<FleetActivityMetrics> {
+    // Reuses vehicleService.listVehicles' existing tenant-scoping/soft-delete filtering rather
+    // than adding a parallel counting query — `limit: 1` keeps each call cheap while `.total`
+    // (from the underlying findAndCount) still reflects the full matching count.
+    const [all, onTrip, idle, warnOnAssign, inactive] = await Promise.all([
+      this.vehicleService.listVehicles(tenantId, { page: 1, limit: 1 }),
+      this.vehicleService.listVehicles(tenantId, {
+        page: 1,
+        limit: 1,
+        operationalStatus: 'on_trip',
+      }),
+      this.vehicleService.listVehicles(tenantId, { page: 1, limit: 1, operationalStatus: 'idle' }),
+      this.vehicleService.listVehicles(tenantId, {
+        page: 1,
+        limit: 1,
+        operationalStatus: 'warn_on_assign',
+      }),
+      this.vehicleService.listVehicles(tenantId, {
+        page: 1,
+        limit: 1,
+        operationalStatus: 'inactive',
+      }),
+    ]);
+
+    return {
+      fleetSize: all.total,
+      trucksRunningNow: onTrip.total,
+      operationalBreakdown: {
+        onTrip: onTrip.total,
+        idle: idle.total,
+        warnOnAssign: warnOnAssign.total,
+        inactive: inactive.total,
+      },
+      kmCovered: null,
+      maintenanceCost: null,
+      fleetPnl: null,
+    };
   }
 
   /** Defaults to the last DEFAULT_RANGE_DAYS days (inclusive of today) when the caller omits a range. */

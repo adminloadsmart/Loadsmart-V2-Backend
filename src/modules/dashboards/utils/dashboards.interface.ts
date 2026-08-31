@@ -34,6 +34,12 @@ export interface FleetActivitySummary {
   fleetPnl: null;
 }
 
+/** Everything FleetActivitySummary carries except its own echoed `range` — reused verbatim as
+ *  LoadsSummary.fleetActivity below. Fleet counts are a live snapshot, not actually scoped to any
+ *  date range (see FleetOperationalBreakdown above), so loads-summary's own `range` applies to it
+ *  only nominally, exactly as on the standalone fleet-activity endpoint. */
+export type FleetActivityMetrics = Omit<FleetActivitySummary, 'range'>;
+
 export type PendingApprovalType = 'customer' | 'vehicle' | 'driver';
 
 /** One row per pending customer/vehicle/driver, normalized to a common shape for Settings →
@@ -116,4 +122,7 @@ export interface LoadsSummary {
   tonnesShippedTotal: number;
   freightSpendPerDay: FreightSpendPerDayPoint[];
   freightSpendTotal: number;
+  /** Live fleet operational-status snapshot, folded in so the home screen can get both loads and
+   *  fleet data from one call — see FleetActivityMetrics. */
+  fleetActivity: FleetActivityMetrics;
 }

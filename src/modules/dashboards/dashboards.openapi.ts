@@ -36,10 +36,14 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'dashboards.getLoadsSummary',
     ...authenticated(
       'Home screen summary for the tenant: trip counts (all/active/completed) plus three ' +
-        'zero-filled per-day series (loads, tonnes shipped, freight spend) over a date range. ' +
-        '`filter` defaults to "last15days" when omitted; "custom" requires both from and to. All ' +
-        'scoping and day-bucketing use load.created_at and IST (Asia/Kolkata) calendar-day ' +
-        'boundaries, and include every load in range regardless of status.',
+        'zero-filled per-day series (loads, tonnes shipped, freight spend) over a date range, ' +
+        'plus a live fleetActivity snapshot (fleetSize, trucksRunningNow, operationalBreakdown, ' +
+        'and the always-null kmCovered/maintenanceCost/fleetPnl placeholders — same shape as ' +
+        'GET /fleet-activity, minus its own range, since fleet counts are a live snapshot and not ' +
+        'actually scoped by date). `filter` defaults to "last15days" when omitted; "custom" ' +
+        'requires both from and to. All scoping and day-bucketing use load.created_at and IST ' +
+        '(Asia/Kolkata) calendar-day boundaries, and include every load in range regardless of ' +
+        'status.',
     ),
     request: { query: dashboardsValidators.getLoadsSummary.shape.query },
     responses: {
