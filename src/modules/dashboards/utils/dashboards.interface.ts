@@ -23,6 +23,9 @@ export interface FleetActivitySummary {
   range: FleetActivityDateRange;
   fleetSize: number;
   trucksRunningNow: number;
+  /** Live count (not scoped to `range`) of loads currently in an active, non-completed status
+   *  with a vehicle assigned. */
+  activeTrips: number;
   operationalBreakdown: FleetOperationalBreakdown;
   /**
    * Not computable yet: `tracking`, `maintenance`, and `payments` are still schema-less stubs

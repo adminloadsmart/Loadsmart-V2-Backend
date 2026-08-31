@@ -51,7 +51,7 @@ export class DashboardsService {
       // Reuses vehicleService.listVehicles' existing tenant-scoping/soft-delete filtering rather
       // than adding a parallel counting query — `limit: 1` keeps each call cheap while `.total`
       // (from the underlying findAndCount) still reflects the full matching count.
-      const [all, onTrip, idle, warnOnAssign, inactive] = await Promise.all([
+      const [all, onTrip, idle, warnOnAssign, inactive, activeTrips] = await Promise.all([
         this.vehicleService.listVehicles(tenantId, { page: 1, limit: 1 }),
         this.vehicleService.listVehicles(tenantId, {
           page: 1,
@@ -73,12 +73,14 @@ export class DashboardsService {
           limit: 1,
           operationalStatus: 'inactive',
         }),
+        this.dashboardsRepository.countActiveTripsWithVehicle(tenantId),
       ]);
 
       return {
         range,
         fleetSize: all.total,
         trucksRunningNow: onTrip.total,
+        activeTrips,
         operationalBreakdown: {
           onTrip: onTrip.total,
           idle: idle.total,

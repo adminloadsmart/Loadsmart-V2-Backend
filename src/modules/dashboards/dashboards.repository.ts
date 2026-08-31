@@ -1,7 +1,11 @@
 import { DataSource, SelectQueryBuilder } from 'typeorm';
 import { DateRange } from '../../shared/utils/date-filter';
 import { LoadEntity } from '../loads/entities/load.entity';
-import { COMPLETED_LOAD_STATUSES, LoadStatus } from '../loads/utils/loads.types';
+import {
+  ACTIVE_LOAD_STATUSES,
+  COMPLETED_LOAD_STATUSES,
+  LoadStatus,
+} from '../loads/utils/loads.types';
 import { LoadsSummaryDailyRow, LoadsSummaryTripCounts } from './utils/dashboards.interface';
 
 // Groups load.created_at into its IST (Asia/Kolkata) calendar day, not the UTC day. `AT TIME
@@ -97,5 +101,18 @@ export class DashboardsRepository {
       tonnes: Number(row.tonnes),
       freightAmount: Number(row.freightAmount),
     }));
+  }
+
+  /** Live count (not scoped to any date range, same as fleet-activity's operationalBreakdown) of
+   *  loads currently in an active (non-completed) status with a vehicle assigned — i.e. trips a
+   *  fleet vehicle is actually out running right now. */
+  async countActiveTripsWithVehicle(tenantId: string): Promise<number> {
+    const activeStatuses: readonly string[] = ACTIVE_LOAD_STATUSES;
+    return this.loads
+      .createQueryBuilder('load')
+      .where('load.tenant_id = :tenantId', { tenantId })
+      .andWhere('load.status IN (:...activeStatuses)', { activeStatuses })
+      .andWhere('load.vehicle_id IS NOT NULL')
+      .getCount();
   }
 }
