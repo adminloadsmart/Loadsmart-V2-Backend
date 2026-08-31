@@ -1,4 +1,10 @@
-import { startOfIstDay, endOfIstDay, startOfIstDate, endOfIstDate } from './ist-time';
+import {
+  startOfIstDay,
+  endOfIstDay,
+  startOfIstDate,
+  endOfIstDate,
+  toIstDateString,
+} from './ist-time';
 
 // Quick date-range filter shared by list endpoints across modules (organizations today, staff /
 // referral codes / dashboards potentially later). Single source of truth reused by each module's
@@ -40,4 +46,21 @@ export function resolveDateRange(
       if (!from || !to) return undefined;
       return { from: startOfIstDate(from), to: endOfIstDate(to) };
   }
+}
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+// Every IST calendar date (YYYY-MM-DD, inclusive) `range` spans, in order — for zero-filling a
+// per-day series so a chart shows one point per day even when some days have no rows, not just
+// the days a GROUP BY query happened to return (see dashboards.service.ts's getLoadsSummary, the
+// first caller). Safe to step in flat 24h increments because IST has a fixed +05:30 offset with
+// no DST (see ist-time.ts's header comment) — every IST calendar day is exactly 24h wide in
+// UTC-instant terms too, so this can't skip or repeat a day the way naive Date#setDate(+1)
+// arithmetic can across a DST boundary in other timezones.
+export function enumerateIstDates(range: DateRange): string[] {
+  const dates: string[] = [];
+  for (let t = range.from.getTime(); t <= range.to.getTime(); t += ONE_DAY_MS) {
+    dates.push(toIstDateString(new Date(t)));
+  }
+  return dates;
 }

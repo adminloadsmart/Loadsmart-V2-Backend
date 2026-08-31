@@ -21,6 +21,14 @@ export function createDashboardsRoutes(controller: DashboardsController): Router
     asyncHandler(controller.getFleetActivity),
   );
 
+  // Home screen: trip counts + loads/tonnes-shipped/freight-spend per-day series. Read-only, no
+  // canWrite gate — same reasoning as fleet-activity above.
+  router.get(
+    '/loads-summary',
+    validate(dashboardsValidators.getLoadsSummary),
+    asyncHandler(controller.getLoadsSummary),
+  );
+
   // Settings → Approvals. Either permission grants visibility — both are org_admin-only today
   // (see db/seed-roles.ts), matching who can act on what this endpoint lists.
   router.get(

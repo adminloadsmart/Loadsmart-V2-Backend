@@ -31,6 +31,25 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/loads-summary`,
+    tags: [TAGS.DASHBOARDS],
+    operationId: 'dashboards.getLoadsSummary',
+    ...authenticated(
+      'Home screen summary for the tenant: trip counts (all/active/completed) plus three ' +
+        'zero-filled per-day series (loads, tonnes shipped, freight spend) over a date range. ' +
+        '`filter` defaults to "last15days" when omitted; "custom" requires both from and to. All ' +
+        'scoping and day-bucketing use load.created_at and IST (Asia/Kolkata) calendar-day ' +
+        'boundaries, and include every load in range regardless of status.',
+    ),
+    request: { query: dashboardsValidators.getLoadsSummary.shape.query },
+    responses: {
+      200: { description: 'Loads summary — trip counts + per-day series' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/pending-approvals`,
     tags: [TAGS.DASHBOARDS],
     operationId: 'dashboards.listPendingApprovals',
