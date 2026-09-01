@@ -50,6 +50,15 @@ interface UlipSourceResult {
   message: string | null;
 }
 
+/** `/user/login`'s envelope — same `error`/`code`/`message` wrapper, but `response` is a single
+ * object (`{ id, params, text }`) rather than an array of per-source results. Confirmed 2026-08. */
+interface UlipLoginEnvelope {
+  response: { id: string | null; params: unknown; text: unknown } | null;
+  error: string;
+  code: string;
+  message: string | null;
+}
+
 /**
  * Wraps ULIP (DPIIT's Unified Logistics Interface Platform) staging APIs: `/user/login` for a
  * bearer token, then `/SARATHI/01` (driving-licence lookup) and `/VAHAN/01` (vehicle lookup),
@@ -151,9 +160,14 @@ export class UlipClient {
       throw new Error(`ULIP login failed with status ${response.status}`);
     }
 
-    const body = (await response.json()) as JsonRecord;
-    const token = (body.token ?? (body.response as JsonRecord | undefined)?.token) as
-      string | undefined;
+    const body = (await response.json()) as UlipLoginEnvelope;
+    if (body.error === 'true' || body.code !== '200') {
+      throw new Error(`ULIP login reported an error (code ${body.code})`);
+    }
+
+    // Confirmed shape (2026-08 staging test): the token is `response.id`, not `response.token` —
+    // `id` here means "the issued credential", not a record identifier.
+    const token = body.response?.id ?? undefined;
     if (!token) {
       throw new Error('ULIP login response did not include a token');
     }
