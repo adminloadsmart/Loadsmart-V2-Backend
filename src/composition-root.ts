@@ -139,8 +139,9 @@ export function buildContainer(dataSource: DataSource): Container {
     productService: masters.productService,
   });
 
-  // Last — reads other modules' services directly.
-  const dashboards = createDashboardsModule({
+  // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity
+  // directly, same as the analytics/* modules below.
+  const dashboards = createDashboardsModule(dataSource, {
     vehicleService: masters.vehicleService,
     driverService: masters.driverService,
     customerService: customers.service,

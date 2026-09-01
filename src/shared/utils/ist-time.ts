@@ -28,3 +28,13 @@ export function startOfIstDate(isoDate: string): Date {
 export function endOfIstDate(isoDate: string): Date {
   return new Date(Date.parse(`${isoDate}T23:59:59.999Z`) - IST_OFFSET_MS);
 }
+
+// Recovers the IST calendar date (YYYY-MM-DD) that a UTC instant `date` falls on — the inverse of
+// startOfIstDay/endOfIstDay's offset math. Needed anywhere an IST-boundary instant (e.g. the
+// `from`/`to` returned by date-filter.ts's resolveDateRange) must be turned back into a
+// calendar-date label: naively UTC-slicing such a Date gives the wrong day for IST's first ~5.5
+// hours — IST midnight is 18:30 UTC the *previous* day.
+export function toIstDateString(date: Date): string {
+  const ist = new Date(date.getTime() + IST_OFFSET_MS);
+  return ist.toISOString().slice(0, 10);
+}

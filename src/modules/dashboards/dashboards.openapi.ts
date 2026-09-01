@@ -19,12 +19,37 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'dashboards.getFleetActivity',
     ...authenticated(
       'Fleet activity summary for the tenant over a date range (defaults to the last 15 days). ' +
-        'kmCovered, maintenanceCost, and fleetPnl are always null today — tracking, maintenance, ' +
-        'and payments have no dated distance/cost/earning records yet to aggregate.',
+        'activeTrips and operationalBreakdown are live counts (not scoped to the date range) — ' +
+        'activeTrips is the number of loads currently in a non-completed status with a vehicle ' +
+        'assigned. kmCovered, maintenanceCost, and fleetPnl are always null today — tracking, ' +
+        'maintenance, and payments have no dated distance/cost/earning records yet to aggregate.',
     ),
     request: { query: dashboardsValidators.getFleetActivity.shape.query },
     responses: {
       200: { description: 'Fleet activity summary' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads-summary`,
+    tags: [TAGS.DASHBOARDS],
+    operationId: 'dashboards.getLoadsSummary',
+    ...authenticated(
+      'Home screen summary for the tenant: trip counts (all/active/completed) plus three ' +
+        'zero-filled per-day series (loads, tonnes shipped, freight spend) over a date range, ' +
+        'plus a live fleetActivity snapshot (fleetSize, trucksRunningNow, operationalBreakdown, ' +
+        'and the always-null kmCovered/maintenanceCost/fleetPnl placeholders — same shape as ' +
+        'GET /fleet-activity, minus its own range, since fleet counts are a live snapshot and not ' +
+        'actually scoped by date). `filter` defaults to "last15days" when omitted; "custom" ' +
+        'requires both from and to. All scoping and day-bucketing use load.created_at and IST ' +
+        '(Asia/Kolkata) calendar-day boundaries, and include every load in range regardless of ' +
+        'status.',
+    ),
+    request: { query: dashboardsValidators.getLoadsSummary.shape.query },
+    responses: {
+      200: { description: 'Loads summary — trip counts + per-day series' },
       400: { description: 'Validation failed', ...errorContent },
     },
   });
