@@ -140,14 +140,22 @@ export class AdminService {
     throw new NotFoundError(`Organization ${organization.id} not found`);
   }
 
-  /** Unlocks only once every submitted document is verified — mirrors the review screen's "docs ✓"
-   *  gate. Shared by completeOnlineKyc (the online reviewer's own completion gate) and
-   *  approveOrganization (belt-and-suspenders, since completeOnlineKyc should already have run by
-   *  then). */
-  private async assertDocumentsVerified(organizationId: string) {
+  /** Fetches this org's documents and splits out which ones aren't yet verified — shared by
+   *  assertDocumentsVerified below (throws) and verifyOrganizationDocument's auto-complete side
+   *  effect (just needs the boolean). */
+  private async getDocumentVerificationState(organizationId: string) {
     const documents = await this.organizationDocumentService.listByOrganization(organizationId);
     const unverified = documents.filter((document) => document.verificationStatus !== 'verified');
-    if (documents.length === 0 || unverified.length > 0) {
+    return { unverified, allVerified: documents.length > 0 && unverified.length === 0 };
+  }
+
+  /** Unlocks only once every submitted document is verified — mirrors the review screen's "docs ✓"
+   *  gate. Used by approveOrganization as a belt-and-suspenders check, since online KYC completion
+   *  (verifyOrganizationDocument's auto-complete side effect, below) should already have enforced
+   *  this by then. */
+  private async assertDocumentsVerified(organizationId: string) {
+    const { unverified, allVerified } = await this.getDocumentVerificationState(organizationId);
+    if (!allVerified) {
       throw new ValidationError('Cannot proceed: every submitted document must be verified first', {
         unverifiedDocumentIds: unverified.map((document) => document.id),
       });
@@ -190,6 +198,10 @@ export class AdminService {
     }
   }
 
+  /** Verifies or rejects one submitted document. If this call is the one that makes every
+   *  submitted document 'verified', it also completes online KYC as a side effect — see the block
+   *  near the end of this method — so there's no separate "complete online KYC" step for the
+   *  reviewer to remember once the last document is in. */
   async verifyOrganizationDocument(
     actingUser: AuthenticatedUser,
     organizationId: string,
@@ -243,6 +255,38 @@ export class AdminService {
           rejectionReason: document.rejectionReason,
         },
       });
+
+      // Auto-complete online KYC the moment this update makes every submitted document verified —
+      // folds the old separate POST .../online-kyc/complete step into this one, since there's
+      // nothing left for the reviewer to decide once every document is verified. Only worth
+      // checking when this call just set a document to 'verified' (the gate can't pass on
+      // 'invalid'/'pending') and only once (onlineKycCompletedAt already set means a previous
+      // document-verify call already completed it).
+      if (input.verificationStatus === 'verified' && !organization.onlineKycCompletedAt) {
+        const { allVerified } = await this.getDocumentVerificationState(organizationId);
+        if (allVerified) {
+          await this.organizationService.updateOrganization(organizationId, {
+            onlineKycCompletedAt: new Date(),
+          });
+
+          const updatedOrg = await this.organizationJourneyStageService.recordTransition(
+            organizationId,
+            'online_kyc_completed',
+            actingUser.id,
+          );
+
+          await this.auditService.log({
+            tenantId: organizationId,
+            userId: actingUser.id,
+            action: 'ORGANIZATION_ONLINE_KYC_COMPLETED',
+            resourceType: 'organization',
+            newData: {
+              onlineKycCompletedAt: updatedOrg.onlineKycCompletedAt,
+              journeyStage: updatedOrg.journeyStage,
+            },
+          });
+        }
+      }
 
       return document;
     } catch (error) {
@@ -415,51 +459,14 @@ export class AdminService {
     }
   }
 
-  /** The online reviewer's handover moment — marks their review done so the assigned
-   *  offline_kyc_desk agent can now see and act on this org (see assertOrgAccessible). Gated on
-   *  the same "every document verified" check as approveOrganization below. Also the journey-stage
-   *  transition to 'online_kyc_completed' — see organization.constants.ts's JOURNEY_STAGE_ORDER
-   *  for why an out-of-order physical-agent assignment can make this a no-op display-wise; the
-   *  timestamp set here stays the source of truth regardless. */
-  async completeOnlineKyc(actingUser: AuthenticatedUser, organizationId: string) {
-    try {
-      const organization = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, organization);
-      await this.assertDocumentsVerified(organizationId);
-
-      await this.organizationService.updateOrganization(organizationId, {
-        onlineKycCompletedAt: new Date(),
-      });
-
-      const updated = await this.organizationJourneyStageService.recordTransition(
-        organizationId,
-        'online_kyc_completed',
-        actingUser.id,
-      );
-
-      await this.auditService.log({
-        tenantId: organizationId,
-        userId: actingUser.id,
-        action: 'ORGANIZATION_ONLINE_KYC_COMPLETED',
-        resourceType: 'organization',
-        newData: {
-          onlineKycCompletedAt: updated.onlineKycCompletedAt,
-          journeyStage: updated.journeyStage,
-        },
-      });
-
-      return updated;
-    } catch (error) {
-      rethrow(error, 'Failed to complete online KYC');
-    }
-  }
-
-  /** The offline/physical agent's approval — unconditionally requires completeOnlineKyc to have
-   *  run first (checked here regardless of role, unlike assertOrgAccessible's ownership check,
+  /** The offline/physical agent's approval — unconditionally requires online KYC to already be
+   *  complete (checked here regardless of role, unlike assertOrgAccessible's ownership check,
    *  since this is a workflow-order rule that binds platform_admin too, not an access-control
-   *  one). Once set, this is what approveOrganization below is waiting on to grant platform
-   *  access. Also the journey-stage transition to 'physical_kyc_completed' — "the ball is back
-   *  with the source verifier" for their final decision. */
+   *  one). Online KYC completes automatically as a side effect of verifyOrganizationDocument once
+   *  every submitted document is verified — see that method. Once onlineKycCompletedAt is set,
+   *  this is what approveOrganization below is waiting on to grant platform access. Also the
+   *  journey-stage transition to 'physical_kyc_completed' — "the ball is back with the source
+   *  verifier" for their final decision. */
   async approvePhysicalKyc(actingUser: AuthenticatedUser, organizationId: string) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);

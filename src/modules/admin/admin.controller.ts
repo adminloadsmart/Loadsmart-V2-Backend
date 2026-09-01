@@ -85,14 +85,6 @@ export class AdminController {
     respond(res, organization);
   };
 
-  completeOnlineKyc = async (req: Request<OrganizationParams>, res: Response) => {
-    const organization = await this.adminService.completeOnlineKyc(
-      req.user!,
-      req.params.organizationId,
-    );
-    respond(res, organization);
-  };
-
   approvePhysicalKyc = async (req: Request<OrganizationParams>, res: Response) => {
     const organization = await this.adminService.approvePhysicalKyc(
       req.user!,
