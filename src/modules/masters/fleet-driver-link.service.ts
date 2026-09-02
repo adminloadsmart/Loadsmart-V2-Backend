@@ -1,6 +1,7 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { toDateString } from '../../shared/utils/date';
+import { humanizeStatus } from '../../shared/utils/humanize';
 import { FleetDriverLinkEntity } from './entities/fleet-driver-link.entity';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { VehicleRepository } from './vehicle.repository';
@@ -41,7 +42,7 @@ export class FleetDriverLinkService {
 
       if (driver.status !== 'active') {
         throw new ValidationError(
-          `Driver ${driver.fullName} is ${driver.status} and cannot be assigned to a vehicle`,
+          `Driver ${driver.fullName} is ${humanizeStatus(driver.status)} and cannot be assigned to a vehicle`,
         );
       }
 
@@ -112,7 +113,7 @@ export class FleetDriverLinkService {
 
       if (driver.status !== 'active') {
         throw new ValidationError(
-          `Driver ${driver.id} is ${driver.status} and cannot be assigned to a vehicle`,
+          `Driver ${driver.fullName} is ${humanizeStatus(driver.status)} and cannot be assigned to a vehicle`,
         );
       }
 

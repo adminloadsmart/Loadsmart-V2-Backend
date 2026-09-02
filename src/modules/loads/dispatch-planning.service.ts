@@ -1,5 +1,6 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { VehicleService, resolveDocumentStatus } from '../masters/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/utils/vehicle.type';
@@ -259,7 +260,7 @@ export class DispatchPlanningService {
     );
     if (inRequisition.length > 0) {
       throw new ConflictError(
-        `Vehicle ${inRequisition[0].vehicleId} is already planned on load ${inRequisition[0].code} in this requisition`,
+        `This vehicle is already planned on load ${inRequisition[0].code} in this requisition`,
       );
     }
 
@@ -267,7 +268,7 @@ export class DispatchPlanningService {
     const active = await this.loadRepository.findActiveByVehicles(tenantId, allVehicleIds, manager);
     if (active.length > 0) {
       throw new ConflictError(
-        `Vehicle ${active[0].vehicleId} is already on an active load elsewhere (load ${active[0].code}, status ${active[0].status})`,
+        `This vehicle is already on an active load elsewhere (load ${active[0].code}, status ${humanizeStatus(active[0].status)})`,
       );
     }
 

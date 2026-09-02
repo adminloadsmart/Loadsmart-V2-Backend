@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { TransporterService } from '../masters/transporter.service';
 import { VehicleService } from '../masters/vehicle.service';
@@ -107,7 +108,7 @@ export class LoadService {
       );
       if (clash) {
         throw new ConflictError(
-          `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.code}, status ${clash.status})`,
+          `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.code}, status ${humanizeStatus(clash.status)})`,
         );
       }
 
@@ -367,7 +368,7 @@ export class LoadService {
       const nextStatus = LOAD_STATUSES[currentIndex + 1];
       if (nextStatus !== toStatus || !manualTrackingStatuses.includes(toStatus)) {
         throw new ConflictError(
-          `Cannot move load from ${load.status} to ${toStatus} — the only valid next status is ${nextStatus ?? 'none'}`,
+          `Cannot move load from ${humanizeStatus(load.status)} to ${humanizeStatus(toStatus)} — the only valid next status is ${humanizeStatus(nextStatus ?? 'none')}`,
         );
       }
 

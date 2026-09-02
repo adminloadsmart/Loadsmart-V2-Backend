@@ -1,4 +1,5 @@
 import { AuthorizationError } from '../errors';
+import { humanizeStatus } from '../utils/humanize';
 import { OrganizationService } from '../../modules/organization/organization.service';
 import {
   isTenantAccessible,
@@ -38,7 +39,7 @@ export class TenancyGatewayLocal implements TenancyGateway {
     const organization = await this.organizationService.getOrganizationStatus(tenantId);
     if (!isTenantAccessible(organization.status)) {
       throw new AuthorizationError(
-        `Organization is ${organization.status} and cannot access this resource`,
+        `Organization is ${humanizeStatus(organization.status)} and cannot access this resource`,
         { reason: 'ORGANIZATION_NOT_ACCESSIBLE', status: organization.status },
       );
     }
@@ -49,7 +50,7 @@ export class TenancyGatewayLocal implements TenancyGateway {
       !isTenantWriteAccessible(organization.status)
     ) {
       throw new AuthorizationError(
-        `Organization is ${organization.status} and cannot make changes until it is approved`,
+        `Organization is ${humanizeStatus(organization.status)} and cannot make changes until it is approved`,
         { reason: 'ORGANIZATION_NOT_APPROVED', status: organization.status },
       );
     }
