@@ -8,18 +8,6 @@ import { OrganizationController } from './organization.controller';
 import { organizationValidators } from './organization.validators';
 import { ValidationError } from '../../shared/errors';
 
-const organizationBusinessUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 11 },
-  fileFilter: (_req, file, callback: FileFilterCallback) => {
-    if (!['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'].includes(file.mimetype)) {
-      callback(new ValidationError('Only JPG, JPEG, PNG, and PDF files are accepted'));
-      return;
-    }
-    callback(null, true);
-  },
-});
-
 // Mounted at '/auth' by composition-root.ts (see createOrganizationOnboardingRoutes in
 // index.ts), alongside modules/auth/'s own protectedRouter — the routes here keep their existing
 // /auth/organization* URLs even though the code now lives in modules/organization/. No auth
@@ -37,10 +25,6 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
   );
   router.post(
     '/organization/business',
-    organizationBusinessUpload.fields([
-      { name: 'documentFront', maxCount: 10 },
-      { name: 'shopPremisesPhoto', maxCount: 1 },
-    ]),
     validate(organizationValidators.saveBusinessDetails),
     asyncHandler(controller.saveBusinessDetails),
   );
