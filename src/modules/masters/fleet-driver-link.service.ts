@@ -41,7 +41,7 @@ export class FleetDriverLinkService {
 
       if (driver.status !== 'active') {
         throw new ValidationError(
-          `Driver ${driver.id} is ${driver.status} and cannot be assigned to a vehicle`,
+          `Driver ${driver.fullName} is ${driver.status} and cannot be assigned to a vehicle`,
         );
       }
 
