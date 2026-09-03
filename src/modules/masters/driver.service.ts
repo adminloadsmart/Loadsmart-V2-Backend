@@ -108,6 +108,16 @@ export class DriverService {
         throw new ConflictError('A driver with this phone number already exists');
       }
 
+      if (input.licenseNumber) {
+        const licenseOwner = await this.driverRepository.findByLicenseNumber(
+          tenantId,
+          input.licenseNumber.toUpperCase(),
+        );
+        if (licenseOwner) {
+          throw new ConflictError('A driver with this license number already exists');
+        }
+      }
+
       const autoApproved = actorRole === ORG_ADMIN_ROLE;
 
       return await this.driverRepository.create(
@@ -178,6 +188,16 @@ export class DriverService {
         );
         if (phoneOwner) {
           throw new ConflictError('A driver with this phone number already exists');
+        }
+      }
+
+      if (licenseChanged && licenseNumber) {
+        const licenseOwner = await this.driverRepository.findByLicenseNumber(
+          tenantId,
+          licenseNumber,
+        );
+        if (licenseOwner) {
+          throw new ConflictError('A driver with this license number already exists');
         }
       }
 

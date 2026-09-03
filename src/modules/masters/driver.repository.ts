@@ -63,6 +63,10 @@ export class DriverRepository {
     return this.drivers.findOneBy({ tenantId, phoneNumber, deletedAt: IsNull() });
   }
 
+  findByLicenseNumber(tenantId: string, licenseNumber: string): Promise<DriverEntity | null> {
+    return this.drivers.findOneBy({ tenantId, licenseNumber, deletedAt: IsNull() });
+  }
+
   async list(
     tenantId: string,
     filters: ListDriversFilters,
