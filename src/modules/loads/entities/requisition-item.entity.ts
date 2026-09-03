@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { RequisitionEntity } from './requisition.entity';
-import { ProductEntity } from '../../masters/entities/product.entity';
+import { ProductEntity } from '../../masters/product/entities/product.entity';
 import { REQUISITION_ITEM_UNITS, RequisitionItemUnit } from '../utils/loads.types';
 
 /**

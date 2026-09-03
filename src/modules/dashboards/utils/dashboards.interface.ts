@@ -11,7 +11,7 @@ export interface FleetActivityDateRange {
   to: string;
 }
 
-/** Live counts by VehicleOperationalStatus (masters/utils/vehicle.type.ts), not scoped to `range`. */
+/** Live counts by VehicleOperationalStatus (masters/vehicle/vehicle.type.ts), not scoped to `range`. */
 export interface FleetOperationalBreakdown {
   onTrip: number;
   idle: number;

@@ -11,10 +11,10 @@ import {
 } from 'typeorm';
 import { RequisitionEntity } from './requisition.entity';
 import { LoadCargoItemEntity } from './load-cargo-item.entity';
-import { TruckTypeEntity } from '../../masters/entities/truck-type.entity';
-import { VehicleEntity } from '../../masters/entities/vehicle.entity';
-import { DriverEntity } from '../../masters/entities/driver.entity';
-import { TransporterEntity } from '../../masters/entities/transporter.entity';
+import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
+import { DriverEntity } from '../../masters/driver/entities/driver.entity';
+import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import {
   FREIGHT_MODES,
   FREIGHT_TYPES,
