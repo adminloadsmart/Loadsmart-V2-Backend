@@ -1,6 +1,6 @@
 /**
  * Closed set of `action`/`resourceType` values passed to AuditService.log() — declared once as a
- * `const` tuple, same pattern as DRIVER_STATUSES etc. in masters/utils/drivers.types.ts, so a call
+ * `const` tuple, same pattern as DRIVER_STATUSES etc. in masters/driver/drivers.types.ts, so a call
  * site can't pass an arbitrary string (typo or otherwise) that silently ends up in the audit log.
  * Add new entries here first, then use them at the call site.
  */

@@ -42,7 +42,7 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     keyPrefix: 'masters/vehicle',
   },
   // Driving-licence front/back photos captured on the manual Sarathi route — see
-  // DRIVER_DOCUMENT_TYPES in masters/utils/drivers.types.ts.
+  // DRIVER_DOCUMENT_TYPES in masters/driver/drivers.types.ts.
   'masters/driver': {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],

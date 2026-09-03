@@ -8,8 +8,8 @@
 // one shared DataSource — this file has no standalone CLI entry point of its own.
 
 import { DataSource } from 'typeorm';
-import { TruckTypeCatalogRepository } from '../modules/masters/truck-type-catalog.repository';
-import { TruckTypeCatalogService } from '../modules/masters/truck-type-catalog.service';
+import { TruckTypeCatalogRepository } from '../modules/masters/truck-type-catalog/truck-type-catalog.repository';
+import { TruckTypeCatalogService } from '../modules/masters/truck-type-catalog/truck-type-catalog.service';
 
 export async function seedTruckTypes(dataSource: DataSource): Promise<void> {
   const truckTypeCatalogService = new TruckTypeCatalogService(

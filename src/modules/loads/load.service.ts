@@ -1,10 +1,10 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
-import { TransporterService } from '../masters/transporter.service';
-import { VehicleService } from '../masters/vehicle.service';
+import { TransporterService } from '../masters/transporter/transporter.service';
+import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
-import { paginate, Paginated } from '../masters/utils/masters.types';
+import { paginate, Paginated } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadActivityService } from './load-activity.service';
