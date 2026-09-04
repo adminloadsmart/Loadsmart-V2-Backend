@@ -16,6 +16,7 @@ import { TrackingEventEntity } from '../modules/tracking/tracking.entity';
 import { NotificationEntity } from '../modules/notifications/notifications.entity';
 import { NotificationTemplateEntity } from '../modules/notifications/templates/template.entity';
 import { PaymentEntity } from '../modules/payments/payments.entity';
+import { TransporterSettlementEntity } from '../modules/payments/entities/transporter-settlement.entity';
 import { MaintenanceRecordEntity } from '../modules/maintenance/maintenance.entity';
 import { AuditLogEntity } from '../modules/audit/audit.entity';
 import { VehicleEntity } from '../modules/masters/vehicle/entities/vehicle.entity';
@@ -70,6 +71,7 @@ export const AppDataSource = new DataSource({
     NotificationEntity,
     NotificationTemplateEntity,
     PaymentEntity,
+    TransporterSettlementEntity,
     MaintenanceRecordEntity,
     AuditLogEntity,
     VehicleEntity,

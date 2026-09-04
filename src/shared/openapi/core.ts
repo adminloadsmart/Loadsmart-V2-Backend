@@ -21,6 +21,7 @@ export const TAGS = {
   CUSTOMERS: 'customers',
   STORAGE: 'files',
   LOADS: 'loads',
+  PAYMENTS: 'payments',
 } as const;
 
 /**

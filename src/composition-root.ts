@@ -97,7 +97,6 @@ export function buildContainer(dataSource: DataSource): Container {
   // Producers first — no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
   const notifications = createNotificationsModule(dataSource);
-  const payments = createPaymentsModule(dataSource);
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs.
   const maintenance = createMaintenanceModule(dataSource, {
@@ -137,6 +136,18 @@ export function buildContainer(dataSource: DataSource): Container {
     truckTypeService: masters.truckTypeService,
     loadingPointService: masters.loadingPointService,
     productService: masters.productService,
+  });
+
+  // Built after loads — the Billing module's transporter-settlement feature reads loads'
+  // loadService/loadPaymentService directly (freight terms + what's already been paid) plus
+  // masters' transporterService (bank details), no gateway, same "consumer takes producer
+  // services as direct constructor args" pattern loads itself uses above.
+  const payments = createPaymentsModule(dataSource, {
+    loadService: loads.loadService,
+    loadPaymentService: loads.loadPaymentService,
+    transporterService: masters.transporterService,
+    loadActivityService: loads.loadActivityService,
+    auditService: audit.service,
   });
 
   // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity

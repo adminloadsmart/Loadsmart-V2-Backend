@@ -72,6 +72,10 @@ export const AUDIT_ACTIONS = [
   'LOAD_POD_RECORDED',
   'LOAD_PAYMENT_RECORDED',
   'LOAD_CLOSED',
+  // Billing module — see modules/payments/transporter-settlement.service.ts. Stands in for
+  // FMS-BILL-R012's "emits meter.settlements.run": no metering/event-bus layer exists in this
+  // codebase yet, so the audit log is the closest real "this happened" record.
+  'TRANSPORTER_SETTLEMENT_RECORDED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -89,5 +93,6 @@ export const AUDIT_RESOURCE_TYPES = [
   'requisition',
   'load',
   'load_payment',
+  'transporter_settlement',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

@@ -27,6 +27,7 @@ export const REQUISITIONS_MANAGE = 'requisitions.manage'; // sales_cs — Requis
 export const DISPATCH_PLANNING_MANAGE = 'dispatch.planning.manage'; // dispatch — Planning/Assignment
 export const LOADS_DOCUMENTS_MANAGE = 'loads.documents.manage'; // documents_ops — Loading/E-POD
 export const PAYMENTS_MANAGE = 'payments.manage'; // finance_accounts — Advance/Balance
+export const SETTLEMENTS_MANAGE = 'settlements.manage'; // finance_accounts — Transporter settlement payouts
 export const CUSTOMERS_CREATE = 'customers.create';
 export const CUSTOMERS_READ = 'customers.read';
 export const CUSTOMERS_WRITE = 'customers.write';

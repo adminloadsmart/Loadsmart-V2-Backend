@@ -35,6 +35,7 @@ import {
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
   PAYMENTS_MANAGE,
+  SETTLEMENTS_MANAGE,
   CUSTOMERS_CREATE,
   CUSTOMERS_READ,
   CUSTOMERS_WRITE,
@@ -134,6 +135,12 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       description: 'Manage advance/balance payments',
     },
     {
+      key: SETTLEMENTS_MANAGE,
+      module: 'payments',
+      scope: 'organization',
+      description: 'Record transporter settlement payouts',
+    },
+    {
       key: CUSTOMERS_CREATE,
       module: 'customers',
       scope: 'organization',
@@ -230,6 +237,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       DISPATCH_PLANNING_MANAGE,
       LOADS_DOCUMENTS_MANAGE,
       PAYMENTS_MANAGE,
+      SETTLEMENTS_MANAGE,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
@@ -264,7 +272,13 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: FINANCE_ACCOUNTS_ROLE,
     scope: 'organization',
-    permissionKeys: [PAYMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [
+      PAYMENTS_MANAGE,
+      SETTLEMENTS_MANAGE,
+      CUSTOMERS_CREATE,
+      FILES_READ,
+      FILES_UPLOAD,
+    ],
   },
 ];
 

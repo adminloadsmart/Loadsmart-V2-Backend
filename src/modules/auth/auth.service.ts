@@ -887,8 +887,6 @@ export class AuthService {
     files: {
       documentFront: Express.Multer.File[];
       shopPremisesPhoto?: Express.Multer.File;
-      documentFrontKeys?: string[];
-      shopPremisesPhotoKey?: string;
     },
   ) {
     if (!user.tenantId) {
@@ -934,6 +932,15 @@ export class AuthService {
       throw new AuthorizationError('Missing organization context');
     }
 
+    // Already-uploaded storage keys, passed back instead of re-uploading — the multipart form
+    // field arrives as a single string or an array of strings depending on how many were sent.
+    const documentFrontKeys = input.documentFront
+      ? Array.isArray(input.documentFront)
+        ? input.documentFront
+        : [input.documentFront]
+      : [];
+    const shopPremisesPhotoKey = input.shopPremisesPhoto;
+
     const pdfFiles = files.documentFront.filter((file) => file.mimetype === 'application/pdf');
     const imageFiles = files.documentFront.filter((file) =>
       ['image/jpeg', 'image/jpg', 'image/png'].includes(file.mimetype),
@@ -945,11 +952,7 @@ export class AuthService {
       throw new ValidationError('Only one PDF file can be uploaded for the document');
     }
 
-    if (
-      !files.shopPremisesPhoto &&
-      !files.shopPremisesPhotoKey &&
-      !current.shopboardPremisesPhotoKey
-    ) {
+    if (!files.shopPremisesPhoto && !shopPremisesPhotoKey && !current.shopboardPremisesPhotoKey) {
       throw new ValidationError('Shop-board premises photo is required');
     }
 
@@ -983,8 +986,6 @@ export class AuthService {
           )
         : Promise.resolve(null),
     ]);
-    const documentFrontKeys = files.documentFrontKeys ?? [];
-    const shopPremisesPhotoKey = files.shopPremisesPhotoKey;
     const uploadedDocumentKeys = documentFrontFiles.map((file) => file.key);
 
     await Promise.all(
