@@ -14,6 +14,7 @@ import { PermissionEntity } from '../modules/roles/entities/permission.entity';
 import { UserPermissionEntity } from '../modules/roles/entities/user-permission.entity';
 import { TrackingEventEntity } from '../modules/tracking/tracking.entity';
 import { NotificationEntity } from '../modules/notifications/notifications.entity';
+import { NotificationDeliveryEntity } from '../modules/notifications/notification-delivery.entity';
 import { NotificationTemplateEntity } from '../modules/notifications/templates/template.entity';
 import { PaymentEntity } from '../modules/payments/payments.entity';
 import { MaintenanceRecordEntity } from '../modules/maintenance/maintenance.entity';
@@ -68,6 +69,7 @@ export const AppDataSource = new DataSource({
     UserPermissionEntity,
     TrackingEventEntity,
     NotificationEntity,
+    NotificationDeliveryEntity,
     NotificationTemplateEntity,
     PaymentEntity,
     MaintenanceRecordEntity,

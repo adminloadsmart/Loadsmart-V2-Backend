@@ -1,5 +1,6 @@
 import { Router, RequestHandler } from 'express';
 import { DataSource } from 'typeorm';
+import { Worker } from 'bullmq';
 import { TenancyGateway } from './shared/tenancy/tenancy.gateway';
 import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
@@ -37,6 +38,10 @@ export interface Container {
   // (or never needed a tenant at all) can't sit behind createTenantScope. See app.ts.
   authenticatedRouters: { path: string; router: Router }[];
   routers: { path: string; router: Router }[];
+  // In-process background workers (currently just notifications' BullMQ dispatch worker) —
+  // server.ts closes each of these on SIGTERM/SIGINT before the HTTP server, so an in-flight job
+  // finishes instead of being killed mid-dispatch on a pm2 restart.
+  backgroundWorkers: Worker[];
 }
 
 export function buildContainer(dataSource: DataSource): Container {
@@ -175,5 +180,6 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
     ],
+    backgroundWorkers: [notifications.worker],
   };
 }

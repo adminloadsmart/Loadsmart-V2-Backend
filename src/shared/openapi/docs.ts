@@ -14,6 +14,7 @@ import { registerLoadsOpenApi } from '../../modules/loads/loads.openapi';
 import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper/shipper-analytics.openapi';
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
 import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
+import { registerNotificationsOpenApi } from '../../modules/notifications/notifications.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -27,11 +28,12 @@ const API_VERSION = '0.1.0';
 let cached: ReturnType<OpenApiGeneratorV31['generateDocument']> | undefined;
 
 /**
- * The exhaustive list of what's currently documented — auth, organization, roles, masters, and
- * admin are the only modules with real routes/validators today. Explicit calls (not side-effect
- * imports) so a module that's forgotten here is a visible missing line, not a silently empty tag
- * in the UI. registerOrganizationOnboardingOpenApi stays under TAGS.AUTH (not its own tag/entry
- * below) since its routes are still mounted at /auth — see organization.openapi.ts.
+ * The exhaustive list of what's currently documented — auth, organization, roles, masters,
+ * admin, and notifications are the only modules with real routes/validators today. Explicit
+ * calls (not side-effect imports) so a module that's forgotten here is a visible missing line,
+ * not a silently empty tag in the UI. registerOrganizationOnboardingOpenApi stays under
+ * TAGS.AUTH (not its own tag/entry below) since its routes are still mounted at /auth — see
+ * organization.openapi.ts.
  * Future module: add its `register<Name>OpenApi(registry)` call here + a tag below.
  */
 function getOpenApiDocument() {
@@ -48,6 +50,7 @@ function getOpenApiDocument() {
     registerShipperAnalyticsOpenApi(registry);
     registerFleetAnalyticsOpenApi(registry);
     registerDriverAnalyticsOpenApi(registry);
+    registerNotificationsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -87,6 +90,11 @@ function getOpenApiDocument() {
           name: TAGS.LOADS,
           description:
             'Requisition → Dispatch Planning → Load Assignment → Loading & Documents → Tracking → E-POD → Advance/Balance Payment',
+        },
+        {
+          name: TAGS.NOTIFICATIONS,
+          description:
+            'Read-only: list and view the caller’s own notifications (in-app record of every email/SMS/push sent to them) and mark them read. Sending is done in-process by other services, not over HTTP.',
         },
       ],
     });
