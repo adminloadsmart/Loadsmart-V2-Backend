@@ -51,4 +51,34 @@ export class Msg91Client {
     if (body?.type === 'error') return false;
     throw new Error(`MSG91 verify OTP failed: ${response.status}`);
   }
+
+  /**
+   * Generic transactional/notification SMS via MSG91's Flow API — used by the notifications
+   * module's SmsChannel, distinct from sendOtp above (which hits MSG91's dedicated,
+   * auto-generating OTP API instead). Requires a separate DLT-approved Flow template
+   * (env.msg91NotificationTemplateId) to be provisioned on the MSG91 dashboard first; the exact
+   * variable names it expects are template-defined, so `variables`' keys here (currently `title`/
+   * `body`) are provisional until a real template exists to verify against.
+   */
+  async sendTransactional(phoneNumber: string, variables: Record<string, string>): Promise<void> {
+    if (!env.msg91AuthKey || !env.msg91NotificationTemplateId) {
+      throw new Error(
+        'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
+      );
+    }
+
+    const response = await fetch(`${env.msg91BaseUrl}/api/v5/flow/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authkey: env.msg91AuthKey },
+      body: JSON.stringify({
+        template_id: env.msg91NotificationTemplateId,
+        recipients: [{ mobiles: phoneNumber, ...variables }],
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as Msg91Response | null;
+
+    if (body?.type !== 'success') {
+      throw new Error(`MSG91 send SMS failed: ${body?.message ?? response.status}`);
+    }
+  }
 }
