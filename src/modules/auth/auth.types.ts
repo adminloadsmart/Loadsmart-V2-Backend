@@ -11,12 +11,25 @@ export interface RequestLoginOtpInput {
 
 export type LoginPortal = 'organization' | 'platform';
 
-export interface VerifyOtpInput {
+export type DevicePlatform = 'ios' | 'android' | 'web';
+
+// Optional on every session-issuing input below — a client sends these when it has an FCM token
+// to register (deviceType is required alongside fcmToken at the validator layer, see
+// auth.validators.ts); omitted entirely for clients (e.g. plain web) with nothing to register.
+// ipAddress is never client-supplied — always derived server-side from req.ip.
+export interface DeviceCaptureInput {
+  fcmToken?: string;
+  deviceType?: DevicePlatform;
+  deviceInfo?: string;
+  ipAddress?: string | null;
+}
+
+export interface VerifyOtpInput extends DeviceCaptureInput {
   phoneNumber: string;
   otp: string;
 }
 
-export interface VerifyLoginOtpInput {
+export interface VerifyLoginOtpInput extends DeviceCaptureInput {
   phoneNumber: string;
   otp: string;
   portal: LoginPortal;
@@ -75,7 +88,7 @@ export interface ListOrganizationUsersInput {
   limit: number;
 }
 
-export interface LoginInput {
+export interface LoginInput extends Omit<DeviceCaptureInput, 'ipAddress'> {
   phoneNumber: string;
   password: string;
   portal: LoginPortal;
@@ -87,10 +100,10 @@ export interface RefreshInput {
 }
 
 export interface LogoutInput {
-  refreshToken: string;
-  // The caller's own id (from req.user, never the request body) — logout must only ever revoke
-  // the caller's own refresh token, not one they happen to be holding for another user.
-  userId: string;
+  // All three come from req.user (a verified JWT claim), never the request body — logout takes
+  // no body at all. sid identifies the exact refresh-token row to revoke; jti/exp are for
+  // immediately blocklisting this access token (see shared/utils/token-blocklist.ts).
+  sid?: string;
   jti?: string;
   exp?: number;
 }

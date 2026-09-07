@@ -61,6 +61,7 @@ import {
   CreatePasswordInput,
   SaveUserDetailsInput,
   LoginPortal,
+  DevicePlatform,
 } from './auth.types';
 import {
   SaveCompanyDetailsInput,
@@ -71,6 +72,14 @@ import {
   OrganizationOnboardingProgress,
 } from '../organization/organization.types';
 import { UserEntity } from './entities/user.entity';
+
+// Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
+type DeviceContext = {
+  fcmToken?: string | null;
+  deviceType?: DevicePlatform | null;
+  deviceInfo?: string | null;
+  ipAddress?: string | null;
+};
 
 type AuthSession = {
   accessToken: string;
@@ -151,7 +160,12 @@ export class AuthService {
       });
     }
 
-    return this.issueTokenPairForUser(user, 'organization');
+    return this.issueTokenPairForUser(user, 'organization', {
+      fcmToken: input.fcmToken,
+      deviceType: input.deviceType,
+      deviceInfo: input.deviceInfo,
+      ipAddress: input.ipAddress,
+    });
   }
 
   async requestLoginOtp(input: RequestLoginOtpInput) {
@@ -196,7 +210,12 @@ export class AuthService {
       throw new AuthenticationError('Invalid or expired login OTP');
     }
 
-    return this.buildAuthSession(user, input.portal);
+    return this.buildAuthSession(user, input.portal, {
+      fcmToken: input.fcmToken,
+      deviceType: input.deviceType,
+      deviceInfo: input.deviceInfo,
+      ipAddress: input.ipAddress,
+    });
   }
 
   async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
@@ -502,6 +521,26 @@ export class AuthService {
     return this.authRepository.findByIds(userIds);
   }
 
+  // Called any time the client's FCM token changes independent of login (Firebase's own
+  // onNewToken/didReceiveRegistrationToken callback) — keyed by the calling access token's `sid`
+  // claim (the underlying refresh-token row's own id), so no refreshToken needs to be sent, just
+  // the new value. A stale sid (session since revoked/expired, access token not yet expired)
+  // 404s rather than silently no-op-ing.
+  async updateDeviceToken(sid: string, fcmToken: string, deviceType: DevicePlatform) {
+    const updated = await this.authRepository.updateSessionDeviceInfo(sid, {
+      fcmToken,
+      deviceType,
+    });
+    if (!updated) throw new NotFoundError('No active session found');
+  }
+
+  // Future producers (e.g. a maintenance/loads module wanting to push to a user) call this
+  // directly — same "consumer takes producer service directly" pattern as getUserById above. Not
+  // wired to anything yet.
+  async getActiveDeviceTokensForUser(userId: string) {
+    return this.authRepository.findActiveByUserId(userId);
+  }
+
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
     const staffIds = items.map((user) => user.id);
@@ -692,7 +731,11 @@ export class AuthService {
   }
 
   async login(input: LoginInput, ipAddress: string | null) {
-    return this.loginWithPhone(input.phoneNumber, input.password, input.portal, ipAddress);
+    return this.loginWithPhone(input.phoneNumber, input.password, input.portal, ipAddress, {
+      fcmToken: input.fcmToken,
+      deviceType: input.deviceType,
+      deviceInfo: input.deviceInfo,
+    });
   }
 
   async refresh(input: RefreshInput) {
@@ -713,16 +756,25 @@ export class AuthService {
       throw new AuthenticationError('Invalid or expired refresh token');
     }
 
-    return this.buildAuthSession(user, input.portal);
+    // Carries the old row's device/push data forward onto the new row this creates — the new
+    // row's own id becomes the new access token's `sid` automatically (see issueTokenPair), no
+    // separate session identifier needs to be preserved across rotation.
+    return this.buildAuthSession(user, input.portal, {
+      fcmToken: stored.fcmToken,
+      deviceType: stored.deviceType,
+      deviceInfo: stored.deviceInfo,
+      ipAddress: stored.ipAddress,
+    });
   }
 
+  // Keyed by the caller's own `sid` claim — a verified JWT claim, never client-suppliable, so
+  // (unlike the old refreshToken-lookup approach) there's no separate ownership check needed:
+  // sid can only ever be a value the server itself signed into that exact user's own session.
   async logout(input: LogoutInput) {
-    const { refreshToken, userId, jti, exp } = input;
+    const { sid, jti, exp } = input;
 
-    const tokenHash = hashToken(refreshToken);
-    const stored = await this.authRepository.findActiveRefreshTokenByHash(tokenHash);
-    if (stored && stored.userId === userId) {
-      await this.authRepository.revokeRefreshToken(stored.id);
+    if (sid) {
+      await this.authRepository.revokeRefreshToken(sid);
     }
 
     await blockToken(jti, exp);
@@ -1255,6 +1307,7 @@ export class AuthService {
     password: string,
     portal: LoginPortal,
     ipAddress: string | null,
+    device?: Omit<DeviceContext, 'ipAddress'>,
   ) {
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const recentFailures = await this.authRepository.countRecentFailedAttempts(
@@ -1281,10 +1334,14 @@ export class AuthService {
       throw new AuthenticationError('Invalid credentials');
     }
 
-    return this.buildAuthSession(user, portal);
+    return this.buildAuthSession(user, portal, { ...device, ipAddress });
   }
 
-  private async buildAuthSession(user: UserEntity, portal: LoginPortal): Promise<AuthSession> {
+  private async buildAuthSession(
+    user: UserEntity,
+    portal: LoginPortal,
+    device?: DeviceContext,
+  ): Promise<AuthSession> {
     this.assertPortalAccess(user, portal);
     await this.assertOrganizationActiveForLogin(user);
 
@@ -1296,6 +1353,7 @@ export class AuthService {
       permissions,
       user.permissionsVersion,
       portal,
+      device,
     );
     const progress = await this.getOnboardingProgress(user);
 
@@ -1399,6 +1457,7 @@ export class AuthService {
       permissionsVersion: number;
     },
     portal: LoginPortal,
+    device?: DeviceContext,
   ) {
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     return this.issueTokenPair(
@@ -1408,6 +1467,7 @@ export class AuthService {
       permissions,
       user.permissionsVersion,
       portal,
+      device,
     );
   }
 
@@ -1418,7 +1478,22 @@ export class AuthService {
     permissions: string[],
     permissionsVersion: number,
     portal: LoginPortal,
+    device?: DeviceContext,
   ) {
+    // Created before the access token is signed, deliberately — issuing it needs this row's own
+    // id for the access token's `sid` claim.
+    const rawRefreshToken = randomBytes(40).toString('hex');
+    const refreshTokenRow = await this.authRepository.createRefreshToken({
+      userId,
+      tokenHash: hashToken(rawRefreshToken),
+      expiresAt: new Date(Date.now() + env.refreshTokenTtlMs),
+      portal,
+      fcmToken: device?.fcmToken,
+      deviceType: device?.deviceType,
+      deviceInfo: device?.deviceInfo,
+      ipAddress: device?.ipAddress,
+    });
+
     const jti = randomUUID();
     const accessToken = signToken(
       {
@@ -1428,19 +1503,12 @@ export class AuthService {
         permissions,
         permissionsVersion,
         jti,
+        sid: refreshTokenRow.id,
         purpose: 'access',
         portal,
       },
       env.accessTokenTtlSeconds,
     );
-
-    const rawRefreshToken = randomBytes(40).toString('hex');
-    await this.authRepository.createRefreshToken({
-      userId,
-      tokenHash: hashToken(rawRefreshToken),
-      expiresAt: new Date(Date.now() + env.refreshTokenTtlMs),
-      portal,
-    });
 
     return { accessToken, refreshToken: rawRefreshToken };
   }

@@ -226,11 +226,26 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/logout`,
     tags: [TAGS.AUTH],
     operationId: 'auth.logout',
-    ...authenticated('Revoke the given refresh token and block the current access token.'),
-    request: { body: json(authValidators.logout.shape.body) },
+    ...authenticated(
+      'Revoke the caller’s current session and block the current access token. No request body — everything needed comes from the access token itself.',
+    ),
     responses: {
       200: { description: 'Logged out', ...json(SuccessResponseSchema) },
-      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/device-token`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.updateDeviceToken',
+    ...authenticated(
+      'Update the FCM push token for the caller’s current session — call any time the client’s token changes (Firebase’s onNewToken/didReceiveRegistrationToken), independent of login.',
+    ),
+    request: { body: json(authValidators.updateDeviceToken.shape.body) },
+    responses: {
+      200: { description: 'Updated', ...json(SuccessResponseSchema) },
+      404: { description: 'No active session found for this access token', ...errorContent },
     },
   });
 

@@ -26,6 +26,11 @@ export interface AuthenticatedUser {
   permissionsVersion: number;
   portal: LoginPortal;
   jti?: string;
+  // The id of the auth.refresh_tokens row created alongside this access token (see
+  // auth.service.ts's issueTokenPair) — rotates on every /auth/refresh just like that row does,
+  // so it always identifies the CURRENT session, never a stale one. Used by POST
+  // /auth/device-token and /auth/logout so neither needs a refreshToken in the request body.
+  sid?: string;
   exp?: number;
 }
 

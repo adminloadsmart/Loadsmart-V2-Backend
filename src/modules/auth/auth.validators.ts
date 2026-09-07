@@ -57,6 +57,17 @@ const userDetailsSchema = z
     }
   });
 
+// Optional on every session-issuing endpoint below — a client sends these when it has an FCM
+// token to register; deviceType is required alongside fcmToken (enforced per-schema via
+// .superRefine, since it's the only field zod can't express as "required if a sibling is
+// present" declaratively). No ipAddress field here — that's always derived server-side from
+// req.ip, never client-supplied.
+const deviceTokenFields = {
+  fcmToken: z.string().trim().min(1).max(512).optional(),
+  deviceType: z.enum(['ios', 'android', 'web']).optional(),
+  deviceInfo: z.string().trim().max(255).optional(),
+};
+
 export const authValidators = {
   signup: z.object({
     body: z.object({
@@ -70,21 +81,54 @@ export const authValidators = {
     }),
   }),
   verifyOtp: z.object({
-    body: z.object({
-      otp: z.string().length(4, 'OTP must be 4 digits long'),
-    }),
+    body: z
+      .object({
+        otp: z.string().length(4, 'OTP must be 4 digits long'),
+        ...deviceTokenFields,
+      })
+      .superRefine((data, ctx) => {
+        if (data.fcmToken && !data.deviceType) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['deviceType'],
+            message: 'deviceType is required when fcmToken is provided',
+          });
+        }
+      }),
   }),
   verifyLoginOtp: z.object({
-    body: z.object({
-      otp: z.string().length(4, 'OTP must be 4 digits long'),
-    }),
+    body: z
+      .object({
+        otp: z.string().length(4, 'OTP must be 4 digits long'),
+        ...deviceTokenFields,
+      })
+      .superRefine((data, ctx) => {
+        if (data.fcmToken && !data.deviceType) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['deviceType'],
+            message: 'deviceType is required when fcmToken is provided',
+          });
+        }
+      }),
   }),
   login: z.object({
-    body: z.object({
-      phoneNumber: z.string().trim().min(10),
-      password: z.string().min(1),
-      portal: z.enum(['organization', 'platform']),
-    }),
+    body: z
+      .object({
+        phoneNumber: z.string().trim().min(10),
+        password: z.string().min(1),
+        portal: z.enum(['organization', 'platform']),
+        ...deviceTokenFields,
+      })
+      .superRefine((data, ctx) => {
+        if (data.fcmToken && !data.deviceType) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['deviceType'],
+            message: 'deviceType is required when fcmToken is provided',
+          });
+        }
+      }),
   }),
   createPassword: z.object({
     body: z
@@ -108,10 +152,16 @@ export const authValidators = {
       portal: z.enum(['organization', 'platform']),
     }),
   }),
-  logout: z.object({
-    body: z.object({
-      refreshToken: z.string().min(1),
-    }),
+  // No `logout` validator — the route takes no body at all (see auth.routes.ts/auth.controller.ts).
+  // Strict — this endpoint's only job is to set a new value, unlike the optional device fields
+  // on login/verify-otp above.
+  updateDeviceToken: z.object({
+    body: z
+      .object({
+        fcmToken: z.string().trim().min(1).max(512),
+        deviceType: z.enum(['ios', 'android', 'web']),
+      })
+      .strict(),
   }),
   saveUserDetails: z.object({ body: userDetailsSchema }),
 };
