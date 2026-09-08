@@ -123,7 +123,12 @@ export class UlipClient {
     try {
       const body = await this.call('/SARATHI/01', { dlnumber: dlNumber, dob: dateOfBirth });
       return this.mapDrivingLicenceResult(body);
-    } catch {
+    } catch (error) {
+      // Never throw to the caller — a broken/unreachable ULIP shouldn't block onboarding — but log
+      // the real cause, since the response the caller sees is deliberately just `manual_review`
+      // with no detail (login failure, network error, and a bad request all look identical here
+      // otherwise, which makes this unit untestable from the outside).
+      console.error('ULIP SARATHI lookup failed', error);
       return { status: 'manual_review' };
     }
   }
@@ -138,7 +143,8 @@ export class UlipClient {
       // (2026-09), same request/response shape.
       const body = await this.call('/VAHAN/04', { vehiclenumber: vehicleNumber });
       return this.mapVehicleResult(body);
-    } catch {
+    } catch (error) {
+      console.error('ULIP VAHAN lookup failed', error);
       return { status: 'manual_review' };
     }
   }
