@@ -116,12 +116,15 @@ export class UlipClient {
     dlNumber: string,
     dateOfBirth: string,
   ): Promise<UlipDrivingLicenceResult> {
+    console.log('ULIP SARATHI lookup', { dlNumber, dateOfBirth });
     if (!env.ulipUsername || !env.ulipPassword) {
+      console.warn('ULIP SARATHI lookup skipped: missing credentials');
       return { status: 'manual_review' };
     }
 
     try {
       const body = await this.call('/SARATHI/01', { dlnumber: dlNumber, dob: dateOfBirth });
+      console.log('ULIP SARATHI lookup response', body);
       return this.mapDrivingLicenceResult(body);
     } catch (error) {
       // Never throw to the caller — a broken/unreachable ULIP shouldn't block onboarding — but log
@@ -196,12 +199,16 @@ export class UlipClient {
   private async login(): Promise<string> {
     const response = await fetch(`${env.ulipBaseUrl}/user/login`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
       body: JSON.stringify({ username: env.ulipUsername, password: env.ulipPassword }),
     });
-
+    console.log('ULIP login response', response);
     if (!response.ok) {
-      throw new Error(`ULIP login failed with status ${response.status}`);
+      // Include the body on failure — a 400 here is ULIP rejecting the request itself (bad
+      // credentials, malformed payload, ...), and the response text usually says which; a bare
+      // status code alone isn't enough to tell those apart from the server logs.
+      const text = await response.text().catch(() => '');
+      throw new Error(`ULIP login failed with status ${response.status}: ${text}`);
     }
 
     const body = (await response.json()) as UlipLoginEnvelope;
@@ -217,6 +224,7 @@ export class UlipClient {
     }
 
     this.token = token;
+    console.log('ULIP login token', token);
     return token;
   }
 
@@ -235,9 +243,10 @@ export class UlipClient {
    * city/pinCode.
    */
   private mapDrivingLicenceResult(body: JsonRecord): UlipDrivingLicenceResult {
+    console.log('ULIP SARATHI lookup response', body);
     const detail = this.firstSourceDetail(body, 'dldetobj');
     const data = detail?.dlobj as JsonRecord | null | undefined;
-
+    console.log('ULIP SARATHI lookup detail', { detail, data });
     if (!detail || detail.errorcd === -1 || !data) {
       return { status: 'not_found', rawResponse: body };
     }
@@ -276,8 +285,10 @@ export class UlipClient {
    * to auto-fill from a VAHAN hit, per its existing UI copy.
    */
   private mapVehicleResult(body: JsonRecord): UlipVehicleResult {
+    console.log('ULIP VAHAN lookup response', body);
     const data = this.firstSourceResponse(body);
     if (!data || Object.keys(data).length === 0) {
+      console.log('ULIP VAHAN lookup detail', { data });
       return { status: 'not_found', rawResponse: body };
     }
 
