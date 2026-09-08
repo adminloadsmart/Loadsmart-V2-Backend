@@ -116,15 +116,12 @@ export class UlipClient {
     dlNumber: string,
     dateOfBirth: string,
   ): Promise<UlipDrivingLicenceResult> {
-    console.log('ULIP SARATHI lookup', { dlNumber, dateOfBirth });
     if (!env.ulipUsername || !env.ulipPassword) {
-      console.warn('ULIP SARATHI lookup skipped: missing credentials');
       return { status: 'manual_review' };
     }
 
     try {
       const body = await this.call('/SARATHI/01', { dlnumber: dlNumber, dob: dateOfBirth });
-      console.log('ULIP SARATHI lookup response', body);
       return this.mapDrivingLicenceResult(body);
     } catch (error) {
       // Never throw to the caller — a broken/unreachable ULIP shouldn't block onboarding — but log
@@ -202,7 +199,7 @@ export class UlipClient {
       headers: { accept: 'application/json', 'content-type': 'application/json' },
       body: JSON.stringify({ username: env.ulipUsername, password: env.ulipPassword }),
     });
-    console.log('ULIP login response', response);
+
     if (!response.ok) {
       // Include the body on failure — a 400 here is ULIP rejecting the request itself (bad
       // credentials, malformed payload, ...), and the response text usually says which; a bare
@@ -224,7 +221,6 @@ export class UlipClient {
     }
 
     this.token = token;
-    console.log('ULIP login token', token);
     return token;
   }
 
@@ -235,18 +231,18 @@ export class UlipClient {
    *
    * `bioObj` (biometric/KYC data) partially masks PII: on a real matched record, `bioFullName` and
    * `bioPermAdd1`/`2`/`3` came back like `"M*H*S*K*M*R* *O*I*"` — alternating characters replaced
-   * with `*` — so holder name and address are deliberately NOT surfaced here; the caller's existing
-   * "registry didn't return this field" manual-entry fallback handles it the same as an omission.
+   * with `*`. `holderName` is surfaced anyway (per request, same call as VAHAN's `registeredName`)
+   * — a masked name still lets the operator eyeball a rough match; address stays unmapped since
+   * "Plot 87, MIDC Phase II"-style masked garbage isn't useful as an address line either way.
    * `bioPermSdName`/`bioPermPin` are NOT masked in that same response (confirmed: `bioPermDistName`
    * came back masked as `"B*t*d"` while `bioPermSdName` had the identical place name, "Botad",
    * fully unmasked) — masking is per-field, not content-sensitive, so those two are safe to use as
    * city/pinCode.
    */
   private mapDrivingLicenceResult(body: JsonRecord): UlipDrivingLicenceResult {
-    console.log('ULIP SARATHI lookup response', body);
     const detail = this.firstSourceDetail(body, 'dldetobj');
     const data = detail?.dlobj as JsonRecord | null | undefined;
-    console.log('ULIP SARATHI lookup detail', { detail, data });
+
     if (!detail || detail.errorcd === -1 || !data) {
       return { status: 'not_found', rawResponse: body };
     }
@@ -260,6 +256,7 @@ export class UlipClient {
 
     return {
       status: 'verified',
+      holderName: bio ? this.pickString(bio, ['bioFullName']) : undefined,
       validUntil: this.pickString(data, ['dlNtValdtoDt', 'dlTrValdtoDt']),
       licenseClass: licenseClass || undefined,
       licenseStatus: this.pickString(data, ['dlStatus']),
@@ -276,7 +273,8 @@ export class UlipClient {
    * sample has been seen yet, so that path still just falls back on an empty/missing response.
    *
    * `rcOwnerName` came back masked ("L***I D**I") — same per-field PII masking SARATHI applies to
-   * `bioFullName` — so it's deliberately not surfaced, consistent with mapDrivingLicenceResult.
+   * `bioFullName` — but unlike the DL side, it's surfaced anyway here (per request): a masked name
+   * still lets the operator eyeball a rough match, whereas leaving it blank gave nothing at all.
    * `rcPermanentAddress`/`rcPresentAddress` are NOT masked, but only carry "City, PINCODE"
    * granularity (no street line) — split into city/pinCode rather than surfaced as an address line.
    *
@@ -285,10 +283,8 @@ export class UlipClient {
    * to auto-fill from a VAHAN hit, per its existing UI copy.
    */
   private mapVehicleResult(body: JsonRecord): UlipVehicleResult {
-    console.log('ULIP VAHAN lookup response', body);
     const data = this.firstSourceResponse(body);
     if (!data || Object.keys(data).length === 0) {
-      console.log('ULIP VAHAN lookup detail', { data });
       return { status: 'not_found', rawResponse: body };
     }
 
@@ -298,6 +294,7 @@ export class UlipClient {
 
     return {
       status: 'verified',
+      registeredName: this.pickString(data, ['rcOwnerName']),
       registeredOn: parseVahanDate(this.pickString(data, ['rcRegnDt'])),
       vehicleClass: this.pickString(data, ['rcVhClassDesc', 'rcVchCatgDesc']),
       city,
