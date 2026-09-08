@@ -200,10 +200,25 @@ const driverCoreFields = {
   salaryAmount: z.number().nonnegative().max(9999999999).optional(),
 };
 
+/**
+ * Unlike `licenseNumber` above, this keeps internal spacing (just collapsed to single spaces) —
+ * this value is forwarded verbatim to ULIP's SARATHI lookup, which matches its registry on the
+ * licence number formatted as printed (e.g. "GJ04 20120005008"); stripping the space the way the
+ * storage-facing `licenseNumber` schema does turns a real match into a false not-found.
+ */
+const licenseNumberForVerification = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/\s+/g, ' ').toUpperCase())
+  .refine(
+    (value) => value.replace(/\s+/g, '').length >= 8 && value.replace(/\s+/g, '').length <= 30,
+    'Invalid driving licence number',
+  );
+
 /** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
  * driving-licence lookup without it, so there's no point accepting the call without one. */
 const driverVerifyDlBody = z.object({
-  licenseNumber,
+  licenseNumber: licenseNumberForVerification,
   dateOfBirth: isoDate,
 });
 
