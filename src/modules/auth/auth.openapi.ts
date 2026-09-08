@@ -74,7 +74,9 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     description:
       'Requires the signup token returned by POST /v1/auth/signup, sent via the Authorization header ' +
       '(checked by verifySignupToken before this handler runs) — not the main access/refresh pair. ' +
-      'On first verification, creates the user if needed and returns onboarding state.',
+      'On first verification, creates the user if needed and returns onboarding state. ' +
+      'Optionally send fcmToken + deviceType (and deviceInfo) to register this device for push ' +
+      'notifications at the same time — see POST /v1/auth/device-token to update it later without logging in again.',
     security: [{ [signupTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyOtp.shape.body) },
     responses: {
@@ -115,7 +117,9 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     summary: 'Verify the OTP and obtain tokens for login',
     description:
       'Requires the login token returned by POST /v1/auth/login/otp/request, sent via the Authorization header. ' +
-      'On success, returns the normal access/refresh token pair plus the user session payload.',
+      'On success, returns the normal access/refresh token pair plus the user session payload. ' +
+      'Optionally send fcmToken + deviceType (and deviceInfo) to register this device for push ' +
+      'notifications at the same time — see POST /v1/auth/device-token to update it later without logging in again.',
     security: [{ [loginTokenAuth.name]: [] }],
     request: { body: json(authValidators.verifyLoginOtp.shape.body) },
     responses: {
@@ -140,7 +144,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.AUTH],
     operationId: 'auth.login',
     summary: 'Log in with mobile number + password',
-    description: 'Traditional password-based login. Use the OTP endpoints for passwordless login.',
+    description:
+      'Traditional password-based login. Use the OTP endpoints for passwordless login. ' +
+      'Optionally send fcmToken + deviceType (and deviceInfo) to register this device for push ' +
+      'notifications at the same time — see POST /v1/auth/device-token to update it later without logging in again.',
     request: { body: json(authValidators.login.shape.body) },
     responses: {
       200: {
@@ -197,7 +204,10 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.AUTH],
     operationId: 'auth.refresh',
     summary: 'Exchange a refresh token for a new token pair',
-    description: 'The refresh token is single-use: this call revokes it and issues a new pair.',
+    description:
+      'The refresh token is single-use: this call revokes it and issues a new pair. ' +
+      'Any push token previously registered for this device carries forward onto the new session ' +
+      'automatically — no client action needed here.',
     request: { body: json(authValidators.refresh.shape.body) },
     responses: {
       200: { description: 'Tokens issued — { accessToken, refreshToken }' },
