@@ -88,6 +88,17 @@ export const env = {
   // carriers for delivery, independent of whether the code itself is correct.
   msg91TemplateId: process.env.MSG91_TEMPLATE_ID || undefined,
   msg91BaseUrl: process.env.MSG91_BASE_URL || 'https://control.msg91.com',
+  // MSG91's Flow API template id for transactional/notification SMS (SmsChannel) — a separate
+  // DLT-approved template from msg91TemplateId above (that one's OTP-only, a different API).
+  // Optional: SmsChannel throws a clear per-delivery error when unset instead of crashing the
+  // server, same "fails loudly but doesn't crash boot" contract as msg91AuthKey/idfyApiKey.
+  msg91NotificationTemplateId: process.env.MSG91_NOTIFICATION_TEMPLATE_ID || undefined,
+  // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
+  // without these; PushChannel throws a clear per-delivery error instead of crashing the server
+  // or silently no-op-ing.
+  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || undefined,
+  firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL || undefined,
+  firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY || undefined,
   // ULIP (DPIIT's Unified Logistics Interface Platform) — SARATHI driving-licence and VAHAN
   // vehicle registry checks (UlipClient). Left optional so the app still boots without them;
   // UlipClient falls back to manual_review whenever either is missing.

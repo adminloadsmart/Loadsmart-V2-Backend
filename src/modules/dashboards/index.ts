@@ -1,6 +1,6 @@
 import { DataSource } from 'typeorm';
-import { VehicleService } from '../masters/vehicle.service';
-import { DriverService } from '../masters/driver.service';
+import { VehicleService } from '../masters/vehicle/vehicle.service';
+import { DriverService } from '../masters/driver/driver.service';
 import { CustomerService } from '../customers/customer.service';
 import { DashboardsRepository } from './dashboards.repository';
 import { DashboardsService } from './dashboards.service';

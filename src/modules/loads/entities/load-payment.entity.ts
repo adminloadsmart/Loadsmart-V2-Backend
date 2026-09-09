@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { LoadEntity } from './load.entity';
-import { TransporterEntity } from '../../masters/entities/transporter.entity';
+import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import { LOAD_PAYMENT_TYPES, LoadPaymentType } from '../utils/loads.types';
 
 /**

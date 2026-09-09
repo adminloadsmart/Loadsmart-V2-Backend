@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
-import { TransporterService } from '../masters/transporter.service';
+import { TransporterService } from '../masters/transporter/transporter.service';
 import { toDateString } from '../../shared/utils/date';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadRepository } from './load.repository';

@@ -11,7 +11,7 @@ import {
 } from 'typeorm';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-delivery-point.entity';
-import { LoadingPointEntity } from '../../masters/entities/loading-point.entity';
+import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 import { RequisitionItemEntity } from './requisition-item.entity';
 import { REQUISITION_STATUSES, RequisitionStatus } from '../utils/loads.types';
 

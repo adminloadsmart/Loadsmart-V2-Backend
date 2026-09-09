@@ -1,5 +1,5 @@
-import { VehicleEntity } from '../../masters/entities/vehicle.entity';
-import { Paginated } from '../../masters/utils/masters.types';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
+import { Paginated } from '../../../shared/utils/pagination';
 import { FitVerdict, FreightMode } from './loads.types';
 import { OverrideInput } from './override.interface';
 

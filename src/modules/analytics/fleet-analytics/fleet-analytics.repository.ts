@@ -13,7 +13,7 @@ import {
   FleetSourceMix,
 } from './utils/fleet-analytics.interface';
 import { LoadEntity } from '../../loads/entities/load.entity';
-import { VehicleTelemetryMetaEntity } from '../../masters/entities/vehicle-telemetry-meta.entity';
+import { VehicleTelemetryMetaEntity } from '../../masters/vehicle/entities/vehicle-telemetry-meta.entity';
 
 /** createdAt window for getSourceMix — `to` is a plain date (e.g. "2026-08-31"), extended to
  *  end-of-day so that whole day's loads are included, not just an exact-midnight match. */

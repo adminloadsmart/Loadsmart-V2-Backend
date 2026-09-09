@@ -16,6 +16,7 @@ import { signToken, hashToken } from '../../shared/utils/token';
 import { blockToken } from '../../shared/utils/token-blocklist';
 import { invalidateUserExistsCache } from '../../shared/utils/user-existence-cache';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
+import { humanizeStatus } from '../../shared/utils/humanize';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
@@ -388,7 +389,7 @@ export class AuthService {
     const organization = await this.organizationService.getOrganizationStatus(actingUser.tenantId);
     if (!isTenantWriteAccessible(organization.status)) {
       throw new AuthorizationError(
-        `Organization is ${organization.status} and cannot invite teammates until it is approved`,
+        `Organization is ${humanizeStatus(organization.status)} and cannot invite teammates until it is approved`,
       );
     }
 
@@ -802,7 +803,9 @@ export class AuthService {
     if (tenantId) {
       const current = await this.organizationService.getOrganizationStatus(tenantId);
       if (!isTenantAccessible(current.status)) {
-        throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
+        throw new AuthorizationError(
+          `Organization is ${humanizeStatus(current.status)} and cannot be updated`,
+        );
       }
       if (current.status === 'pending' || current.status === 'active' || current.submittedAt) {
         // Already past this step (e.g. the user navigated back after submitting). Rather than
@@ -894,7 +897,9 @@ export class AuthService {
 
     const current = await this.organizationService.getOrganizationStatus(user.tenantId);
     if (!isTenantAccessible(current.status)) {
-      throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
+      throw new AuthorizationError(
+        `Organization is ${humanizeStatus(current.status)} and cannot be updated`,
+      );
     }
     if (current.status === 'active' || (current.submittedAt && current.status !== 'pending')) {
       // Already past this step (e.g. the user navigated back after submitting). Rather than
@@ -1082,7 +1087,9 @@ export class AuthService {
 
     const current = await this.organizationService.getOrganizationStatus(user.tenantId);
     if (!isTenantAccessible(current.status)) {
-      throw new AuthorizationError(`Organization is ${current.status} and cannot be updated`);
+      throw new AuthorizationError(
+        `Organization is ${humanizeStatus(current.status)} and cannot be updated`,
+      );
     }
     const currentDocuments = await this.organizationDocumentService.listByOrganization(
       user.tenantId,

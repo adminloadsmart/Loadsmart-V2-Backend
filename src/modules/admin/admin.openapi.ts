@@ -122,7 +122,11 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       "Verify or reject one of an organization's submitted documents (gst_certificate, udyam, cin, " +
         'or shop_establishment) — separate from PATCH /v1/admin/organizations/{organizationId}, ' +
         "which only touches the organization's own status. Callable by platform_admin or the org's " +
-        'assigned online_kyc_desk reviewer only.',
+        'assigned online_kyc_desk reviewer only. If this call is the one that makes every ' +
+        "submitted document verified, it also completes the organization's online KYC as a side " +
+        'effect (onlineKycCompletedAt gets set, journeyStage advances to online_kyc_completed) — ' +
+        'there is no separate completion call; this is what makes the org visible to its assigned ' +
+        'offline_kyc_desk agent and unblocks POST .../physical-kyc/approve.',
     ),
     request: {
       params: adminValidators.verifyOrganizationDocument.shape.params,
@@ -197,8 +201,9 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...adminOnly(
       "Assign a staff member (must hold the offline_kyc_desk role) as this organization's physical " +
         'KYC field agent — platform_admin only, same as the online-verifier endpoint above. The ' +
-        "assignee still can't see this organization until its online KYC is completed (see " +
-        'POST .../online-kyc/complete).',
+        "assignee still can't see this organization until its online KYC is completed, which " +
+        'happens automatically once every submitted document is verified (see PATCH ' +
+        '.../documents/{documentId}).',
     ),
     request: {
       params: adminValidators.assignPhysicalAgent.shape.params,
@@ -208,26 +213,6 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Updated organization' },
       400: { description: "userId doesn't hold the offline_kyc_desk role", ...errorContent },
       404: { description: 'Organization or user not found', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
-    method: 'post',
-    path: `${BASE}/organizations/{organizationId}/online-kyc/complete`,
-    tags: [TAGS.ADMIN],
-    operationId: 'admin.completeOnlineKyc',
-    ...onlineVerify(
-      "Mark this organization's online KYC review done — the handover moment to physical/offline " +
-        "review. Until this is set, the assigned offline_kyc_desk agent can't see this organization " +
-        'at all (GET .../organizations and GET .../organizations/{organizationId} both exclude it). ' +
-        'Blocked until every submitted document is verified, same gate as POST .../approve. ' +
-        "Callable by platform_admin or the org's assigned online_kyc_desk reviewer only.",
-    ),
-    request: { params: adminValidators.completeOnlineKyc.shape.params },
-    responses: {
-      200: { description: 'Updated organization, onlineKycCompletedAt now set' },
-      400: { description: 'One or more submitted documents are not yet verified', ...errorContent },
-      404: { description: 'Organization not found', ...errorContent },
     },
   });
 

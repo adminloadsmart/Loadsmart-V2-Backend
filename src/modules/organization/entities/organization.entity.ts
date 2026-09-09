@@ -40,9 +40,10 @@ export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[
 // OrganizationJourneyStageService.recordTransition as a side effect of submit/assign/complete/
 // approve/reject — see organization-journey-stage.service.ts. Same single-source-of-truth
 // convention as the two enums above. online_kyc_completed is the handover moment to
-// offline_kyc_desk (set by AdminService.completeOnlineKyc); physical_kyc_completed is the offline
-// agent's approval landing back with the source verifier (set by AdminService.approvePhysicalKyc) —
-// see organization.constants.ts's JOURNEY_STAGE_ORDER for the forward-only ordering these two
+// offline_kyc_desk (set as a side effect of AdminService.verifyOrganizationDocument, once every
+// submitted document is verified); physical_kyc_completed is the offline agent's approval landing
+// back with the source verifier (set by AdminService.approvePhysicalKyc) — see
+// organization.constants.ts's JOURNEY_STAGE_ORDER for the forward-only ordering these two
 // participate in.
 export const ORGANIZATION_JOURNEY_STAGES = [
   'application_submitted',
@@ -150,12 +151,13 @@ export class OrganizationEntity {
   @JoinColumn({ name: 'physical_kyc_agent_id' })
   physicalKycAgent!: UserEntity | null;
 
-  // Completion markers, set once each by AdminService.completeOnlineKyc / .approvePhysicalKyc —
-  // distinct from the assignment fields above (which only say *who's* reviewing, not whether
-  // they're done). onlineKycCompletedAt is the handover moment to offline_kyc_desk: until it's
-  // set, assertOrgAccessible hides the org from the assigned physical agent entirely.
-  // physicalKycApprovedAt then gates AdminService.approveOrganization granting platform access
-  // (status → 'active'), alongside the existing all-documents-verified check.
+  // Completion markers — distinct from the assignment fields above (which only say *who's*
+  // reviewing, not whether they're done). onlineKycCompletedAt is set as a side effect of
+  // AdminService.verifyOrganizationDocument once every submitted document is verified; it's the
+  // handover moment to offline_kyc_desk — until it's set, assertOrgAccessible hides the org from
+  // the assigned physical agent entirely. physicalKycApprovedAt is set by
+  // AdminService.approvePhysicalKyc, and then gates AdminService.approveOrganization granting
+  // platform access (status → 'active'), alongside the existing all-documents-verified check.
   @Column({ name: 'online_kyc_completed_at', type: 'timestamptz', nullable: true })
   onlineKycCompletedAt!: Date | null;
 

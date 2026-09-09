@@ -58,7 +58,9 @@ export const adminValidators = {
   // Verifies/rejects one specific submitted document — separate from updateOrganization above,
   // which only ever touches the org's own status now. See organization-document.entity.ts for the
   // document-type/verification-status value sets. reason is required when rejecting (invalid) —
-  // same rule as rejectOrganization/rejectDriver/rejectVehicle elsewhere.
+  // same rule as rejectOrganization/rejectDriver/rejectVehicle elsewhere. Verifying the last
+  // outstanding document also completes online KYC as a side effect — see admin.service.ts's
+  // verifyOrganizationDocument.
   verifyOrganizationDocument: z.object({
     params: organizationDocumentParams,
     body: z
@@ -103,10 +105,8 @@ export const adminValidators = {
     body: z.object({ userId: uuid }),
   }),
 
-  // Param-only, same shape as approveOrganization below — the online reviewer's handover and the
-  // physical agent's approval, respectively. See admin.service.ts's completeOnlineKyc/
-  // approvePhysicalKyc for the gates each enforces.
-  completeOnlineKyc: z.object({ params: organizationParams }),
+  // Param-only, same shape as approveOrganization below — the physical agent's approval. See
+  // admin.service.ts's approvePhysicalKyc for the gate it enforces.
   approvePhysicalKyc: z.object({ params: organizationParams }),
 
   approveOrganization: z.object({ params: organizationParams }),

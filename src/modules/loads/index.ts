@@ -3,11 +3,11 @@ import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { StorageService } from '../storage/storage.service';
 import { CustomerService } from '../customers/customer.service';
-import { VehicleService } from '../masters/vehicle.service';
-import { TransporterService } from '../masters/transporter.service';
-import { TruckTypeService } from '../masters/truck-type.service';
-import { LoadingPointService } from '../masters/loading-point.service';
-import { ProductService } from '../masters/product.service';
+import { VehicleService } from '../masters/vehicle/vehicle.service';
+import { TransporterService } from '../masters/transporter/transporter.service';
+import { TruckTypeService } from '../masters/truck-type/truck-type.service';
+import { LoadingPointService } from '../masters/loading-point/loading-point.service';
+import { ProductService } from '../masters/product/product.service';
 
 import { RequisitionRepository } from './requisition.repository';
 import { RequisitionService } from './requisition.service';

@@ -14,7 +14,7 @@ const UNDERUSED_THRESHOLD = 0.6;
 /**
  * Pure, unit-testable — never blocks (the capacity check that DOES block, cargo ≤ truck capacity,
  * lives in dispatch-planning.service.ts before this ever runs). `hasSmallerFit` is resolved by the
- * caller (masters/truck-type.service.ts's findSmallerFit, market only — own-fleet has no catalog
+ * caller (masters/truck-type/truck-type.service.ts's findSmallerFit, market only — own-fleet has no catalog
  * to suggest from) since it needs a DB lookup this pure function shouldn't own.
  */
 export function computeFitVerdict(

@@ -1,4 +1,4 @@
-import { PaginationInput } from '../../masters/utils/masters.types';
+import { PaginationInput } from '../../../shared/utils/pagination';
 import {
   FreightType,
   LoadSourceType,

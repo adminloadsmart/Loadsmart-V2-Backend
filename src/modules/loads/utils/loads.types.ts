@@ -1,6 +1,6 @@
 /**
  * Load module value sets — each declared once as a `const` tuple, same pattern as
- * masters/utils/vehicle.type.ts, so the entity's `@Column({ enum: [...] })`, validators and
+ * masters/vehicle/vehicle.type.ts, so the entity's `@Column({ enum: [...] })`, validators and
  * services can never drift apart.
  */
 

@@ -58,6 +58,8 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.updateOrganization),
   );
 
+  // Verifying/rejecting the last outstanding document also completes online KYC as a side
+  // effect — see admin.service.ts's verifyOrganizationDocument. No separate completion step.
   router.patch(
     '/organizations/:organizationId/documents/:documentId',
     requirePermission(...onlineReview),
@@ -91,13 +93,6 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.assignPhysicalAgent),
   );
 
-  // The online reviewer's handover moment — see admin.service.ts's completeOnlineKyc.
-  router.post(
-    '/organizations/:organizationId/online-kyc/complete',
-    requirePermission(...onlineVerify),
-    validate(adminValidators.completeOnlineKyc),
-    asyncHandler(controller.completeOnlineKyc),
-  );
   // The physical agent's approval — see admin.service.ts's approvePhysicalKyc.
   router.post(
     '/organizations/:organizationId/physical-kyc/approve',

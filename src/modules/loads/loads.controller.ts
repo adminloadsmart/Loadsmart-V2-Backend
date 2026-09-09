@@ -11,7 +11,7 @@ import {
   ListRequisitionsInput,
   RequisitionParams,
 } from './utils/requisition.interface';
-import { ListVehiclesInput } from '../masters/utils/vehicle.interface';
+import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
 import { PlanDispatchInput } from './utils/dispatch-planning.interface';
 import {
   AssignLoadInput,

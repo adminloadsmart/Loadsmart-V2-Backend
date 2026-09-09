@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { LoadEntity } from './load.entity';
-import { ProductEntity } from '../../masters/entities/product.entity';
+import { ProductEntity } from '../../masters/product/entities/product.entity';
 
 /**
  * What one load actually carries — the "cargo mix" (Plan Dispatch v2.0 R-08: "A truck can carry a
