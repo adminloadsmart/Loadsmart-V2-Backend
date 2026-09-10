@@ -21,10 +21,8 @@ export interface CreatePresignedPostParams {
   expiresInSeconds: number;
 }
 
-// Thin wrapper around the AWS SDK — first tenant of the (until now empty) src/adapters/ boundary
-// element declared in eslint.config.js. Deliberately takes a plain S3Client + bucket, no `env`
-// import here, so it stays independently testable without pulling in process.env.
-//
+// Thin wrapper around the AWS SDK
+
 // Every method catches and rethrows with the operation + key that failed, via `wrapError` below
 // — this doesn't change *what* fails (callers still see a rejected promise for every real error,
 // and storage.service.ts's own try/catch + rethrow() still turns that into a 500 for the HTTP

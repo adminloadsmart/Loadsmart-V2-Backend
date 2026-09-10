@@ -11,7 +11,7 @@
 // anything (does NOT reset their password) — safe to re-run, e.g. from a deploy script.
 //
 // Usage:
-//   BOOTSTRAP_ADMIN_PHONE=9999999999 BOOTSTRAP_ADMIN_EMAIL=admin@loadsmart.internal \
+//   BOOTSTRAP_ADMIN_PHONE=xxxxxxxxxx BOOTSTRAP_ADMIN_EMAIL=xxxxx@xxxxxx.xxxxx \
 //   BOOTSTRAP_ADMIN_PASSWORD='...' npm run seed:platform-admin
 
 import 'reflect-metadata';
