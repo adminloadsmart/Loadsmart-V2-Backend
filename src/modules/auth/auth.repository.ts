@@ -6,6 +6,7 @@ import {
   In,
   IsNull,
   MoreThan,
+  Not,
   Repository,
 } from 'typeorm';
 import { UserEntity } from './entities/user.entity';
@@ -13,7 +14,7 @@ import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { LoginAttemptEntity } from './entities/login-attempt.entity';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { NotFoundError } from '../../shared/errors';
-import { LoginPortal } from './auth.types';
+import { LoginPortal, DevicePlatform } from './auth.types';
 
 export class AuthRepository {
   private readonly users: Repository<UserEntity>;
@@ -208,23 +209,19 @@ export class AuthRepository {
     tokenHash: string;
     expiresAt: Date;
     portal: LoginPortal;
+    fcmToken?: string | null;
+    deviceType?: DevicePlatform | null;
+    deviceInfo?: string | null;
+    ipAddress?: string | null;
   }): Promise<RefreshTokenEntity> {
-    const token = this.refreshTokens.create({ ...data, revokedAt: null });
+    const token = this.refreshTokens.create({ ...data, revokedAt: null, lastSeen: new Date() });
     return this.refreshTokens.save(token);
   }
 
-  findActiveRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenEntity | null> {
-    return this.refreshTokens.findOneBy({
-      tokenHash,
-      revokedAt: IsNull(),
-      expiresAt: MoreThan(new Date()),
-    });
-  }
-
-  // Atomically finds-and-revokes in one UPDATE, unlike findActiveRefreshTokenByHash +
-  // revokeRefreshToken as two separate calls — that gap let the same refresh token be used
-  // twice by concurrent requests both passing the read check before either revoked it. Only the
-  // request whose UPDATE actually matched a still-active row (affected === 1) wins the claim.
+  // Atomically finds-and-revokes in one UPDATE, unlike a separate find-then-revoke as two calls
+  // — that gap let the same refresh token be used twice by concurrent requests both passing the
+  // read check before either revoked it. Only the request whose UPDATE actually matched a still-
+  // active row (affected === 1) wins the claim.
   async claimRefreshToken(
     tokenHash: string,
     portal: LoginPortal,
@@ -245,6 +242,35 @@ export class AuthRepository {
 
   async revokeRefreshToken(id: string): Promise<void> {
     await this.refreshTokens.update({ id }, { revokedAt: new Date() });
+  }
+
+  // A user's active push targets — one row per currently-active session that has registered an
+  // FCM token. Not called by anything yet; exposed via AuthService.getActiveDeviceTokensForUser
+  // for a future notification producer.
+  findActiveByUserId(userId: string): Promise<RefreshTokenEntity[]> {
+    return this.refreshTokens.find({
+      where: {
+        userId,
+        revokedAt: IsNull(),
+        expiresAt: MoreThan(new Date()),
+        fcmToken: Not(IsNull()),
+      },
+    });
+  }
+
+  // Keyed by the row's own id (the access token's `sid` claim — see auth.service.ts's
+  // issueTokenPair). Returns whether a row was actually matched, so the caller
+  // (AuthService.updateDeviceToken) can 404 on a since-revoked/expired session rather than
+  // silently no-op.
+  async updateSessionDeviceInfo(
+    id: string,
+    data: { fcmToken: string; deviceType: DevicePlatform },
+  ): Promise<boolean> {
+    const result = await this.refreshTokens.update(
+      { id, revokedAt: IsNull() },
+      { fcmToken: data.fcmToken, deviceType: data.deviceType, lastSeen: new Date() },
+    );
+    return (result.affected ?? 0) > 0;
   }
 
   async revokeAllRefreshTokensForUser(userId: string): Promise<void> {

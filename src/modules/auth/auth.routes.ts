@@ -81,7 +81,13 @@ export function createAuthProtectedRoutes(controller: AuthController): Router {
   const router = Router();
 
   router.get('/me', asyncHandler(controller.me));
-  router.post('/logout', validate(authValidators.logout), asyncHandler(controller.logout));
+  // No body — sid/jti/exp come from the caller's own access token, see auth.controller.ts.
+  router.post('/logout', asyncHandler(controller.logout));
+  router.post(
+    '/device-token',
+    validate(authValidators.updateDeviceToken),
+    asyncHandler(controller.updateDeviceToken),
+  );
   router.delete('/account', asyncHandler(controller.deleteAccount));
   router.post(
     '/password',

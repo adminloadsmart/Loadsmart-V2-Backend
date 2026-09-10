@@ -20,6 +20,10 @@ export class AuthController {
     const tokens = await this.authService.verifyOtp({
       phoneNumber,
       otp: req.body.otp,
+      fcmToken: req.body.fcmToken,
+      deviceType: req.body.deviceType,
+      deviceInfo: req.body.deviceInfo,
+      ipAddress: req.ip ?? null,
     });
     respond(res, tokens);
   };
@@ -30,6 +34,10 @@ export class AuthController {
       phoneNumber,
       otp: req.body.otp,
       portal,
+      fcmToken: req.body.fcmToken,
+      deviceType: req.body.deviceType,
+      deviceInfo: req.body.deviceInfo,
+      ipAddress: req.ip ?? null,
     });
     respond(res, tokens);
   };
@@ -59,13 +67,25 @@ export class AuthController {
     respond(res, tokens);
   };
 
+  // No body needed — sid/jti/exp all come from the caller's own verified access token.
   logout = async (req: Request, res: Response) => {
     await this.authService.logout({
-      ...req.body,
-      userId: req.user!.id,
+      sid: req.user!.sid,
       jti: req.user!.jti,
       exp: req.user!.exp,
     });
+    respond(res, { success: true });
+  };
+
+  // Called any time the client's FCM token changes independent of login (Firebase's own
+  // onNewToken/didReceiveRegistrationToken callback) — keyed by the caller's own session (`sid`
+  // claim on the access token already in hand), not a refreshToken.
+  updateDeviceToken = async (req: Request, res: Response) => {
+    await this.authService.updateDeviceToken(
+      req.user!.sid!,
+      req.body.fcmToken,
+      req.body.deviceType,
+    );
     respond(res, { success: true });
   };
 
