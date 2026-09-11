@@ -94,6 +94,11 @@ export class DriverVerificationEntity {
   @Column({ type: 'varchar', length: 100, nullable: true })
   city!: string | null;
 
+  /** The registry's `stateName` — SARATHI exposes this as the licence's issuing state, not a
+   *  dedicated residential-state field; normally the same as where the holder lives. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  state!: string | null;
+
   @Column({ name: 'pin_code', type: 'varchar', length: 10, nullable: true })
   pinCode!: string | null;
 

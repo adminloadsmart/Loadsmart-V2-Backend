@@ -10,6 +10,7 @@ export interface UlipDrivingLicenceResult {
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
+  state?: string;
   pinCode?: string;
   rawResponse?: Record<string, unknown>;
 }
@@ -231,13 +232,19 @@ export class UlipClient {
    *
    * `bioObj` (biometric/KYC data) partially masks PII: on a real matched record, `bioFullName` and
    * `bioPermAdd1`/`2`/`3` came back like `"M*H*S*K*M*R* *O*I*"` — alternating characters replaced
-   * with `*`. `holderName` is surfaced anyway (per request, same call as VAHAN's `registeredName`)
-   * — a masked name still lets the operator eyeball a rough match; address stays unmapped since
-   * "Plot 87, MIDC Phase II"-style masked garbage isn't useful as an address line either way.
-   * `bioPermSdName`/`bioPermPin` are NOT masked in that same response (confirmed: `bioPermDistName`
-   * came back masked as `"B*t*d"` while `bioPermSdName` had the identical place name, "Botad",
-   * fully unmasked) — masking is per-field, not content-sensitive, so those two are safe to use as
-   * city/pinCode.
+   * with `*`. `holderName`/`addressLine1`/`addressLine2` are surfaced anyway (per request): a
+   * masked value still lets the operator eyeball a rough match, which is better than nothing, and
+   * production records may not always come back masked. `bioPermSdName`/`bioPermPin` are NOT
+   * masked in that same response (confirmed: `bioPermDistName` came back masked as `"B*t*d"` while
+   * `bioPermSdName` had the identical place name, "Botad", fully unmasked) — masking is per-field,
+   * not content-sensitive, so those two are reliably usable as city/pinCode. `bioPermAdd3` is
+   * skipped — it duplicates `bioPermSdName` (also "Botad" here), already covered by `city`.
+   *
+   * `state` has no dedicated field in `bioObj` — SARATHI doesn't expose a residential state
+   * separately from the address lines. `dlobj.stateName` (the DL's issuing state, e.g. "Gujarat")
+   * is used as the closest available proxy; it's normally the holder's home state since licences
+   * are issued locally, but it is technically the issuing authority's state, not a confirmed
+   * separate "lives in" field.
    */
   private mapDrivingLicenceResult(body: JsonRecord): UlipDrivingLicenceResult {
     const detail = this.firstSourceDetail(body, 'dldetobj');
@@ -260,7 +267,10 @@ export class UlipClient {
       validUntil: this.pickString(data, ['dlNtValdtoDt', 'dlTrValdtoDt']),
       licenseClass: licenseClass || undefined,
       licenseStatus: this.pickString(data, ['dlStatus']),
+      addressLine1: bio ? this.pickString(bio, ['bioPermAdd1']) : undefined,
+      addressLine2: bio ? this.pickString(bio, ['bioPermAdd2']) : undefined,
       city: bio ? this.pickString(bio, ['bioPermSdName']) : undefined,
+      state: this.pickString(data, ['stateName']),
       pinCode: bio ? this.pickString(bio, ['bioPermPin']) : undefined,
       rawResponse: body,
     };

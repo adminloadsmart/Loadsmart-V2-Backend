@@ -83,6 +83,7 @@ export interface RecordVerificationInput {
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
+  state?: string;
   pinCode?: string;
   rawResponse?: Record<string, unknown>;
 }
@@ -171,6 +172,7 @@ export interface CreateDriverVerificationData {
   addressLine1: string | null;
   addressLine2: string | null;
   city: string | null;
+  state: string | null;
   pinCode: string | null;
   rawResponse: Record<string, unknown> | null;
   verifiedAt: Date | null;

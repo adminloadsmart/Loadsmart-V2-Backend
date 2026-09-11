@@ -101,6 +101,7 @@ const driverVerificationBody = z.object({
   addressLine1: z.string().min(1).max(255).optional(),
   addressLine2: z.string().min(1).max(255).optional(),
   city: z.string().min(1).max(100).optional(),
+  state: z.string().min(1).max(100).optional(),
   pinCode: z
     .string()
     .regex(/^\d{6}$/, 'Expected a 6-digit PIN code')

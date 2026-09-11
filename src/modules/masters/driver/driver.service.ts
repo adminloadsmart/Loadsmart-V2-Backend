@@ -311,6 +311,7 @@ export class DriverService {
             addressLine1: input.addressLine1 ?? null,
             addressLine2: input.addressLine2 ?? null,
             city: input.city ?? null,
+            state: input.state ?? null,
             pinCode: input.pinCode ?? null,
             rawResponse: input.rawResponse ?? null,
             verifiedAt: verified ? new Date() : null,
