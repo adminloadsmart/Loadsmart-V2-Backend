@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../../shared/middleware/async-handler';
-import { validate } from '../../../shared/middleware/validate.middleware';
-import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
-import { createIpRateLimit } from '../../../shared/middleware/rate-limit.middleware';
-import { env } from '../../../config/env';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import { asyncHandler } from '../../shared/middleware/async-handler';
+import { validate } from '../../shared/middleware/validate.middleware';
+import { requirePermission } from '../../shared/middleware/require-permission.middleware';
+import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
+import { env } from '../../config/env';
+import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 import { DriverController } from './driver.controller';
 import { driverValidators } from './driver.validators';
 

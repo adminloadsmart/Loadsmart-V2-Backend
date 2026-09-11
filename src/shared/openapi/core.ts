@@ -22,6 +22,8 @@ export const TAGS = {
   STORAGE: 'files',
   LOADS: 'loads',
   NOTIFICATIONS: 'notifications',
+  DRIVER_AUTH: 'driver-auth',
+  DRIVER_PORTAL: 'driver-portal',
 } as const;
 
 /**

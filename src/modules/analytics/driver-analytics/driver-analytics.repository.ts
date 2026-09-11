@@ -7,7 +7,7 @@ import {
   MoreThanOrEqual,
 } from 'typeorm';
 import { LoadEntity } from '../../loads/entities/load.entity';
-import { DriverEntity } from '../../masters/driver/entities/driver.entity';
+import { DriverEntity } from '../../driver/entities/driver.entity';
 import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import {
   DriverAnalyticsDateRange,

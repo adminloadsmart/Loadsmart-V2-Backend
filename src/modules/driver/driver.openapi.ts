@@ -1,7 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { driverValidators } from './driver.validators';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
-import { API_VERSION_PREFIX } from '../../../shared/constants/api';
+import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
   authenticated,
@@ -9,7 +9,7 @@ import {
   SuccessResponseSchema,
   errorContent,
   json,
-} from '../../../shared/openapi/core';
+} from '../../shared/openapi/core';
 
 const BASE = `${API_VERSION_PREFIX}/masters`; // absolute path — must match its mount in app.ts
 const write = (description: string) => permissionGated([MASTERS_WRITE], description);

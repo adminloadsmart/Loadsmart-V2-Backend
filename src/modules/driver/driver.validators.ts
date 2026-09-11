@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { isoDateSchema as isoDate } from '../../../shared/utils/date';
-import { paginationQuery as pagination } from '../../../shared/validators/pagination';
-import { IFSC_REGEX } from '../masters.constants';
+import { isoDateSchema as isoDate } from '../../shared/utils/date';
+import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import { IFSC_REGEX } from '../masters/masters.constants';
 import {
   DRIVER_BANK_VERIFICATION_STATUSES,
   DRIVER_BLOOD_GROUPS,

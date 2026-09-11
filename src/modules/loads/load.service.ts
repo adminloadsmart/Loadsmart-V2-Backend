@@ -160,7 +160,7 @@ export class LoadService {
 
   /** Validates a document was uploaded via the storage module for the expected purpose and is
    *  confirmed, before attaching its key to the load — same pattern as
-   *  masters/driver.service.ts's assertDriverDlUpload. */
+   *  driver/driver.service.ts's assertDriverDlUpload. */
   private async assertLoadDocumentUpload(
     tenantId: string,
     actorRole: string,

@@ -1,5 +1,6 @@
 import { Role } from '../constants/roles';
 import { LoginPortal } from '../../modules/auth/auth.types';
+import { DriverLoginCandidate } from '../../modules/driver/driver-auth.types';
 
 export interface AuthenticatedUser {
   id: string;
@@ -43,6 +44,29 @@ export interface LoginPayload {
   portal: LoginPortal;
 }
 
+// A driver-app principal — deliberately NOT AuthenticatedUser. No role, no permissions, no
+// permissionsVersion: a driver's authorization is "only ever myself", not RBAC, so there is
+// nothing here for requirePermission(...) to read even if a driver token somehow reached it. See
+// docs/driver-auth.md and driver-auth.middleware.ts's createDriverAuth.
+export interface AuthenticatedDriver {
+  id: string; // masters.drivers.id
+  tenantId: string; // never null — DriverEntity.tenantId is NOT NULL, unlike AuthenticatedUser's
+  jti?: string;
+  // The id of the masters.driver_sessions row created alongside this access token — same
+  // rotates-on-refresh, identifies-the-current-session convention as AuthenticatedUser.sid.
+  sid?: string;
+  exp?: number;
+}
+
+export interface DriverLoginPayload {
+  phoneNumber: string;
+  candidates: DriverLoginCandidate[];
+}
+
+export interface DriverTenantSelectPayload {
+  candidates: DriverLoginCandidate[];
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -50,6 +74,9 @@ declare global {
       user?: AuthenticatedUser;
       signupPayload?: SignupPayload;
       loginPayload?: LoginPayload;
+      driver?: AuthenticatedDriver;
+      driverLoginPayload?: DriverLoginPayload;
+      driverTenantSelectPayload?: DriverTenantSelectPayload;
       // The validate() middleware's coerced/defaulted query result — NOT req.query. Express 5
       // made req.query a read-only getter that re-parses the raw URL on every access, so mutating
       // it in place (the old Express 4 approach) silently no-ops; see validate.middleware.ts.

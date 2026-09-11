@@ -21,6 +21,8 @@ import { LoadActivityService } from './load-activity.service';
 import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
+import { DriverAuthService } from '../driver/driver-auth.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export function createLoadsModule(
   dataSource: DataSource,
@@ -34,6 +36,8 @@ export function createLoadsModule(
     truckTypeService: TruckTypeService;
     loadingPointService: LoadingPointService;
     productService: ProductService;
+    driverAuthService: DriverAuthService;
+    notificationsService: NotificationsService;
   },
 ) {
   const loadActivityRepository = new LoadActivityRepository(dataSource);
@@ -82,6 +86,8 @@ export function createLoadsModule(
     deps.truckTypeService,
     loadActivityService,
     deps.auditService,
+    deps.driverAuthService,
+    deps.notificationsService,
   );
 
   const controller = new LoadsController(

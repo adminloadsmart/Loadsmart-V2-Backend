@@ -4,7 +4,7 @@ import { registerProductOpenApi } from './product/product.openapi';
 import { registerLoadingPointOpenApi } from './loading-point/loading-point.openapi';
 import { registerTransporterOpenApi } from './transporter/transporter.openapi';
 import { registerVehicleOpenApi } from './vehicle/vehicle.openapi';
-import { registerDriverOpenApi } from './driver/driver.openapi';
+import { registerDriverOpenApi } from '../driver/driver.openapi';
 import { registerFleetDriverLinkOpenApi } from './fleet-driver-link/fleet-driver-link.openapi';
 
 /**

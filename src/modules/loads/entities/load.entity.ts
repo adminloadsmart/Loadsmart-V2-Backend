@@ -13,7 +13,7 @@ import { RequisitionEntity } from './requisition.entity';
 import { LoadCargoItemEntity } from './load-cargo-item.entity';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
-import { DriverEntity } from '../../masters/driver/entities/driver.entity';
+import { DriverEntity } from '../../driver/entities/driver.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import {
   FREIGHT_MODES,
