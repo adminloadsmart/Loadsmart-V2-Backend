@@ -75,12 +75,19 @@ export function createDriverAuthModule(
 // The driver-app self-service layer — built last, after `loads` exists, since "my loads" reads
 // loads.LoadService directly (no repository of its own — see driver-portal.controller.ts). Same
 // "consumer takes producer services directly" pattern dashboards/index.ts already uses.
+// storageService backs the driver's own POD upload handshake (requestPodUploadUrl/
+// confirmPodUpload) — the same instance already passed into createDriverModule above.
 export function createDriverPortalModule(deps: {
   driverRepository: DriverRepository;
   driverService: DriverService;
   loadService: LoadService;
+  storageService: StorageService;
 }) {
-  const controller = new DriverPortalController(deps.driverService, deps.loadService);
+  const controller = new DriverPortalController(
+    deps.driverService,
+    deps.loadService,
+    deps.storageService,
+  );
   const router = createDriverPortalRoutes(controller, createDriverAuth(deps.driverRepository));
 
   return { router };

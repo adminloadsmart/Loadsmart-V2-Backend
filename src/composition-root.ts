@@ -195,6 +195,7 @@ export function buildContainer(dataSource: DataSource): Container {
     driverRepository: driver.driverRepository,
     driverService: driver.driverService,
     loadService: loads.loadService,
+    storageService: storage.service,
   });
 
   // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity

@@ -33,5 +33,33 @@ export function createDriverPortalRoutes(
     asyncHandler(controller.getMyLoads),
   );
 
+  // Self-service load actions — distinct from /me/status above (that's the driver's own
+  // operational status; this is a load's movement status). Ownership (this load must be the
+  // caller's own) is enforced in LoadService, not here — see driver-portal.controller.ts.
+  router.patch(
+    '/loads/:loadId/status',
+    validate(driverPortalValidators.updateMyLoadStatus),
+    asyncHandler(controller.updateMyLoadStatus),
+  );
+  router.patch(
+    '/loads/:loadId/pod',
+    validate(driverPortalValidators.uploadMyPod),
+    asyncHandler(controller.uploadMyPod),
+  );
+
+  // POD upload's two-step storage handshake — a driver-portal-scoped mirror of POST /v1/files
+  // (unreachable by a driver token; see driver-portal.controller.ts's requestPodUploadUrl), locked
+  // to the 'trips/pod' purpose only.
+  router.post(
+    '/files',
+    validate(driverPortalValidators.requestPodUploadUrl),
+    asyncHandler(controller.requestPodUploadUrl),
+  );
+  router.post(
+    '/files/:fileId/confirm',
+    validate(driverPortalValidators.confirmPodUpload),
+    asyncHandler(controller.confirmPodUpload),
+  );
+
   return router;
 }
