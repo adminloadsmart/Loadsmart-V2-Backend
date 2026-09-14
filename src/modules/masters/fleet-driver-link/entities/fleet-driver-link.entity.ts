@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { VehicleEntity } from '../../vehicle/entities/vehicle.entity';
-import { DriverEntity } from '../../driver/entities/driver.entity';
+import { DriverEntity } from '../../../driver/entities/driver.entity';
 import { FLEET_DRIVER_LINK_STATUSES, FleetDriverLinkStatus } from '../fleet-driver-link.type';
 
 @Entity({ schema: 'masters', name: 'fleet_driver_links' })

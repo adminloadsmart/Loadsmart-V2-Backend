@@ -5,7 +5,7 @@ import { humanizeStatus } from '../../../shared/utils/humanize';
 import { FleetDriverLinkEntity } from './entities/fleet-driver-link.entity';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { VehicleRepository } from '../vehicle/vehicle.repository';
-import { DriverRepository } from '../driver/driver.repository';
+import { DriverRepository } from '../../driver/driver.repository';
 import { LinkDriverInput } from './fleet-driver-link.interface';
 
 /**

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { respond } from '../../../shared/responses/respond';
-import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
+import { respond } from '../../shared/responses/respond';
+import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
 import {
   DriverBankDetailsParams,
   DriverDocumentParams,

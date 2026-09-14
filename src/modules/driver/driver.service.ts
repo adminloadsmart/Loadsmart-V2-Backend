@@ -1,7 +1,7 @@
 import { DataSource, EntityManager } from 'typeorm';
-import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
-import { AuditService } from '../../audit/audit.service';
+import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
+import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import { AuditService } from '../audit/audit.service';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverDocumentEntity } from './entities/driver-document.entity';
 import { DriverVerificationEntity } from './entities/driver-verification.entity';
@@ -10,9 +10,9 @@ import { DriverOperationalStatusEntity } from './entities/driver-operational-sta
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverBankVerificationStatus } from './drivers.types';
 import { DriverRepository } from './driver.repository';
-import { Paginated, paginate } from '../../../shared/utils/pagination';
-import { SarathiClient, SarathiDrivingLicenceResult } from '../../../adapters/sarathi.client';
-import { StorageService } from '../../storage/storage.service';
+import { Paginated, paginate } from '../../shared/utils/pagination';
+import { SarathiClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
+import { StorageService } from '../storage/storage.service';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,

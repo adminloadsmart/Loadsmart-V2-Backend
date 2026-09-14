@@ -8,7 +8,7 @@ import { OrganizationOnboardingService } from '../organization/organization-onbo
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { StorageService } from '../storage/storage.service';
-import { Msg91Client } from '../../adapters/msg91.client';
+import { OtpService } from '../../shared/services/otp.service';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -28,10 +28,10 @@ export function createAuthModule(
     organizationJourneyStageService: OrganizationJourneyStageService;
     referralCodeService: ReferralCodeService;
     storageService: StorageService;
+    otpService: OtpService;
   },
 ) {
   const repository = new AuthRepository(dataSource);
-  const msg91Client = new Msg91Client();
   const service = new AuthService(
     repository,
     deps.organizationService,
@@ -42,7 +42,7 @@ export function createAuthModule(
     deps.referralCodeService,
     deps.roleService,
     deps.auditService,
-    msg91Client,
+    deps.otpService,
     dataSource,
   );
   const controller = new AuthController(service);

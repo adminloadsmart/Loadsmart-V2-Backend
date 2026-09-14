@@ -4,6 +4,8 @@ import { Worker } from 'bullmq';
 import { TenancyGateway } from './shared/tenancy/tenancy.gateway';
 import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
+import { Msg91Client } from './adapters/msg91.client';
+import { OtpService } from './shared/services/otp.service';
 
 import { createAuthModule } from './modules/auth';
 import { AuthRepository } from './modules/auth/auth.repository';
@@ -12,6 +14,11 @@ import {
   createOrganizationOnboardingRoutes,
 } from './modules/organization';
 import { createRolesModule } from './modules/roles';
+import {
+  createDriverModule,
+  createDriverAuthModule,
+  createDriverPortalModule,
+} from './modules/driver';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
@@ -38,6 +45,12 @@ export interface Container {
   // (or never needed a tenant at all) can't sit behind createTenantScope. See app.ts.
   authenticatedRouters: { path: string; router: Router }[];
   routers: { path: string; router: Router }[];
+  // Driver-app routers — mounted in app.ts AHEAD of the staff authMiddleware entirely, not in
+  // authenticatedRouters/routers above. A driver's bearer token has purpose 'driver-access',
+  // which the staff authMiddleware (createAuth) hard-rejects — each router here applies its own
+  // auth (createDriverAuth) where it needs one instead. The OTP handshake and /refresh stay
+  // fully public. See docs/driver-auth.md.
+  driverRouters: { path: string; router: Router }[];
   // In-process background workers (currently just notifications' BullMQ dispatch worker) —
   // server.ts closes each of these on SIGTERM/SIGINT before the HTTP server, so an in-flight job
   // finishes instead of being killed mid-dispatch on a pm2 restart.
@@ -75,6 +88,13 @@ export function buildContainer(dataSource: DataSource): Container {
   // directly, no gateway" pattern modules/admin/ already used for these when they lived in auth.
   const organization = createOrganizationModule(dataSource);
 
+  // One Msg91Client/OtpService instance for the whole app — every OTP-based login flow (staff
+  // signup/login here, driver login below) shares the same Redis-backed cooldown/attempt
+  // tracking and MSG91 wrapper rather than each module standing up its own. See
+  // shared/services/otp.service.ts.
+  const msg91Client = new Msg91Client();
+  const otpService = new OtpService(msg91Client);
+
   const auth = createAuthModule(dataSource, {
     auditService: audit.service,
     roleService: roles.service,
@@ -84,6 +104,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationJourneyStageService: organization.organizationJourneyStageService,
     referralCodeService: organization.referralCodeService,
     storageService: storage.service,
+    otpService,
   });
   const authMiddleware = createAuth(auth.authRepository);
 
@@ -93,10 +114,31 @@ export function buildContainer(dataSource: DataSource): Container {
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
+  // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
+  // docs/driver-auth.md), and fleetDriverLinkService (inside masters) needs driverRepository to
+  // validate a link's driverId. masters.routes.ts still composes driver's staff router into the
+  // same /v1/masters/drivers/... URLs as before, via deps.driverController below.
+  const driver = createDriverModule(dataSource, {
+    auditService: audit.service,
+    storageService: storage.service,
+  });
+
+  // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see
+  // docs/driver-auth.md), sharing driver's own driverRepository, organization's
+  // organizationService (org-active login check, same as auth.service.ts's), and the same
+  // otpService staff signup/login already uses.
+  const driverAuth = createDriverAuthModule(dataSource, {
+    driverRepository: driver.driverRepository,
+    organizationService: organization.organizationService,
+    otpService,
+  });
+
   // Reference data other modules read from.
   const masters = createMastersModule(dataSource, {
     auditService: audit.service,
     storageService: storage.service,
+    driverRepository: driver.driverRepository,
+    driverController: driver.driverController,
   });
 
   // Producers first — no cross-module deps of their own.
@@ -142,13 +184,24 @@ export function buildContainer(dataSource: DataSource): Container {
     truckTypeService: masters.truckTypeService,
     loadingPointService: masters.loadingPointService,
     productService: masters.productService,
+    // Push-notification payoff for driver_sessions.fcm_token — see docs/driver-auth.md.
+    driverAuthService: driverAuth.service,
+    notificationsService: notifications.service,
+  });
+
+  // Driver-app self-service ("my loads") — built here, not alongside driverAuth above, since it
+  // needs loads.loadService, which doesn't exist until this point. See docs/driver-auth.md.
+  const driverPortal = createDriverPortalModule({
+    driverRepository: driver.driverRepository,
+    driverService: driver.driverService,
+    loadService: loads.loadService,
   });
 
   // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity
   // directly, same as the analytics/* modules below.
   const dashboards = createDashboardsModule(dataSource, {
     vehicleService: masters.vehicleService,
-    driverService: masters.driverService,
+    driverService: driver.driverService,
     customerService: customers.service,
   });
   const analytics = createAnalyticsModule(dataSource);
@@ -179,6 +232,11 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
+    ],
+    driverRouters: [
+      { path: '/driver-auth', router: driverAuth.publicRouter },
+      { path: '/driver-auth', router: driverAuth.protectedRouter },
+      { path: '/driver-portal', router: driverPortal.router },
     ],
     backgroundWorkers: [notifications.worker],
   };

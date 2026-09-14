@@ -7,7 +7,6 @@ import {
   AuthorizationError,
   ConflictError,
   NotFoundError,
-  RateLimitError,
   ValidationError,
   rethrow,
 } from '../../shared/errors';
@@ -22,7 +21,7 @@ import { OrganizationDocumentService } from '../organization/organization-docume
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { StorageService } from '../storage/storage.service';
-import { Msg91Client } from '../../adapters/msg91.client';
+import { OtpService } from '../../shared/services/otp.service';
 import {
   isTenantAccessible,
   isTenantWriteAccessible,
@@ -31,14 +30,10 @@ import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { RoleService } from '../roles/role.service';
 import { AuditService } from '../audit/audit.service';
-import { redisManager } from '../../db/redis';
 import {
   LOGIN_ATTEMPT_WINDOW_MS,
   MAX_FAILED_ATTEMPTS,
-  MAX_OTP_ATTEMPTS,
   SIGNUP_RESEND_COOLDOWN_SECONDS,
-  DEV_BYPASS_OTP,
-  useDevOtpBypass,
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
 import {
@@ -108,7 +103,7 @@ export class AuthService {
     private readonly referralCodeService: ReferralCodeService,
     private readonly roleService: RoleService,
     private readonly auditService: AuditService,
-    private readonly msg91Client: Msg91Client,
+    private readonly otpService: OtpService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -120,13 +115,12 @@ export class AuthService {
       throw new ConflictError('A user with this phone number already exists');
     }
 
-    const signupToken = await this.requestOtpCode({
+    await this.otpService.requestOtpCode({
       phoneNumber,
       purpose: 'signup',
-      ttlSeconds: env.signupOtpTtlSeconds,
       cooldownSeconds: SIGNUP_RESEND_COOLDOWN_SECONDS,
-      otpLabel: 'signup',
     });
+    const signupToken = signToken({ phoneNumber, purpose: 'signup' }, env.signupOtpTtlSeconds);
 
     return {
       signupToken,
@@ -141,7 +135,7 @@ export class AuthService {
     // Keyed by phone (not by which signup token presents it), since an attacker can self-mint
     // unlimited signup tokens for a victim's phone via public POST /auth/signup — the OTP itself
     // is the only real proof of ownership.
-    await this.verifyOtpCode({
+    await this.otpService.verifyOtpCode({
       phoneNumber,
       otp,
       purpose: 'signup',
@@ -177,14 +171,15 @@ export class AuthService {
 
     this.assertPortalAccess(user, input.portal);
 
-    const loginToken = await this.requestOtpCode({
+    await this.otpService.requestOtpCode({
       phoneNumber,
       purpose: 'login',
-      ttlSeconds: env.loginOtpTtlSeconds,
       cooldownSeconds: env.loginOtpResendCooldownSeconds,
-      otpLabel: 'login',
-      portal: input.portal,
     });
+    const loginToken = signToken(
+      { phoneNumber, purpose: 'login', portal: input.portal },
+      env.loginOtpTtlSeconds,
+    );
 
     return {
       loginToken,
@@ -196,7 +191,7 @@ export class AuthService {
   async verifyLoginOtp(input: VerifyLoginOtpInput) {
     const { phoneNumber, otp } = input;
 
-    await this.verifyOtpCode({
+    await this.otpService.verifyOtpCode({
       phoneNumber,
       otp,
       purpose: 'login',
@@ -1228,80 +1223,6 @@ export class AuthService {
     });
   }
 
-  private async requestOtpCode(input: {
-    phoneNumber: string;
-    purpose: 'signup' | 'login';
-    ttlSeconds: number;
-    cooldownSeconds: number;
-    otpLabel: string;
-    portal?: LoginPortal;
-  }) {
-    const { phoneNumber, purpose, ttlSeconds, cooldownSeconds, otpLabel, portal } = input;
-    const cooldownKey = this.otpCooldownKey(purpose, phoneNumber);
-    if (await redisManager.get(cooldownKey)) {
-      throw new RateLimitError('Please wait before requesting another OTP');
-    }
-    await redisManager.set(cooldownKey, '1', cooldownSeconds);
-
-    if (useDevOtpBypass()) {
-      // Dev-only: no MSG91 call, no real SMS — DEV_BYPASS_OTP is the only code verifyOtpCode
-      // will accept while the bypass is active.
-    } else {
-      try {
-        await this.msg91Client.sendOtp(phoneNumber);
-      } catch (error) {
-        rethrow(error, `Failed to send OTP to ${phoneNumber}`);
-      }
-    }
-
-    // A fresh OTP always gets a fresh guess budget — otherwise a stale counter from a previous
-    // OTP cycle would unfairly shrink this one's.
-    await redisManager.delete(this.otpAttemptsKey(purpose, phoneNumber));
-    return signToken({ phoneNumber, purpose: otpLabel, ...(portal ? { portal } : {}) }, ttlSeconds);
-  }
-
-  private async verifyOtpCode(input: {
-    phoneNumber: string;
-    otp: string;
-    purpose: 'signup' | 'login';
-    ttlSeconds: number;
-    invalidOtpMessage: string;
-    tooManyAttemptsMessage: string;
-  }) {
-    const { phoneNumber, otp, purpose, ttlSeconds, invalidOtpMessage, tooManyAttemptsMessage } =
-      input;
-
-    const attemptsKey = this.otpAttemptsKey(purpose, phoneNumber);
-
-    // Counted here — before checking whether the guess is right — so the cap can't be bypassed
-    // by any future reordering; a correct guess still costs nothing since success deletes the
-    // key immediately below. Also spares a paid MSG91 call once the guess budget is already
-    // exhausted.
-    const attempts = await redisManager.incr(attemptsKey, ttlSeconds);
-    if (attempts > MAX_OTP_ATTEMPTS) {
-      await redisManager.delete(attemptsKey);
-      throw new AuthenticationError(tooManyAttemptsMessage);
-    }
-
-    let matched: boolean;
-    if (useDevOtpBypass()) {
-      matched = otp === DEV_BYPASS_OTP;
-    } else {
-      try {
-        matched = await this.msg91Client.verifyOtp(phoneNumber, otp);
-      } catch (error) {
-        rethrow(error, `Failed to verify OTP for ${phoneNumber}`);
-      }
-    }
-
-    if (!matched) {
-      throw new AuthenticationError(invalidOtpMessage);
-    }
-
-    await redisManager.delete(attemptsKey);
-    await redisManager.delete(this.otpCooldownKey(purpose, phoneNumber));
-  }
-
   private async loginWithPhone(
     phoneNumber: string,
     password: string,
@@ -1433,18 +1354,6 @@ export class AuthService {
       throw new ValidationError('phoneNumber is invalid');
     }
     return normalized;
-  }
-
-  private otpRedisKey(purpose: 'signup' | 'login', phoneNumber: string): string {
-    return `${purpose}:${phoneNumber}`;
-  }
-
-  private otpAttemptsKey(purpose: 'signup' | 'login', phoneNumber: string): string {
-    return `${this.otpRedisKey(purpose, phoneNumber)}:attempts`;
-  }
-
-  private otpCooldownKey(purpose: 'signup' | 'login', phoneNumber: string): string {
-    return `${this.otpRedisKey(purpose, phoneNumber)}:cooldown`;
   }
 
   /** Computes effective permissions for a user fresh (never trusts old token claims) and issues

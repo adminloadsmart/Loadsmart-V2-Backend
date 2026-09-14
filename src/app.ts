@@ -17,6 +17,7 @@ export function createApp({
   publicRouters,
   authenticatedRouters,
   routers,
+  driverRouters,
 }: Container): Express {
   const app = express();
 
@@ -59,6 +60,17 @@ export function createApp({
   // ('/auth', '/masters', ...) and each module's *.openapi.ts BASE constant is the only other
   // place that needs to know about it (its registered paths must match these real mounts).
   for (const { path, router } of publicRouters) {
+    app.use(`${API_VERSION_PREFIX}${path}`, router);
+  }
+
+  // Driver-app routers — a separate identity domain from the staff/org one below (see
+  // docs/driver-auth.md). Must sit ahead of authMiddleware: a driver bearer token has purpose
+  // 'driver-access', which authMiddleware (createAuth) hard-rejects outright, so a driver router
+  // placed in authenticatedRouters/routers below would 401 every driver request before it ever
+  // reached its own auth check. Each router here applies createDriverAuth itself where it needs
+  // one (see composition-root.ts's driverRouters); the OTP handshake and /refresh stay fully
+  // public, same as this tier's neighbors above/below.
+  for (const { path, router } of driverRouters) {
     app.use(`${API_VERSION_PREFIX}${path}`, router);
   }
 

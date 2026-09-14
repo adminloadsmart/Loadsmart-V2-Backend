@@ -42,7 +42,8 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     keyPrefix: 'masters/vehicle',
   },
   // Driving-licence front/back photos captured on the manual Sarathi route — see
-  // DRIVER_DOCUMENT_TYPES in masters/driver/drivers.types.ts.
+  // DRIVER_DOCUMENT_TYPES in driver/drivers.types.ts. Purpose key itself ('masters/driver')
+  // stays as-is — it's a storage.files_purpose_enum DB value, unrelated to driver's module path.
   'masters/driver': {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],

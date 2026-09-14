@@ -3,7 +3,7 @@ import { respond } from '../../../shared/responses/respond';
 import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
 import { LinkParams } from './fleet-driver-link.interface';
 import { VehicleParams } from '../vehicle/vehicle.interface';
-import { DriverParams } from '../driver/drivers.interface';
+import { DriverParams } from '../../driver/drivers.interface';
 import { FleetDriverLinkService } from './fleet-driver-link.service';
 
 export class FleetDriverLinkController {

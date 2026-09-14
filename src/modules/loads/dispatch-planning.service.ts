@@ -2,6 +2,8 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
+import { DriverAuthService } from '../driver/driver-auth.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { VehicleService, resolveDocumentStatus } from '../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/vehicle/vehicle.type';
 import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
@@ -57,6 +59,11 @@ export class DispatchPlanningService {
     private readonly truckTypeService: TruckTypeService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    // Push-notification payoff for masters.driver_sessions.fcm_token — see docs/driver-auth.md.
+    // A separate identity domain from the staff/org one everything else here reads: only
+    // getActiveDeviceTokensForDriver is used, never anything RBAC-shaped.
+    private readonly driverAuthService: DriverAuthService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -78,7 +85,7 @@ export class DispatchPlanningService {
         throw new ValidationError('At least one truck line is required'); // V-16
       }
 
-      return await this.dataSource.transaction(async (manager) => {
+      const result = await this.dataSource.transaction(async (manager) => {
         const requisition = await this.requisitionRepository.findById(
           tenantId,
           requisitionId,
@@ -220,9 +227,60 @@ export class DispatchPlanningService {
           complianceWarnings,
         };
       });
+
+      // Outside the transaction, deliberately: a push failure must never roll back or fail an
+      // otherwise-successful dispatch. Best-effort, errors are swallowed (logged) inside it.
+      await this.notifyAssignedDrivers(tenantId, result.loads);
+
+      return result;
     } catch (error) {
       rethrow(error, 'Failed to plan dispatch');
     }
+  }
+
+  /** One push per unique driver assigned a load in this dispatch batch (own-fleet lines only —
+   *  market lines never carry a driverId), fanned out to every one of that driver's active
+   *  sessions with a registered FCM token. Establishes the driver_sessions.fcm_token → PushChannel
+   *  pattern with one concrete event; see docs/driver-auth.md for the general shape other
+   *  driver-facing events (trip status changes, etc.) should follow. Best-effort: a delivery
+   *  failure for one driver never affects another, or the dispatch itself. */
+  private async notifyAssignedDrivers(tenantId: string, loads: LoadEntity[]): Promise<void> {
+    const driverIds = [
+      ...new Set(loads.map((load) => load.driverId).filter((id): id is string => Boolean(id))),
+    ];
+
+    await Promise.all(
+      driverIds.map(async (driverId) => {
+        try {
+          const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(driverId);
+          if (sessions.length === 0) return;
+
+          const assignedLoads = loads.filter((load) => load.driverId === driverId);
+          const body =
+            assignedLoads.length === 1
+              ? `Load ${assignedLoads[0].code} has been assigned to you`
+              : `${assignedLoads.length} loads have been assigned to you`;
+
+          await Promise.all(
+            sessions.map((session) =>
+              this.notificationsService.send(tenantId, {
+                recipientUserId: driverId,
+                type: 'load.assigned',
+                title: 'New load assigned',
+                body,
+                channels: ['push'],
+                destinations: { pushToken: session.fcmToken! },
+                metadata: { loadIds: assignedLoads.map((load) => load.id) },
+              }),
+            ),
+          );
+        } catch (error) {
+          // Logged, not rethrown — letting this propagate would mischaracterize an otherwise-
+          // successful dispatch as "Failed to plan dispatch" (the outer catch's message).
+          console.error(`Failed to notify driver ${driverId} of load assignment`, error);
+        }
+      }),
+    );
   }
 
   /** C-01/C-02/C-03 — run once, up front, across every own-fleet vehicle in this call, before any

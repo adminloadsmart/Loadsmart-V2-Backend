@@ -13,8 +13,8 @@ import { TransporterController } from './transporter/transporter.controller';
 import { TransporterImportController } from './transporter/transporter-import.controller';
 import { createVehicleRoutes } from './vehicle/vehicle.routes';
 import { VehicleController } from './vehicle/vehicle.controller';
-import { createDriverRoutes } from './driver/driver.routes';
-import { DriverController } from './driver/driver.controller';
+import { createDriverRoutes } from '../driver/driver.routes';
+import { DriverController } from '../driver/driver.controller';
 import { createFleetDriverLinkRoutes } from './fleet-driver-link/fleet-driver-link.routes';
 import { FleetDriverLinkController } from './fleet-driver-link/fleet-driver-link.controller';
 

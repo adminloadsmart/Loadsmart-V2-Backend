@@ -15,6 +15,8 @@ import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
 import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
 import { registerNotificationsOpenApi } from '../../modules/notifications/notifications.openapi';
+import { registerDriverAuthOpenApi } from '../../modules/driver/driver-auth.openapi';
+import { registerDriverPortalOpenApi } from '../../modules/driver/driver-portal.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -51,6 +53,8 @@ function getOpenApiDocument() {
     registerFleetAnalyticsOpenApi(registry);
     registerDriverAnalyticsOpenApi(registry);
     registerNotificationsOpenApi(registry);
+    registerDriverAuthOpenApi(registry);
+    registerDriverPortalOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -95,6 +99,16 @@ function getOpenApiDocument() {
           name: TAGS.NOTIFICATIONS,
           description:
             'Read-only: list and view the caller’s own notifications (in-app record of every email/SMS/push sent to them) and mark them read. Sending is done in-process by other services, not over HTTP.',
+        },
+        {
+          name: TAGS.DRIVER_AUTH,
+          description:
+            'Driver-app login (phone + OTP only) and session management — a separate identity domain from TAGS.AUTH, not auth.users/roles. See docs/driver-auth.md.',
+        },
+        {
+          name: TAGS.DRIVER_PORTAL,
+          description:
+            'Driver-app self-service: the caller’s own profile, operational status, trip metrics, and assigned loads. Authenticated with a driver-access token, not the staff/org bearer token.',
         },
       ],
     });

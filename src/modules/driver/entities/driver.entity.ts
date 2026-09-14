@@ -8,7 +8,7 @@ import {
   OneToMany,
   OneToOne,
 } from 'typeorm';
-import { FleetDriverLinkEntity } from '../../fleet-driver-link/entities/fleet-driver-link.entity';
+import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import { DriverDocumentEntity } from './driver-document.entity';
 import { DriverVerificationEntity } from './driver-verification.entity';
 import { DriverBankDetailsEntity } from './driver-bank-details.entity';

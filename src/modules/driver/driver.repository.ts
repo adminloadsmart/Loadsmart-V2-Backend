@@ -47,6 +47,13 @@ export class DriverRepository {
     return drivers.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
+  // Not tenant-scoped, like findActiveDriversByPhone above — used only by
+  // driver-auth.service.ts's refresh, which starts from a driver_sessions row (driverId only, no
+  // tenantId) rather than a request already carrying a verified tenantId claim.
+  findByIdAnyTenant(id: string): Promise<DriverEntity | null> {
+    return this.drivers.findOneBy({ id, deletedAt: IsNull() });
+  }
+
   findByIdWithRelations(tenantId: string, id: string): Promise<DriverEntity | null> {
     return this.drivers.findOne({
       where: { id, tenantId, deletedAt: IsNull() },
@@ -61,6 +68,15 @@ export class DriverRepository {
 
   findByPhoneNumber(tenantId: string, phoneNumber: string): Promise<DriverEntity | null> {
     return this.drivers.findOneBy({ tenantId, phoneNumber, deletedAt: IsNull() });
+  }
+
+  // Deliberately NOT tenant-scoped, unlike every other finder here — used only by
+  // driver-auth.service.ts's OTP login, which doesn't know the caller's tenant yet.
+  // drivers_tenant_phone_number_active_unique only enforces uniqueness *per tenant*
+  // (driver.entity.ts), so the same phone can legitimately match an active driver record in more
+  // than one tenant; the caller resolves 0/1/many matches itself (see docs/driver-auth.md).
+  findActiveDriversByPhone(phoneNumber: string): Promise<DriverEntity[]> {
+    return this.drivers.find({ where: { phoneNumber, status: 'active', deletedAt: IsNull() } });
   }
 
   findByLicenseNumber(tenantId: string, licenseNumber: string): Promise<DriverEntity | null> {

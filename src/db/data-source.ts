@@ -21,17 +21,18 @@ import { MaintenanceRecordEntity } from '../modules/maintenance/maintenance.enti
 import { AuditLogEntity } from '../modules/audit/audit.entity';
 import { VehicleEntity } from '../modules/masters/vehicle/entities/vehicle.entity';
 import { VehicleDocumentEntity } from '../modules/masters/vehicle/entities/vehicle-document.entity';
-import { DriverEntity } from '../modules/masters/driver/entities/driver.entity';
+import { DriverEntity } from '../modules/driver/entities/driver.entity';
 import { FleetDriverLinkEntity } from '../modules/masters/fleet-driver-link/entities/fleet-driver-link.entity';
-import { DriverDocumentEntity } from '../modules/masters/driver/entities/driver-document.entity';
-import { DriverVerificationEntity } from '../modules/masters/driver/entities/driver-verification.entity';
-import { DriverBankDetailsEntity } from '../modules/masters/driver/entities/driver-bank-details.entity';
+import { DriverDocumentEntity } from '../modules/driver/entities/driver-document.entity';
+import { DriverVerificationEntity } from '../modules/driver/entities/driver-verification.entity';
+import { DriverBankDetailsEntity } from '../modules/driver/entities/driver-bank-details.entity';
 import { VehicleOperationalStatusEntity } from '../modules/masters/vehicle/entities/vehicle-operational-status.entity';
 import { VehicleVerificationSnapshotEntity } from '../modules/masters/vehicle/entities/vehicle-verification-snapshot.entity';
 import { VehicleTelemetryMetaEntity } from '../modules/masters/vehicle/entities/vehicle-telemetry-meta.entity';
 import { VehicleServiceUsageEntity } from '../modules/masters/vehicle/entities/vehicle-service-usage.entity';
-import { DriverOperationalStatusEntity } from '../modules/masters/driver/entities/driver-operational-status.entity';
-import { DriverTripMetricsEntity } from '../modules/masters/driver/entities/driver-trip-metrics.entity';
+import { DriverOperationalStatusEntity } from '../modules/driver/entities/driver-operational-status.entity';
+import { DriverTripMetricsEntity } from '../modules/driver/entities/driver-trip-metrics.entity';
+import { DriverSessionEntity } from '../modules/driver/entities/driver-session.entity';
 import { TruckTypeEntity } from '../modules/masters/truck-type/entities/truck-type.entity';
 import { TruckTypeCatalogEntity } from '../modules/masters/truck-type-catalog/entities/truck-type-catalog.entity';
 import { LoadingPointEntity } from '../modules/masters/loading-point/entities/loading-point.entity';
@@ -87,6 +88,7 @@ export const AppDataSource = new DataSource({
     VehicleServiceUsageEntity,
     DriverOperationalStatusEntity,
     DriverTripMetricsEntity,
+    DriverSessionEntity,
     TruckTypeEntity,
     TruckTypeCatalogEntity,
     LoadingPointEntity,

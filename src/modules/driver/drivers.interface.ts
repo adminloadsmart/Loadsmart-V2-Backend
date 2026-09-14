@@ -8,7 +8,7 @@ import {
   DriverVerificationStatus,
   DriverVerificationType,
 } from './drivers.types';
-import { PaginationInput } from '../../../shared/utils/pagination';
+import { PaginationInput } from '../../shared/utils/pagination';
 
 /* Service-layer inputs — shapes accepted from the controller. */
 

@@ -43,6 +43,34 @@ export const env = {
   loginOtpResendCooldownSeconds: numberWithDefault('LOGIN_OTP_RESEND_COOLDOWN_SECONDS', 30),
   userExistsCacheTtlSeconds: numberWithDefault('USER_EXISTS_CACHE_TTL_SECONDS', 30),
   permissionsVersionCacheTtlSeconds: numberWithDefault('PERMISSIONS_VERSION_CACHE_TTL_SECONDS', 30),
+  // Driver-app auth — a separate identity domain from auth.users (see docs/driver-auth.md), with
+  // its own TTLs so they can be tuned independently of the staff/org values above.
+  driverAccessTokenTtlSeconds: numberWithDefault('DRIVER_ACCESS_TOKEN_TTL_SECONDS', 15 * 60),
+  driverRefreshTokenTtlMs: numberWithDefault(
+    'DRIVER_REFRESH_TOKEN_TTL_MS',
+    30 * 24 * 60 * 60 * 1000,
+  ),
+  driverLoginOtpTtlSeconds: numberWithDefault('DRIVER_LOGIN_OTP_TTL_SECONDS', 600),
+  driverLoginOtpResendCooldownSeconds: numberWithDefault(
+    'DRIVER_LOGIN_OTP_RESEND_COOLDOWN_SECONDS',
+    30,
+  ),
+  // Short-lived — just long enough for the client to render a tenant picker and post the choice
+  // back; see driver-auth.service.ts's requestOtp/verifyOtp/selectTenant.
+  driverTenantSelectTtlSeconds: numberWithDefault('DRIVER_TENANT_SELECT_TTL_SECONDS', 5 * 60),
+  driverLoginOtpRequestRateLimitMax: numberWithDefault(
+    'DRIVER_LOGIN_OTP_REQUEST_RATE_LIMIT_MAX',
+    20,
+  ),
+  driverLoginOtpRequestRateLimitWindowSeconds: numberWithDefault(
+    'DRIVER_LOGIN_OTP_REQUEST_RATE_LIMIT_WINDOW_SECONDS',
+    300,
+  ),
+  driverLoginOtpVerifyRateLimitMax: numberWithDefault('DRIVER_LOGIN_OTP_VERIFY_RATE_LIMIT_MAX', 20),
+  driverLoginOtpVerifyRateLimitWindowSeconds: numberWithDefault(
+    'DRIVER_LOGIN_OTP_VERIFY_RATE_LIMIT_WINDOW_SECONDS',
+    300,
+  ),
   // Per-IP request throttles on the unauthenticated auth endpoints — defense-in-depth alongside
   // the (email, ip)-scoped login lockout and the per-phone OTP attempt cap.
   loginRateLimitMax: numberWithDefault('LOGIN_RATE_LIMIT_MAX', 20),
