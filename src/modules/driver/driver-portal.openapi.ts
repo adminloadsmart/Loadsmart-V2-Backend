@@ -67,4 +67,96 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
       },
     },
   });
+
+  // --- Self-service load actions — :loadId is client-supplied here, unlike every path above;
+  // ownership (the load must actually be assigned to the caller) is enforced in LoadService, not
+  // documented as a distinct auth tier since it's a 404, not a 401/403. Same
+  // LoadService.updateStatus/uploadPod the staff-facing loads.openapi.ts documents under
+  // PATCH /loads/{loadId}/status and /pod. ---
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/status`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.updateMyLoadStatus',
+    ...authenticated(
+      'Manual tracking advance — At plant / In-transit / Reached delivery point — for a load ' +
+        'assigned to the caller. Same rules as the staff PATCH /loads/{loadId}/status: one hop ' +
+        'at a time, rejects skipping ahead or moving backward.',
+    ),
+    request: {
+      params: driverPortalValidators.updateMyLoadStatus.shape.params,
+      body: json(driverPortalValidators.updateMyLoadStatus.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: { description: "toStatus is not the load's next valid status", ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/pod`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.uploadMyPod',
+    ...authenticated(
+      'Record proof of delivery for a load assigned to the caller — same fields and rules as ' +
+        'the staff PATCH /loads/{loadId}/pod: delivery receipt photo, receiver name/mobile/' +
+        'designation, quantity received and seal-on-arrival check are all required together ' +
+        '(only podRemarks is optional). podFileKey must be a confirmed upload from ' +
+        'POST /driver-portal/files with purpose trips/pod. Marks the load Delivered; own-fleet ' +
+        'loads (the only kind reachable here) close immediately.',
+    ),
+    request: {
+      params: driverPortalValidators.uploadMyPod.shape.params,
+      body: json(driverPortalValidators.uploadMyPod.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      400: { description: 'A required delivery-receipt field is missing', ...errorContent },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: { description: 'Loading has not been confirmed yet', ...errorContent },
+    },
+  });
+
+  // --- POD upload's two-step storage handshake — a driver-portal-scoped mirror of
+  // POST /files / POST /files/{fileId}/confirm (storage.openapi.ts), unreachable by a driver
+  // token since those sit behind the staff-only authMiddleware/requirePermission. Locked to the
+  // trips/pod purpose only. ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/files`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.requestPodUploadUrl',
+    ...authenticated(
+      'Create a pending file record and return a presigned S3 POST for the driver app to upload ' +
+        'a POD photo directly to. purpose must be the literal "trips/pod" — this route accepts ' +
+        'no other storage purpose.',
+    ),
+    request: { body: json(driverPortalValidators.requestPodUploadUrl.shape.body) },
+    responses: {
+      201: { description: 'Pending file record plus presigned upload URL/fields' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/files/{fileId}/confirm`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.confirmPodUpload',
+    ...authenticated(
+      "Confirm a presigned upload actually landed in S3 and flip the file's status to " +
+        'confirmed. The resulting key is what gets passed as podFileKey to ' +
+        'PATCH /driver-portal/loads/{loadId}/pod.',
+    ),
+    request: { params: driverPortalValidators.confirmPodUpload.shape.params },
+    responses: {
+      200: { description: 'Confirmed file record' },
+      404: { description: 'File not found', ...errorContent },
+      409: { description: 'Upload was never completed in S3', ...errorContent },
+    },
+  });
 }
