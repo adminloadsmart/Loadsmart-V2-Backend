@@ -27,7 +27,11 @@ import { createDriverPortalRoutes } from './driver-portal.routes';
 // wiring — see driver-auth.ts/driver-portal.ts and composition-root.ts.
 export function createDriverModule(
   dataSource: DataSource,
-  deps: { auditService: AuditService; storageService: StorageService },
+  deps: {
+    auditService: AuditService;
+    storageService: StorageService;
+    organizationService: OrganizationService;
+  },
 ) {
   const driverRepository = new DriverRepository(dataSource);
   const sarathiClient = new SarathiClient();
@@ -37,6 +41,7 @@ export function createDriverModule(
     sarathiClient,
     deps.auditService,
     deps.storageService,
+    deps.organizationService,
   );
   const driverController = new DriverController(driverService);
 
@@ -75,12 +80,20 @@ export function createDriverAuthModule(
 // The driver-app self-service layer — built last, after `loads` exists, since "my loads" reads
 // loads.LoadService directly (no repository of its own — see driver-portal.controller.ts). Same
 // "consumer takes producer services directly" pattern dashboards/index.ts already uses.
+// storageService backs the driver's own upload handshake (requestUploadUrl/confirmUpload) — the
+// same instance already passed into createDriverModule above. loadService also backs "Report An
+// Issue" (reportMyIssue).
 export function createDriverPortalModule(deps: {
   driverRepository: DriverRepository;
   driverService: DriverService;
   loadService: LoadService;
+  storageService: StorageService;
 }) {
-  const controller = new DriverPortalController(deps.driverService, deps.loadService);
+  const controller = new DriverPortalController(
+    deps.driverService,
+    deps.loadService,
+    deps.storageService,
+  );
   const router = createDriverPortalRoutes(controller, createDriverAuth(deps.driverRepository));
 
   return { router };

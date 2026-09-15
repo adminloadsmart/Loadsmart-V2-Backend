@@ -66,6 +66,23 @@ export class DriverRepository {
     });
   }
 
+  // Driver-portal profile screen — everything findByIdWithRelations above loads, plus the
+  // assigned vehicle's own compliance documents (insurance/fitness expiry) and truck type, and
+  // trip metrics, so the profile response can add its own fields on top of the same full driver
+  // record the staff detail view returns, rather than a narrower reshaped one.
+  findByIdWithProfileRelations(tenantId: string, id: string): Promise<DriverEntity | null> {
+    return this.drivers.findOne({
+      where: { id, tenantId, deletedAt: IsNull() },
+      relations: {
+        documents: true,
+        verifications: true,
+        bankDetails: true,
+        tripMetrics: true,
+        vehicleLinks: { vehicle: { truckType: true, documents: true } },
+      },
+    });
+  }
+
   findByPhoneNumber(tenantId: string, phoneNumber: string): Promise<DriverEntity | null> {
     return this.drivers.findOneBy({ tenantId, phoneNumber, deletedAt: IsNull() });
   }

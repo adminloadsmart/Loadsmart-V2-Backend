@@ -11,6 +11,7 @@ export const UPLOAD_PURPOSES = [
   'loads/invoice',
   'loads/eway-bill',
   'loads/payment-proof',
+  'loads/issue',
 ] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
@@ -77,6 +78,13 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png'],
     keyPrefix: 'loads/payment-proof',
+  },
+  // Driver-app "Report An Issue" photos — see load-issue.service.ts. Reachable via
+  // driver-portal's own POST /files (not this module's staff-only routes), same as trips/pod.
+  'loads/issue': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    keyPrefix: 'loads/issue',
   },
 };
 

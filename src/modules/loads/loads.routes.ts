@@ -14,6 +14,7 @@ import { requisitionValidators } from './requisition.validators';
 import { dispatchPlanningValidators } from './dispatch-planning.validators';
 import { loadValidators } from './load.validators';
 import { loadPaymentValidators } from './load-payment.validators';
+import { loadIssueValidators } from './load-issue.validators';
 
 export function createLoadsProtectedRoutes(controller: LoadsController): Router {
   const router = Router();
@@ -127,6 +128,14 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     '/loads/:loadId/payments',
     validate(loadPaymentValidators.list),
     asyncHandler(controller.listLoadPayments),
+  );
+
+  // Driver-app "Report An Issue" reports — read-only here; the driver-side POST lives on
+  // driver-portal (self-service, no :driverId param), not this staff-facing router.
+  router.get(
+    '/loads/:loadId/issues',
+    validate(loadIssueValidators.list),
+    asyncHandler(controller.listLoadIssues),
   );
 
   return router;

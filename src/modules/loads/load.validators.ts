@@ -12,6 +12,25 @@ import {
 const uuid = z.string().uuid();
 const params = z.object({ loadId: uuid });
 
+// Exported so driver-portal.validators.ts's driver-facing status/POD schemas can reuse the exact
+// same body shape instead of a hand-kept duplicate that could drift out of sync.
+export const updateStatusBody = z.object({ toStatus: z.enum(MANUAL_TRACKING_STATUSES) }).strict();
+
+export const uploadPodBody = z
+  .object({
+    podFileKey: z.string().trim().min(1),
+    podReceiverName: z.string().trim().min(1).max(150),
+    podReceiverMobile: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+    podReceiverDesignation: z.string().trim().min(1).max(150),
+    podQuantityReceived: z.number().nonnegative(),
+    sealStatus: z.enum(SEAL_STATUSES),
+    podRemarks: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
 export const loadValidators = {
   list: z.object({
     // `search` (inherited from `pagination`) matches against the load's requisition's customer
@@ -90,26 +109,13 @@ export const loadValidators = {
 
   updateStatus: z.object({
     params,
-    body: z.object({ toStatus: z.enum(MANUAL_TRACKING_STATUSES) }).strict(),
+    body: updateStatusBody,
   }),
 
   // The delivery receipt — photo, receiver details and the seal check are all captured together
   // in one submission; only podRemarks is optional.
   uploadPod: z.object({
     params,
-    body: z
-      .object({
-        podFileKey: z.string().trim().min(1),
-        podReceiverName: z.string().trim().min(1).max(150),
-        podReceiverMobile: z
-          .string()
-          .trim()
-          .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
-        podReceiverDesignation: z.string().trim().min(1).max(150),
-        podQuantityReceived: z.number().nonnegative(),
-        sealStatus: z.enum(SEAL_STATUSES),
-        podRemarks: z.string().trim().max(500).optional(),
-      })
-      .strict(),
+    body: uploadPodBody,
   }),
 };

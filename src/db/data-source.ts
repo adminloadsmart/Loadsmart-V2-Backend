@@ -48,6 +48,7 @@ import { LoadEntity } from '../modules/loads/entities/load.entity';
 import { LoadCargoItemEntity } from '../modules/loads/entities/load-cargo-item.entity';
 import { LoadPaymentEntity } from '../modules/loads/entities/load-payment.entity';
 import { LoadActivityEntity } from '../modules/loads/entities/load-activity.entity';
+import { LoadIssueReportEntity } from '../modules/loads/entities/load-issue-report.entity';
 import { CodeSequenceEntity } from '../modules/loads/entities/code-sequence.entity';
 
 export const AppDataSource = new DataSource({
@@ -105,6 +106,7 @@ export const AppDataSource = new DataSource({
     LoadCargoItemEntity,
     LoadPaymentEntity,
     LoadActivityEntity,
+    LoadIssueReportEntity,
     CodeSequenceEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,

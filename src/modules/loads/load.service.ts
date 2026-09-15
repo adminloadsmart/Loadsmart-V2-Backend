@@ -7,11 +7,19 @@ import { StorageService } from '../storage/storage.service';
 import { paginate, Paginated } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
+import { LoadIssueRepository } from './load-issue.repository';
 import { LoadActivityService } from './load-activity.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
-import { LOAD_STATUSES, MANUAL_TRACKING_STATUSES, ManualTrackingStatus } from './utils/loads.types';
+import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
+import {
+  COMPLETED_LOAD_STATUSES,
+  LOAD_STATUSES,
+  MANUAL_TRACKING_STATUSES,
+  ManualTrackingStatus,
+} from './utils/loads.types';
 import { LoadActivityWithActor } from './utils/load-activity.interface';
+import { ReportLoadIssueInput } from './utils/load-issue.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
@@ -49,6 +57,7 @@ export class LoadService {
   constructor(
     private readonly repository: LoadRepository,
     private readonly loadPaymentRepository: LoadPaymentRepository,
+    private readonly loadIssueRepository: LoadIssueRepository,
     private readonly transporterService: TransporterService,
     private readonly vehicleService: VehicleService,
     private readonly storageService: StorageService,
@@ -354,15 +363,25 @@ export class LoadService {
 
   /** Manual-only tracking advance. Rejects
    *  skipping ahead or moving backward through MANUAL_TRACKING_STATUSES; the conditional
-   *  `WHERE status = <current>` update also guards a concurrent double-advance race. */
+   *  `WHERE status = <current>` update also guards a concurrent double-advance race.
+   *
+   *  `driverOwnerId` is set only by driver-portal's self-service call — when present, the caller
+   *  must be this load's own assigned driver (masked as not-found otherwise, same "no IDOR
+   *  surface" convention driver-portal's getMyLoads already follows), and the audit entry is
+   *  written without the driver's id in `userId` (audit_logs.user_id has a real FK to auth.users,
+   *  which a masters.drivers id would violate) — see driver-portal.controller.ts. */
   async updateStatus(
     tenantId: string,
     actorId: string,
     loadId: string,
     toStatus: ManualTrackingStatus,
+    driverOwnerId?: string,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
+      if (driverOwnerId && load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
       const manualTrackingStatuses: readonly string[] = MANUAL_TRACKING_STATUSES;
       const currentIndex = LOAD_STATUSES.indexOf(load.status);
       const nextStatus = LOAD_STATUSES[currentIndex + 1];
@@ -398,11 +417,13 @@ export class LoadService {
       );
       await this.auditService.log({
         tenantId,
-        userId: actorId,
-        action: 'LOAD_STATUS_UPDATED',
+        userId: driverOwnerId ? null : actorId,
+        action: driverOwnerId ? 'LOAD_STATUS_UPDATED_BY_DRIVER' : 'LOAD_STATUS_UPDATED',
         resourceType: 'load',
         oldData: { id: loadId, status: load.status },
-        newData: { id: loadId, status: toStatus },
+        newData: driverOwnerId
+          ? { id: loadId, status: toStatus, driverId: actorId }
+          : { id: loadId, status: toStatus },
       });
 
       return updated;
@@ -418,16 +439,23 @@ export class LoadService {
    *
    *  A 'broken' sealStatus is never a hard block — there's no exceptions/escalations module in
    *  this build to route it to yet — it's just recorded, clearly flagged, on the load's activity
-   *  and audit trail so it's visible to whoever looks. Revisit once that module exists. */
+   *  and audit trail so it's visible to whoever looks. Revisit once that module exists.
+   *
+   *  `driverOwnerId` is set only by driver-portal's self-service call — see updateStatus's doc
+   *  comment above for the ownership-check/audit-FK reasoning; identical here. */
   async uploadPod(
     tenantId: string,
     actorId: string,
     actorRole: string,
     loadId: string,
     input: UploadPodInput,
+    driverOwnerId?: string,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
+      if (driverOwnerId && load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
       const validPriorStatuses = [
         'loading_confirmed',
         'at_plant',
@@ -476,11 +504,13 @@ export class LoadService {
       );
       await this.auditService.log({
         tenantId,
-        userId: actorId,
-        action: 'LOAD_POD_RECORDED',
+        userId: driverOwnerId ? null : actorId,
+        action: driverOwnerId ? 'LOAD_POD_RECORDED_BY_DRIVER' : 'LOAD_POD_RECORDED',
         resourceType: 'load',
         oldData: { id: loadId, status: load.status },
-        newData: { id: loadId, status: 'delivered', sealStatus: input.sealStatus },
+        newData: driverOwnerId
+          ? { id: loadId, status: 'delivered', sealStatus: input.sealStatus, driverId: actorId }
+          : { id: loadId, status: 'delivered', sealStatus: input.sealStatus },
       });
 
       // TODO: notify Accounts for balance payment once real notification/queue
@@ -540,6 +570,75 @@ export class LoadService {
     }
   }
 
+  /** Driver-app "Report An Issue" — a load's own driver flags a problem (breakdown, halt,
+   *  accident, etc.) while carrying it. `driverOwnerId` is set only by driver-portal's
+   *  self-service call — see updateStatus's doc comment above for the ownership-check/audit-FK
+   *  reasoning; identical here.
+   *
+   *  Unlike updateStatus/uploadPod there is no staff-initiated equivalent of this action to
+   *  disambiguate from, so `userId` stays null unconditionally and one audit action name
+   *  (LOAD_ISSUE_REPORTED) covers it — no `_BY_DRIVER` variant needed. */
+  async reportIssue(
+    tenantId: string,
+    actorId: string,
+    actorRole: string,
+    loadId: string,
+    input: ReportLoadIssueInput,
+    driverOwnerId?: string,
+  ): Promise<LoadIssueReportEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (driverOwnerId && load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      if (COMPLETED_LOAD_STATUSES.includes(load.status)) {
+        throw new ConflictError(
+          'Cannot report an issue on a load that is already delivered/closed',
+        );
+      }
+
+      for (const key of input.photoFileKeys ?? []) {
+        await this.assertLoadDocumentUpload(tenantId, actorRole, key, 'loads/issue');
+      }
+
+      const issue = await this.loadIssueRepository.create({
+        tenantId,
+        loadId,
+        reportedBy: actorId,
+        ...input,
+      });
+
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'ISSUE_REPORTED',
+        null,
+        input.category,
+        { category: input.category, photoCount: input.photoFileKeys?.length ?? 0 },
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: null,
+        action: 'LOAD_ISSUE_REPORTED',
+        resourceType: 'load',
+        newData: { id: issue.id, loadId, category: input.category, driverId: actorId },
+      });
+
+      return issue;
+    } catch (error) {
+      rethrow(error, 'Failed to report load issue');
+    }
+  }
+
+  async listIssues(tenantId: string, loadId: string): Promise<LoadIssueReportEntity[]> {
+    try {
+      return await this.loadIssueRepository.listByLoad(tenantId, loadId);
+    } catch (error) {
+      rethrow(error, 'Failed to list load issues');
+    }
+  }
+
   /** Wide-relation counterpart to assertExists, for the read-only Detail path only — see
    *  load.repository.ts's findDetailById doc comment for why this isn't just assertExists. */
   private async assertDetailExists(tenantId: string, id: string): Promise<LoadEntity> {
@@ -555,10 +654,22 @@ export class LoadService {
   /** Load Detail / Trip Detail — status, documents (resolved to download URLs), payments, the
    *  full chronological activity timeline (with actor names), the 8-step progress stepper, and
    *  the next-action panel (next stage, tracking/advance-due info). This is the single trip
-   *  detail screen — see loads.openapi.ts. */
-  async get(tenantId: string, actorRole: string, loadId: string): Promise<LoadDetailView> {
+   *  detail screen — see loads.openapi.ts.
+   *
+   *  `driverOwnerId` is set only by driver-portal's self-service call — see updateStatus's doc
+   *  comment above for the ownership-check reasoning; identical here (masked as not-found, no
+   *  audit/activity write happens on a read so there's no FK concern to branch on). */
+  async get(
+    tenantId: string,
+    actorRole: string,
+    loadId: string,
+    driverOwnerId?: string,
+  ): Promise<LoadDetailView> {
     try {
       const load = await this.assertDetailExists(tenantId, loadId);
+      if (driverOwnerId && load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
       const [timeline, payments, loadWithUrls] = await Promise.all([
         this.loadActivityService.listByLoad(tenantId, loadId),
         this.loadPaymentRepository.listByLoad(tenantId, loadId),
