@@ -140,8 +140,24 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'STATUS_CHANGED',
   'DOCUMENT_UPLOADED',
   'PAYMENT_RECORDED',
+  'ISSUE_REPORTED',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
 
 export const LOAD_PAYMENT_TYPES = ['advance', 'balance'] as const;
 export type LoadPaymentType = (typeof LOAD_PAYMENT_TYPES)[number];
+
+/** Driver-app "Report An Issue" categories — see load-issue.service.ts's reportIssue. No
+ *  escalation workflow reads these yet (same "no exceptions/escalations module" gap as
+ *  SEAL_STATUSES above); reports are recorded and visible to staff via GET /loads/:id/issues, not
+ *  acted on automatically. */
+export const LOAD_ISSUE_CATEGORIES = [
+  'breakdown',
+  'halt_rest_stop',
+  'traffic_jam',
+  'accident',
+  'road_blocked',
+  'police_rto_check',
+  'other',
+] as const;
+export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];

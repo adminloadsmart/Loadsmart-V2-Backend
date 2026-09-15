@@ -3,6 +3,7 @@ import { requisitionValidators } from './requisition.validators';
 import { dispatchPlanningValidators } from './dispatch-planning.validators';
 import { loadValidators } from './load.validators';
 import { loadPaymentValidators } from './load-payment.validators';
+import { loadIssueValidators } from './load-issue.validators';
 import {
   REQUISITIONS_MANAGE,
   DISPATCH_PLANNING_MANAGE,
@@ -375,6 +376,24 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Updated load' },
       400: { description: 'A required delivery-receipt field is missing', ...errorContent },
       409: { description: 'Loading has not been confirmed yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/issues`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listLoadIssues',
+    ...authenticated(
+      'List "Report An Issue" entries a driver has filed against this load (breakdown, halt, ' +
+        'accident, etc.), most recent first. Read-only — the driver-app POST lives at ' +
+        'POST /driver-portal/loads/{loadId}/issues, not here. Not actionable/escalated ' +
+        'automatically; each entry also has a matching ISSUE_REPORTED row on the activity ' +
+        'timeline (GET /loads/{loadId}/activities).',
+    ),
+    request: { params: loadIssueValidators.list.shape.params },
+    responses: {
+      200: { description: 'LoadIssueReportEntity[], most recent first' },
     },
   });
 

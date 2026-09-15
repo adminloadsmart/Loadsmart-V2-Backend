@@ -16,6 +16,7 @@ import { LoadRepository } from './load.repository';
 import { LoadService } from './load.service';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadPaymentService } from './load-payment.service';
+import { LoadIssueRepository } from './load-issue.repository';
 import { LoadActivityRepository } from './load-activity.repository';
 import { LoadActivityService } from './load-activity.service';
 import { DispatchPlanningService } from './dispatch-planning.service';
@@ -46,6 +47,7 @@ export function createLoadsModule(
   const requisitionRepository = new RequisitionRepository(dataSource);
   const loadRepository = new LoadRepository(dataSource);
   const loadPaymentRepository = new LoadPaymentRepository(dataSource);
+  const loadIssueRepository = new LoadIssueRepository(dataSource);
   const codeSequenceRepository = new CodeSequenceRepository(dataSource);
 
   const requisitionService = new RequisitionService(
@@ -62,6 +64,7 @@ export function createLoadsModule(
   const loadService = new LoadService(
     loadRepository,
     loadPaymentRepository,
+    loadIssueRepository,
     deps.transporterService,
     deps.vehicleService,
     deps.storageService,

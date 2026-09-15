@@ -121,6 +121,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const driver = createDriverModule(dataSource, {
     auditService: audit.service,
     storageService: storage.service,
+    organizationService: organization.organizationService,
   });
 
   // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see

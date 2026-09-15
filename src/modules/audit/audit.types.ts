@@ -74,6 +74,7 @@ export const AUDIT_ACTIONS = [
   'LOAD_POD_RECORDED_BY_DRIVER',
   'LOAD_PAYMENT_RECORDED',
   'LOAD_CLOSED',
+  'LOAD_ISSUE_REPORTED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

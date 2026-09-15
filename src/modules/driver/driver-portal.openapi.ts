@@ -14,8 +14,15 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/me`,
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMe',
-    ...authenticated('Get the caller’s own driver profile.'),
-    responses: { 200: { description: 'Driver profile' } },
+    ...authenticated(
+      'Profile screen — same full driver record as the staff GET /masters/drivers/{driverId} ' +
+        '(documents, verifications, bankDetails, vehicleLinks, etc., unchanged), plus assigned ' +
+        'vehicle compliance dates (insurance/fitness expiry), a document upload-status summary, ' +
+        'trip-metric performance, and the organization’s name. Fields with no backing data in ' +
+        'this build (experience, KMs driven, settlement due, and every entry under settings) ' +
+        'come back as explicit null, not omitted.',
+    ),
+    responses: { 200: { description: 'DriverProfileView — see driver.service.ts' } },
   });
 
   registry.registerPath({
@@ -71,8 +78,30 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
   // --- Self-service load actions — :loadId is client-supplied here, unlike every path above;
   // ownership (the load must actually be assigned to the caller) is enforced in LoadService, not
   // documented as a distinct auth tier since it's a 404, not a 401/403. Same
-  // LoadService.updateStatus/uploadPod the staff-facing loads.openapi.ts documents under
-  // PATCH /loads/{loadId}/status and /pod. ---
+  // LoadService.get/updateStatus/uploadPod the staff-facing loads.openapi.ts documents under
+  // GET /loads/{loadId} and PATCH /loads/{loadId}/status and /pod. ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.getMyLoad',
+    ...authenticated(
+      'Load / Trip Detail for a load assigned to the caller — same shape as the staff ' +
+        'GET /loads/{loadId}: status, documents (resolved to download URLs), payments, computed ' +
+        'e-way-bill expiry, the full activity timeline, the 8-step progress stepper, and the ' +
+        'next-action panel.',
+    ),
+    request: { params: driverPortalValidators.getMyLoad.shape.params },
+    responses: {
+      200: {
+        description:
+          '{ load, timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
+          'TripStepperStep[], nextAction: TripNextAction }',
+      },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+    },
+  });
 
   registry.registerPath({
     method: 'patch',
@@ -120,22 +149,48 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
-  // --- POD upload's two-step storage handshake — a driver-portal-scoped mirror of
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/issues`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.reportMyIssue',
+    ...authenticated(
+      '"Report An Issue" — flag a problem (breakdown, halt/rest stop, traffic jam, accident, ' +
+        'road blocked, police/RTO check, or other) on a load assigned to the caller. Location ' +
+        '(latitude/longitude/locationLabel/locationCapturedAt) is captured client-side — the ' +
+        "driver app resolves the address itself, the backend just stores what it's given. " +
+        'photoFileKeys, if given, must be confirmed uploads from POST /driver-portal/files with ' +
+        "purpose loads/issue. Visible to staff via GET /loads/{loadId}/issues and on the load's " +
+        'activity timeline; not actionable/escalated automatically.',
+    ),
+    request: {
+      params: driverPortalValidators.reportMyIssue.shape.params,
+      body: json(driverPortalValidators.reportMyIssue.shape.body),
+    },
+    responses: {
+      201: { description: 'Created issue report' },
+      400: { description: 'A photo key is not a confirmed loads/issue upload', ...errorContent },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: { description: 'Load is already delivered/closed', ...errorContent },
+    },
+  });
+
+  // --- Upload handshake for POD and issue-report photos — a driver-portal-scoped mirror of
   // POST /files / POST /files/{fileId}/confirm (storage.openapi.ts), unreachable by a driver
   // token since those sit behind the staff-only authMiddleware/requirePermission. Locked to the
-  // trips/pod purpose only. ---
+  // trips/pod and loads/issue purposes only. ---
 
   registry.registerPath({
     method: 'post',
     path: `${BASE}/files`,
     tags: [TAGS.DRIVER_PORTAL],
-    operationId: 'driverPortal.requestPodUploadUrl',
+    operationId: 'driverPortal.requestUploadUrl',
     ...authenticated(
       'Create a pending file record and return a presigned S3 POST for the driver app to upload ' +
-        'a POD photo directly to. purpose must be the literal "trips/pod" — this route accepts ' +
-        'no other storage purpose.',
+        'a photo directly to. purpose must be "trips/pod" (E-POD) or "loads/issue" (issue-report ' +
+        'photo) — this route accepts no other storage purpose.',
     ),
-    request: { body: json(driverPortalValidators.requestPodUploadUrl.shape.body) },
+    request: { body: json(driverPortalValidators.requestUploadUrl.shape.body) },
     responses: {
       201: { description: 'Pending file record plus presigned upload URL/fields' },
       400: { description: 'Validation failed', ...errorContent },
@@ -146,13 +201,14 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     method: 'post',
     path: `${BASE}/files/{fileId}/confirm`,
     tags: [TAGS.DRIVER_PORTAL],
-    operationId: 'driverPortal.confirmPodUpload',
+    operationId: 'driverPortal.confirmUpload',
     ...authenticated(
       "Confirm a presigned upload actually landed in S3 and flip the file's status to " +
         'confirmed. The resulting key is what gets passed as podFileKey to ' +
-        'PATCH /driver-portal/loads/{loadId}/pod.',
+        'PATCH /driver-portal/loads/{loadId}/pod, or as one of photoFileKeys to ' +
+        'POST /driver-portal/loads/{loadId}/issues.',
     ),
-    request: { params: driverPortalValidators.confirmPodUpload.shape.params },
+    request: { params: driverPortalValidators.confirmUpload.shape.params },
     responses: {
       200: { description: 'Confirmed file record' },
       404: { description: 'File not found', ...errorContent },

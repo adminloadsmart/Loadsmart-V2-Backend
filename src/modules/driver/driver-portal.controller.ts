@@ -8,6 +8,7 @@ import {
   UpdateLoadStatusInput,
   UploadPodInput,
 } from '../loads/utils/load.interface';
+import { ReportLoadIssueInput } from '../loads/utils/load-issue.interface';
 import { StorageService } from '../storage/storage.service';
 import { FileParams, GenerateUploadUrlInput } from '../storage/storage.types';
 
@@ -18,9 +19,9 @@ import { FileParams, GenerateUploadUrlInput } from '../storage/storage.types';
  * into the same DriverService/LoadService the staff-facing masters/loads routes use — no
  * duplicated queries, no repository of its own. See docs/driver-auth.md.
  *
- * updateMyLoadStatus/uploadMyPod are the one exception to "implicitly scoped" above — :loadId is
- * client-supplied, so ownership (the load must actually be this driver's own) is enforced inside
- * LoadService via the driverOwnerId param, not here.
+ * getMyLoad/updateMyLoadStatus/uploadMyPod/reportMyIssue are the exception to "implicitly
+ * scoped" above — :loadId is client-supplied, so ownership (the load must actually be this
+ * driver's own) is enforced inside LoadService via the driverOwnerId param, not here.
  */
 export class DriverPortalController {
   constructor(
@@ -29,9 +30,12 @@ export class DriverPortalController {
     private readonly storageService: StorageService,
   ) {}
 
+  // Profile screen — aggregated view (driver + assigned vehicle's compliance dates + trip-metric
+  // performance + org name); see DriverProfileView's doc comment for which fields are real data
+  // vs. explicit null (nothing server-side tracks them yet).
   getMe = async (req: Request, res: Response) => {
-    const driver = await this.driverService.getDriver(req.driver!.tenantId, req.driver!.id);
-    respond(res, driver);
+    const profile = await this.driverService.getMyProfile(req.driver!.tenantId, req.driver!.id);
+    respond(res, profile);
   };
 
   getMyStatus = async (req: Request, res: Response) => {
@@ -70,6 +74,20 @@ export class DriverPortalController {
     respond(res, loads);
   };
 
+  // Single-load detail — same LoadService.get the staff GET /loads/:loadId endpoint uses
+  // (documents resolved to download URLs, activity timeline, progress stepper, next-action
+  // panel), for a load assigned to the caller. driverOwnerId makes it 404 instead of returning a
+  // load that isn't this driver's, same convention as updateMyLoadStatus/uploadMyPod below.
+  getMyLoad = async (req: Request<LoadParams>, res: Response) => {
+    const result = await this.loadService.get(
+      req.driver!.tenantId,
+      'driver',
+      req.params.loadId,
+      req.driver!.id,
+    );
+    respond(res, result);
+  };
+
   // Manual tracking advance (at_plant -> in_transit -> reached_delivery_point) for a load this
   // driver is the assigned own-fleet driver of. Same LoadService.updateStatus the staff
   // PATCH /loads/:loadId/status endpoint uses — driverOwnerId makes it 404 instead of updating a
@@ -100,11 +118,27 @@ export class DriverPortalController {
     respond(res, load);
   };
 
-  // Step 1 of the driver's own POD upload — same shape and same StorageService.generateUploadUrl
-  // as POST /v1/files (staff-only, unreachable by a driver token since it sits behind
-  // authMiddleware); driver-portal.validators.ts pins `purpose` to the literal 'trips/pod' so a
-  // driver can never request an upload URL for any other storage purpose.
-  requestPodUploadUrl = async (req: Request, res: Response) => {
+  // Driver-app "Report An Issue" — a problem flagged on a load this driver is carrying (see
+  // load.service.ts's reportIssue for the ownership-check/audit-FK reasoning, identical to
+  // updateMyLoadStatus/uploadMyPod above). actorRole is a literal, same reasoning as uploadMyPod.
+  reportMyIssue = async (req: Request<LoadParams>, res: Response) => {
+    const issue = await this.loadService.reportIssue(
+      req.driver!.tenantId,
+      req.driver!.id,
+      'driver',
+      req.params.loadId,
+      req.body as ReportLoadIssueInput,
+      req.driver!.id,
+    );
+    respond(res, issue, 201);
+  };
+
+  // Step 1 of the driver's own upload handshake — same shape and same
+  // StorageService.generateUploadUrl as POST /v1/files (staff-only, unreachable by a driver token
+  // since it sits behind authMiddleware); driver-portal.validators.ts restricts `purpose` to
+  // trips/pod (E-POD photos) or loads/issue (issue-report photos) — the only two a driver may
+  // request through this route.
+  requestUploadUrl = async (req: Request, res: Response) => {
     const file = await this.storageService.generateUploadUrl(
       req.driver!.tenantId,
       req.driver!.id,
@@ -114,8 +148,8 @@ export class DriverPortalController {
   };
 
   // Step 2 — confirms the direct-to-S3 upload from step 1. The resulting key is what gets passed
-  // as podFileKey to uploadMyPod above.
-  confirmPodUpload = async (req: Request, res: Response) => {
+  // as podFileKey to uploadMyPod, or as one of photoFileKeys to reportMyIssue, above.
+  confirmUpload = async (req: Request, res: Response) => {
     const file = await this.storageService.confirmUpload(
       req.driver!.tenantId,
       (req.params as unknown as FileParams).fileId,
