@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../..
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { toDateString } from '../../../shared/utils/date';
 import { AuditService } from '../../audit/audit.service';
+import { JobQueue } from '../../../jobs/queue-registry';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleServiceUsageEntity } from './entities/vehicle-service-usage.entity';
 import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
@@ -17,7 +18,7 @@ import {
 import { VehicleRepository } from './vehicle.repository';
 import { TruckTypeService } from '../truck-type/truck-type.service';
 import { FleetDriverLinkService } from '../fleet-driver-link/fleet-driver-link.service';
-import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
+import { DOCUMENT_EXPIRING_SOON_DAYS, COMPLIANCE_ALERT_DAYS_BEFORE } from './vehicle.constants';
 import { Paginated, paginate } from '../../../shared/utils/pagination';
 import {
   AddVehicleDocumentInput,
@@ -54,7 +55,55 @@ export class VehicleService {
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    private readonly complianceAlertsQueue: JobQueue,
   ) {}
+
+  /** Best-effort: schedules/reschedules the two one-time delayed jobs (15-day-before and expiry)
+   *  behind the "vehicle compliance expiring/expired" notifications — see workers/vehicle-
+   *  compliance-alerts.worker.ts. Called after any create/update that can change `expiryDate`
+   *  (addDocument, updateDocument, applyVerifiedPapers, and onboardVehicle's own document loop).
+   *  Cancels any previously-scheduled jobs for this document first, so re-saving reschedules
+   *  cleanly instead of stacking duplicate notifications. */
+  private async scheduleComplianceAlerts(document: VehicleDocumentEntity): Promise<void> {
+    try {
+      const expirySoonJobId = `expiry-soon:${document.id}`;
+      const expiredJobId = `expired:${document.id}`;
+      await this.complianceAlertsQueue.cancel(expirySoonJobId);
+      await this.complianceAlertsQueue.cancel(expiredJobId);
+
+      if (
+        !document.expiryDate ||
+        !(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY as readonly string[]).includes(document.documentType)
+      ) {
+        return;
+      }
+
+      const expiryMs = new Date(`${document.expiryDate}T00:00:00.000Z`).getTime();
+      const alertMs = expiryMs - COMPLIANCE_ALERT_DAYS_BEFORE * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const payload = {
+        documentId: document.id,
+        vehicleId: document.vehicleId,
+        tenantId: document.tenantId,
+      };
+
+      if (expiryMs > now) {
+        await this.complianceAlertsQueue.enqueue('expiry-soon', payload, {
+          delay: Math.max(0, alertMs - now),
+          jobId: expirySoonJobId,
+        });
+      }
+
+      // Always scheduled, even if already expired — fires almost immediately (delay ≈ 0) rather
+      // than being skipped, so a document imported/renewed already-expired still alerts.
+      await this.complianceAlertsQueue.enqueue('expired', payload, {
+        delay: Math.max(0, expiryMs - now),
+        jobId: expiredJobId,
+      });
+    } catch (error) {
+      console.error(`Failed to schedule compliance alerts for document ${document.id}`, error);
+    }
+  }
 
   /**
    * Only called internally, by onboardVehicle — there is no standalone create-vehicle route.
@@ -233,7 +282,7 @@ export class VehicleService {
       await this.assertVehicleExists(tenantId, vehicleId);
 
       const expiryDate = input.expiryDate ?? null;
-      return await this.vehicleRepository.createDocument({
+      const document = await this.vehicleRepository.createDocument({
         tenantId,
         vehicleId,
         documentType: input.documentType,
@@ -244,6 +293,8 @@ export class VehicleService {
         status: resolveDocumentStatus(expiryDate),
         createdBy: actorId,
       });
+      await this.scheduleComplianceAlerts(document);
+      return document;
     } catch (error) {
       rethrow(error, 'Failed to add vehicle document');
     }
@@ -297,6 +348,7 @@ export class VehicleService {
         },
       );
       if (!document) throw new NotFoundError(`Vehicle document ${documentId} not found`);
+      await this.scheduleComplianceAlerts(document);
       return document;
     } catch (error) {
       rethrow(error, 'Failed to update vehicle document');
@@ -573,17 +625,18 @@ export class VehicleService {
       const status = resolveDocumentStatus(expiryDate);
 
       if (existing) {
-        await this.vehicleRepository.updateDocument(
+        const updated = await this.vehicleRepository.updateDocument(
           tenantId,
           vehicleId,
           existing.id,
           { expiryDate, status, updatedBy: actorId },
           manager,
         );
+        if (updated) await this.scheduleComplianceAlerts(updated);
         continue;
       }
 
-      await this.vehicleRepository.createDocument(
+      const created = await this.vehicleRepository.createDocument(
         {
           tenantId,
           vehicleId,
@@ -597,6 +650,7 @@ export class VehicleService {
         },
         manager,
       );
+      await this.scheduleComplianceAlerts(created);
     }
   }
 
@@ -646,7 +700,7 @@ export class VehicleService {
           );
 
           if (existing) {
-            await this.vehicleRepository.updateDocument(
+            const updated = await this.vehicleRepository.updateDocument(
               tenantId,
               vehicle.id,
               existing.id,
@@ -658,10 +712,11 @@ export class VehicleService {
               },
               manager,
             );
+            if (updated) await this.scheduleComplianceAlerts(updated);
             continue;
           }
 
-          await this.vehicleRepository.createDocument(
+          const created = await this.vehicleRepository.createDocument(
             {
               tenantId,
               vehicleId: vehicle.id,
@@ -675,6 +730,7 @@ export class VehicleService {
             },
             manager,
           );
+          await this.scheduleComplianceAlerts(created);
         }
 
         if (telemetry) {

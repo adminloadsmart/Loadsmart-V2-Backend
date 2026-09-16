@@ -22,6 +22,7 @@ import {
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
+import { createNotifyByType } from './modules/notifications/notify-by-type';
 import { createPaymentsModule } from './modules/payments';
 import { createMaintenanceModule } from './modules/maintenance';
 import { createAuditModule } from './modules/audit';
@@ -114,6 +115,21 @@ export function buildContainer(dataSource: DataSource): Container {
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
+  // Producer, built here (right after auth) — no cross-module deps of its own beyond dataSource,
+  // and notifyByType below needs its service. Same build-order bucket as tracking/payments.
+  const notifications = createNotificationsModule(dataSource);
+
+  // The one dispatcher every notification trigger site below calls against a domain catalog (see
+  // modules/notifications/catalog/*) — currently just vehicle compliance (WhatsApp/push); the
+  // masters "approval requested" catalog entry is on hold until an email provider exists. Built
+  // once here so masters can take it as a plain constructor dependency, no gateway needed (same
+  // "consumer takes producer service directly" pattern used throughout this file).
+  const notifyByType = createNotifyByType({
+    notificationsService: notifications.service,
+    authRepository: auth.authRepository,
+    authService: auth.service,
+  });
+
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
   // docs/driver-auth.md), and fleetDriverLinkService (inside masters) needs driverRepository to
   // validate a link's driverId. masters.routes.ts still composes driver's staff router into the
@@ -140,11 +156,11 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     driverRepository: driver.driverRepository,
     driverController: driver.driverController,
+    notifyByType,
   });
 
-  // Producers first — no cross-module deps of their own.
+  // Producers with no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
-  const notifications = createNotificationsModule(dataSource);
   const payments = createPaymentsModule(dataSource);
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs.
@@ -240,6 +256,6 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/driver-auth', router: driverAuth.protectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
-    backgroundWorkers: [notifications.worker],
+    backgroundWorkers: [notifications.worker, masters.vehicleComplianceAlertsWorker],
   };
 }

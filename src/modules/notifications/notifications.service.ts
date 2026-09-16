@@ -21,6 +21,8 @@ function resolveDestination(
       return destinations?.phoneNumber;
     case 'push':
       return destinations?.pushToken;
+    case 'whatsapp':
+      return destinations?.whatsappNumber;
   }
 }
 

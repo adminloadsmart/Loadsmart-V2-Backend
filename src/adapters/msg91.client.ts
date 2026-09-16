@@ -81,4 +81,56 @@ export class Msg91Client {
       throw new Error(`MSG91 send SMS failed: ${body?.message ?? response.status}`);
     }
   }
+
+  /**
+   * WhatsApp Business template message via MSG91's WhatsApp API — used by the notifications
+   * module's WhatsappChannel. Unlike sendTransactional above, the message copy itself is never
+   * composed here: WhatsApp Business requires every template pre-approved by Meta, so the actual
+   * text lives on the MSG91/WhatsApp Business dashboard (env.msg91WhatsappTemplateName); this
+   * method only forwards the caller's variables, in template placeholder order ({{1}}, {{2}}, ...),
+   * as that template's body components.
+   *
+   * Unlike sendOtp/verifyOtp/sendTransactional above, this hits `env.msg91WhatsappBaseUrl`
+   * (`api.msg91.com` by default), not `env.msg91BaseUrl` (`control.msg91.com`) — MSG91's WhatsApp
+   * send API lives on a different host from the rest of their v5 API, confirmed against
+   * https://msg91.com/help/whatsapp/send-whatsapp.
+   */
+  async sendWhatsapp(phoneNumber: string, variables: string[]): Promise<void> {
+    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !env.msg91WhatsappTemplateName) {
+      throw new Error(
+        'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',
+      );
+    }
+
+    const components = Object.fromEntries(
+      variables.map((value, index) => [`body_${index + 1}`, { type: 'text', value }]),
+    );
+
+    const response = await fetch(
+      `${env.msg91WhatsappBaseUrl}/api/v5/whatsapp/whatsapp-outbound-message/bulk/`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authkey: env.msg91AuthKey },
+        body: JSON.stringify({
+          integrated_number: env.msg91WhatsappIntegratedNumber,
+          content_type: 'template',
+          payload: {
+            messaging_product: 'whatsapp',
+            type: 'template',
+            template: {
+              name: env.msg91WhatsappTemplateName,
+              language: { code: 'en', policy: 'deterministic' },
+              namespace: env.msg91WhatsappNamespace,
+              to_and_components: [{ to: [phoneNumber], components }],
+            },
+          },
+        }),
+      },
+    );
+    const body = (await response.json().catch(() => null)) as Msg91Response | null;
+
+    if (body?.type !== 'success') {
+      throw new Error(`MSG91 send WhatsApp message failed: ${body?.message ?? response.status}`);
+    }
+  }
 }

@@ -11,6 +11,7 @@ import { NotificationChannel } from './channels/notification-channel.interface';
 import { EmailChannel } from './channels/email.channel';
 import { SmsChannel } from './channels/sms.channel';
 import { PushChannel } from './channels/push.channel';
+import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationChannelName } from './notifications.types';
 
 export interface NotificationsModule {
@@ -35,6 +36,7 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
     email: new EmailChannel(),
     sms: new SmsChannel(msg91Client),
     push: new PushChannel(),
+    whatsapp: new WhatsappChannel(msg91Client),
   };
   const worker = createNotificationDispatchWorker(service, channels);
 
