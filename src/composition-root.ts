@@ -128,6 +128,7 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsService: notifications.service,
     authRepository: auth.authRepository,
     authService: auth.service,
+    notificationPreferencesRepository: notifications.notificationPreferencesRepository,
   });
 
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see

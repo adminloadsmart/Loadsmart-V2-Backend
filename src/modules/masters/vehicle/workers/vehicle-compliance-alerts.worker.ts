@@ -1,7 +1,7 @@
 import { Job, Worker } from 'bullmq';
 import { getQueueConnection } from '../../../../jobs/queue-connection';
 import { NotifyByType } from '../../../notifications/notify-by-type';
-import { VEHICLE_NOTIFICATION_CATALOG } from '../../../notifications/catalog/vehicle-notifications.catalog';
+import { NOTIFICATION_CATALOG } from '../../../notifications/catalog/notification-catalog';
 import { VehicleRepository } from '../vehicle.repository';
 import { DOCUMENT_TYPE_LABELS } from '../vehicle.constants';
 import { VehicleDocumentTypeWithExpiry } from '../vehicle.type';
@@ -44,7 +44,7 @@ export function createVehicleComplianceAlertsWorker(
           ? 'vehicle.compliance_expiring_soon'
           : 'vehicle.compliance_expired';
 
-      await notifyByType(VEHICLE_NOTIFICATION_CATALOG, type, tenantId, {
+      await notifyByType(NOTIFICATION_CATALOG, type, tenantId, {
         complianceType,
         vehicleNo: vehicle.registrationNumber,
         expiryDate: document.expiryDate,

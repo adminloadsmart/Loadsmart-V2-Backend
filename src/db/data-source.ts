@@ -16,6 +16,8 @@ import { TrackingEventEntity } from '../modules/tracking/tracking.entity';
 import { NotificationEntity } from '../modules/notifications/notifications.entity';
 import { NotificationDeliveryEntity } from '../modules/notifications/notification-delivery.entity';
 import { NotificationTemplateEntity } from '../modules/notifications/templates/template.entity';
+import { NotificationTypeEntity } from '../modules/notifications/entities/notification-type.entity';
+import { NotificationPreferenceEntity } from '../modules/notifications/entities/notification-preference.entity';
 import { PaymentEntity } from '../modules/payments/payments.entity';
 import { MaintenanceRecordEntity } from '../modules/maintenance/maintenance.entity';
 import { AuditLogEntity } from '../modules/audit/audit.entity';
@@ -73,6 +75,8 @@ export const AppDataSource = new DataSource({
     NotificationEntity,
     NotificationDeliveryEntity,
     NotificationTemplateEntity,
+    NotificationTypeEntity,
+    NotificationPreferenceEntity,
     PaymentEntity,
     MaintenanceRecordEntity,
     AuditLogEntity,

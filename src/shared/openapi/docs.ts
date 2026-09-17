@@ -98,7 +98,7 @@ function getOpenApiDocument() {
         {
           name: TAGS.NOTIFICATIONS,
           description:
-            'Read-only: list and view the caller’s own notifications (in-app record of every email/SMS/push sent to them) and mark them read. Sending is done in-process by other services, not over HTTP.',
+            'List and view the caller’s own notifications (in-app record of every email/SMS/push/WhatsApp sent to them) and mark them read — sending itself is done in-process by other services, not over HTTP. Also: org-wide notification channel preferences ("Choose how your team gets alerted") under /preferences — org_admin manages which channels are on per notification type, any org member can view them.',
         },
         {
           name: TAGS.DRIVER_AUTH,
