@@ -44,6 +44,7 @@ import {
 @Index('loads_tenant_status_idx', ['tenantId', 'status'])
 @Index('loads_tenant_requisition_idx', ['tenantId', 'requisitionId'])
 @Index('loads_tenant_vehicle_idx', ['tenantId', 'vehicleId'])
+@Index('loads_tenant_covers_vehicle_idx', ['tenantId', 'coversVehicleId'])
 @Index('loads_tenant_vehicle_number_idx', ['tenantId', 'vehicleNumber'])
 @Index('loads_tenant_code_unique', ['tenantId', 'code'], { unique: true })
 export class LoadEntity {
@@ -120,6 +121,16 @@ export class LoadEntity {
    *  never populate this. */
   @Column({ name: 'driver_name', type: 'varchar', length: 150, nullable: true })
   driverName!: string | null;
+
+  /** Market only — the own-fleet truck (in the workshop) this market load was bought to cover.
+   *  Drives the maintenance screen's "loads bought from the market because trucks are off the
+   *  road" line. Set at Dispatch Planning, validated in buildMarketLine. */
+  @Column({ name: 'covers_vehicle_id', type: 'uuid', nullable: true })
+  coversVehicleId!: string | null;
+
+  @ManyToOne(() => VehicleEntity, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'covers_vehicle_id' })
+  coversVehicle!: VehicleEntity | null;
 
   /** Market only. */
   @Column({ name: 'transporter_id', type: 'uuid', nullable: true })

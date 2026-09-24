@@ -46,6 +46,14 @@ export class VehicleServiceUsageEntity {
   @Column({ name: 'last_tyre_change_date', type: 'date', nullable: true })
   lastTyreChangeDate!: string | null;
 
+  /** Service policy — due every N km or every N months, whichever comes first. Null falls back to
+   *  the maintenance module's defaults (maintenance.constants.ts). */
+  @Column({ name: 'service_interval_km', type: 'int', nullable: true })
+  serviceIntervalKm!: number | null;
+
+  @Column({ name: 'service_interval_months', type: 'smallint', nullable: true })
+  serviceIntervalMonths!: number | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 

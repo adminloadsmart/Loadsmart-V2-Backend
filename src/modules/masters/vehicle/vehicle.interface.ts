@@ -169,6 +169,7 @@ export interface SetVehicleTelemetryMetaInput {
   gpsEnabled?: boolean;
   emiAmount?: number;
   emiEndDate?: string;
+  fixedCostMonthly?: number;
 }
 
 export interface CreateVehicleTelemetryMetaData {
@@ -178,6 +179,7 @@ export interface CreateVehicleTelemetryMetaData {
   gpsEnabled: boolean;
   emiAmount: string | null;
   emiEndDate: string | null;
+  fixedCostMonthly: string | null;
   createdBy: string | null;
 }
 
@@ -186,6 +188,7 @@ export interface UpdateVehicleTelemetryMetaData {
   gpsEnabled?: boolean;
   emiAmount?: string | null;
   emiEndDate?: string | null;
+  fixedCostMonthly?: string | null;
   updatedBy?: string | null;
 }
 
@@ -242,6 +245,8 @@ export interface SetVehicleServiceUsageInput {
   lastServiceOdometerKm?: number;
   lastTyreChangeBrand?: string;
   lastTyreChangeDate?: string;
+  serviceIntervalKm?: number;
+  serviceIntervalMonths?: number;
 }
 
 export interface CreateVehicleServiceUsageData {
@@ -252,6 +257,8 @@ export interface CreateVehicleServiceUsageData {
   lastServiceOdometerKm: number | null;
   lastTyreChangeBrand: string | null;
   lastTyreChangeDate: string | null;
+  serviceIntervalKm: number | null;
+  serviceIntervalMonths: number | null;
   createdBy: string | null;
 }
 
@@ -261,6 +268,8 @@ export interface UpdateVehicleServiceUsageData {
   lastServiceOdometerKm?: number | null;
   lastTyreChangeBrand?: string | null;
   lastTyreChangeDate?: string | null;
+  serviceIntervalKm?: number | null;
+  serviceIntervalMonths?: number | null;
   updatedBy?: string | null;
 }
 

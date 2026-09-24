@@ -49,6 +49,7 @@ export interface CreateLoadData {
   expectedRate?: string | null;
   advancePercentage?: string | null;
   balancePercentage?: string | null;
+  coversVehicleId?: string | null;
   createdBy: string | null;
 }
 
@@ -63,6 +64,7 @@ export type UpdateLoadData = Partial<
     | 'requisition'
     | 'truckType'
     | 'vehicle'
+    | 'coversVehicle'
     | 'driver'
     | 'transporter'
     | 'cargoItems'

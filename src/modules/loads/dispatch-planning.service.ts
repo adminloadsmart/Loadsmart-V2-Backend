@@ -514,6 +514,15 @@ export class DispatchPlanningService {
       );
     }
 
+    if (line.coversVehicleId) {
+      const covered = await this.vehicleService.assertVehicleExists(tenantId, line.coversVehicleId);
+      if (covered.ownershipType === 'attached' || covered.status !== 'under_maintenance') {
+        throw new ValidationError(
+          `coversVehicleId must be an own-fleet vehicle currently in the workshop (${covered.registrationNumber} is ${covered.status})`,
+        );
+      }
+    }
+
     const smallerFit = await this.findSmallerFitSuggestion(tenantId, truckType, cargoTonnes);
     const fit = computeFitVerdict(cargoTonnes, capacityTons, smallerFit !== null);
 
@@ -533,6 +542,7 @@ export class DispatchPlanningService {
       expectedRate: line.expectedRate === undefined ? null : String(line.expectedRate),
       advancePercentage: String(advancePercentage),
       balancePercentage: String(100 - advancePercentage),
+      coversVehicleId: line.coversVehicleId ?? null,
       createdBy: actorId,
     };
 

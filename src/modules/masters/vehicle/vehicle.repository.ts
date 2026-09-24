@@ -260,8 +260,12 @@ export class VehicleRepository {
   findOperationalStatus(
     tenantId: string,
     vehicleId: string,
+    manager?: EntityManager,
   ): Promise<VehicleOperationalStatusEntity | null> {
-    return this.operationalStatuses.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
+    const statuses = manager
+      ? manager.getRepository(VehicleOperationalStatusEntity)
+      : this.operationalStatuses;
+    return statuses.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
   }
 
   async createOperationalStatus(
@@ -279,16 +283,24 @@ export class VehicleRepository {
     tenantId: string,
     vehicleId: string,
     data: UpdateVehicleOperationalStatusData,
+    manager?: EntityManager,
   ): Promise<VehicleOperationalStatusEntity | null> {
-    await this.operationalStatuses.update({ tenantId, vehicleId, deletedAt: IsNull() }, data);
-    return this.findOperationalStatus(tenantId, vehicleId);
+    const statuses = manager
+      ? manager.getRepository(VehicleOperationalStatusEntity)
+      : this.operationalStatuses;
+    await statuses.update({ tenantId, vehicleId, deletedAt: IsNull() }, data);
+    return this.findOperationalStatus(tenantId, vehicleId, manager);
   }
 
   findTelemetryMeta(
     tenantId: string,
     vehicleId: string,
+    manager?: EntityManager,
   ): Promise<VehicleTelemetryMetaEntity | null> {
-    return this.telemetryMeta.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
+    const telemetry = manager
+      ? manager.getRepository(VehicleTelemetryMetaEntity)
+      : this.telemetryMeta;
+    return telemetry.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
   }
 
   async createTelemetryMeta(
@@ -306,9 +318,13 @@ export class VehicleRepository {
     tenantId: string,
     vehicleId: string,
     data: UpdateVehicleTelemetryMetaData,
+    manager?: EntityManager,
   ): Promise<VehicleTelemetryMetaEntity | null> {
-    await this.telemetryMeta.update({ tenantId, vehicleId, deletedAt: IsNull() }, data);
-    return this.findTelemetryMeta(tenantId, vehicleId);
+    const telemetry = manager
+      ? manager.getRepository(VehicleTelemetryMetaEntity)
+      : this.telemetryMeta;
+    await telemetry.update({ tenantId, vehicleId, deletedAt: IsNull() }, data);
+    return this.findTelemetryMeta(tenantId, vehicleId, manager);
   }
 
   async createVerificationSnapshot(
@@ -332,8 +348,13 @@ export class VehicleRepository {
     });
   }
 
-  findServiceUsage(tenantId: string, vehicleId: string): Promise<VehicleServiceUsageEntity | null> {
-    return this.serviceUsage.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
+  findServiceUsage(
+    tenantId: string,
+    vehicleId: string,
+    manager?: EntityManager,
+  ): Promise<VehicleServiceUsageEntity | null> {
+    const usage = manager ? manager.getRepository(VehicleServiceUsageEntity) : this.serviceUsage;
+    return usage.findOneBy({ tenantId, vehicleId, deletedAt: IsNull() });
   }
 
   async createServiceUsage(
@@ -349,8 +370,10 @@ export class VehicleRepository {
     tenantId: string,
     vehicleId: string,
     data: UpdateVehicleServiceUsageData,
+    manager?: EntityManager,
   ): Promise<VehicleServiceUsageEntity | null> {
-    await this.serviceUsage.update({ tenantId, vehicleId, deletedAt: IsNull() }, data);
-    return this.findServiceUsage(tenantId, vehicleId);
+    const usage = manager ? manager.getRepository(VehicleServiceUsageEntity) : this.serviceUsage;
+    await usage.update({ tenantId, vehicleId, deletedAt: IsNull() }, data);
+    return this.findServiceUsage(tenantId, vehicleId, manager);
   }
 }

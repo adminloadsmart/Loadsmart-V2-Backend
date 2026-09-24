@@ -75,6 +75,20 @@ export const AUDIT_ACTIONS = [
   'LOAD_PAYMENT_RECORDED',
   'LOAD_CLOSED',
   'LOAD_ISSUE_REPORTED',
+  // Maintenance module.
+  'MAINTENANCE_SERVICE_LOGGED',
+  'MAINTENANCE_SERVICE_OPENED',
+  'MAINTENANCE_SERVICE_UPDATED',
+  'MAINTENANCE_SERVICE_COMPLETED',
+  'MAINTENANCE_SERVICE_POLICY_SET',
+  'MAINTENANCE_BREAKDOWN_OPENED',
+  'MAINTENANCE_BREAKDOWN_UPDATED',
+  'MAINTENANCE_BREAKDOWN_CLOSED',
+  'TYRE_FITTED',
+  'TYRE_READING_RECORDED',
+  'TYRE_REMOVED',
+  'BATTERY_PACK_REGISTERED',
+  'BATTERY_SOH_RECORDED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -92,5 +106,8 @@ export const AUDIT_RESOURCE_TYPES = [
   'requisition',
   'load',
   'load_payment',
+  'maintenance_job',
+  'tyre',
+  'battery_pack',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

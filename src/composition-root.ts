@@ -35,6 +35,7 @@ import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics'
 import { createDriverAnalyticsModule } from './modules/analytics/driver-analytics';
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
+import { FleetGatewayLocal as MaintenanceFleetGatewayLocal } from './modules/maintenance/gateways/fleet.gateway.local';
 
 export interface Container {
   tenancyGateway: TenancyGateway;
@@ -147,9 +148,13 @@ export function buildContainer(dataSource: DataSource): Container {
   const notifications = createNotificationsModule(dataSource);
   const payments = createPaymentsModule(dataSource);
 
-  // Consumers — each wired to a local gateway wrapping the producer(s) it needs.
+  // Consumers — each wired to a local gateway wrapping the producer(s) it needs. Maintenance
+  // writes to vehicles through masters' vehicleService (the breakdown ⇄ dispatch hold) and reads
+  // VehicleEntity/LoadEntity directly, same as dashboards.
   const maintenance = createMaintenanceModule(dataSource, {
     notificationsGateway: new MaintenanceNotificationsGatewayLocal(notifications.service),
+    fleetGateway: new MaintenanceFleetGatewayLocal(masters.vehicleService),
+    auditService: audit.service,
   });
 
   // Reads organization's organizationService/organizationDocumentService/referralCodeService and

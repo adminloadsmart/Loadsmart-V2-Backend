@@ -17,6 +17,7 @@ import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-a
 import { registerNotificationsOpenApi } from '../../modules/notifications/notifications.openapi';
 import { registerDriverAuthOpenApi } from '../../modules/driver/driver-auth.openapi';
 import { registerDriverPortalOpenApi } from '../../modules/driver/driver-portal.openapi';
+import { registerMaintenanceOpenApi } from '../../modules/maintenance/maintenance.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -55,6 +56,7 @@ function getOpenApiDocument() {
     registerNotificationsOpenApi(registry);
     registerDriverAuthOpenApi(registry);
     registerDriverPortalOpenApi(registry);
+    registerMaintenanceOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -109,6 +111,11 @@ function getOpenApiDocument() {
           name: TAGS.DRIVER_PORTAL,
           description:
             'Driver-app self-service: the caller’s own profile, operational status, trip metrics, and assigned loads. Authenticated with a driver-access token, not the staff/org bearer token.',
+        },
+        {
+          name: TAGS.MAINTENANCE,
+          description:
+            'Own-fleet workshop (FMS-MNT-000): headlines, service due, breakdowns (take a truck out of / back into dispatch), tyres, EV batteries and job history.',
         },
       ],
     });

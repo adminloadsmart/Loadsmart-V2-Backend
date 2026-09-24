@@ -43,6 +43,8 @@ import {
   FILES_READ,
   FILES_DELETE,
   MASTERS_APPROVE,
+  MAINTENANCE_MANAGE,
+  MAINTENANCE_COSTS_VIEW,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -132,6 +134,18 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       module: 'payments',
       scope: 'organization',
       description: 'Manage advance/balance payments',
+    },
+    {
+      key: MAINTENANCE_MANAGE,
+      module: 'maintenance',
+      scope: 'organization',
+      description: 'Log services, open/close breakdowns, record tyres and battery health',
+    },
+    {
+      key: MAINTENANCE_COSTS_VIEW,
+      module: 'maintenance',
+      scope: 'organization',
+      description: 'See maintenance spend, downtime cost and job costs',
     },
     {
       key: CUSTOMERS_CREATE,
@@ -230,6 +244,8 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       DISPATCH_PLANNING_MANAGE,
       LOADS_DOCUMENTS_MANAGE,
       PAYMENTS_MANAGE,
+      MAINTENANCE_MANAGE,
+      MAINTENANCE_COSTS_VIEW,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
@@ -252,6 +268,8 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       DISPATCH_PLANNING_MANAGE,
       CUSTOMERS_CREATE,
       MASTERS_WRITE,
+      // Books the workshop jobs (a breakdown is a dispatch event) but doesn't see what they cost.
+      MAINTENANCE_MANAGE,
       FILES_READ,
       FILES_UPLOAD,
     ],
@@ -264,7 +282,13 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: FINANCE_ACCOUNTS_ROLE,
     scope: 'organization',
-    permissionKeys: [PAYMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [
+      PAYMENTS_MANAGE,
+      MAINTENANCE_COSTS_VIEW,
+      CUSTOMERS_CREATE,
+      FILES_READ,
+      FILES_UPLOAD,
+    ],
   },
 ];
 

@@ -61,6 +61,7 @@ const vehicleTelemetryBody = z.object({
   gpsEnabled: z.boolean().optional(),
   emiAmount: z.number().nonnegative().max(9999999999).optional(),
   emiEndDate: isoDate.optional(),
+  fixedCostMonthly: z.number().nonnegative().max(9999999999).optional(),
 });
 
 const vehicleServiceUsageBody = z.object({
@@ -69,6 +70,8 @@ const vehicleServiceUsageBody = z.object({
   lastServiceOdometerKm: z.number().int().nonnegative().max(9999999).optional(),
   lastTyreChangeBrand: z.string().min(1).max(100).optional(),
   lastTyreChangeDate: isoDate.optional(),
+  serviceIntervalKm: z.number().int().positive().max(999999).optional(),
+  serviceIntervalMonths: z.number().int().positive().max(120).optional(),
 });
 
 /** Mirrors fleet-driver-link.validators.ts's linkDriver body — onboardVehicle links a driver via
@@ -158,7 +161,9 @@ export const vehicleValidators = {
         wheelCount: wheelCount.optional(),
         capacityTons: z.number().positive().max(9999).optional(),
         ownershipType: z.enum(OWNERSHIP_TYPES).optional(),
-        status: z.enum(VEHICLE_STATUSES).optional(),
+        // under_maintenance is owned by the maintenance module — set when a breakdown is opened,
+        // cleared when it is closed — so it can't be set here (see VehicleService.updateVehicle).
+        status: z.enum(VEHICLE_STATUSES).exclude(['under_maintenance']).optional(),
         // Selecting a driver from the edit-vehicle dropdown re-links it as the vehicle's primary
         // driver, in the same transaction as any other field changes here — see setPrimaryDriver.
         driverId: uuid.optional(),

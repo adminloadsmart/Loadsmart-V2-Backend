@@ -42,6 +42,12 @@ export class VehicleTelemetryMetaEntity {
   @Column({ name: 'emi_end_date', type: 'date', nullable: true })
   emiEndDate!: string | null;
 
+  /** Everything that runs whether the truck moves or not (EMI, insurance, permit, salaries…), per
+   *  month — the "fixed cost that ran anyway" on the maintenance downtime headline. Falls back to
+   *  emi_amount when null. */
+  @Column({ name: 'fixed_cost_monthly', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  fixedCostMonthly!: string | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 

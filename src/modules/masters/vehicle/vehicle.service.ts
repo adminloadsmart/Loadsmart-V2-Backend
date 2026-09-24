@@ -177,7 +177,19 @@ export class VehicleService {
       }
 
       return await this.dataSource.transaction(async (manager) => {
-        await this.assertVehicleExists(tenantId, vehicleId, manager);
+        const existing = await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+        // A truck in the workshop is released only by closing its breakdown, which puts it back
+        // in front of dispatch in the same action — a manual status edit here would bypass that.
+        if (
+          fields.status !== undefined &&
+          fields.status !== existing.status &&
+          existing.status === 'under_maintenance'
+        ) {
+          throw new ConflictError(
+            'Vehicle is in the workshop — close its breakdown in Maintenance to return it to service',
+          );
+        }
 
         if (Object.keys(fields).length > 0) {
           await this.vehicleRepository.update(
@@ -349,7 +361,11 @@ export class VehicleService {
       await this.assertVehicleExists(tenantId, vehicleId, manager);
 
       const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
-      const existing = await this.vehicleRepository.findOperationalStatus(tenantId, vehicleId);
+      const existing = await this.vehicleRepository.findOperationalStatus(
+        tenantId,
+        vehicleId,
+        manager,
+      );
 
       if (!existing) {
         return await this.vehicleRepository.createOperationalStatus(
@@ -365,12 +381,17 @@ export class VehicleService {
         );
       }
 
-      const status = await this.vehicleRepository.updateOperationalStatus(tenantId, vehicleId, {
-        operationalStatus: input.operationalStatus,
-        reason: input.reason ?? null,
-        effectiveAt,
-        updatedBy: actorId,
-      });
+      const status = await this.vehicleRepository.updateOperationalStatus(
+        tenantId,
+        vehicleId,
+        {
+          operationalStatus: input.operationalStatus,
+          reason: input.reason ?? null,
+          effectiveAt,
+          updatedBy: actorId,
+        },
+        manager,
+      );
       if (!status) throw new NotFoundError(`Vehicle ${vehicleId} has no operational status yet`);
       return status;
     } catch (error) {
@@ -402,7 +423,9 @@ export class VehicleService {
       await this.assertVehicleExists(tenantId, vehicleId, manager);
 
       const emiAmount = input.emiAmount === undefined ? undefined : String(input.emiAmount);
-      const existing = await this.vehicleRepository.findTelemetryMeta(tenantId, vehicleId);
+      const fixedCostMonthly =
+        input.fixedCostMonthly === undefined ? undefined : String(input.fixedCostMonthly);
+      const existing = await this.vehicleRepository.findTelemetryMeta(tenantId, vehicleId, manager);
 
       if (!existing) {
         return await this.vehicleRepository.createTelemetryMeta(
@@ -413,17 +436,19 @@ export class VehicleService {
             gpsEnabled: input.gpsEnabled ?? false,
             emiAmount: emiAmount ?? null,
             emiEndDate: input.emiEndDate ?? null,
+            fixedCostMonthly: fixedCostMonthly ?? null,
             createdBy: actorId,
           },
           manager,
         );
       }
 
-      const meta = await this.vehicleRepository.updateTelemetryMeta(tenantId, vehicleId, {
-        ...input,
-        emiAmount,
-        updatedBy: actorId,
-      });
+      const meta = await this.vehicleRepository.updateTelemetryMeta(
+        tenantId,
+        vehicleId,
+        { ...input, emiAmount, fixedCostMonthly, updatedBy: actorId },
+        manager,
+      );
       if (!meta) throw new NotFoundError(`Vehicle ${vehicleId} has no telemetry metadata yet`);
       return meta;
     } catch (error) {
@@ -454,7 +479,7 @@ export class VehicleService {
     try {
       await this.assertVehicleExists(tenantId, vehicleId, manager);
 
-      const existing = await this.vehicleRepository.findServiceUsage(tenantId, vehicleId);
+      const existing = await this.vehicleRepository.findServiceUsage(tenantId, vehicleId, manager);
 
       if (!existing) {
         return await this.vehicleRepository.createServiceUsage(
@@ -466,16 +491,20 @@ export class VehicleService {
             lastServiceOdometerKm: input.lastServiceOdometerKm ?? null,
             lastTyreChangeBrand: input.lastTyreChangeBrand ?? null,
             lastTyreChangeDate: input.lastTyreChangeDate ?? null,
+            serviceIntervalKm: input.serviceIntervalKm ?? null,
+            serviceIntervalMonths: input.serviceIntervalMonths ?? null,
             createdBy: actorId,
           },
           manager,
         );
       }
 
-      const usage = await this.vehicleRepository.updateServiceUsage(tenantId, vehicleId, {
-        ...input,
-        updatedBy: actorId,
-      });
+      const usage = await this.vehicleRepository.updateServiceUsage(
+        tenantId,
+        vehicleId,
+        { ...input, updatedBy: actorId },
+        manager,
+      );
       if (!usage) throw new NotFoundError(`Vehicle ${vehicleId} has no service usage recorded yet`);
       return usage;
     } catch (error) {
@@ -715,6 +744,73 @@ export class VehicleService {
       return await this.getVehicle(tenantId, vehicleId);
     } catch (error) {
       rethrow(error, 'Failed to onboard vehicle');
+    }
+  }
+
+  /**
+   * Takes a truck out of dispatch while it is in the workshop: lifecycle status →
+   * `under_maintenance` (which DispatchPlanningService's vehicle picker and buildOwnFleetLine
+   * already refuse) and operational status → `inactive`. Called by the maintenance module inside
+   * the same transaction that opens the breakdown, so the two can't disagree.
+   */
+  async placeMaintenanceHold(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    reason: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    try {
+      const vehicle = await this.assertVehicleExists(tenantId, vehicleId, manager);
+      if (vehicle.status !== 'active') {
+        throw new ConflictError(
+          `Vehicle ${vehicle.registrationNumber} is ${vehicle.status} — only an active vehicle can be sent to the workshop`,
+        );
+      }
+
+      await this.vehicleRepository.update(
+        tenantId,
+        vehicleId,
+        { status: 'under_maintenance', updatedBy: actorId },
+        manager,
+      );
+      await this.setOperationalStatus(
+        tenantId,
+        actorId,
+        vehicleId,
+        { operationalStatus: 'inactive', reason },
+        manager,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to place vehicle on maintenance hold');
+    }
+  }
+
+  /** Inverse of placeMaintenanceHold — puts the truck back in front of dispatch. */
+  async releaseMaintenanceHold(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    reason: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    try {
+      await this.assertVehicleExists(tenantId, vehicleId, manager);
+      await this.vehicleRepository.update(
+        tenantId,
+        vehicleId,
+        { status: 'active', updatedBy: actorId },
+        manager,
+      );
+      await this.setOperationalStatus(
+        tenantId,
+        actorId,
+        vehicleId,
+        { operationalStatus: 'idle', reason },
+        manager,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to release vehicle from maintenance hold');
     }
   }
 
