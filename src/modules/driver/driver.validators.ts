@@ -9,7 +9,7 @@ import {
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_OPERATIONAL_STATUSES,
   DRIVER_SALARY_TYPES,
-  DRIVER_STATUSES,
+  DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
 } from './drivers.types';
@@ -101,6 +101,12 @@ const driverBankDetailsBody = z.object({
     .transform((value) => value.toUpperCase())
     .refine((value) => IFSC_REGEX.test(value), 'Invalid IFSC code'),
   accountHolderName: z.string().min(1).max(150).optional(),
+  upiId: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine((value) => /^[a-z0-9.\-_]{2,50}@[a-z]{2,50}$/.test(value), 'Invalid UPI id')
+    .optional(),
 });
 
 const driverDocumentBody = z.object({
@@ -138,7 +144,7 @@ export const driverValidators = {
   }),
   listDrivers: z.object({
     query: pagination.extend({
-      status: z.enum(DRIVER_STATUSES).optional(),
+      status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
       operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
     }),
   }),
@@ -170,7 +176,6 @@ export const driverValidators = {
           .optional(),
         salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
         salaryAmount: z.number().nonnegative().max(9999999999).optional(),
-        status: z.enum(DRIVER_STATUSES).optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
@@ -180,6 +185,17 @@ export const driverValidators = {
     params: driverParams,
     body: z.object({ reason: z.string().trim().min(1) }),
   }),
+
+  inviteDriver: z.object({
+    body: z.object({
+      phoneNumber: driverCoreFields.phoneNumber,
+      fullName: z.string().min(1).max(150).optional(),
+      dateOfJoining: isoDate.optional(),
+      salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
+      salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+    }),
+  }),
+  listJoinRequests: z.object({ query: pagination }),
 
   addDriverDocument: z.object({
     params: driverParams,

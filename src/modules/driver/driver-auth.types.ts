@@ -17,23 +17,22 @@ export interface RequestDriverOtpInput {
   phoneNumber: string;
 }
 
-// One entry per active driver record across all tenants that matched the phone number at
-// /otp/request time (masters.drivers' phone uniqueness is only per-tenant — see
-// driver.repository.ts's findActiveDriversByPhone) — carried inside the short-lived
-// driver-login-otp token between /otp/request and /otp/verify, and again inside
-// driver-tenant-select if more than one candidate matched. See docs/driver-auth.md.
+// A driver profile is now global (one row per phone), so /otp/request no longer needs to fan out
+// across multiple tenant-scoped rows — the ambiguity that's left is *which of the driver's active
+// tenant relations* to sign into, resolved at /otp/verify time instead. See driver-auth.service.ts.
 export interface DriverLoginCandidate {
-  driverId: string;
   tenantId: string;
+  driverTenantRelationId: string;
 }
 
 export interface VerifyDriverOtpInput extends DriverDeviceCaptureInput {
   phoneNumber: string;
   otp: string;
-  candidates: DriverLoginCandidate[];
+  driverId: string;
 }
 
 export interface SelectDriverTenantInput extends DriverDeviceCaptureInput {
+  driverId: string;
   tenantId: string;
   candidates: DriverLoginCandidate[];
 }
@@ -48,4 +47,10 @@ export interface DriverLogoutInput {
   sid?: string;
   jti?: string;
   exp?: number;
+}
+
+export interface SelectDriverRelationInput {
+  driverId: string;
+  relationId: string;
+  device?: DriverDeviceCaptureInput;
 }

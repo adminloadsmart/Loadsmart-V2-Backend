@@ -17,6 +17,7 @@ import { createRolesModule } from './modules/roles';
 import {
   createDriverModule,
   createDriverAuthModule,
+  createDriverIdentityModule,
   createDriverPortalModule,
 } from './modules/driver';
 import { createMastersModule } from './modules/masters';
@@ -144,9 +145,12 @@ export function buildContainer(dataSource: DataSource): Container {
   // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see
   // docs/driver-auth.md), sharing driver's own driverRepository, organization's
   // organizationService (org-active login check, same as auth.service.ts's), and the same
-  // otpService staff signup/login already uses.
+  // otpService staff signup/login already uses. Only the service is built here — the
+  // controller/routers (which also serve self-registration) are built below by
+  // createDriverIdentityModule, once DriverIdentityService exists too.
   const driverAuth = createDriverAuthModule(dataSource, {
     driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     organizationService: organization.organizationService,
     otpService,
   });
@@ -155,7 +159,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const masters = createMastersModule(dataSource, {
     auditService: audit.service,
     storageService: storage.service,
-    driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverController: driver.driverController,
     notifyByType,
   });
@@ -207,10 +211,27 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsService: notifications.service,
   });
 
+  // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant
+  // relation management. Built after driverAuth (registerSelf issues sessions through
+  // driverAuth.service.issueIdentitySession) and after notifyByType exists (requestJoin/
+  // respondToInvite notify fleet-owner staff on the tenant side of the same workflow).
+  const driverIdentity = createDriverIdentityModule(dataSource, {
+    driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
+    dlVerificationClient: driver.dlVerificationClient,
+    otpService,
+    storageService: storage.service,
+    organizationService: organization.organizationService,
+    driverAuthService: driverAuth.service,
+    auditService: audit.service,
+    notifyByType,
+  });
+
   // Driver-app self-service ("my loads") — built here, not alongside driverAuth above, since it
   // needs loads.loadService, which doesn't exist until this point. See docs/driver-auth.md.
   const driverPortal = createDriverPortalModule({
     driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverService: driver.driverService,
     loadService: loads.loadService,
     storageService: storage.service,
@@ -253,8 +274,8 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/files', router: storage.router },
     ],
     driverRouters: [
-      { path: '/driver-auth', router: driverAuth.publicRouter },
-      { path: '/driver-auth', router: driverAuth.protectedRouter },
+      { path: '/driver-auth', router: driverIdentity.authPublicRouter },
+      { path: '/driver-auth', router: driverIdentity.authProtectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
     backgroundWorkers: [notifications.worker, masters.vehicleComplianceAlertsWorker],

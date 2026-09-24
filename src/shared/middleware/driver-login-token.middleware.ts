@@ -2,12 +2,11 @@ import { RequestHandler } from 'express';
 import { AuthenticationError } from '../errors';
 import { extractBearerToken, verifyToken } from '../utils/token';
 import { normalizePhoneNumber } from '../utils/phone-number';
-import { DriverLoginCandidate } from '../../modules/driver/driver-auth.types';
 
 interface DriverLoginTokenPayload {
   phoneNumber: string;
+  driverId: string;
   purpose: string;
-  candidates: DriverLoginCandidate[];
 }
 
 /**
@@ -30,13 +29,13 @@ export const verifyDriverLoginToken: RequestHandler = (req, _res, next) => {
     throw new AuthenticationError('Invalid or expired login token');
   }
 
-  if (payload.purpose !== 'driver-login-otp' || !Array.isArray(payload.candidates)) {
+  if (payload.purpose !== 'driver-login-otp' || !payload.driverId) {
     throw new AuthenticationError('Invalid login token');
   }
 
   req.driverLoginPayload = {
     phoneNumber: normalizePhoneNumber(payload.phoneNumber),
-    candidates: payload.candidates,
+    driverId: payload.driverId,
   };
   next();
 };

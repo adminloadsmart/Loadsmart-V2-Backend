@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
+import { paginate } from '../../shared/utils/pagination';
 import { DriverService } from './driver.service';
 import { LoadService } from '../loads/load.service';
 import {
@@ -30,15 +31,25 @@ export class DriverPortalController {
     private readonly storageService: StorageService,
   ) {}
 
-  // Profile screen — aggregated view (driver + assigned vehicle's compliance dates + trip-metric
-  // performance + org name); see DriverProfileView's doc comment for which fields are real data
-  // vs. explicit null (nothing server-side tracks them yet).
+  // Profile screen. A driver not yet linked to any tenant (no active relation, so no tenantId on
+  // their token) still gets their own global profile back — see getMyGlobalProfile. Once linked,
+  // this becomes the full aggregated view (driver + assigned vehicle's compliance dates +
+  // trip-metric performance + org name); see DriverProfileView's doc comment for which fields are
+  // real data vs. explicit null (nothing server-side tracks them yet).
   getMe = async (req: Request, res: Response) => {
-    const profile = await this.driverService.getMyProfile(req.driver!.tenantId, req.driver!.id);
+    const profile = req.driver!.tenantId
+      ? await this.driverService.getMyProfile(req.driver!.tenantId, req.driver!.id)
+      : await this.driverService.getMyGlobalProfile(req.driver!.id);
     respond(res, profile);
   };
 
+  // A driver with no active tenant relation has no operational status anywhere — null, not a
+  // permissions error.
   getMyStatus = async (req: Request, res: Response) => {
+    if (!req.driver!.tenantId) {
+      respond(res, null);
+      return;
+    }
     const status = await this.driverService.getOperationalStatus(
       req.driver!.tenantId,
       req.driver!.id,
@@ -51,7 +62,7 @@ export class DriverPortalController {
   // invoked by the driver themselves.
   updateMyStatus = async (req: Request, res: Response) => {
     const status = await this.driverService.setOperationalStatus(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       req.driver!.id,
       req.driver!.id,
       req.body,
@@ -60,15 +71,27 @@ export class DriverPortalController {
   };
 
   // Read-only — trip metrics read as ops-computed KPIs (see driver.service.ts's
-  // recordTripMetrics, staff-only), not driver-self-reported data.
+  // recordTripMetrics, staff-only), not driver-self-reported data. No tenant relation means no
+  // metrics anywhere — empty array, not a permissions error.
   getMyTripMetrics = async (req: Request, res: Response) => {
+    if (!req.driver!.tenantId) {
+      respond(res, []);
+      return;
+    }
     const metrics = await this.driverService.listTripMetrics(req.driver!.tenantId, req.driver!.id);
     respond(res, metrics);
   };
 
+  // No tenant relation means this driver cannot be assigned to any load in any tenant — an empty
+  // page, not a permissions error, same reasoning as getMyStatus/getMyTripMetrics above.
   getMyLoads = async (req: Request, res: Response) => {
+    const query = req.validatedQuery as ListLoadsInput;
+    if (!req.driver!.tenantId) {
+      respond(res, paginate([], 0, query));
+      return;
+    }
     const loads = await this.loadService.list(req.driver!.tenantId, {
-      ...(req.validatedQuery as ListLoadsInput),
+      ...query,
       driverId: req.driver!.id,
     });
     respond(res, loads);
@@ -80,7 +103,7 @@ export class DriverPortalController {
   // load that isn't this driver's, same convention as updateMyLoadStatus/uploadMyPod below.
   getMyLoad = async (req: Request<LoadParams>, res: Response) => {
     const result = await this.loadService.get(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       'driver',
       req.params.loadId,
       req.driver!.id,
@@ -94,7 +117,7 @@ export class DriverPortalController {
   // load that isn't this driver's.
   updateMyLoadStatus = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.updateStatus(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       req.driver!.id,
       req.params.loadId,
       (req.body as UpdateLoadStatusInput).toStatus,
@@ -108,7 +131,7 @@ export class DriverPortalController {
   // is falsy, which is never true for a driver-scoped call.
   uploadMyPod = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.uploadPod(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       req.driver!.id,
       'driver',
       req.params.loadId,
@@ -123,7 +146,7 @@ export class DriverPortalController {
   // updateMyLoadStatus/uploadMyPod above). actorRole is a literal, same reasoning as uploadMyPod.
   reportMyIssue = async (req: Request<LoadParams>, res: Response) => {
     const issue = await this.loadService.reportIssue(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       req.driver!.id,
       'driver',
       req.params.loadId,
@@ -140,7 +163,7 @@ export class DriverPortalController {
   // request through this route.
   requestUploadUrl = async (req: Request, res: Response) => {
     const file = await this.storageService.generateUploadUrl(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       req.driver!.id,
       req.body as GenerateUploadUrlInput,
     );
@@ -151,7 +174,7 @@ export class DriverPortalController {
   // as podFileKey to uploadMyPod, or as one of photoFileKeys to reportMyIssue, above.
   confirmUpload = async (req: Request, res: Response) => {
     const file = await this.storageService.confirmUpload(
-      req.driver!.tenantId,
+      req.driver!.tenantId!,
       (req.params as unknown as FileParams).fileId,
     );
     respond(res, file);

@@ -43,6 +43,24 @@ export function createDriverRoutes(controller: DriverController): Router {
     validate(driverValidators.listDrivers),
     asyncHandler(controller.listDrivers),
   );
+
+  // Fleet-owner-initiated invite by phone — the driver accepts/rejects via
+  // POST /v1/driver-relations/:relationId/accept|reject (see driver-relations.routes.ts).
+  // Declared before '/drivers/:driverId' so it isn't shadowed by that param route.
+  router.post(
+    '/drivers/invite',
+    canWrite,
+    validate(driverValidators.inviteDriver),
+    asyncHandler(controller.inviteDriver),
+  );
+  // Driver-initiated join requests awaiting this tenant's approval — approve/reject reuse the
+  // /drivers/:driverId/approve|reject endpoints below.
+  router.get(
+    '/drivers/join-requests',
+    validate(driverValidators.listJoinRequests),
+    asyncHandler(controller.listJoinRequests),
+  );
+
   router.get(
     '/drivers/:driverId',
     validate(driverValidators.getDriver),
@@ -61,8 +79,9 @@ export function createDriverRoutes(controller: DriverController): Router {
     asyncHandler(controller.deleteDriver),
   );
 
-  // Settings → Approvals. Only a `pending` driver (added by dispatch) can be approved/rejected —
-  // org_admin's own onboardDriver calls land `active` immediately and never need this.
+  // Settings → Approvals. Only a `pending_staff_review` relation (dispatch onboarding, or a
+  // driver's own join request) can be approved/rejected — org_admin's own onboardDriver calls
+  // land `active` immediately and never need this.
   router.patch(
     '/drivers/:driverId/approve',
     canApprove,

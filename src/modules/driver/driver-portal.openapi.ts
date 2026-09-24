@@ -15,14 +15,24 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMe',
     ...authenticated(
-      'Profile screen — same full driver record as the staff GET /masters/drivers/{driverId} ' +
-        '(documents, verifications, bankDetails, vehicleLinks, etc., unchanged), plus assigned ' +
-        'vehicle compliance dates (insurance/fitness expiry), a document upload-status summary, ' +
-        'trip-metric performance, and the organization’s name. Fields with no backing data in ' +
-        'this build (experience, KMs driven, settlement due, and every entry under settings) ' +
-        'come back as explicit null, not omitted.',
+      'Profile screen. Also reachable with an identity-access token (no active tenant relation ' +
+        'required) for a driver who hasn’t linked to a fleet owner yet — in that case the response ' +
+        'is just the global driver profile (documents, verifications, bankDetails), with none of ' +
+        'the tenant-aggregated fields below. Once linked, this becomes the same full ' +
+        'driver record as the staff GET /masters/drivers/{driverId} (documents, verifications, ' +
+        'bankDetails, vehicleLinks, etc., unchanged), plus assigned vehicle compliance dates ' +
+        '(insurance/fitness expiry), a document upload-status summary, trip-metric performance, ' +
+        'and the organization’s name. Fields with no backing data in this build (experience, KMs ' +
+        'driven, settlement due, and every entry under settings) come back as explicit null, not ' +
+        'omitted.',
     ),
-    responses: { 200: { description: 'DriverProfileView — see driver.service.ts' } },
+    responses: {
+      200: {
+        description:
+          'DriverProfileView (tenant-linked) or the bare DriverEntity with documents/' +
+          'verifications/bankDetails (not yet linked to any tenant) — see driver.service.ts',
+      },
+    },
   });
 
   registry.registerPath({
@@ -30,9 +40,13 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/me/status`,
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMyStatus',
-    ...authenticated('Get the caller’s own live operational status.'),
+    ...authenticated(
+      'Get the caller’s own live operational status. Also reachable with an identity-access ' +
+        'token (no active tenant relation required) — returns null in that case, since a driver ' +
+        'not linked to any tenant has no operational status anywhere.',
+    ),
     responses: {
-      200: { description: 'Operational status' },
+      200: { description: 'Operational status, or null when not linked to any tenant' },
       404: { description: 'No operational status yet', ...errorContent },
     },
   });
@@ -55,9 +69,13 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMyTripMetrics',
     ...authenticated(
-      'List the caller’s own trip metrics by reporting period. Read-only — these are ops-computed KPIs, not driver-editable.',
+      'List the caller’s own trip metrics by reporting period. Read-only — these are ' +
+        'ops-computed KPIs, not driver-editable. Also reachable with an identity-access token ' +
+        '(no active tenant relation required) — returns an empty array in that case.',
     ),
-    responses: { 200: { description: 'Trip metrics by period' } },
+    responses: {
+      200: { description: 'Trip metrics by period, or [] when not linked to any tenant' },
+    },
   });
 
   registry.registerPath({
@@ -65,12 +83,16 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/me/loads`,
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMyLoads',
-    ...authenticated('List loads assigned to the caller, paginated.'),
+    ...authenticated(
+      'List loads assigned to the caller, paginated. Also reachable with an identity-access ' +
+        'token (no active tenant relation required) — returns an empty page in that case, since ' +
+        'a driver with no active relation cannot be assigned to any load in any tenant.',
+    ),
     request: { query: driverPortalValidators.listMyLoads.shape.query },
     responses: {
       200: {
         description:
-          'Paginated loads — { data: { items, page, limit, total, totalPages, counts } }',
+          'Paginated loads — { data: { items, page, limit, total, totalPages } }, items empty when not linked to any tenant',
       },
     },
   });
@@ -131,11 +153,14 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'driverPortal.uploadMyPod',
     ...authenticated(
       'Record proof of delivery for a load assigned to the caller — same fields and rules as ' +
-        'the staff PATCH /loads/{loadId}/pod: delivery receipt photo, receiver name/mobile/' +
-        'designation, quantity received and seal-on-arrival check are all required together ' +
-        '(only podRemarks is optional). podFileKey must be a confirmed upload from ' +
-        'POST /driver-portal/files with purpose trips/pod. Marks the load Delivered; own-fleet ' +
-        'loads (the only kind reachable here) close immediately.',
+        'the staff PATCH /loads/{loadId}/pod: delivery receipt photo, receiver name/mobile, and ' +
+        'quantity received are required; receiver designation and sealStatus are optional (not ' +
+        'collected by the ePOD screen, kept for other callers). shortageOrDamage ' +
+        '(none/shortage/damage/both) captures cargo condition on arrival — numberOfTonnesShort ' +
+        'is accepted whenever shortageOrDamage is sent, and damagePhotoKey becomes required when ' +
+        'shortageOrDamage is `damage` or `both`. podFileKey and damagePhotoKey must both be ' +
+        'confirmed uploads from POST /driver-portal/files with purpose trips/pod. Marks the load ' +
+        'Delivered; own-fleet loads (the only kind reachable here) close immediately.',
     ),
     request: {
       params: driverPortalValidators.uploadMyPod.shape.params,

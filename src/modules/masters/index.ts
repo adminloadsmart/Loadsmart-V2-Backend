@@ -6,7 +6,7 @@ import { VehicleRepository } from './vehicle/vehicle.repository';
 import { VehicleService } from './vehicle/vehicle.service';
 import { VehicleController } from './vehicle/vehicle.controller';
 import { createVehicleComplianceAlertsWorker } from './vehicle/workers/vehicle-compliance-alerts.worker';
-import { DriverRepository } from '../driver/driver.repository';
+import { DriverTenantRelationRepository } from '../driver/driver-tenant-relation.repository';
 import { DriverController } from '../driver/driver.controller';
 import { FleetDriverLinkRepository } from './fleet-driver-link/fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link/fleet-driver-link.service';
@@ -41,9 +41,10 @@ export function createMastersModule(
     auditService: AuditService;
     storageService: StorageService;
     // Driver is now built by its own module (src/modules/driver/) — masters only consumes the
-    // repository (fleetDriverLinkService validates a link's driverId against it) and the
-    // controller (still composed into this module's own protected router, unchanged URLs).
-    driverRepository: DriverRepository;
+    // tenant-relation repository (fleetDriverLinkService validates a link's driver-tenant relation
+    // against it) and the controller (still composed into this module's own protected router,
+    // unchanged URLs).
+    driverTenantRelationRepository: DriverTenantRelationRepository;
     driverController: DriverController;
     // Only used for the vehicle-compliance-alerts worker (WhatsApp/push) — not for the
     // master-approval flow, which is on hold until an email provider exists.
@@ -89,7 +90,7 @@ export function createMastersModule(
   const fleetDriverLinkService = new FleetDriverLinkService(
     fleetDriverLinkRepository,
     vehicleRepository,
-    deps.driverRepository,
+    deps.driverTenantRelationRepository,
     dataSource,
   );
   const fleetDriverLinkController = new FleetDriverLinkController(fleetDriverLinkService);

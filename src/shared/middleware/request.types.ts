@@ -49,8 +49,12 @@ export interface LoginPayload {
 // nothing here for requirePermission(...) to read even if a driver token somehow reached it. See
 // docs/driver-auth.md and driver-auth.middleware.ts's createDriverAuth.
 export interface AuthenticatedDriver {
-  id: string; // masters.drivers.id
-  tenantId: string; // never null — DriverEntity.tenantId is NOT NULL, unlike AuthenticatedUser's
+  id: string; // masters.drivers.id — the global driver profile, shared across every linked tenant
+  // Present only once a tenant/relation context has been chosen (purpose 'driver-access');
+  // absent on an identity-scoped session (purpose 'driver-identity-access') issued to a driver
+  // with zero or not-yet-selected active tenant relations. See driver-auth.service.ts.
+  tenantId?: string;
+  driverTenantRelationId?: string;
   jti?: string;
   // The id of the masters.driver_sessions row created alongside this access token — same
   // rotates-on-refresh, identifies-the-current-session convention as AuthenticatedUser.sid.
@@ -60,11 +64,16 @@ export interface AuthenticatedDriver {
 
 export interface DriverLoginPayload {
   phoneNumber: string;
-  candidates: DriverLoginCandidate[];
+  driverId: string;
 }
 
 export interface DriverTenantSelectPayload {
+  driverId: string;
   candidates: DriverLoginCandidate[];
+}
+
+export interface DriverRegisterOtpPayload {
+  phoneNumber: string;
 }
 
 declare global {
@@ -77,6 +86,7 @@ declare global {
       driver?: AuthenticatedDriver;
       driverLoginPayload?: DriverLoginPayload;
       driverTenantSelectPayload?: DriverTenantSelectPayload;
+      driverRegisterOtpPayload?: DriverRegisterOtpPayload;
       // The validate() middleware's coerced/defaulted query result — NOT req.query. Express 5
       // made req.query a read-only getter that re-parses the raw URL on every access, so mutating
       // it in place (the old Express 4 approach) silently no-ops; see validate.middleware.ts.

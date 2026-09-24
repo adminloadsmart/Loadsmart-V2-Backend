@@ -64,6 +64,13 @@ export class StorageRepository {
     return this.files.findOne({ where: { key, deletedAt: IsNull() } });
   }
 
+  // Tenant-less counterpart to findByKey/findByKeyAny — matches tenant_id IS NULL specifically,
+  // same "can never surface a real tenant's file" guarantee as findByNullTenant. Used by driver
+  // self-registration (driver-identity.service.ts), which has no tenant to scope by.
+  findByKeyNullTenant(key: string) {
+    return this.files.findOne({ where: { key, tenantId: IsNull(), deletedAt: IsNull() } });
+  }
+
   async markConfirmed(tenantId: string, id: string, sizeBytes: number) {
     const result = await this.files.update(
       { id, tenantId, status: 'pending' },

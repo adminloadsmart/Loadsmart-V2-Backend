@@ -24,6 +24,7 @@ import { AuditLogEntity } from '../modules/audit/audit.entity';
 import { VehicleEntity } from '../modules/masters/vehicle/entities/vehicle.entity';
 import { VehicleDocumentEntity } from '../modules/masters/vehicle/entities/vehicle-document.entity';
 import { DriverEntity } from '../modules/driver/entities/driver.entity';
+import { DriverTenantRelationEntity } from '../modules/driver/entities/driver-tenant-relation.entity';
 import { FleetDriverLinkEntity } from '../modules/masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import { DriverDocumentEntity } from '../modules/driver/entities/driver-document.entity';
 import { DriverVerificationEntity } from '../modules/driver/entities/driver-verification.entity';
@@ -83,6 +84,7 @@ export const AppDataSource = new DataSource({
     VehicleEntity,
     VehicleDocumentEntity,
     DriverEntity,
+    DriverTenantRelationEntity,
     FleetDriverLinkEntity,
     DriverDocumentEntity,
     DriverVerificationEntity,

@@ -7,6 +7,7 @@ import {
   LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
   SEAL_STATUSES,
+  SHORTAGE_OR_DAMAGE_STATUSES,
 } from './utils/loads.types';
 
 const uuid = z.string().uuid();
@@ -24,12 +25,33 @@ export const uploadPodBody = z
       .string()
       .trim()
       .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
-    podReceiverDesignation: z.string().trim().min(1).max(150),
+    // Optional as of the driver-app ePOD screen redesign — that screen doesn't collect either of
+    // these, but a staff-side or older caller may still send them.
+    podReceiverDesignation: z.string().trim().min(1).max(150).optional(),
     podQuantityReceived: z.number().nonnegative(),
-    sealStatus: z.enum(SEAL_STATUSES),
+    sealStatus: z.enum(SEAL_STATUSES).optional(),
+    // Cargo-condition-on-arrival — see SHORTAGE_OR_DAMAGE_STATUSES' doc comment (loads.types.ts).
+    // numberOfTonnesShort is accepted regardless of shortageOrDamage's value (no server-side
+    // requirement tying it to 'shortage'/'both' — the client's own UI decides when to show/
+    // require it). damagePhotoKey IS enforced server-side, below, when damage is reported.
+    shortageOrDamage: z.enum(SHORTAGE_OR_DAMAGE_STATUSES).optional(),
+    numberOfTonnesShort: z.number().nonnegative().optional(),
+    damagePhotoKey: z.string().trim().min(1).optional(),
     podRemarks: z.string().trim().max(500).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (
+      (data.shortageOrDamage === 'damage' || data.shortageOrDamage === 'both') &&
+      !data.damagePhotoKey
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['damagePhotoKey'],
+        message: 'damagePhotoKey is required when shortageOrDamage is damage or both',
+      });
+    }
+  });
 
 export const loadValidators = {
   list: z.object({

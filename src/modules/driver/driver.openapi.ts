@@ -111,6 +111,50 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  // --- Driver account linking (multi-tenant) ---
+  // A driver profile is global (masters.drivers has no tenantId) and can be linked, with mutual
+  // approval, to more than one tenant at once — see driver-tenant-relation.entity.ts. These two
+  // endpoints are the tenant-side half of that workflow; the driver-side half (accept/reject an
+  // invite, request to join a tenant) lives under TAGS.DRIVER_AUTH's /relations/* — see
+  // driver-auth.openapi.ts.
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/invite`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.inviteDriver',
+    ...write(
+      'Invite a driver to this tenant by phone number. If no global driver profile exists yet for ' +
+        'that phone, a minimal shell profile is created — the driver fills in their own details ' +
+        'when they self-register or accept. Creates a driver_tenant_relations row in ' +
+        '`pending_driver_review`; the driver accepts/rejects via ' +
+        'POST /v1/driver-auth/relations/{relationId}/accept|reject. Sends the driver a push ' +
+        'notification best-effort.',
+    ),
+    request: { body: json(driverValidators.inviteDriver.shape.body) },
+    responses: {
+      201: { description: 'Created driver (or shell profile) with the new pending relation' },
+      400: { description: 'Validation failed', ...errorContent },
+      409: { description: 'A relation with this phone number already exists', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/join-requests`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listDriverJoinRequests',
+    ...authenticated(
+      'List driver-initiated join requests awaiting this tenant’s approval (status ' +
+        '`pending_staff_review`, initiatedBy `driver`) — distinct from dispatch-added drivers ' +
+        'awaiting approval, which surface via GET /drivers?status=pending_staff_review instead. ' +
+        'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above.',
+    ),
+    responses: {
+      200: { description: 'Pending join requests' },
+    },
+  });
+
   // --- Driver documents ---
 
   registry.registerPath({

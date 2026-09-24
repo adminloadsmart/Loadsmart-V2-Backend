@@ -34,6 +34,11 @@ export interface VehicleComplianceContext {
   expiryDate: string;
 }
 
+export interface DriverLinkContext {
+  driverName: string;
+  phoneNumber: string;
+}
+
 type NoContext = Record<string, never>;
 
 function stub(
@@ -117,6 +122,28 @@ export const NOTIFICATION_CATALOG = {
       'Driver licence expiry',
       'Renewal notices scheduled at 30, 15, and 7 days prior to expiry.',
     ),
+  },
+  'driver.link_requested': {
+    label: 'Driver join request',
+    description: 'A driver has requested to join your fleet.',
+    recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    buildContent: ({ driverName, phoneNumber }: DriverLinkContext) => ({
+      title: 'Driver join request',
+      body: `${driverName} (${phoneNumber}) has requested to join your fleet. Review it under Settings → Approvals.`,
+    }),
+  },
+  'driver.link_accepted': {
+    label: 'Driver invite accepted',
+    description: 'A driver has accepted your invitation to join your fleet.',
+    recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    buildContent: ({ driverName, phoneNumber }: DriverLinkContext) => ({
+      title: 'Driver invite accepted',
+      body: `${driverName} (${phoneNumber}) has accepted your invitation and is now linked to your fleet.`,
+    }),
   },
   'load.trip_delay_exception': {
     label: 'Trip delay & Exception',

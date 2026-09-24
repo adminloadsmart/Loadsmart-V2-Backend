@@ -1,5 +1,6 @@
 import {
   Between,
+  Brackets,
   DataSource,
   EntityManager,
   FindOptionsWhere,
@@ -60,6 +61,39 @@ export class OrganizationRepository {
         },
       },
     });
+  }
+
+  // Driver-app join-request target search — name + id only, no sensitive KYC/contact fields, and
+  // restricted to fully active orgs (a driver shouldn't be able to request joining a fleet owner
+  // still mid-onboarding). See driver-relations.service.ts. Matches by org name OR by any of that
+  // org's staff members' phone number (org_admin included) — a driver often knows the fleet
+  // owner's contact number without knowing the exact registered company name. Joins through the
+  // real staffUsers relation (see organization.entity.ts) rather than a manual entity+condition
+  // join, so property names below (staffUser.deletedAt/phoneNumber) resolve through TypeORM's own
+  // metadata instead of hand-written column names.
+  async searchActiveByNameOrPhone(
+    query: string,
+    limit: number,
+  ): Promise<{ id: string; name: string }[]> {
+    const normalizedPhone = query.replace(/[\s-]/g, '');
+    const results = await this.repo
+      .createQueryBuilder('org')
+      .leftJoin('org.staffUsers', 'staffUser', 'staffUser.deletedAt IS NULL')
+      .where('org.status = :status', { status: 'active' })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('org.name ILIKE :name', { name: `%${query}%` }).orWhere(
+            'staffUser.phoneNumber ILIKE :phone',
+            { phone: `%${normalizedPhone}%` },
+          );
+        }),
+      )
+      .select(['org.id AS id', 'org.name AS name'])
+      .distinct(true)
+      .orderBy('org.name', 'ASC')
+      .limit(limit)
+      .getRawMany<{ id: string; name: string | null }>();
+    return results.map((org) => ({ id: org.id, name: org.name ?? '' }));
   }
 
   async list(filters: {

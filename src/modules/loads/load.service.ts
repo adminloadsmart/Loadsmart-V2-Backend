@@ -432,14 +432,18 @@ export class LoadService {
     }
   }
 
-  /** The delivery receipt — photo, receiver name/mobile/designation, quantity received, and the
-   *  seal check are all required together (only podRemarks is optional). Marks the load
-   *  Delivered; own-fleet loads close immediately (no payment gate), market loads wait for the
-   *  balance payment (see load-payment.service.ts's recordBalance).
+  /** The delivery receipt — photo, receiver name/mobile, and quantity received are required;
+   *  receiver designation and sealStatus are optional (kept for staff-side/older callers, but the
+   *  driver-app ePOD screen doesn't collect either). Marks the load Delivered; own-fleet loads
+   *  close immediately (no payment gate), market loads wait for the balance payment (see
+   *  load-payment.service.ts's recordBalance).
    *
-   *  A 'broken' sealStatus is never a hard block — there's no exceptions/escalations module in
-   *  this build to route it to yet — it's just recorded, clearly flagged, on the load's activity
-   *  and audit trail so it's visible to whoever looks. Revisit once that module exists.
+   *  shortageOrDamage is the driver-app screen's cargo-condition-on-arrival field — like
+   *  sealStatus, never a hard block (no exceptions/escalations module exists yet to route it to);
+   *  just recorded on the load's activity/audit trail. damagePhotoKey is required (validated
+   *  above, and enforced server-side in load.validators.ts) whenever shortageOrDamage is
+   *  'damage'/'both'; numberOfTonnesShort is accepted unconditionally regardless of
+   *  shortageOrDamage's value.
    *
    *  `driverOwnerId` is set only by driver-portal's self-service call — see updateStatus's doc
    *  comment above for the ownership-check/audit-FK reasoning; identical here. */
@@ -467,6 +471,9 @@ export class LoadService {
       }
 
       await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
+      if (input.damagePhotoKey) {
+        await this.assertLoadDocumentUpload(tenantId, actorRole, input.damagePhotoKey, 'trips/pod');
+      }
 
       const updated = await this.repository.update(tenantId, loadId, {
         status: 'delivered',
@@ -474,9 +481,13 @@ export class LoadService {
         podFileKey: input.podFileKey,
         podReceiverName: input.podReceiverName,
         podReceiverMobile: input.podReceiverMobile,
-        podReceiverDesignation: input.podReceiverDesignation,
+        podReceiverDesignation: input.podReceiverDesignation ?? null,
         podQuantityReceived: String(input.podQuantityReceived),
-        sealStatus: input.sealStatus,
+        sealStatus: input.sealStatus ?? null,
+        shortageOrDamage: input.shortageOrDamage ?? null,
+        numberOfTonnesShort:
+          input.numberOfTonnesShort === undefined ? null : String(input.numberOfTonnesShort),
+        damagePhotoKey: input.damagePhotoKey ?? null,
         podRemarks: input.podRemarks ?? null,
         updatedBy: actorId,
       });
@@ -492,6 +503,7 @@ export class LoadService {
         {
           pod: true,
           sealStatus: input.sealStatus,
+          shortageOrDamage: input.shortageOrDamage,
         },
       );
       await this.loadActivityService.record(
@@ -509,8 +521,19 @@ export class LoadService {
         resourceType: 'load',
         oldData: { id: loadId, status: load.status },
         newData: driverOwnerId
-          ? { id: loadId, status: 'delivered', sealStatus: input.sealStatus, driverId: actorId }
-          : { id: loadId, status: 'delivered', sealStatus: input.sealStatus },
+          ? {
+              id: loadId,
+              status: 'delivered',
+              sealStatus: input.sealStatus,
+              shortageOrDamage: input.shortageOrDamage,
+              driverId: actorId,
+            }
+          : {
+              id: loadId,
+              status: 'delivered',
+              sealStatus: input.sealStatus,
+              shortageOrDamage: input.shortageOrDamage,
+            },
       });
 
       // TODO: notify Accounts for balance payment once real notification/queue

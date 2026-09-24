@@ -1,6 +1,18 @@
 import { env } from '../config/env';
 
 /**
+ * Provider-agnostic driving-licence verification contract. `SarathiClient` implements this; a
+ * future swap to `UlipClient` (SARATHI DL + VAHAN, see feat/ulip-integration) only needs to
+ * satisfy this same shape — no call site outside the composition root needs to change.
+ */
+export interface DlVerificationClient {
+  lookupDrivingLicence(
+    licenseNumber: string,
+    dateOfBirth: string,
+  ): Promise<SarathiDrivingLicenceResult>;
+}
+
+/**
  * Result of a driving-licence lookup against the Sarathi registry. As of 2026-08, the account's
  * IDfy credits are exhausted — every outcome (unconfigured, call/poll failure, and IDfy completing
  * the task but reporting `id_not_found` because the lookup never actually ran) falls back to
@@ -57,7 +69,7 @@ interface IdfyTask {
  * polled until the task completes. task_id/group_id are fixed values from env (this account's IDfy
  * workspace setup), not generated per call.
  */
-export class SarathiClient {
+export class SarathiClient implements DlVerificationClient {
   async lookupDrivingLicence(
     licenseNumber: string,
     dateOfBirth: string,

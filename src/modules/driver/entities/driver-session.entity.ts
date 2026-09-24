@@ -18,6 +18,14 @@ export class DriverSessionEntity {
   @Column({ name: 'driver_id' })
   driverId!: string;
 
+  // Null for an identity-scoped session (no tenant chosen yet — see DriverAuthService.verifyOtp);
+  // populated once a tenant/relation context is selected.
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId!: string | null;
+
+  @Column({ name: 'driver_tenant_relation_id', type: 'uuid', nullable: true })
+  driverTenantRelationId!: string | null;
+
   @Column({ name: 'token_hash' })
   tokenHash!: string;
 

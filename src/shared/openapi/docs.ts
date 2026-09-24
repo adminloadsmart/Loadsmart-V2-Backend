@@ -103,7 +103,7 @@ function getOpenApiDocument() {
         {
           name: TAGS.DRIVER_AUTH,
           description:
-            'Driver-app login (phone + OTP only) and session management — a separate identity domain from TAGS.AUTH, not auth.users/roles. See docs/driver-auth.md.',
+            'Driver-app login (phone + OTP only), self-registration, session management, and cross-tenant relation management (a driver profile is global and can be linked, with mutual approval, to more than one fleet owner) — a separate identity domain from TAGS.AUTH, not auth.users/roles. See docs/driver-auth.md.',
         },
         {
           name: TAGS.DRIVER_PORTAL,

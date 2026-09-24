@@ -122,6 +122,12 @@ export class OrganizationEntity {
   @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
   documents!: OrganizationDocumentEntity[];
 
+  // Every auth.users row scoped to this tenant (org_admin and any other staff) — inverse side of
+  // UserEntity.organization. Used by OrganizationRepository.searchActiveByNameOrPhone to join
+  // through a real relation instead of a manual entity+condition join.
+  @OneToMany(() => UserEntity, (user) => user.organization)
+  staffUsers!: UserEntity[];
+
   // Which sales rep's code (if any) this org signed up with — set once at signup by
   // AuthService.createOrganization, never editable afterward. SET NULL on delete since not
   // every org has a referral (nullable) and an org shouldn't be blocked by a code's lifecycle.

@@ -131,7 +131,7 @@ export class DashboardsService {
         this.driverService.listDrivers(tenantId, {
           page: 1,
           limit: MAX_PENDING_PER_TYPE,
-          status: 'pending',
+          status: 'pending_staff_review',
         }),
       ]);
 

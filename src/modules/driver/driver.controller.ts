@@ -5,6 +5,7 @@ import {
   DriverBankDetailsParams,
   DriverDocumentParams,
   DriverParams,
+  InviteDriverInput,
   ListDriversInput,
 } from './drivers.interface';
 import { DriverService } from './driver.service';
@@ -204,5 +205,25 @@ export class DriverController {
       req.params.driverId,
     );
     respond(res, metrics);
+  };
+
+  inviteDriver = async (req: Request, res: Response) => {
+    const driver = await this.driverService.inviteDriverByPhone(
+      requireTenantId(req),
+      req.user!.id,
+      req.body as InviteDriverInput,
+    );
+    respond(res, driver, 201);
+  };
+
+  // Driver-initiated join requests only — dispatch-added drivers awaiting org_admin approval
+  // (also `pending_staff_review`, but `initiatedBy: 'staff'`) surface via the regular
+  // GET /drivers?status=pending_staff_review list instead.
+  listJoinRequests = async (req: Request, res: Response) => {
+    const requests = await this.driverService.listPendingStaffReview(requireTenantId(req));
+    respond(
+      res,
+      requests.filter((relation) => relation.initiatedBy === 'driver'),
+    );
   };
 }

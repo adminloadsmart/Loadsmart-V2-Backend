@@ -14,6 +14,8 @@ export class DriverSessionRepository {
 
   async createSession(data: {
     driverId: string;
+    tenantId: string | null;
+    driverTenantRelationId: string | null;
     tokenHash: string;
     expiresAt: Date;
     fcmToken?: string | null;

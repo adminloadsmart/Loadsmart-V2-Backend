@@ -5,6 +5,7 @@ import { DriverLoginCandidate } from '../../modules/driver/driver-auth.types';
 
 interface DriverTenantSelectTokenPayload {
   purpose: string;
+  driverId: string;
   candidates: DriverLoginCandidate[];
 }
 
@@ -28,10 +29,14 @@ export const verifyDriverTenantSelectToken: RequestHandler = (req, _res, next) =
     throw new AuthenticationError('Invalid or expired tenant selection token');
   }
 
-  if (payload.purpose !== 'driver-tenant-select' || !Array.isArray(payload.candidates)) {
+  if (
+    payload.purpose !== 'driver-tenant-select' ||
+    !payload.driverId ||
+    !Array.isArray(payload.candidates)
+  ) {
     throw new AuthenticationError('Invalid tenant selection token');
   }
 
-  req.driverTenantSelectPayload = { candidates: payload.candidates };
+  req.driverTenantSelectPayload = { driverId: payload.driverId, candidates: payload.candidates };
   next();
 };

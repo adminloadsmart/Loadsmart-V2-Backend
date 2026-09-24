@@ -6,6 +6,7 @@ import {
   LoadStatusGroup,
   ManualTrackingStatus,
   SealStatus,
+  ShortageOrDamageStatus,
 } from './loads.types';
 
 /** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
@@ -45,9 +46,12 @@ export interface UploadPodInput {
   podFileKey: string;
   podReceiverName: string;
   podReceiverMobile: string;
-  podReceiverDesignation: string;
+  podReceiverDesignation?: string;
   podQuantityReceived: number;
-  sealStatus: SealStatus;
+  sealStatus?: SealStatus;
+  shortageOrDamage?: ShortageOrDamageStatus;
+  numberOfTonnesShort?: number;
+  damagePhotoKey?: string;
   podRemarks?: string;
 }
 

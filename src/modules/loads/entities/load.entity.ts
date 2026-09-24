@@ -26,6 +26,8 @@ import {
   LoadStatus,
   SEAL_STATUSES,
   SealStatus,
+  SHORTAGE_OR_DAMAGE_STATUSES,
+  ShortageOrDamageStatus,
 } from '../utils/loads.types';
 
 /**
@@ -230,6 +232,28 @@ export class LoadEntity {
   /** See SEAL_STATUSES' doc comment (loads.types.ts) — advisory, never blocks. */
   @Column({ name: 'seal_status', type: 'enum', enum: [...SEAL_STATUSES], nullable: true })
   sealStatus!: SealStatus | null;
+
+  /** See SHORTAGE_OR_DAMAGE_STATUSES' doc comment (loads.types.ts) — advisory, never blocks. */
+  @Column({
+    name: 'shortage_or_damage',
+    type: 'enum',
+    enum: [...SHORTAGE_OR_DAMAGE_STATUSES],
+    nullable: true,
+  })
+  shortageOrDamage!: ShortageOrDamageStatus | null;
+
+  @Column({
+    name: 'number_of_tonnes_short',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  numberOfTonnesShort!: string | null;
+
+  // Required by load.validators.ts's uploadPodBody whenever shortageOrDamage is 'damage'/'both'.
+  @Column({ name: 'damage_photo_key', type: 'text', nullable: true })
+  damagePhotoKey!: string | null;
 
   @Column({ name: 'pod_remarks', type: 'varchar', nullable: true })
   podRemarks!: string | null;

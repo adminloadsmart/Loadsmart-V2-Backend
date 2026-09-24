@@ -8,14 +8,16 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { DriverEntity } from './driver.entity';
+import { DriverTenantRelationEntity } from './driver-tenant-relation.entity';
 
+// Trip performance is earned under one tenant's loads, so it hangs off the tenant relation rather
+// than the global driver profile.
 @Entity({ schema: 'masters', name: 'driver_trip_metrics' })
 @Index('driver_trip_metrics_tenant_id_idx', ['tenantId'])
-@Index('driver_trip_metrics_driver_id_idx', ['driverId'])
+@Index('driver_trip_metrics_relation_id_idx', ['driverTenantRelationId'])
 @Index(
-  'driver_trip_metrics_driver_period_unique',
-  ['tenantId', 'driverId', 'periodStart', 'periodEnd'],
+  'driver_trip_metrics_relation_period_unique',
+  ['tenantId', 'driverTenantRelationId', 'periodStart', 'periodEnd'],
   { unique: true, where: '"deleted_at" IS NULL' },
 )
 export class DriverTripMetricsEntity {
@@ -25,12 +27,14 @@ export class DriverTripMetricsEntity {
   @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
 
-  @Column({ name: 'driver_id', type: 'uuid' })
-  driverId!: string;
+  @Column({ name: 'driver_tenant_relation_id', type: 'uuid' })
+  driverTenantRelationId!: string;
 
-  @ManyToOne(() => DriverEntity, (driver) => driver.tripMetrics, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'driver_id' })
-  driver!: DriverEntity;
+  @ManyToOne(() => DriverTenantRelationEntity, (relation) => relation.tripMetrics, {
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({ name: 'driver_tenant_relation_id' })
+  driverTenantRelation!: DriverTenantRelationEntity;
 
   @Column({ name: 'period_start', type: 'date' })
   periodStart!: string;

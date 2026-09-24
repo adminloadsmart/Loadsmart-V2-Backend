@@ -18,8 +18,10 @@ export class DriverBankDetailsEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string;
+  // Nullable — see driver-document.entity.ts's tenantId comment; same "originating tenant, not an
+  // authorization key" treatment, null for bank details captured during self-registration.
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId!: string | null;
 
   @Column({ name: 'driver_id', type: 'uuid' })
   driverId!: string;
@@ -43,6 +45,9 @@ export class DriverBankDetailsEntity {
     nullable: true,
   })
   accountHolderName!: string | null;
+
+  @Column({ name: 'upi_id', type: 'varchar', length: 50, nullable: true })
+  upiId!: string | null;
 
   @Column({
     name: 'verification_status',

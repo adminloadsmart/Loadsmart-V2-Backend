@@ -362,11 +362,13 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.uploadPod',
     ...manageDocuments(
-      'Record proof of delivery — the delivery receipt photo, receiver name/mobile/designation, ' +
-        'quantity received and seal-on-arrival check are all required together (only podRemarks ' +
-        'is optional). A broken seal never blocks — recorded on the activity/audit trail only, ' +
-        'advisory pending a future exceptions/escalations module. Marks the load Delivered; ' +
-        'own-fleet loads close immediately, market loads wait for the balance payment.',
+      'Record proof of delivery — the delivery receipt photo, receiver name/mobile, and quantity ' +
+        'received are required; receiver designation, sealStatus, shortageOrDamage, ' +
+        'numberOfTonnesShort, damagePhotoKey, and podRemarks are all optional. damagePhotoKey ' +
+        'becomes required only when shortageOrDamage is `damage` or `both`. Neither a broken ' +
+        'seal nor a damage/shortage report ever blocks — both are recorded on the activity/audit ' +
+        'trail only, advisory pending a future exceptions/escalations module. Marks the load ' +
+        'Delivered; own-fleet loads close immediately, market loads wait for the balance payment.',
     ),
     request: {
       params: loadValidators.uploadPod.shape.params,

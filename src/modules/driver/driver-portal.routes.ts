@@ -8,29 +8,41 @@ import { driverPortalValidators } from './driver-portal.validators';
 // in index.ts, where DriverRepository is already constructed — routes files don't import
 // repositories directly, see boundaries/dependencies); driver routers sit in their own
 // pre-authMiddleware tier, see app.ts/composition-root.ts. No
-// createTenantScope/requireTenant/requirePermission: a driver's tenantId is always present on
-// their own token, and there is no permission matrix to check — self-scoping is the whole
-// authorization model. See docs/driver-auth.md.
+// createTenantScope/requireTenant/requirePermission: a driver's tenantId is (almost) always
+// present on their own token, and there is no permission matrix to check — self-scoping is the
+// whole authorization model. See docs/driver-auth.md.
+//
+// `/me`, `/me/status` (GET), `/me/trip-metrics`, and `/me/loads` are the exception: a driver who
+// hasn't linked to any tenant yet still needs these "show me my own stuff" reads to work, so
+// they're gated by `driverIdentityAuth` (requireTenant: false — accepts a driver-identity-access
+// token, no active relation required) instead of `driverAuth`. Each just returns empty/null when
+// there's no tenant — genuinely correct, not a permissions gap, since a driver with no active
+// relation cannot be assigned to any load in any tenant. Every *write*/action route (updating
+// status, PoD, issues, single-load detail) stays behind the stricter `driverAuth`: acting on a
+// specific tenant's data requires an actual tenant-scoped session.
 export function createDriverPortalRoutes(
   controller: DriverPortalController,
   driverAuth: RequestHandler,
+  driverIdentityAuth: RequestHandler,
 ): Router {
   const router = Router();
 
+  router.get('/me', driverIdentityAuth, asyncHandler(controller.getMe));
+  router.get('/me/status', driverIdentityAuth, asyncHandler(controller.getMyStatus));
+  router.get('/me/trip-metrics', driverIdentityAuth, asyncHandler(controller.getMyTripMetrics));
+  router.get(
+    '/me/loads',
+    driverIdentityAuth,
+    validate(driverPortalValidators.listMyLoads),
+    asyncHandler(controller.getMyLoads),
+  );
+
   router.use(driverAuth);
 
-  router.get('/me', asyncHandler(controller.getMe));
-  router.get('/me/status', asyncHandler(controller.getMyStatus));
   router.patch(
     '/me/status',
     validate(driverPortalValidators.updateMyStatus),
     asyncHandler(controller.updateMyStatus),
-  );
-  router.get('/me/trip-metrics', asyncHandler(controller.getMyTripMetrics));
-  router.get(
-    '/me/loads',
-    validate(driverPortalValidators.listMyLoads),
-    asyncHandler(controller.getMyLoads),
   );
   // Single-load detail — distinct from /me/loads above (that's the paginated list). Ownership
   // (this load must be the caller's own) is enforced in LoadService, not here.
