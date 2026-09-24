@@ -19,7 +19,7 @@ export const WHEEL_COUNTS = [4, 6, 10, 12, 14, 16, 18, 22] as const;
 export type VehicleWheelCount = (typeof WHEEL_COUNTS)[number];
 
 /** How the vehicle is held: owned outright, on lease, or attached from a third-party operator. */
-export const OWNERSHIP_TYPES = ['owned', 'leased', 'attached'] as const;
+export const OWNERSHIP_TYPES = ['owned', 'leased', 'attached', 'financed'] as const;
 export type VehicleOwnershipType = (typeof OWNERSHIP_TYPES)[number];
 
 /**

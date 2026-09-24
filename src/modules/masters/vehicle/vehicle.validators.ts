@@ -47,8 +47,25 @@ const vehicleCoreFields = {
   bodyType: z.enum(BODY_TYPES).optional(),
   wheelCount: wheelCount.optional(),
   capacityTons: z.number().positive().max(9999).optional(),
-  ownershipType: z.enum(OWNERSHIP_TYPES).optional(),
+  // ownershipType: z.enum(OWNERSHIP_TYPES).optional(),
 };
+
+const vehicleOwnershipBody = z.discriminatedUnion('ownershipType', [
+  z.object({ ownershipType: z.literal('owned') }),
+  z.object({
+    ownershipType: z.literal('financed'),
+    monthlyEmi: z.number().positive(),
+    monthsRemaining: z.number().int().positive().optional(),
+  }),
+  z.object({
+    ownershipType: z.literal('leased'),
+    monthlylease: z.number().positive(),
+  }),
+  z.object({
+    ownershipType: z.literal('attached'),
+    transporterId: uuid,
+  }),
+]);
 
 const vehicleOperationalStatusBody = z.object({
   operationalStatus: z.enum(VEHICLE_OPERATIONAL_STATUSES),
@@ -133,6 +150,7 @@ export const vehicleValidators = {
   onboardVehicle: z.object({
     body: z.object({
       ...vehicleCoreFields,
+      ...vehicleOwnershipBody,
       verification: vehicleVerificationBody.optional(),
       telemetry: vehicleTelemetryBody.optional(),
       serviceUsage: vehicleServiceUsageBody.optional(),
