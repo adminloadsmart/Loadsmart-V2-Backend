@@ -6,6 +6,7 @@ import { MaintenanceOverviewService } from './maintenance-overview.service';
 import { TyreService } from './tyre.service';
 import { BatteryService } from './battery.service';
 import {
+  Actor,
   BatteryPackParams,
   JobParams,
   ListJobsInput,
@@ -14,6 +15,9 @@ import {
   VehicleParams,
 } from './maintenance.interface';
 import { canSeeMaintenanceCosts } from './utils/cost-visibility';
+
+/** The writer — the role resolves an attached invoice's storage key. */
+const actorOf = (req: Request): Actor => ({ id: req.user!.id, role: req.user!.role });
 
 export class MaintenanceController {
   constructor(
@@ -48,8 +52,29 @@ export class MaintenanceController {
     );
   };
 
+  listInWorkshop = async (req: Request, res: Response) => {
+    respond(
+      res,
+      await this.maintenanceService.listInWorkshop(
+        requireTenantId(req),
+        canSeeMaintenanceCosts(req),
+      ),
+    );
+  };
+
+  listBlockedOnPapers = async (req: Request, res: Response) => {
+    respond(res, await this.maintenanceService.listBlockedOnPapers(requireTenantId(req)));
+  };
+
   listTyres = async (req: Request, res: Response) => {
     respond(res, await this.tyreService.listQueue(requireTenantId(req)));
+  };
+
+  getVehicleTyres = async (req: Request<VehicleParams>, res: Response) => {
+    respond(
+      res,
+      await this.tyreService.getVehicleTyres(requireTenantId(req), req.params.vehicleId),
+    );
   };
 
   listBatteries = async (req: Request, res: Response) => {
@@ -70,15 +95,15 @@ export class MaintenanceController {
   logService = async (req: Request, res: Response) => {
     const job = await this.maintenanceService.logService(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.body,
       canSeeMaintenanceCosts(req),
     );
     respond(res, job, 201);
   };
 
-  openBreakdown = async (req: Request, res: Response) => {
-    const job = await this.maintenanceService.openBreakdown(
+  checkInService = async (req: Request, res: Response) => {
+    const job = await this.maintenanceService.checkInService(
       requireTenantId(req),
       req.user!.id,
       req.body,
@@ -90,7 +115,7 @@ export class MaintenanceController {
   updateService = async (req: Request<JobParams>, res: Response) => {
     const job = await this.maintenanceService.updateJob(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.params.jobId,
       'service',
       req.body,
@@ -102,7 +127,7 @@ export class MaintenanceController {
   completeService = async (req: Request<JobParams>, res: Response) => {
     const job = await this.maintenanceService.completeService(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.params.jobId,
       req.body,
       canSeeMaintenanceCosts(req),
@@ -110,10 +135,31 @@ export class MaintenanceController {
     respond(res, job);
   };
 
+  releaseFromWorkshop = async (req: Request<JobParams>, res: Response) => {
+    const job = await this.maintenanceService.releaseFromWorkshop(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.jobId,
+      req.body ?? {},
+      canSeeMaintenanceCosts(req),
+    );
+    respond(res, job);
+  };
+
+  openBreakdown = async (req: Request, res: Response) => {
+    const job = await this.maintenanceService.openBreakdown(
+      requireTenantId(req),
+      actorOf(req),
+      req.body,
+      canSeeMaintenanceCosts(req),
+    );
+    respond(res, job, 201);
+  };
+
   updateBreakdown = async (req: Request<JobParams>, res: Response) => {
     const job = await this.maintenanceService.updateJob(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.params.jobId,
       'breakdown',
       req.body,
@@ -125,12 +171,23 @@ export class MaintenanceController {
   closeBreakdown = async (req: Request<JobParams>, res: Response) => {
     const job = await this.maintenanceService.closeBreakdown(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.params.jobId,
       req.body ?? {},
       canSeeMaintenanceCosts(req),
     );
     respond(res, job);
+  };
+
+  setWorkshopStatus = async (req: Request<VehicleParams>, res: Response) => {
+    const result = await this.maintenanceService.setWorkshopStatus(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body.status,
+      canSeeMaintenanceCosts(req),
+    );
+    respond(res, result);
   };
 
   setServicePolicy = async (req: Request<VehicleParams>, res: Response) => {
@@ -141,6 +198,16 @@ export class MaintenanceController {
       req.body,
     );
     respond(res, policy);
+  };
+
+  recordTyreWork = async (req: Request, res: Response) => {
+    const result = await this.tyreService.recordTyreWork(
+      requireTenantId(req),
+      actorOf(req),
+      req.body,
+      canSeeMaintenanceCosts(req),
+    );
+    respond(res, result, 201);
   };
 
   fitTyre = async (req: Request, res: Response) => {

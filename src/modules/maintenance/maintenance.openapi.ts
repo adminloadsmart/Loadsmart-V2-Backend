@@ -37,7 +37,9 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         'daysOffRoad follow the period (filter defaults to last30days) and are money — present ' +
         `only for ${MAINTENANCE_COSTS_VIEW}. trucksOverServicePolicy and positionsAtLegalLimit ` +
         'are the fleet right now, ignore the period, and go to every seat; they are counted from ' +
-        'the same builders as GET /service-due and GET /tyres. consequence = trucks in the ' +
+        'the same builders as GET /service-due and GET /tyres. fleetAvailability splits the ' +
+        'running fleet into ready / inWorkshop / blockedOnPapers (exclusive, in that priority). ' +
+        'consequence = trucks in the ' +
         'workshop now (split brokenDown / inForService) and open market loads bought to cover ' +
         'them (loads.covers_vehicle_id). ' +
         OWN_FLEET_NOTE,
@@ -107,6 +109,50 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/in-workshop`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.listInWorkshop',
+    ...authenticated(
+      'Every truck in the workshop right now — service check-ins and breakdowns together, ' +
+        'oldest first, with days in and market loads covering each. ' +
+        COSTS_NOTE +
+        ' ' +
+        OWN_FLEET_NOTE,
+    ),
+    responses: {
+      200: { description: 'In the workshop — { items, total, brokenDown, inForService }' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/blocked-on-papers`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.listBlockedOnPapers',
+    ...authenticated(
+      'Trucks with an expired RC/insurance/permit/PUC/fitness that are not in the workshop — ' +
+        'the availability bar’s "Blocked on papers" bucket. Dispatch only warns on these ' +
+        '(dispatchEffect: warns_on_assign). ' +
+        OWN_FLEET_NOTE,
+    ),
+    responses: { 200: { description: 'Blocked on papers — { items, total }' } },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/vehicles/{vehicleId}/tyres`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.getVehicleTyres',
+    ...authenticated(
+      'One truck’s axle diagram for Record Tyre Maintenance: every position its wheel count ' +
+        'gives (FL, FR, R1L, R1R, …) with the tyre fitted there and its wear, plus the odometer.',
+    ),
+    request: { params: v.vehicleTyres.shape.params },
+    responses: { 200: { description: 'Vehicle tyre layout' }, 404: notFound, 409: conflict },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/jobs`,
     tags: [TAGS.MAINTENANCE],
     operationId: 'maintenance.listJobs',
@@ -124,11 +170,13 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.logService',
     ...permissionGated(
       [MAINTENANCE_MANAGE],
-      'Without completedAt: check the truck in for a service — an open service job, and the ' +
-        'vehicle becomes under_maintenance (out of dispatch) in the same transaction; finish with ' +
-        'POST /services/{jobId}/complete. With completedAt: record a service that already ' +
-        'happened in one call — dispatch untouched, service clock moved (unless back-dated before ' +
-        'the recorded last service). 409 if the truck is already in the workshop.',
+      'Log a service — a finished service, dated today unless serviceDate is given. If the ' +
+        'truck is in the workshop (checked in for service, or broken down), this finishes that ' +
+        'visit: the job closes with these details and the truck returns to dispatch in the same ' +
+        'transaction (a breakdown closed this way is marked includesService). Otherwise a closed ' +
+        'service job is recorded and dispatch is untouched. Only preventive_service and ' +
+        'oil_change move the service clock. `cost` is the single invoiced total; invoiceFileKey ' +
+        'is a confirmed upload with purpose maintenance/invoice.',
     ),
     request: { body: json(v.logService.shape.body) },
     responses: {
@@ -137,6 +185,44 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
       404: notFound,
       409: conflict,
     },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/services/check-in`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.checkInService',
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Send a truck to the workshop for a service — an open service job, and the vehicle ' +
+        'becomes under_maintenance (out of dispatch) in the same transaction. Finish it with ' +
+        'Log a service, POST /services/{jobId}/complete, or POST /workshop/{jobId}/release. 409 ' +
+        'if the truck is already in the workshop.',
+    ),
+    request: { body: json(v.checkInService.shape.body) },
+    responses: {
+      201: { description: 'Open service job' },
+      400: validationFailed,
+      404: notFound,
+      409: conflict,
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/workshop/{jobId}/release`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.releaseFromWorkshop',
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Release from the workshop — closes an open visit (service or breakdown) without a ' +
+        'service: the service clock is untouched and the truck returns to dispatch.',
+    ),
+    request: {
+      params: v.releaseFromWorkshop.shape.params,
+      body: json(v.releaseFromWorkshop.shape.body),
+    },
+    responses: { 200: { description: 'Closed job' }, 404: notFound, 409: conflict },
   });
 
   registry.registerPath({
@@ -163,6 +249,32 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     request: { params: v.completeService.shape.params, body: json(v.completeService.shape.body) },
     responses: {
       200: { description: 'Completed service job' },
+      400: validationFailed,
+      404: notFound,
+      409: conflict,
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/vehicles/{vehicleId}/workshop-status`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.setWorkshopStatus',
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Mark a truck in the workshop or release it — body is just { status }. in_workshop opens ' +
+        'a bare workshop visit and takes the truck out of dispatch (if it is already in, the ' +
+        'current visit is returned). available closes whatever visit is open — service or ' +
+        'breakdown — without a service (clock untouched) and returns the truck to dispatch (if ' +
+        'it is not in, nothing changes). Both are idempotent. Log a service on the truck later ' +
+        'finishes the visit with its details.',
+    ),
+    request: {
+      params: v.setWorkshopStatus.shape.params,
+      body: json(v.setWorkshopStatus.shape.body),
+    },
+    responses: {
+      200: { description: '{ vehicleId, status, visit }' },
       400: validationFailed,
       404: notFound,
       409: conflict,
@@ -224,6 +336,28 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     request: { params: v.closeBreakdown.shape.params, body: json(v.closeBreakdown.shape.body) },
     responses: {
       200: { description: 'Closed breakdown job' },
+      400: validationFailed,
+      404: notFound,
+      409: conflict,
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/tyres/maintenance`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.recordTyreWork',
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Record Tyre Maintenance — one invoice across one or more positions, as a closed `tyre` ' +
+        'job (its totalCost counts in maintenance spend). new_fitment: the tyre on each position ' +
+        'comes off as replaced and a new one goes on. cold_retread: the fitted casing is ' +
+        'remoulded (same serial, retreadCount + 1) — 409 if damaged or out of retreads. All ' +
+        'positions or none; dispatch is untouched.',
+    ),
+    request: { body: json(v.recordTyreWork.shape.body) },
+    responses: {
+      201: { description: '{ job, action, positions, tyres }' },
       400: validationFailed,
       404: notFound,
       409: conflict,

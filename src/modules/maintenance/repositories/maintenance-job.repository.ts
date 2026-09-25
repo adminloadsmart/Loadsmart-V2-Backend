@@ -15,7 +15,7 @@ import { MaintenanceJobType, OWN_FLEET_OWNERSHIP_TYPES } from '../maintenance.ty
 
 export type CreateMaintenanceJobData = Omit<
   MaintenanceJobEntity,
-  'id' | 'vehicle' | 'createdAt' | 'updatedAt' | 'updatedBy'
+  'id' | 'vehicle' | 'tyres' | 'createdAt' | 'updatedAt' | 'updatedBy'
 >;
 export type UpdateMaintenanceJobData = Partial<
   Omit<
@@ -24,6 +24,7 @@ export type UpdateMaintenanceJobData = Partial<
     | 'tenantId'
     | 'vehicleId'
     | 'vehicle'
+    | 'tyres'
     | 'jobType'
     | 'createdAt'
     | 'updatedAt'
@@ -58,7 +59,7 @@ export class MaintenanceJobRepository {
   ): Promise<MaintenanceJobEntity | null> {
     return this.repo(manager).findOne({
       where: { id, tenantId },
-      relations: { vehicle: { telemetryMeta: true } },
+      relations: { vehicle: { telemetryMeta: true, truckType: true }, tyres: true },
     });
   }
 
@@ -90,7 +91,7 @@ export class MaintenanceJobRepository {
         status: 'open',
         vehicle: { ...ownFleet, deletedAt: IsNull() },
       },
-      relations: { vehicle: { telemetryMeta: true } },
+      relations: { vehicle: { telemetryMeta: true, truckType: true } },
       order: { openedAt: 'ASC' },
     });
   }
@@ -125,6 +126,10 @@ export class MaintenanceJobRepository {
       .where('job.tenant_id = :tenantId', { tenantId })
       .andWhere('job.opened_at BETWEEN :from AND :to', range)
       .andWhere('vehicle.ownership_type IN (:...own)', { own: [...OWN_FLEET_OWNERSHIP_TYPES] })
+      // A service check-in released without being serviced isn't a service.
+      .andWhere(
+        "NOT (job.job_type = 'service' AND job.status = 'closed' AND job.service_type IS NULL)",
+      )
       .groupBy('job.job_type')
       .getRawMany<{ jobType: MaintenanceJobType; count: number; total: string }>();
 
@@ -155,7 +160,7 @@ export class MaintenanceJobRepository {
         ...(vehicleId ? { vehicleId } : {}),
         ...(jobType ? { jobType } : {}),
       },
-      relations: { vehicle: true },
+      relations: { vehicle: { truckType: true }, tyres: true },
       order: { openedAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

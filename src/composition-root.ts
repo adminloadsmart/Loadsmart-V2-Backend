@@ -36,6 +36,7 @@ import { createDriverAnalyticsModule } from './modules/analytics/driver-analytic
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 import { FleetGatewayLocal as MaintenanceFleetGatewayLocal } from './modules/maintenance/gateways/fleet.gateway.local';
+import { StorageGatewayLocal as MaintenanceStorageGatewayLocal } from './modules/maintenance/gateways/storage.gateway.local';
 
 export interface Container {
   tenancyGateway: TenancyGateway;
@@ -154,6 +155,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const maintenance = createMaintenanceModule(dataSource, {
     notificationsGateway: new MaintenanceNotificationsGatewayLocal(notifications.service),
     fleetGateway: new MaintenanceFleetGatewayLocal(masters.vehicleService),
+    storageGateway: new MaintenanceStorageGatewayLocal(storage.service),
     auditService: audit.service,
   });
 

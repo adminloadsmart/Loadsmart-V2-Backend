@@ -23,9 +23,23 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
   router.get('/tyres', asyncHandler(controller.listTyres));
   router.get('/batteries', asyncHandler(controller.listBatteries));
   router.get('/jobs', validate(v.listJobs), asyncHandler(controller.listJobs));
+  router.get('/in-workshop', asyncHandler(controller.listInWorkshop));
+  router.get('/blocked-on-papers', asyncHandler(controller.listBlockedOnPapers));
+  router.get(
+    '/vehicles/:vehicleId/tyres',
+    validate(v.vehicleTyres),
+    asyncHandler(controller.getVehicleTyres),
+  );
 
-  // Check in (no completedAt) or record a past service (completedAt) — see logService.
+  // Log a service (finished, dated today) — finishes the truck's open workshop visit if it has one.
   router.post('/services', canManage, validate(v.logService), asyncHandler(controller.logService));
+  // Registered before /services/:jobId so "check-in" isn't read as a job id.
+  router.post(
+    '/services/check-in',
+    canManage,
+    validate(v.checkInService),
+    asyncHandler(controller.checkInService),
+  );
   router.patch(
     '/services/:jobId',
     canManage,
@@ -37,6 +51,19 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
     canManage,
     validate(v.completeService),
     asyncHandler(controller.completeService),
+  );
+  router.post(
+    '/workshop/:jobId/release',
+    canManage,
+    validate(v.releaseFromWorkshop),
+    asyncHandler(controller.releaseFromWorkshop),
+  );
+  // Mark a truck in the workshop / release it — body is just { status }.
+  router.patch(
+    '/vehicles/:vehicleId/workshop-status',
+    canManage,
+    validate(v.setWorkshopStatus),
+    asyncHandler(controller.setWorkshopStatus),
   );
   router.put(
     '/vehicles/:vehicleId/service-policy',
@@ -64,6 +91,12 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
     asyncHandler(controller.closeBreakdown),
   );
 
+  router.post(
+    '/tyres/maintenance',
+    canManage,
+    validate(v.recordTyreWork),
+    asyncHandler(controller.recordTyreWork),
+  );
   router.post('/tyres', canManage, validate(v.fitTyre), asyncHandler(controller.fitTyre));
   router.post(
     '/tyres/:tyreId/readings',

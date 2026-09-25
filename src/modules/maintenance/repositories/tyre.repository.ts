@@ -8,6 +8,7 @@ export type CreateTyreData = Omit<
   | 'id'
   | 'vehicle'
   | 'readings'
+  | 'maintenanceJob'
   | 'status'
   | 'removedAt'
   | 'removedOdometerKm'
@@ -45,13 +46,36 @@ export class TyreRepository {
     });
   }
 
-  findFittedAt(tenantId: string, vehicleId: string, position: string): Promise<TyreEntity | null> {
-    return this.tyres.findOneBy({ tenantId, vehicleId, position, status: 'fitted' });
+  findFittedAt(
+    tenantId: string,
+    vehicleId: string,
+    position: string,
+    manager?: EntityManager,
+  ): Promise<TyreEntity | null> {
+    const repo = manager?.getRepository(TyreEntity) ?? this.tyres;
+    return repo.findOneBy({ tenantId, vehicleId, position, status: 'fitted' });
   }
 
-  async update(tenantId: string, id: string, data: UpdateTyreData): Promise<TyreEntity | null> {
+  async update(
+    tenantId: string,
+    id: string,
+    data: UpdateTyreData,
+    manager?: EntityManager,
+  ): Promise<TyreEntity | null> {
+    if (manager) {
+      await manager.getRepository(TyreEntity).update({ id, tenantId }, data);
+      return manager.getRepository(TyreEntity).findOneBy({ id, tenantId });
+    }
     await this.tyres.update({ id, tenantId }, data);
     return this.findById(tenantId, id);
+  }
+
+  /** Every tyre fitted to one truck right now — the axle diagram. */
+  listFittedForVehicle(tenantId: string, vehicleId: string): Promise<TyreEntity[]> {
+    return this.tyres.find({
+      where: { tenantId, vehicleId, status: 'fitted' },
+      order: { position: 'ASC' },
+    });
   }
 
   createReading(data: CreateTyreReadingData): Promise<TyreReadingEntity> {
@@ -70,7 +94,7 @@ export class TyreRepository {
           deletedAt: IsNull(),
         },
       },
-      relations: { vehicle: { serviceUsage: true } },
+      relations: { vehicle: { serviceUsage: true, truckType: true } },
     });
   }
 

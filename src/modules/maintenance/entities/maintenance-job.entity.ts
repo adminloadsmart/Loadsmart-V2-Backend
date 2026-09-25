@@ -5,15 +5,19 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { TyreEntity } from './tyre.entity';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import {
   MAINTENANCE_JOB_STATUSES,
   MAINTENANCE_JOB_TYPES,
   MaintenanceJobStatus,
   MaintenanceJobType,
+  SERVICE_TYPES,
+  ServiceType,
 } from '../maintenance.types';
 
 export interface ReplacedPart {
@@ -87,6 +91,14 @@ export class MaintenanceJobEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  /** Service only — "What was done" on Log a service. Null on a checked-in visit until it is logged. */
+  @Column({ name: 'service_type', type: 'enum', enum: [...SERVICE_TYPES], nullable: true })
+  serviceType!: ServiceType | null;
+
+  /** Storage key of the uploaded invoice / work order (purpose `maintenance/invoice`). */
+  @Column({ name: 'invoice_file_key', type: 'varchar', length: 512, nullable: true })
+  invoiceFileKey!: string | null;
+
   /** Breakdown only — the due service was also done on this visit, so closing it reset the
    *  vehicle's service clock. Always false on a service job (it is one). */
   @Column({ name: 'includes_service', type: 'boolean', default: false })
@@ -109,6 +121,10 @@ export class MaintenanceJobEntity {
    *  FK, same cross-module reference style as load_issue_reports.reported_by. */
   @Column({ name: 'source_issue_report_id', type: 'uuid', nullable: true })
   sourceIssueReportId!: string | null;
+
+  /** Tyre jobs only — the fitments this Record Tyre Maintenance entry made. */
+  @OneToMany(() => TyreEntity, (tyre) => tyre.maintenanceJob)
+  tyres?: TyreEntity[];
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;

@@ -8,6 +8,7 @@ import { BatteryVerdict } from './maintenance.types';
 import { RecordBatteryReadingInput, RegisterBatteryPackInput } from './maintenance.interface';
 import { MaintenanceService } from './maintenance.service';
 import { isUniqueViolation } from './utils/unique-violation';
+import { toVehicleSummary } from './maintenance.views';
 
 /** capital_call first (the shipper's money), then warranty claims, then packs we can't call yet. */
 const VERDICT_ORDER: Record<BatteryVerdict, number> = {
@@ -46,7 +47,7 @@ export class BatteryService {
           });
           return {
             packId: pack.id,
-            vehicle: { id: pack.vehicle.id, registrationNumber: pack.vehicle.registrationNumber },
+            vehicle: toVehicleSummary(pack.vehicle),
             serialNumber: pack.serialNumber,
             capacityKwh: pack.capacityKwh === null ? null : Number(pack.capacityKwh),
             warrantyStart: pack.warrantyStart,

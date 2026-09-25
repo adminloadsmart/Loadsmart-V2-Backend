@@ -52,7 +52,7 @@ export class BatteryRepository {
           deletedAt: IsNull(),
         },
       },
-      relations: { vehicle: true, readings: true },
+      relations: { vehicle: { truckType: true }, readings: true },
     });
   }
 }

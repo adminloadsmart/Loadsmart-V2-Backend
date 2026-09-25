@@ -1,8 +1,20 @@
 import { MaintenanceJobEntity, ReplacedPart } from './entities/maintenance-job.entity';
+import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { dailyFixedCost, elapsedDays, jobDays, money } from './calculations/downtime';
 import { JobCostInput } from './maintenance.interface';
 
 const toNumber = (value: string | null): number | null => (value === null ? null : Number(value));
+
+/** The truck column on every queue — registration, make/model underneath, and the Class. */
+export function toVehicleSummary(vehicle: VehicleEntity) {
+  return {
+    id: vehicle.id,
+    registrationNumber: vehicle.registrationNumber,
+    makeModel: vehicle.makeModel ?? null,
+    truckTypeName: vehicle.truckType?.name ?? null,
+    status: vehicle.status,
+  };
+}
 
 /**
  * Response shape for one job, shared by job history, the breakdowns queue and every write
@@ -14,9 +26,9 @@ export function toJobView(job: MaintenanceJobEntity, canSeeCosts: boolean, now =
     id: job.id,
     jobType: job.jobType,
     status: job.status,
-    vehicle: job.vehicle
-      ? { id: job.vehicle.id, registrationNumber: job.vehicle.registrationNumber }
-      : { id: job.vehicleId },
+    vehicle: job.vehicle ? toVehicleSummary(job.vehicle) : { id: job.vehicleId },
+    serviceType: job.serviceType,
+    tyrePositions: job.tyres?.map((tyre) => tyre.position) ?? undefined,
     openedAt: job.openedAt,
     closedAt: job.closedAt,
     daysTaken: jobDays(job.openedAt, job.closedAt, now),
@@ -41,6 +53,8 @@ export function toJobView(job: MaintenanceJobEntity, canSeeCosts: boolean, now =
   return {
     ...view,
     partsReplaced: job.partsReplaced,
+    // The invoice shows amounts, so it goes with the money.
+    invoiceFileKey: job.invoiceFileKey,
     labourCost: toNumber(job.labourCost),
     partsCost: toNumber(job.partsCost),
     totalCost: toNumber(job.totalCost),
@@ -85,6 +99,24 @@ export function resolveJobCosts(
   partsCost?: string | null;
   totalCost?: string | null;
 } {
+  if (input.cost !== undefined) {
+    // One figure off the invoice — keep any itemised parts list, but the total is what was paid.
+    return {
+      ...(input.partsReplaced
+        ? {
+            partsReplaced: input.partsReplaced.map((part) => ({
+              name: part.name,
+              quantity: part.quantity,
+              cost: part.cost ?? null,
+            })),
+          }
+        : {}),
+      ...(input.labourCost !== undefined ? { labourCost: String(input.labourCost) } : {}),
+      ...(input.partsCost !== undefined ? { partsCost: String(input.partsCost) } : {}),
+      totalCost: String(input.cost),
+    };
+  }
+
   const touched =
     input.labourCost !== undefined ||
     input.partsCost !== undefined ||

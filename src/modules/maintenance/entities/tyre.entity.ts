@@ -19,6 +19,7 @@ import {
   TyreStatus,
 } from '../maintenance.types';
 import { TyreReadingEntity } from './tyre-reading.entity';
+import { MaintenanceJobEntity } from './maintenance-job.entity';
 
 /**
  * One tyre fitment at one wheel position. A retreaded casing going back on is registered as a new
@@ -56,6 +57,22 @@ export class TyreEntity {
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   brand!: string | null;
+
+  /** Tyre size / pattern code, e.g. "295/90 R20 Steel Muscle". */
+  @Column({ name: 'size_code', type: 'varchar', length: 50, nullable: true })
+  sizeCode!: string | null;
+
+  /** The Record Tyre Maintenance entry (tyre job) this fitment came from — carries its cost and
+   *  invoice. Null for tyres fitted one by one via POST /tyres. */
+  @Column({ name: 'maintenance_job_id', type: 'uuid', nullable: true })
+  maintenanceJobId!: string | null;
+
+  @ManyToOne(() => MaintenanceJobEntity, (job) => job.tyres, {
+    nullable: true,
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({ name: 'maintenance_job_id' })
+  maintenanceJob!: MaintenanceJobEntity | null;
 
   @Column({ name: 'original_tread_mm', type: 'numeric', precision: 4, scale: 1 })
   originalTreadMm!: string;

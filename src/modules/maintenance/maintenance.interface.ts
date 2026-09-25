@@ -1,5 +1,17 @@
 import { DateFilter } from '../../shared/utils/date-filter';
-import { MaintenanceJobType, TyreCasingCondition, TyreRemovalReason } from './maintenance.types';
+import {
+  MaintenanceJobType,
+  ServiceType,
+  TyreCasingCondition,
+  TyreRemovalReason,
+  TyreWorkAction,
+} from './maintenance.types';
+
+/** Who is writing — the role is needed to resolve an attached invoice's storage key. */
+export interface Actor {
+  id: string;
+  role: string;
+}
 
 /* Period — what follows the window (spend, downtime, job history) and what does not. */
 
@@ -18,24 +30,42 @@ export interface ReplacedPartInput {
 }
 
 export interface JobCostInput {
+  /** One total, as the Log a service / tyre modals take it. Wins over labour + parts. */
+  cost?: number;
   labourCost?: number;
   partsCost?: number;
   partsReplaced?: ReplacedPartInput[];
+  /** Confirmed storage key, purpose `maintenance/invoice`. */
+  invoiceFileKey?: string;
 }
 
-/**
- * Without `completedAt` this checks the truck in to the workshop (open job, out of dispatch)
- * and POST /services/:jobId/complete checks it out. With `completedAt` it records a service that
- * already happened, in one call, without touching dispatch.
- */
+/** Log a service — a finished service, dated the day it is logged unless `serviceDate` says
+ *  otherwise. If the truck has an open workshop visit, logging finishes that visit. */
 export interface LogServiceInput extends JobCostInput {
   vehicleId: string;
-  /** When the truck went in — defaults to now on check-in, or to completedAt for a past service. */
-  startedAt?: string;
-  completedAt?: string;
-  /** Odometer on arrival (check-in) or at the service (past service). */
+  serviceType: ServiceType;
   odometerKm: number;
+  /** The Garage field. */
   workshopName?: string;
+  description?: string;
+  /** YYYY-MM-DD, not in the future; defaults to today (IST). */
+  serviceDate?: string;
+}
+
+/** Send a truck to the workshop for a service — it leaves dispatch until the visit is finished
+ *  (Log a service, POST /services/:jobId/complete) or released. */
+export interface CheckInServiceInput {
+  vehicleId: string;
+  odometerKm?: number;
+  startedAt?: string;
+  serviceType?: ServiceType;
+  workshopName?: string;
+  description?: string;
+}
+
+export interface ReleaseFromWorkshopInput {
+  closedAt?: string;
+  odometerKm?: number;
   description?: string;
 }
 
@@ -54,6 +84,8 @@ export interface OpenBreakdownInput extends JobCostInput {
 
 export interface CompleteServiceInput extends JobCostInput {
   completedAt?: string;
+  /** Defaults to what the visit was checked in for, else preventive_service. */
+  serviceType?: ServiceType;
   odometerKm: number;
   workshopName?: string;
   description?: string;
@@ -115,6 +147,22 @@ export interface RemoveTyreInput {
   removedAt?: string;
   odometerKm?: number;
   casingCondition?: TyreCasingCondition;
+}
+
+/** Record Tyre Maintenance — one entry across one or more wheel positions. */
+export interface RecordTyreWorkInput {
+  vehicleId: string;
+  positions: string[];
+  action: TyreWorkAction;
+  brand: string;
+  sizeCode?: string;
+  odometerKm: number;
+  /** YYYY-MM-DD — the invoice date, also the fitment date. */
+  invoiceDate: string;
+  workshopName: string;
+  totalCost: number;
+  invoiceFileKey?: string;
+  originalTreadMm?: number;
 }
 
 /* Batteries */

@@ -29,10 +29,11 @@ export class MaintenanceOverviewService {
       const range = this.maintenanceService.resolvePeriod(input);
       const now = new Date();
 
-      const [serviceDue, tyres, consequence] = await Promise.all([
+      const [serviceDue, tyres, consequence, fleetAvailability] = await Promise.all([
         this.maintenanceService.listServiceDue(tenantId),
         this.tyreService.listQueue(tenantId),
         this.maintenanceService.getWorkshopSnapshot(tenantId),
+        this.maintenanceService.getFleetAvailability(tenantId),
       ]);
 
       const trucksOverServicePolicy = {
@@ -54,13 +55,22 @@ export class MaintenanceOverviewService {
         from: range.from,
         to: range.to,
         followsPeriod: ['maintenanceSpend', 'daysOffRoad', 'jobHistory'],
-        currentState: ['serviceDue', 'breakdowns', 'tyres', 'batteries'],
+        currentState: [
+          'fleetAvailability',
+          'serviceDue',
+          'breakdowns',
+          'inWorkshop',
+          'blockedOnPapers',
+          'tyres',
+          'batteries',
+        ],
       };
 
       if (!canSeeCosts) {
         return {
           period,
           headlines: { trucksOverServicePolicy, positionsAtLegalLimit },
+          fleetAvailability,
           consequence,
         };
       }
@@ -72,12 +82,15 @@ export class MaintenanceOverviewService {
 
       const service = spendRows.find((row) => row.jobType === 'service');
       const breakdown = spendRows.find((row) => row.jobType === 'breakdown');
+      const tyre = spendRows.find((row) => row.jobType === 'tyre');
       const maintenanceSpend = {
-        total: money((service?.total ?? 0) + (breakdown?.total ?? 0)),
+        total: money((service?.total ?? 0) + (breakdown?.total ?? 0) + (tyre?.total ?? 0)),
         serviceCost: money(service?.total ?? 0),
         serviceCount: service?.count ?? 0,
         breakdownCost: money(breakdown?.total ?? 0),
         breakdownCount: breakdown?.count ?? 0,
+        tyreCost: money(tyre?.total ?? 0),
+        tyreCount: tyre?.count ?? 0,
       };
 
       let days = 0;
@@ -109,6 +122,7 @@ export class MaintenanceOverviewService {
           trucksOverServicePolicy,
           positionsAtLegalLimit,
         },
+        fleetAvailability,
         consequence,
       };
     } catch (error) {

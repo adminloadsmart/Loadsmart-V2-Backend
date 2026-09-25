@@ -20,6 +20,7 @@ export interface CreateVehicleInput {
   truckTypeId?: string;
   fuelType?: VehicleFuelType;
   bodyType?: VehicleBodyType;
+  makeModel?: string;
   wheelCount?: number;
   capacityTons?: number;
   ownershipType?: VehicleOwnershipType;
@@ -29,6 +30,7 @@ export interface UpdateVehicleInput {
   truckTypeId?: string;
   fuelType?: VehicleFuelType;
   bodyType?: VehicleBodyType;
+  makeModel?: string;
   wheelCount?: number;
   capacityTons?: number;
   ownershipType?: VehicleOwnershipType;
@@ -80,6 +82,7 @@ export interface CreateVehicleData {
   truckTypeId: string | null;
   fuelType: VehicleFuelType | null;
   bodyType: VehicleBodyType | null;
+  makeModel: string | null;
   wheelCount: number | null;
   capacityTons: string | null;
   ownershipType: VehicleOwnershipType;
@@ -93,6 +96,7 @@ export interface UpdateVehicleData {
   truckTypeId?: string | null;
   fuelType?: VehicleFuelType | null;
   bodyType?: VehicleBodyType | null;
+  makeModel?: string | null;
   wheelCount?: number | null;
   capacityTons?: string | null;
   ownershipType?: VehicleOwnershipType;

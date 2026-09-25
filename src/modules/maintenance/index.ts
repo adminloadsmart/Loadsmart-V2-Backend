@@ -12,16 +12,18 @@ import { MaintenanceController } from './maintenance.controller';
 import { createMaintenanceRoutes } from './maintenance.routes';
 import { NotificationsGateway } from './gateways/notifications.gateway';
 import { FleetGateway } from './gateways/fleet.gateway';
+import { StorageGateway } from './gateways/storage.gateway';
 
 export interface MaintenanceModuleDeps {
   notificationsGateway: NotificationsGateway;
   fleetGateway: FleetGateway;
+  storageGateway: StorageGateway;
   auditService: AuditService;
 }
 
 export function createMaintenanceModule(
   dataSource: DataSource,
-  { notificationsGateway, fleetGateway, auditService }: MaintenanceModuleDeps,
+  { notificationsGateway, fleetGateway, storageGateway, auditService }: MaintenanceModuleDeps,
 ) {
   const jobRepository = new MaintenanceJobRepository(dataSource);
   const fleetRepository = new MaintenanceFleetRepository(dataSource);
@@ -33,10 +35,17 @@ export function createMaintenanceModule(
     jobRepository,
     fleetRepository,
     fleetGateway,
+    storageGateway,
     auditService,
     notificationsGateway,
   );
-  const tyreService = new TyreService(tyreRepository, service, auditService);
+  const tyreService = new TyreService(
+    dataSource,
+    tyreRepository,
+    jobRepository,
+    service,
+    auditService,
+  );
   const batteryService = new BatteryService(batteryRepository, service, auditService);
   const overviewService = new MaintenanceOverviewService(jobRepository, service, tyreService);
 

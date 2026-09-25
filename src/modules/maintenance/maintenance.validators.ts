@@ -4,8 +4,11 @@ import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
 import {
   MAINTENANCE_JOB_TYPES,
+  SERVICE_TYPES,
   TYRE_CASING_CONDITIONS,
   TYRE_REMOVAL_REASONS,
+  TYRE_WORK_ACTIONS,
+  WORKSHOP_STATUSES,
 } from './maintenance.types';
 
 const uuid = z.string().uuid();
@@ -45,7 +48,12 @@ const part = z
   })
   .strict();
 
+const invoiceFileKey = z.string().trim().min(1).max(512);
+
 const costFields = {
+  // One figure off the invoice (the modals' "Cost") — wins over labour + parts when both come.
+  cost: money.optional(),
+  invoiceFileKey: invoiceFileKey.optional(),
   labourCost: money.optional(),
   partsCost: money.optional(),
   partsReplaced: z.array(part).max(100).optional(),
@@ -69,20 +77,52 @@ export const maintenanceValidators = {
       .superRefine(checkPeriod),
   }),
 
+  // Log a service — a finished service, dated today unless serviceDate says otherwise. On a truck
+  // that is in the workshop, it finishes that visit.
   logService: z.object({
     body: z
       .object({
         vehicleId: uuid,
-        startedAt: isoDateTime.optional(),
-        // Omit to check the truck in (it leaves dispatch until POST /services/:jobId/complete);
-        // send it to record a service that already happened.
-        completedAt: isoDateTime.optional(),
+        serviceType: z.enum(SERVICE_TYPES).default('preventive_service'),
         odometerKm,
         workshopName: optionalText(150),
         description: optionalText(2000),
+        serviceDate: isoDate.optional(),
         ...costFields,
       })
       .strict(),
+  }),
+
+  // Send to the workshop for a service — the truck leaves dispatch until the visit is finished.
+  checkInService: z.object({
+    body: z
+      .object({
+        vehicleId: uuid,
+        odometerKm: odometerKm.optional(),
+        startedAt: isoDateTime.optional(),
+        serviceType: z.enum(SERVICE_TYPES).optional(),
+        workshopName: optionalText(150),
+        description: optionalText(2000),
+      })
+      .strict(),
+  }),
+
+  // The plain in/out toggle — just the vehicle and the target status.
+  setWorkshopStatus: z.object({
+    params: z.object({ vehicleId: uuid }),
+    body: z.object({ status: z.enum(WORKSHOP_STATUSES) }).strict(),
+  }),
+
+  releaseFromWorkshop: z.object({
+    params: z.object({ jobId: uuid }),
+    body: z
+      .object({
+        closedAt: isoDateTime.optional(),
+        odometerKm: odometerKm.optional(),
+        description: optionalText(2000),
+      })
+      .strict()
+      .default({}),
   }),
 
   openBreakdown: z.object({
@@ -106,6 +146,7 @@ export const maintenanceValidators = {
     body: z
       .object({
         completedAt: isoDateTime.optional(),
+        serviceType: z.enum(SERVICE_TYPES).optional(),
         odometerKm,
         workshopName: optionalText(150),
         description: optionalText(2000),
@@ -181,6 +222,27 @@ export const maintenanceValidators = {
         fittedOdometerKm: odometerKm.optional(),
         retreadCount: z.number().int().min(0).max(10).optional(),
         maxRetreads: z.number().int().min(0).max(10).optional(),
+      })
+      .strict(),
+  }),
+
+  vehicleTyres: z.object({ params: z.object({ vehicleId: uuid }) }),
+
+  // Record Tyre Maintenance — one invoice across one or more positions.
+  recordTyreWork: z.object({
+    body: z
+      .object({
+        vehicleId: uuid,
+        positions: z.array(z.string().trim().min(1).max(20)).min(1).max(22),
+        action: z.enum(TYRE_WORK_ACTIONS),
+        brand: z.string().trim().min(1).max(100),
+        sizeCode: optionalText(50),
+        odometerKm,
+        invoiceDate: isoDate,
+        workshopName: z.string().trim().min(1).max(150),
+        totalCost: money,
+        invoiceFileKey: invoiceFileKey.optional(),
+        originalTreadMm: z.number().positive().max(40).optional(),
       })
       .strict(),
   }),

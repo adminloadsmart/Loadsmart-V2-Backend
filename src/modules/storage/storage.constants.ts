@@ -12,6 +12,7 @@ export const UPLOAD_PURPOSES = [
   'loads/eway-bill',
   'loads/payment-proof',
   'loads/issue',
+  'maintenance/invoice',
 ] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
@@ -85,6 +86,12 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png'],
     keyPrefix: 'loads/issue',
+  },
+  // Invoice / work order attached to Log a service and Record Tyre Maintenance.
+  'maintenance/invoice': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
+    keyPrefix: 'maintenance/invoice',
   },
 };
 

@@ -26,6 +26,10 @@ export const DEFAULT_AVG_DAILY_KM = 250;
 /** Default warranty State-of-Health floor for a battery pack, when the pack's own terms don't say. */
 export const DEFAULT_BATTERY_WARRANTY_SOH_FLOOR_PCT = 70;
 
+/** Tread assumed on a Record Tyre Maintenance entry when the modal doesn't give one. */
+export const DEFAULT_NEW_TYRE_TREAD_MM = 16;
+export const DEFAULT_RETREAD_TREAD_MM = 13;
+
 /** Default retreads a casing can take before it is scrapped. */
 export const DEFAULT_MAX_RETREADS = 2;
 

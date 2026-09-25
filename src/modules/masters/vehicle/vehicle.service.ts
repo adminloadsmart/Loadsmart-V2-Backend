@@ -95,6 +95,7 @@ export class VehicleService {
           truckTypeId: input.truckTypeId ?? null,
           fuelType: input.fuelType ?? null,
           bodyType: input.bodyType ?? null,
+          makeModel: input.makeModel ?? null,
           wheelCount: input.wheelCount ?? null,
           capacityTons: input.capacityTons === undefined ? null : String(input.capacityTons),
           ownershipType: input.ownershipType ?? 'owned',

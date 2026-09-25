@@ -27,11 +27,12 @@ export class MaintenanceFleetRepository {
     const repo = manager?.getRepository(VehicleEntity) ?? this.vehicles;
     return repo.findOne({
       where: { id: vehicleId, tenantId, deletedAt: IsNull() },
-      relations: { serviceUsage: true, telemetryMeta: true },
+      relations: { serviceUsage: true, telemetryMeta: true, truckType: true },
     });
   }
 
-  /** The running own fleet — owned/leased, onboarded and not retired. */
+  /** The running own fleet — owned/leased, onboarded and not retired — with what every queue
+   *  row shows (class) and what decides its dispatch effect (papers). */
   listOwnFleet(tenantId: string, filters: { fuelType?: VehicleFuelType } = {}) {
     return this.vehicles.find({
       where: {
@@ -41,7 +42,7 @@ export class MaintenanceFleetRepository {
         status: In([...MAINTAINED_VEHICLE_STATUSES]),
         ...(filters.fuelType ? { fuelType: filters.fuelType } : {}),
       },
-      relations: { serviceUsage: true, telemetryMeta: true },
+      relations: { serviceUsage: true, telemetryMeta: true, truckType: true, documents: true },
       order: { registrationNumber: 'ASC' },
     });
   }
