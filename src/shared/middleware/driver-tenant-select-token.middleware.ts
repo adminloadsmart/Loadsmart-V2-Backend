@@ -1,7 +1,7 @@
 import { RequestHandler } from 'express';
 import { AuthenticationError } from '../errors';
 import { extractBearerToken, verifyToken } from '../utils/token';
-import { DriverLoginCandidate } from '../../modules/driver/driver-auth.types';
+import { DriverLoginCandidate } from '../../modules/driver/auth/driver-auth.types';
 
 interface DriverTenantSelectTokenPayload {
   purpose: string;

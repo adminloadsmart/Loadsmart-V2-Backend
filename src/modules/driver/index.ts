@@ -10,18 +10,20 @@ import { SarathiClient, DlVerificationClient } from '../../adapters/sarathi.clie
 import { OtpService } from '../../shared/services/otp.service';
 import { OrganizationService } from '../organization/organization.service';
 import { LoadService } from '../loads/load.service';
-import { DriverSessionRepository } from './driver-auth.repository';
-import { DriverPushNotifier } from './driver-push-notifier';
-import { DriverAuthService } from './driver-auth.service';
-import { DriverAuthController } from './driver-auth.controller';
+import { DriverSessionRepository } from './auth/driver-auth.repository';
+import { DriverPushNotifier } from './auth/driver-push-notifier';
+import { DriverAuthService } from './auth/driver-auth.service';
+import { DriverAuthController } from './auth/driver-auth.controller';
 import {
   createDriverAuthPublicRoutes,
   createDriverAuthProtectedRoutes,
-} from './driver-auth.routes';
-import { DriverPortalController } from './driver-portal.controller';
-import { createDriverPortalRoutes } from './driver-portal.routes';
-import { DriverIdentityService } from './driver-identity.service';
+} from './auth/driver-auth.routes';
+import { DriverPortalController } from './portal/driver-portal.controller';
+import { DriverPortalService } from './portal/driver-portal.service';
+import { createDriverPortalRoutes } from './portal/driver-portal.routes';
+import { DriverIdentityService } from './auth/driver-identity.service';
 import { NotifyByType } from '../notifications/notify-by-type';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Driver is its own top-level module (promoted out of masters/) — see docs/driver-auth.md for
 // why: it owns both the staff-facing master-data CRUD below (unchanged behavior, still composed
@@ -35,12 +37,16 @@ export function createDriverModule(
     auditService: AuditService;
     storageService: StorageService;
     organizationService: OrganizationService;
+    notificationsService: NotificationsService;
   },
 ) {
   const driverRepository = new DriverRepository(dataSource);
   const driverTenantRelationRepository = new DriverTenantRelationRepository(dataSource);
   const sarathiClient = new SarathiClient();
-  const driverPushNotifier = new DriverPushNotifier(new DriverSessionRepository(dataSource));
+  const driverPushNotifier = new DriverPushNotifier(
+    new DriverSessionRepository(dataSource),
+    deps.notificationsService,
+  );
   const driverService = new DriverService(
     driverRepository,
     driverTenantRelationRepository,
@@ -158,10 +164,21 @@ export function createDriverPortalModule(deps: {
   driverRepository: DriverRepository;
   driverTenantRelationRepository: DriverTenantRelationRepository;
   driverService: DriverService;
+  organizationService: OrganizationService;
   loadService: LoadService;
   storageService: StorageService;
+  notificationsService: NotificationsService;
 }) {
+  const driverPortalService = new DriverPortalService(
+    deps.driverService,
+    deps.driverRepository,
+    deps.driverTenantRelationRepository,
+    deps.organizationService,
+    deps.loadService,
+    deps.notificationsService,
+  );
   const controller = new DriverPortalController(
+    driverPortalService,
     deps.driverService,
     deps.loadService,
     deps.storageService,

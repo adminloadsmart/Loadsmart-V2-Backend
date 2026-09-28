@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { isoDateSchema as isoDate } from '../../shared/utils/date';
-import { IFSC_REGEX } from '../masters/masters.constants';
+import { isoDateSchema as isoDate } from '../../../shared/utils/date';
+import { IFSC_REGEX } from '../../masters/masters.constants';
 import {
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_ONBOARDING_STEPS,
-} from './drivers.types';
+} from '../drivers.types';
 
 // Same convention as modules/auth/auth.validators.ts's deviceTokenFields — optional on every
 // session-issuing endpoint below, deviceType required alongside fcmToken via .superRefine. No

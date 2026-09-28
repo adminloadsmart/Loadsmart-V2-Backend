@@ -1,25 +1,28 @@
 import { DataSource } from 'typeorm';
-import { env } from '../../config/env';
+import { env } from '../../../config/env';
 import {
   AuthenticationError,
   ConflictError,
   NotFoundError,
   rethrow,
   ValidationError,
-} from '../../shared/errors';
-import { signToken } from '../../shared/utils/token';
-import { normalizePhoneNumber } from '../../shared/utils/phone-number';
-import { OtpService } from '../../shared/services/otp.service';
-import { StorageService } from '../storage/storage.service';
-import { OrganizationService } from '../organization/organization.service';
-import { AuditService } from '../audit/audit.service';
-import { NotifyByType } from '../notifications/notify-by-type';
-import { NOTIFICATION_CATALOG } from '../notifications/catalog/notification-catalog';
-import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
-import { DriverRepository } from './driver.repository';
-import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
+} from '../../../shared/errors';
+import { signToken } from '../../../shared/utils/token';
+import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
+import { OtpService } from '../../../shared/services/otp.service';
+import { StorageService } from '../../storage/storage.service';
+import { OrganizationService } from '../../organization/organization.service';
+import { AuditService } from '../../audit/audit.service';
+import { NotifyByType } from '../../notifications/notify-by-type';
+import { NOTIFICATION_CATALOG } from '../../notifications/catalog/notification-catalog';
+import {
+  DlVerificationClient,
+  SarathiDrivingLicenceResult,
+} from '../../../adapters/sarathi.client';
+import { DriverRepository } from '../driver.repository';
+import { DriverTenantRelationRepository } from '../driver-tenant-relation.repository';
 import { DriverAuthService } from './driver-auth.service';
-import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import { DriverTenantRelationEntity } from '../entities/driver-tenant-relation.entity';
 import {
   CompleteRegistrationResult,
   DriverIdentitySession,

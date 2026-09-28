@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
-import { respond } from '../../shared/responses/respond';
+import { respond } from '../../../shared/responses/respond';
 import { DriverAuthService } from './driver-auth.service';
 import { DriverIdentityService } from './driver-identity.service';
-import { OrganizationService } from '../organization/organization.service';
-import { StorageService } from '../storage/storage.service';
-import { GenerateUploadUrlInput, FileParams } from '../storage/storage.types';
-import { DriverRelationParams } from './drivers.interface';
+import { OrganizationService } from '../../organization/organization.service';
+import { StorageService } from '../../storage/storage.service';
+import { GenerateUploadUrlInput, FileParams } from '../../storage/storage.types';
+import { DriverRelationParams } from '../drivers.interface';
 
 // Mirrors modules/auth/auth.controller.ts's shape — see docs/driver-auth.md for why this is a
 // separate identity domain rather than another endpoint on AuthController. Also owns

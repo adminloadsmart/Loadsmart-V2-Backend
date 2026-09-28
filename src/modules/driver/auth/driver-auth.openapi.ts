@@ -1,7 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { driverAuthValidators } from './driver-auth.validators';
-import { API_VERSION_PREFIX } from '../../shared/constants/api';
-import { TAGS, authenticated, errorContent, json } from '../../shared/openapi/core';
+import { API_VERSION_PREFIX } from '../../../shared/constants/api';
+import { TAGS, authenticated, errorContent, json } from '../../../shared/openapi/core';
 
 const BASE = `${API_VERSION_PREFIX}/driver-auth`; // absolute path — must match its mount in app.ts
 
@@ -40,7 +40,10 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     security: [{ bearerAuth: [] }],
     request: { body: json(driverAuthValidators.verifyOtp.shape.body) },
     responses: {
-      200: { description: 'Token pair, or a tenant-selection prompt' },
+      200: {
+        description:
+          'Token pair with a driver summary ({ id, fullName, phoneNumber, onboardingStep }) — onboardingStep is the self-registration resume-position bookmark from POST /register, null if the driver never started/finished it — or a tenant-selection prompt',
+      },
       401: { description: 'Invalid OTP or login token', ...errorContent },
     },
   });
@@ -55,7 +58,10 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     security: [{ bearerAuth: [] }],
     request: { body: json(driverAuthValidators.selectTenant.shape.body) },
     responses: {
-      200: { description: 'Access/refresh token pair' },
+      200: {
+        description:
+          'Access/refresh token pair with a driver summary ({ id, fullName, phoneNumber, onboardingStep })',
+      },
       401: { description: 'Invalid tenant selection or selection token', ...errorContent },
     },
   });
@@ -68,7 +74,10 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     description: 'Rotate a driver refresh token for a new access/refresh pair.',
     request: { body: json(driverAuthValidators.refresh.shape.body) },
     responses: {
-      200: { description: 'New access/refresh token pair' },
+      200: {
+        description:
+          'New access/refresh token pair with a driver summary ({ id, fullName, phoneNumber, onboardingStep })',
+      },
       401: { description: 'Invalid or expired refresh token', ...errorContent },
     },
   });
@@ -107,7 +116,10 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { body: json(driverAuthValidators.selectRelation.shape.body) },
     responses: {
-      200: { description: 'Access/refresh token pair for the newly-selected relation' },
+      200: {
+        description:
+          'Access/refresh token pair for the newly-selected relation, with a driver summary ({ id, fullName, phoneNumber, onboardingStep })',
+      },
       404: { description: 'Relation not found, or not active', ...errorContent },
     },
   });

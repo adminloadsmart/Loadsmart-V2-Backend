@@ -20,7 +20,7 @@ import { Paginated, paginate } from '../../shared/utils/pagination';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
-import { DriverPushNotifier } from './driver-push-notifier';
+import { DriverPushNotifier } from './auth/driver-push-notifier';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
@@ -63,7 +63,7 @@ export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'
 // `updatedAt` audit columns (every TypeORM entity does), which would silently clobber the driver's
 // own `id` etc. if spread after `...driver`. `id` must stay the driver's global id — the same
 // value that's always been in the :driverId URL param — never the relation's own row id.
-function flattenRelation(relation: DriverTenantRelationEntity): DriverWithRelation {
+export function flattenRelation(relation: DriverTenantRelationEntity): DriverWithRelation {
   const { driver } = relation;
   return {
     ...driver,
@@ -78,45 +78,6 @@ function flattenRelation(relation: DriverTenantRelationEntity): DriverWithRelati
     tripMetrics: relation.tripMetrics,
     vehicleLinks: relation.vehicleLinks,
   } as DriverWithRelation;
-}
-
-/**
- * Driver-portal profile screen — everything getDriver/findByIdWithRelations already returns
- * (fullName, phoneNumber, documents, verifications, bankDetails, vehicleLinks, etc., unchanged),
- * plus a handful of new fields aggregated from the assigned vehicle (masters.vehicles/
- * vehicle_documents/truck_types), trip metrics, and the organization's name. Fields with no
- * backing data anywhere in this build (experience, KMs driven, settlement due, and every Settings
- * entry — none of these are tracked server-side yet) are explicit `null`, not omitted, so the
- * driver app can render a consistent "—" placeholder rather than branching on a missing key.
- *
- * `documentStatus` (a derived summary) is deliberately named apart from the entity's own
- * `documents` array (the raw DriverDocumentEntity rows) so neither shadows the other.
- */
-export interface DriverProfileView extends DriverWithRelation {
-  organizationName: string | null;
-  experienceYears: number | null;
-  vehicle: {
-    registrationNumber: string;
-    type: string | null;
-    insuranceValidTill: string | null;
-    fitnessValidTill: string | null;
-  } | null;
-  documentStatus: {
-    drivingLicence: { uploaded: boolean; verified: boolean } | null;
-    identityProof: { uploaded: boolean; verified: boolean } | null;
-  };
-  performance: {
-    tripsCompleted: number | null;
-    onTimeDeliveryPercentage: number | null;
-    kmsDriven: number | null;
-    settlementDue: number | null;
-  };
-  settings: {
-    notificationsEnabled: boolean | null;
-    language: string | null;
-    locationSharing: string | null;
-    appVersion: string | null;
-  };
 }
 
 export class DriverService {
@@ -312,114 +273,6 @@ export class DriverService {
       return flattenRelation(relation);
     } catch (error) {
       rethrow(error, 'Failed to fetch driver');
-    }
-  }
-
-  /**
-   * Profile screen for a driver with no active tenant relation yet (e.g. just finished
-   * self-registration, hasn't joined a fleet owner) — just the global profile
-   * (documents/verifications/bankDetails/insurances), none of the tenant-aggregated fields
-   * getMyProfile below adds (those need a relation: vehicle assignment, org name, trip metrics).
-   * See DriverPortalController.getMe, which picks this or getMyProfile based on whether the
-   * caller's token carries a tenantId.
-   */
-  async getMyGlobalProfile(driverId: string): Promise<DriverEntity> {
-    try {
-      const driver = await this.driverRepository.findByIdWithPersonRelations(driverId);
-      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
-      return driver;
-    } catch (error) {
-      rethrow(error, 'Failed to fetch driver profile');
-    }
-  }
-
-  // See DriverProfileView's doc comment for which fields are real vs. explicit null.
-  async getMyProfile(tenantId: string, driverId: string): Promise<DriverProfileView> {
-    try {
-      const relation =
-        await this.driverTenantRelationRepository.findByTenantAndDriverWithProfileRelations(
-          tenantId,
-          driverId,
-        );
-      if (!relation) throw new NotFoundError(`Driver ${driverId} not found`);
-      const driver = flattenRelation(relation);
-      const organization = await this.organizationService.getOrganizationStatus(tenantId);
-
-      const activeLink =
-        relation.vehicleLinks?.find((link) => link.status === 'active' && link.isPrimary) ??
-        relation.vehicleLinks?.find((link) => link.status === 'active') ??
-        null;
-
-      let vehicle: DriverProfileView['vehicle'] = null;
-      if (activeLink) {
-        const latestByExpiry = (documentType: 'insurance' | 'fitness'): string | null => {
-          const matches = (activeLink.vehicle.documents ?? []).filter(
-            (doc) => doc.documentType === documentType && !doc.deletedAt && doc.expiryDate,
-          );
-          if (matches.length === 0) return null;
-          return matches.reduce((latest, doc) =>
-            !latest.expiryDate || (doc.expiryDate && doc.expiryDate > latest.expiryDate)
-              ? doc
-              : latest,
-          ).expiryDate;
-        };
-        vehicle = {
-          registrationNumber: activeLink.vehicle.registrationNumber,
-          type: activeLink.vehicle.truckType?.name ?? null,
-          insuranceValidTill: latestByExpiry('insurance'),
-          fitnessValidTill: latestByExpiry('fitness'),
-        };
-      }
-
-      const findDocument = (types: string[]) =>
-        driver.documents?.find((doc) => types.includes(doc.documentType) && !doc.deletedAt) ?? null;
-      const drivingLicenceDoc = findDocument(['driving_license_front', 'driving_license_back']);
-      const identityProofDoc = findDocument(['aadhaar', 'pan']);
-
-      const metrics = (relation.tripMetrics ?? []).filter((metric) => !metric.deletedAt);
-      const tripsCompleted = metrics.length
-        ? metrics.reduce((sum, metric) => sum + metric.tripsCount, 0)
-        : null;
-      const onTimeDeliveryPercentage =
-        tripsCompleted && tripsCompleted > 0
-          ? Number(
-              (
-                metrics.reduce(
-                  (sum, metric) => sum + metric.tripsCount * Number(metric.onTimePercentage),
-                  0,
-                ) / tripsCompleted
-              ).toFixed(2),
-            )
-          : null;
-
-      return {
-        ...driver, // fullName, phoneNumber, documents, verifications, bankDetails, vehicleLinks, etc. — unchanged
-        organizationName: organization.name,
-        experienceYears: null, // not tracked — no field distinguishes this from dateOfJoining
-        vehicle,
-        documentStatus: {
-          drivingLicence: drivingLicenceDoc
-            ? { uploaded: true, verified: !!drivingLicenceDoc.verifiedAt }
-            : null,
-          identityProof: identityProofDoc
-            ? { uploaded: true, verified: !!identityProofDoc.verifiedAt }
-            : null,
-        },
-        performance: {
-          tripsCompleted,
-          onTimeDeliveryPercentage,
-          kmsDriven: null, // not tracked anywhere in this build
-          settlementDue: null, // no driver settlement/earnings module exists yet
-        },
-        settings: {
-          notificationsEnabled: null, // no driver notification-preference field exists yet
-          language: null, // no driver locale/language field exists yet
-          locationSharing: null, // no location-sharing preference field exists yet
-          appVersion: null, // client-reported, not a server-side concept
-        },
-      };
-    } catch (error) {
-      rethrow(error, 'Failed to fetch driver profile');
     }
   }
 
@@ -984,7 +837,11 @@ export class DriverService {
       });
 
       const organization = await this.organizationService.getOrganizationStatus(tenantId);
-      await this.driverPushNotifier.notifyInvited(result.id, organization.name ?? 'A fleet owner');
+      await this.driverPushNotifier.notifyInvited(
+        tenantId,
+        result.id,
+        organization.name ?? 'A fleet owner',
+      );
 
       return result;
     } catch (error) {
@@ -1070,6 +927,7 @@ export class DriverService {
       if (existing.initiatedBy === 'driver') {
         const organization = await this.organizationService.getOrganizationStatus(tenantId);
         await this.driverPushNotifier.notifyJoinRequestApproved(
+          tenantId,
           driverId,
           organization.name ?? 'the fleet owner',
         );
@@ -1113,6 +971,7 @@ export class DriverService {
       if (existing.initiatedBy === 'driver') {
         const organization = await this.organizationService.getOrganizationStatus(tenantId);
         await this.driverPushNotifier.notifyJoinRequestRejected(
+          tenantId,
           driverId,
           organization.name ?? 'the fleet owner',
         );

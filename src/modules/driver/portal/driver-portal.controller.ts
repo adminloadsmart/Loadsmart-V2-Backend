@@ -1,24 +1,31 @@
 import { Request, Response } from 'express';
-import { respond } from '../../shared/responses/respond';
-import { paginate } from '../../shared/utils/pagination';
-import { DriverService } from './driver.service';
-import { LoadService } from '../loads/load.service';
+import { respond } from '../../../shared/responses/respond';
+import { PaginationInput } from '../../../shared/utils/pagination';
+import { DriverService } from '../driver.service';
+import { LoadService } from '../../loads/load.service';
 import {
   ListLoadsInput,
   LoadParams,
   UpdateLoadStatusInput,
   UploadPodInput,
-} from '../loads/utils/load.interface';
-import { ReportLoadIssueInput } from '../loads/utils/load-issue.interface';
-import { StorageService } from '../storage/storage.service';
-import { FileParams, GenerateUploadUrlInput } from '../storage/storage.types';
+} from '../../loads/utils/load.interface';
+import { ReportLoadIssueInput } from '../../loads/utils/load-issue.interface';
+import { StorageService } from '../../storage/storage.service';
+import { FileParams, GenerateUploadUrlInput } from '../../storage/storage.types';
+import { ListNotificationsInput } from '../../notifications/notifications.interface';
+import { DriverPortalService } from './driver-portal.service';
+import { DriverNotificationCategory } from './driver-portal.types';
 
 /**
  * The driver-app self-service layer — "do some stuff as myself". Every method is implicitly
  * scoped to req.driver!.id/req.driver!.tenantId (set by createDriverAuth), never a
- * client-supplied id, so there is no IDOR surface to review here by construction. Calls straight
- * into the same DriverService/LoadService the staff-facing masters/loads routes use — no
- * duplicated queries, no repository of its own. See docs/driver-auth.md.
+ * client-supplied id, so there is no IDOR surface to review here by construction. Purely a thin
+ * HTTP layer: request data in, one call out, respond(). Every "tenant or not" branch and every
+ * cross-service aggregation lives in DriverPortalService instead — see that file. The handful of
+ * methods below that call driverService/loadService/storageService directly (updateMyStatus,
+ * getMyLoad, updateMyLoadStatus, uploadMyPod, reportMyIssue, requestUploadUrl, confirmUpload,
+ * getMyTripDetail) are genuinely tenant-required actions with no "or global"/"or empty" branching
+ * to extract — a straight service call is not business logic, just wiring.
  *
  * getMyLoad/updateMyLoadStatus/uploadMyPod/reportMyIssue are the exception to "implicitly
  * scoped" above — :loadId is client-supplied, so ownership (the load must actually be this
@@ -26,40 +33,33 @@ import { FileParams, GenerateUploadUrlInput } from '../storage/storage.types';
  */
 export class DriverPortalController {
   constructor(
+    private readonly driverPortalService: DriverPortalService,
     private readonly driverService: DriverService,
     private readonly loadService: LoadService,
     private readonly storageService: StorageService,
   ) {}
 
-  // Profile screen. A driver not yet linked to any tenant (no active relation, so no tenantId on
-  // their token) still gets their own global profile back — see getMyGlobalProfile. Once linked,
-  // this becomes the full aggregated view (driver + assigned vehicle's compliance dates +
-  // trip-metric performance + org name); see DriverProfileView's doc comment for which fields are
-  // real data vs. explicit null (nothing server-side tracks them yet).
   getMe = async (req: Request, res: Response) => {
-    const profile = req.driver!.tenantId
-      ? await this.driverService.getMyProfile(req.driver!.tenantId, req.driver!.id)
-      : await this.driverService.getMyGlobalProfile(req.driver!.id);
+    const profile = await this.driverPortalService.getMyProfile(
+      req.driver!.id,
+      req.driver!.tenantId ?? null,
+    );
     respond(res, profile);
   };
 
-  // A driver with no active tenant relation has no operational status anywhere — null, not a
-  // permissions error.
   getMyStatus = async (req: Request, res: Response) => {
-    if (!req.driver!.tenantId) {
-      respond(res, null);
-      return;
-    }
-    const status = await this.driverService.getOperationalStatus(
-      req.driver!.tenantId,
+    const status = await this.driverPortalService.getMyStatus(
       req.driver!.id,
+      req.driver!.tenantId ?? null,
     );
     respond(res, status);
   };
 
   // actorId === driverId here — the driver is setting their own status, same
   // DriverService.setOperationalStatus code path staff already use (driver.controller.ts), just
-  // invoked by the driver themselves.
+  // invoked by the driver themselves. Genuinely tenant-required (there's no "set my status" with
+  // no tenant to set it for), so this stays a direct call rather than routing through
+  // DriverPortalService's "or empty" branching.
   updateMyStatus = async (req: Request, res: Response) => {
     const status = await this.driverService.setOperationalStatus(
       req.driver!.tenantId!,
@@ -70,31 +70,30 @@ export class DriverPortalController {
     respond(res, status);
   };
 
-  // Read-only — trip metrics read as ops-computed KPIs (see driver.service.ts's
-  // recordTripMetrics, staff-only), not driver-self-reported data. No tenant relation means no
-  // metrics anywhere — empty array, not a permissions error.
   getMyTripMetrics = async (req: Request, res: Response) => {
-    if (!req.driver!.tenantId) {
-      respond(res, []);
-      return;
-    }
-    const metrics = await this.driverService.listTripMetrics(req.driver!.tenantId, req.driver!.id);
+    const metrics = await this.driverPortalService.getMyTripMetrics(
+      req.driver!.id,
+      req.driver!.tenantId ?? null,
+    );
     respond(res, metrics);
   };
 
-  // No tenant relation means this driver cannot be assigned to any load in any tenant — an empty
-  // page, not a permissions error, same reasoning as getMyStatus/getMyTripMetrics above.
   getMyLoads = async (req: Request, res: Response) => {
-    const query = req.validatedQuery as ListLoadsInput;
-    if (!req.driver!.tenantId) {
-      respond(res, paginate([], 0, query));
-      return;
-    }
-    const loads = await this.loadService.list(req.driver!.tenantId, {
-      ...query,
-      driverId: req.driver!.id,
-    });
+    const loads = await this.driverPortalService.getMyLoads(
+      req.driver!.id,
+      req.driver!.tenantId ?? null,
+      req.validatedQuery as ListLoadsInput,
+    );
     respond(res, loads);
+  };
+
+  getMyTripsDone = async (req: Request, res: Response) => {
+    const trips = await this.driverPortalService.getMyTripsDone(
+      req.driver!.id,
+      req.driver!.tenantId ?? null,
+      req.validatedQuery as PaginationInput,
+    );
+    respond(res, trips);
   };
 
   // Single-load detail — same LoadService.get the staff GET /loads/:loadId endpoint uses
@@ -107,6 +106,17 @@ export class DriverPortalController {
       'driver',
       req.params.loadId,
       req.driver!.id,
+    );
+    respond(res, result);
+  };
+
+  // Driver-app "Trip Done" detail screen — a lean single-pickup/single-drop summary, distinct
+  // from getMyLoad above. Same ownership-check-as-404 convention.
+  getMyTripDetail = async (req: Request<LoadParams>, res: Response) => {
+    const result = await this.loadService.getMyTripDetail(
+      req.driver!.tenantId!,
+      req.driver!.id,
+      req.params.loadId,
     );
     respond(res, result);
   };
@@ -178,5 +188,43 @@ export class DriverPortalController {
       (req.params as unknown as FileParams).fileId,
     );
     respond(res, file);
+  };
+
+  // --- Notifications — see driver-portal.service.ts's driver-facing methods. Not tenant-scoped:
+  // a driver's inbox spans every tenant relation they've ever had, so these work the same whether
+  // or not req.driver!.tenantId is set. ---
+
+  getMyNotifications = async (req: Request, res: Response) => {
+    const { category, ...query } = req.validatedQuery as ListNotificationsInput & {
+      category?: DriverNotificationCategory;
+    };
+    const notifications = await this.driverPortalService.getMyNotifications(
+      req.driver!.id,
+      category,
+      query,
+    );
+    respond(res, notifications);
+  };
+
+  markMyNotificationRead = async (req: Request, res: Response) => {
+    const notification = await this.driverPortalService.markMyNotificationRead(
+      req.driver!.id,
+      String((req.params as { notificationId: string }).notificationId),
+    );
+    respond(res, notification);
+  };
+
+  markAllMyNotificationsRead = async (req: Request, res: Response) => {
+    const result = await this.driverPortalService.markAllMyNotificationsRead(req.driver!.id);
+    respond(res, result);
+  };
+
+  // Home screen — see driver-portal.service.ts's getMyHome for what this bundles and why.
+  getMyHome = async (req: Request, res: Response) => {
+    const home = await this.driverPortalService.getMyHome(
+      req.driver!.id,
+      req.driver!.tenantId ?? null,
+    );
+    respond(res, home);
   };
 }

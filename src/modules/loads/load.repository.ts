@@ -5,6 +5,7 @@ import {
   FindOptionsWhere,
   ILike,
   In,
+  IsNull,
   Not,
   Repository,
 } from 'typeorm';
@@ -107,7 +108,7 @@ export class LoadRepository {
       where: { id, tenantId },
       relations: {
         cargoItems: { product: true },
-        vehicle: true,
+        vehicle: { truckType: true },
         driver: true,
         transporter: true,
         truckType: true,
@@ -229,8 +230,11 @@ export class LoadRepository {
       relations: {
         // driverLinks is loaded so toTripListRow can fall back to the vehicle's current driver
         // when this load's own driverId snapshot is null (e.g. planned before any driver was
-        // linked to the vehicle) — see load.service.ts.
-        vehicle: { driverLinks: { driver: true } },
+        // linked to the vehicle) — see load.service.ts. truckType is loaded on both `vehicle`
+        // (own-fleet) and the load itself (market — see load.entity.ts's own doc comment) so
+        // toTripListRow can resolve a truck-type name regardless of sourcing strategy.
+        vehicle: { driverLinks: { driver: true }, truckType: true },
+        truckType: true,
         driver: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
@@ -288,6 +292,31 @@ export class LoadRepository {
       },
       { active: 0, completed: 0 },
     );
+  }
+
+  /** Backs the driver-app "Trips Done" screen's header stats — see
+   *  driver-portal.controller.ts's getMyTripsDone. podVerifiedCount is currently always equal to
+   *  totalCompleted (uploadPod, the only path to 'delivered'/'closed', always sets podFileKey),
+   *  but this is a real query rather than an assumed 100% so the two can genuinely diverge if
+   *  that invariant ever changes. */
+  async getCompletedStatsForDriver(
+    tenantId: string,
+    driverId: string,
+  ): Promise<{ totalCompleted: number; podVerifiedCount: number }> {
+    const [totalCompleted, podVerifiedCount] = await Promise.all([
+      this.loads.count({
+        where: { tenantId, driverId, status: In(COMPLETED_LOAD_STATUSES) },
+      }),
+      this.loads.count({
+        where: {
+          tenantId,
+          driverId,
+          status: In(COMPLETED_LOAD_STATUSES),
+          podFileKey: Not(IsNull()),
+        },
+      }),
+    ]);
+    return { totalCompleted, podVerifiedCount };
   }
 
   async createMany(rows: CreateLoadData[], manager: EntityManager): Promise<LoadEntity[]> {

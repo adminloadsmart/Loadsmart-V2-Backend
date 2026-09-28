@@ -1,7 +1,7 @@
-import { DriverBloodGroup, DriverOnboardingStep } from './drivers.types';
-import { AddDriverDocumentInput } from './drivers.interface';
+import { DriverBloodGroup, DriverOnboardingStep } from '../drivers.types';
+import { AddDriverDocumentInput } from '../drivers.interface';
 import { DriverDeviceCaptureInput } from './driver-auth.types';
-import { DriverEntity } from './entities/driver.entity';
+import { DriverEntity } from '../entities/driver.entity';
 
 export interface RequestDriverRegisterOtpInput {
   phoneNumber: string;

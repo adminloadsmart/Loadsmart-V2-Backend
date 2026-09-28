@@ -4,7 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
-import { paginate, Paginated } from '../../shared/utils/pagination';
+import { paginate, Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadIssueRepository } from './load-issue.repository';
@@ -30,7 +30,9 @@ import {
 import {
   buildNextAction,
   buildStepper,
+  toTripDoneDetail,
   toTripListRow,
+  TripDoneDetail,
   TripListRow,
   TripNextAction,
   TripStepperStep,
@@ -42,6 +44,19 @@ export interface ListTripsResult extends Paginated<TripListRow> {
   /** Tab counts for the whole tenant (scoped by the same non-group filters as the list itself),
    *  independent of which `group` — if any — the caller requested. */
   counts: { active: number; completed: number };
+}
+
+/** Driver-app "Trips Done" screen — a dedicated, always-completed-only view of a single driver's
+ *  own trip history, separate from the general list() above (which serves the tenant-wide Trips
+ *  Home page and accepts arbitrary status/group/sourceType filters). See
+ *  driver-portal.controller.ts's getMyTripsDone. Amount/paid and per-trip distance are
+ *  deliberately not here yet — own-fleet loads (what every driver-app caller has) carry no
+ *  driver-payout amount anywhere in this build, and there's no distance-capture point wired up
+ *  yet either; both are follow-up work. */
+export interface TripsDoneResult extends Paginated<TripListRow> {
+  totalTrips: number;
+  /** Percentage (0-100) of completed trips with a confirmed E-POD on file. */
+  epodVerifiedPercentage: number;
 }
 
 export interface LoadDetailView {
@@ -712,6 +727,26 @@ export class LoadService {
     }
   }
 
+  /** Driver-app "Trip Done" detail screen — a lean, single-pickup/single-drop summary for a
+   *  completed trip, distinct from get() above (whose payments/stepper/nextAction are staff
+   *  planning-oriented and meaningless once a trip is closed). See TripDoneDetail's doc comment
+   *  for the single-drop scope. Ownership check identical to get()'s driverOwnerId branch. */
+  async getMyTripDetail(
+    tenantId: string,
+    driverId: string,
+    loadId: string,
+  ): Promise<TripDoneDetail> {
+    try {
+      const load = await this.assertDetailExists(tenantId, loadId);
+      if (load.driverId !== driverId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      return toTripDoneDetail(load);
+    } catch (error) {
+      rethrow(error, 'Failed to fetch trip detail');
+    }
+  }
+
   /** Trips Home-page list — one row per load with its route/customer/vehicle-source resolved,
    *  plus tenant-wide Active/Completed tab counts (independent of which group, if any, was
    *  requested) so the UI can render both tab badges from a single call. */
@@ -732,6 +767,31 @@ export class LoadService {
       return { ...paginate(items.map(toTripListRow), total, input), counts };
     } catch (error) {
       rethrow(error, 'Failed to list loads');
+    }
+  }
+
+  /** Driver-app "Trips Done" screen — see TripsDoneResult's doc comment for scope/omissions. */
+  async getMyTripsDone(
+    tenantId: string,
+    driverId: string,
+    input: PaginationInput,
+  ): Promise<TripsDoneResult> {
+    try {
+      const [[items, total], stats] = await Promise.all([
+        this.repository.list(tenantId, { ...input, driverId, group: 'completed' }),
+        this.repository.getCompletedStatsForDriver(tenantId, driverId),
+      ]);
+      const epodVerifiedPercentage =
+        stats.totalCompleted === 0
+          ? 0
+          : Math.round((stats.podVerifiedCount / stats.totalCompleted) * 100);
+      return {
+        ...paginate(items.map(toTripListRow), total, input),
+        totalTrips: stats.totalCompleted,
+        epodVerifiedPercentage,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to list completed trips');
     }
   }
 }

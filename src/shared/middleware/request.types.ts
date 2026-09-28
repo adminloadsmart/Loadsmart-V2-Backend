@@ -1,6 +1,6 @@
 import { Role } from '../constants/roles';
 import { LoginPortal } from '../../modules/auth/auth.types';
-import { DriverLoginCandidate } from '../../modules/driver/driver-auth.types';
+import { DriverLoginCandidate } from '../../modules/driver/auth/driver-auth.types';
 
 export interface AuthenticatedUser {
   id: string;

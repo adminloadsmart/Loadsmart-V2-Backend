@@ -15,8 +15,8 @@ import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
 import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
 import { registerNotificationsOpenApi } from '../../modules/notifications/notifications.openapi';
-import { registerDriverAuthOpenApi } from '../../modules/driver/driver-auth.openapi';
-import { registerDriverPortalOpenApi } from '../../modules/driver/driver-portal.openapi';
+import { registerDriverAuthOpenApi } from '../../modules/driver/auth/driver-auth.openapi';
+import { registerDriverPortalOpenApi } from '../../modules/driver/portal/driver-portal.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only

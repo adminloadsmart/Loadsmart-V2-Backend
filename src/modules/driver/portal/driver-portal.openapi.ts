@@ -1,7 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { driverPortalValidators } from './driver-portal.validators';
-import { API_VERSION_PREFIX } from '../../shared/constants/api';
-import { TAGS, authenticated, errorContent, json } from '../../shared/openapi/core';
+import { API_VERSION_PREFIX } from '../../../shared/constants/api';
+import { TAGS, authenticated, errorContent, json } from '../../../shared/openapi/core';
 
 const BASE = `${API_VERSION_PREFIX}/driver-portal`; // absolute path — must match its mount in app.ts
 
@@ -97,6 +97,104 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/me/trips-done`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.getMyTripsDone',
+    ...authenticated(
+      'Trips Done screen — a dedicated, always-completed-only view of the caller’s own trip ' +
+        'history, separate from GET /me/loads (which serves any status/group). Also reachable ' +
+        'with an identity-access token (no active tenant relation required) — returns a zeroed/' +
+        'empty result in that case. Per-trip amount/paid and distance are not included yet — ' +
+        'own-fleet loads (what every driver-app caller has) carry no driver-payout amount ' +
+        'anywhere in this build, and there’s no distance-capture point wired up yet either; both ' +
+        'are follow-up work.',
+    ),
+    request: { query: driverPortalValidators.getMyTripsDone.shape.query },
+    responses: {
+      200: {
+        description:
+          '{ data: { items, page, limit, total, totalPages, totalTrips, epodVerifiedPercentage } }',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/me/home`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.getMyHome',
+    ...authenticated(
+      'Home screen — one call bundling driver name/vehicle number, on-time %/trips-done stats, ' +
+        'the current active job (first of GET /me/loads?group=active), the upcoming-jobs list ' +
+        '(GET /me/loads?status=assigned, first 5), and the unread notification count. Also ' +
+        'reachable with an identity-access token (no active tenant relation required) — driver ' +
+        'name and unreadNotificationCount still populate in that case, but stats/currentJob/' +
+        'upcomingJobs come back zeroed/empty. Settlement Due, per-trip Distance, and a driver ' +
+        'Score/Rating are deliberately not included — no backing data exists for any of them yet.',
+    ),
+    responses: {
+      200: {
+        description:
+          '{ data: { driver: { fullName, vehicleNumber }, stats: { tripsDone, onTimePercentage }, ' +
+          'currentJob: TripListRow | null, upcomingJobs: TripListRow[], unreadNotificationCount } }',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/me/notifications`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.getMyNotifications',
+    ...authenticated(
+      'Notifications screen — the caller’s own notification feed, spanning every tenant they’ve ' +
+        'ever had a relation with (active, pending, or rejected) in one unified inbox, not scoped ' +
+        'to one tenant at a time the way staff’s GET /notifications is. `category` filters by the ' +
+        '`driver.<category>.*` type-prefix convention (jobs/documents/settlements/account) — a ' +
+        'client-facing shorthand, not a stored column. Each item may carry `metadata.actionLabel` ' +
+        '+ `metadata.actionRoute` (the "→ Job Detail" style button) and `metadata.tag` + ' +
+        "`metadata.tagVariant` ('default' | 'warning' | 'success' — the right-side status " +
+        'chip, e.g. "Action required", "Resolved") when the producer set them; both are optional, ' +
+        'producer-defined fields on the existing jsonb `metadata` column, not new schema.',
+    ),
+    request: { query: driverPortalValidators.getMyNotifications.shape.query },
+    responses: {
+      200: {
+        description:
+          'Paginated notifications — { data: { items, page, limit, total, totalPages } }',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/me/notifications/{notificationId}/read`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.markMyNotificationRead',
+    ...authenticated('Mark one of the caller’s own notifications read. Idempotent.'),
+    request: { params: driverPortalValidators.markMyNotificationRead.shape.params },
+    responses: {
+      200: { description: 'The updated notification' },
+      404: { description: 'Notification not found, or not the caller’s own', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/me/notifications/mark-all-read`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.markAllMyNotificationsRead',
+    ...authenticated(
+      'Mark every one of the caller’s own currently-unread notifications read in one call — ' +
+        'backs the Notifications screen’s "Mark all read" action.',
+    ),
+    responses: {
+      200: { description: '{ markedCount } — how many notifications were just flipped to read' },
+    },
+  });
+
   // --- Self-service load actions — :loadId is client-supplied here, unlike every path above;
   // ownership (the load must actually be assigned to the caller) is enforced in LoadService, not
   // documented as a distinct auth tier since it's a 404, not a 401/403. Same
@@ -120,6 +218,30 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         description:
           '{ load, timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
           'TripStepperStep[], nextAction: TripNextAction }',
+      },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/trip-detail`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.getMyTripDetail',
+    ...authenticated(
+      'Trip Done detail — the "Trips Done" list’s per-item drill-down. A lean, single-pickup/' +
+        'single-drop summary of a completed trip’s receipt (vehicle, cargo, planned vs. received ' +
+        'tonnage, pickup/drop addresses and timestamps, seal/shortage/damage status). Distinct ' +
+        'from GET /loads/{loadId} above, whose payments/stepper/nextAction are staff planning ' +
+        'concepts that don’t apply once a trip is closed. Today’s data model is one requisition ' +
+        '= one delivery point per load, so this returns exactly one `drop`, not multiple stops.',
+    ),
+    request: { params: driverPortalValidators.getMyTripDetail.shape.params },
+    responses: {
+      200: {
+        description:
+          '{ id, code, status, isClosed, vehicleNumber, vehicle, cargoSummary, cargoItems, ' +
+          'plannedCapacityTonnes, podQuantityReceived, pickup, drop, closedAt }',
       },
       404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
     },

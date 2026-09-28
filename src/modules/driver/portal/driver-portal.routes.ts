@@ -1,6 +1,6 @@
 import { Router, RequestHandler } from 'express';
-import { asyncHandler } from '../../shared/middleware/async-handler';
-import { validate } from '../../shared/middleware/validate.middleware';
+import { asyncHandler } from '../../../shared/middleware/async-handler';
+import { validate } from '../../../shared/middleware/validate.middleware';
 import { DriverPortalController } from './driver-portal.controller';
 import { driverPortalValidators } from './driver-portal.validators';
 
@@ -12,14 +12,16 @@ import { driverPortalValidators } from './driver-portal.validators';
 // present on their own token, and there is no permission matrix to check — self-scoping is the
 // whole authorization model. See docs/driver-auth.md.
 //
-// `/me`, `/me/status` (GET), `/me/trip-metrics`, and `/me/loads` are the exception: a driver who
-// hasn't linked to any tenant yet still needs these "show me my own stuff" reads to work, so
-// they're gated by `driverIdentityAuth` (requireTenant: false — accepts a driver-identity-access
-// token, no active relation required) instead of `driverAuth`. Each just returns empty/null when
-// there's no tenant — genuinely correct, not a permissions gap, since a driver with no active
-// relation cannot be assigned to any load in any tenant. Every *write*/action route (updating
-// status, PoD, issues, single-load detail) stays behind the stricter `driverAuth`: acting on a
-// specific tenant's data requires an actual tenant-scoped session.
+// `/me`, `/me/status` (GET), `/me/trip-metrics`, `/me/loads`, `/me/trips-done`, `/me/home`, and
+// every `/me/notifications*` route are the exception: a driver who hasn't linked to any tenant
+// yet still needs these "show me my own stuff" reads to work, so they're gated by
+// `driverIdentityAuth` (requireTenant: false — accepts a driver-identity-access token, no active
+// relation required) instead of `driverAuth`. Each just returns empty/null/zeroed when there's no
+// tenant — genuinely correct, not a permissions gap, since a driver with no active relation
+// cannot be assigned to any load in any tenant (notifications are never tenant-gated for a driver
+// at all — see notification.repository.ts's listByRecipientAcrossTenants). Every *write*/action
+// route that acts on a specific tenant's data (updating status, PoD, issues, single-load detail)
+// stays behind the stricter `driverAuth`.
 export function createDriverPortalRoutes(
   controller: DriverPortalController,
   driverAuth: RequestHandler,
@@ -36,6 +38,32 @@ export function createDriverPortalRoutes(
     validate(driverPortalValidators.listMyLoads),
     asyncHandler(controller.getMyLoads),
   );
+  router.get(
+    '/me/trips-done',
+    driverIdentityAuth,
+    validate(driverPortalValidators.getMyTripsDone),
+    asyncHandler(controller.getMyTripsDone),
+  );
+  router.get('/me/home', driverIdentityAuth, asyncHandler(controller.getMyHome));
+
+  router.get(
+    '/me/notifications',
+    driverIdentityAuth,
+    validate(driverPortalValidators.getMyNotifications),
+    asyncHandler(controller.getMyNotifications),
+  );
+  router.patch(
+    '/me/notifications/:notificationId/read',
+    driverIdentityAuth,
+    validate(driverPortalValidators.markMyNotificationRead),
+    asyncHandler(controller.markMyNotificationRead),
+  );
+  // No body/params — marks every one of the caller's own unread notifications read.
+  router.post(
+    '/me/notifications/mark-all-read',
+    driverIdentityAuth,
+    asyncHandler(controller.markAllMyNotificationsRead),
+  );
 
   router.use(driverAuth);
 
@@ -50,6 +78,13 @@ export function createDriverPortalRoutes(
     '/loads/:loadId',
     validate(driverPortalValidators.getMyLoad),
     asyncHandler(controller.getMyLoad),
+  );
+  // Trip Done detail — the "Trips Done" list's per-item drill-down, distinct from the generic
+  // single-load detail above (that one carries staff-oriented payments/stepper/nextAction).
+  router.get(
+    '/loads/:loadId/trip-detail',
+    validate(driverPortalValidators.getMyTripDetail),
+    asyncHandler(controller.getMyTripDetail),
   );
 
   // Self-service load actions — distinct from /me/status above (that's the driver's own

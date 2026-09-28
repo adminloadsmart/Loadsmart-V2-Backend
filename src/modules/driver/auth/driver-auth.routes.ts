@@ -1,11 +1,11 @@
 import { Router, RequestHandler } from 'express';
-import { asyncHandler } from '../../shared/middleware/async-handler';
-import { validate } from '../../shared/middleware/validate.middleware';
-import { verifyDriverLoginToken } from '../../shared/middleware/driver-login-token.middleware';
-import { verifyDriverTenantSelectToken } from '../../shared/middleware/driver-tenant-select-token.middleware';
-import { verifyDriverRegisterOtpToken } from '../../shared/middleware/driver-registration-token.middleware';
-import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
-import { env } from '../../config/env';
+import { asyncHandler } from '../../../shared/middleware/async-handler';
+import { validate } from '../../../shared/middleware/validate.middleware';
+import { verifyDriverLoginToken } from '../../../shared/middleware/driver-login-token.middleware';
+import { verifyDriverTenantSelectToken } from '../../../shared/middleware/driver-tenant-select-token.middleware';
+import { verifyDriverRegisterOtpToken } from '../../../shared/middleware/driver-registration-token.middleware';
+import { createIpRateLimit } from '../../../shared/middleware/rate-limit.middleware';
+import { env } from '../../../config/env';
 import { DriverAuthController } from './driver-auth.controller';
 import { driverAuthValidators } from './driver-auth.validators';
 

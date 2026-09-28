@@ -140,6 +140,7 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     storageService: storage.service,
     organizationService: organization.organizationService,
+    notificationsService: notifications.service,
   });
 
   // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see
@@ -233,8 +234,10 @@ export function buildContainer(dataSource: DataSource): Container {
     driverRepository: driver.driverRepository,
     driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverService: driver.driverService,
+    organizationService: organization.organizationService,
     loadService: loads.loadService,
     storageService: storage.service,
+    notificationsService: notifications.service,
   });
 
   // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity

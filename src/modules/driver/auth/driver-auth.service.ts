@@ -1,22 +1,23 @@
 import { randomBytes, randomUUID } from 'crypto';
-import { env } from '../../config/env';
+import { env } from '../../../config/env';
 import {
   AuthenticationError,
   AuthorizationError,
   NotFoundError,
   ValidationError,
-} from '../../shared/errors';
-import { signToken, hashToken } from '../../shared/utils/token';
-import { blockToken } from '../../shared/utils/token-blocklist';
-import { normalizePhoneNumber } from '../../shared/utils/phone-number';
-import { OtpService } from '../../shared/services/otp.service';
-import { OrganizationService } from '../organization/organization.service';
-import { isTenantAccessible } from '../organization/organization.constants';
-import { DriverRepository } from './driver.repository';
-import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
+} from '../../../shared/errors';
+import { signToken, hashToken } from '../../../shared/utils/token';
+import { blockToken } from '../../../shared/utils/token-blocklist';
+import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
+import { OtpService } from '../../../shared/services/otp.service';
+import { OrganizationService } from '../../organization/organization.service';
+import { isTenantAccessible } from '../../organization/organization.constants';
+import { DriverRepository } from '../driver.repository';
+import { DriverTenantRelationRepository } from '../driver-tenant-relation.repository';
 import { DriverSessionRepository } from './driver-auth.repository';
-import { DriverEntity } from './entities/driver.entity';
-import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import { DriverEntity } from '../entities/driver.entity';
+import { DriverTenantRelationEntity } from '../entities/driver-tenant-relation.entity';
+import { DriverOnboardingStep } from '../drivers.types';
 import {
   DriverDeviceCaptureInput,
   DriverDevicePlatform,
@@ -245,8 +246,18 @@ export class DriverAuthService {
     return { ...tokens, driver: this.toDriverSummary(driver) };
   }
 
-  private toDriverSummary(driver: { id: string; fullName: string; phoneNumber: string }) {
-    return { id: driver.id, fullName: driver.fullName, phoneNumber: driver.phoneNumber };
+  private toDriverSummary(driver: {
+    id: string;
+    fullName: string;
+    phoneNumber: string;
+    onboardingStep: DriverOnboardingStep | null;
+  }) {
+    return {
+      id: driver.id,
+      fullName: driver.fullName,
+      phoneNumber: driver.phoneNumber,
+      onboardingStep: driver.onboardingStep,
+    };
   }
 
   private async describeCandidates(candidates: DriverLoginCandidate[]) {

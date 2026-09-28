@@ -1,8 +1,13 @@
 import { z } from 'zod';
-import { paginationQuery as pagination } from '../../shared/validators/pagination';
-import { updateStatusBody, uploadPodBody } from '../loads/load.validators';
-import { reportLoadIssueBody } from '../loads/load-issue.validators';
-import { DRIVER_OPERATIONAL_STATUSES } from './drivers.types';
+import { paginationQuery as pagination } from '../../../shared/validators/pagination';
+import { updateStatusBody, uploadPodBody } from '../../loads/load.validators';
+import { reportLoadIssueBody } from '../../loads/load-issue.validators';
+import {
+  LOAD_SOURCE_TYPES,
+  LOAD_STATUS_GROUPS,
+  LOAD_STATUSES,
+} from '../../loads/utils/loads.types';
+import { DRIVER_OPERATIONAL_STATUSES } from '../drivers.types';
 
 // The two storage purposes reachable through driver-portal's own upload handshake — kept as an
 // explicit allow-list (not the full UPLOAD_PURPOSES enum) so a driver can never request an
@@ -22,12 +27,33 @@ export const driverPortalValidators = {
       reason: z.string().trim().min(1).max(255).optional(),
     }),
   }),
+  // Mirrors loads/load.validators.ts's `list` query filters — status/group/sourceType only
+  // (no requisitionId/transporterId/vehicleId/driverId here, unlike the staff-facing schema:
+  // this list is always implicitly scoped to req.driver!.id, never another scope).
   listMyLoads: z.object({
-    query: pagination,
+    query: pagination
+      .extend({
+        status: z.enum(LOAD_STATUSES).optional(),
+        // The Trips Home-page tab filter (Active/Completed) — a status-group shorthand, not a
+        // narrower version of `status` above, so the two aren't combined in one request.
+        group: z.enum(LOAD_STATUS_GROUPS).optional(),
+        sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
+      })
+      .refine(
+        (data) => !(data.status && data.group),
+        'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',
+      ),
   }),
+
+  // Driver-app "Trips Done" screen — pagination only, always completed-only server-side (see
+  // LoadService.getMyTripsDone), so no status/group filter is exposed here.
+  getMyTripsDone: z.object({ query: pagination }),
 
   // Single-load detail — params only, same convention as loads/load.validators.ts's `get`.
   getMyLoad: z.object({ params: loadParams }),
+
+  // Trip Done detail — params only, same convention as getMyLoad above.
+  getMyTripDetail: z.object({ params: loadParams }),
 
   // Same body shape as loads/load.validators.ts's staff-facing schemas — reused directly (not
   // duplicated) so the two can't drift apart. :loadId is present here (unlike the rest of this
@@ -55,4 +81,15 @@ export const driverPortalValidators = {
       .strict(),
   }),
   confirmUpload: z.object({ params: z.object({ fileId: uuid }) }),
+
+  // Notifications screen — `category` is a `type`-prefix shorthand (Jobs/Documents/Settlements/
+  // Account filter tabs), not a stored column; the controller translates it to a `type ILIKE
+  // 'driver.<category>.%'` filter. See notification.repository.ts's listByRecipientAcrossTenants.
+  getMyNotifications: z.object({
+    query: pagination.extend({
+      unreadOnly: z.coerce.boolean().optional(),
+      category: z.enum(['jobs', 'documents', 'settlements', 'account']).optional(),
+    }),
+  }),
+  markMyNotificationRead: z.object({ params: z.object({ notificationId: uuid }) }),
 };
