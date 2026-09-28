@@ -76,6 +76,11 @@ export const maintenanceValidators = {
       })
       .superRefine(checkPeriod),
   }),
+  // One truck's full maintenance history — all-time, so no period.
+  listVehicleJobs: z.object({
+    params: z.object({ vehicleId: uuid }),
+    query: pagination.extend({ jobType: z.enum(MAINTENANCE_JOB_TYPES).optional() }),
+  }),
 
   // Log a service — a finished service, dated today unless serviceDate says otherwise. On a truck
   // that is in the workshop, it finishes that visit.

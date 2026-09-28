@@ -116,6 +116,12 @@ export interface ListJobsInput extends PeriodInput {
   limit: number;
 }
 
+export interface ListVehicleJobsInput {
+  jobType?: MaintenanceJobType;
+  page: number;
+  limit: number;
+}
+
 export interface SetServicePolicyInput {
   serviceIntervalKm: number;
   serviceIntervalMonths: number;

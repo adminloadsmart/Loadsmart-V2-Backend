@@ -153,6 +153,29 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/vehicles/{vehicleId}/jobs`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.listVehicleJobs',
+    ...authenticated(
+      'One truck’s full maintenance history — every service, breakdown and tyre job it ever ' +
+        'had (no period), newest first, optionally one jobType. Works for inactive/retired ' +
+        'trucks too; 409 for an attached vehicle. ' +
+        COSTS_NOTE,
+    ),
+    request: {
+      params: v.listVehicleJobs.shape.params,
+      query: v.listVehicleJobs.shape.query,
+    },
+    responses: {
+      200: { description: 'Paginated job history of the vehicle, with a vehicle summary' },
+      400: validationFailed,
+      404: notFound,
+      409: conflict,
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/jobs`,
     tags: [TAGS.MAINTENANCE],
     operationId: 'maintenance.listJobs',
