@@ -176,16 +176,11 @@ export class TyreService {
       await this.maintenanceService.assertInvoice(tenantId, actor, input);
       const at = this.maintenanceService.resolveDate(input.invoiceDate, 'invoiceDate');
 
+      // The modal draws the axles itself (single/dual, inner/outer), so the codes it sends are
+      // stored as selected — not checked against tyrePositions()'s default layout.
       const positions = input.positions.map((position) => position.trim().toUpperCase());
       if (new Set(positions).size !== positions.length) {
         throw new ValidationError('Each position can be selected only once');
-      }
-      const layout = tyrePositions(vehicle.wheelCount);
-      const unknown = positions.filter((position) => !layout.includes(position));
-      if (vehicle.wheelCount && unknown.length > 0) {
-        throw new ValidationError(
-          `${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not a wheel position on a ${vehicle.wheelCount}-wheel truck (${layout.join(', ')})`,
-        );
       }
 
       const job = await this.dataSource.transaction(async (manager) => {
