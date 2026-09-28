@@ -188,6 +188,7 @@ export class TyreService {
           {
             ...blankJob(tenantId, vehicle.id, actor.id),
             jobType: 'tyre',
+            tyreAction: input.action,
             status: 'closed',
             openedAt: at,
             closedAt: at,

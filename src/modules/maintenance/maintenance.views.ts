@@ -28,6 +28,7 @@ export function toJobView(job: MaintenanceJobEntity, canSeeCosts: boolean, now =
     status: job.status,
     vehicle: job.vehicle ? toVehicleSummary(job.vehicle) : { id: job.vehicleId },
     serviceType: job.serviceType,
+    tyreAction: job.tyreAction,
     tyrePositions: job.tyres?.map((tyre) => tyre.position) ?? undefined,
     openedAt: job.openedAt,
     closedAt: job.closedAt,

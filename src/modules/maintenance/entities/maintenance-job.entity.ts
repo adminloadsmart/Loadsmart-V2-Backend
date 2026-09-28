@@ -18,6 +18,8 @@ import {
   MaintenanceJobType,
   SERVICE_TYPES,
   ServiceType,
+  TYRE_WORK_ACTIONS,
+  TyreWorkAction,
 } from '../maintenance.types';
 
 export interface ReplacedPart {
@@ -98,6 +100,10 @@ export class MaintenanceJobEntity {
   /** Storage key of the uploaded invoice / work order (purpose `maintenance/invoice`). */
   @Column({ name: 'invoice_file_key', type: 'varchar', length: 512, nullable: true })
   invoiceFileKey!: string | null;
+
+  /** Tyre jobs only — "Action performed" on Record Tyre Maintenance. */
+  @Column({ name: 'tyre_action', type: 'enum', enum: [...TYRE_WORK_ACTIONS], nullable: true })
+  tyreAction!: TyreWorkAction | null;
 
   /** Breakdown only — the due service was also done on this visit, so closing it reset the
    *  vehicle's service clock. Always false on a service job (it is one). */

@@ -180,7 +180,9 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MAINTENANCE],
     operationId: 'maintenance.listJobs',
     ...authenticated(
-      'Job history — every service and breakdown opened in the period, newest first. ' + COSTS_NOTE,
+      'Job history — every service, breakdown and tyre job opened in the period, newest first. ' +
+        'Tyre jobs carry tyreAction (new_fitment | cold_retread) and tyrePositions. ' +
+        COSTS_NOTE,
     ),
     request: { query: v.listJobs.shape.query },
     responses: { 200: { description: 'Paginated job history' }, 400: validationFailed },
@@ -378,7 +380,7 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         'remoulded (same serial, retreadCount + 1) — 409 if damaged or out of retreads. All ' +
         'positions or none; dispatch is untouched. positions are the modal’s own codes for ' +
         'whatever it drew (e.g. FL, R1LO, R2RI) — stored as sent (upper-cased), one tyre each, ' +
-        'not checked against a fixed axle layout.',
+        'not checked against a fixed axle layout. action is kept on the job as tyreAction.',
     ),
     request: { body: json(v.recordTyreWork.shape.body) },
     responses: {
