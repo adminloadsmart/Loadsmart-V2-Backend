@@ -159,7 +159,9 @@ export class TyreService {
    * carrying the cost (so it reaches the spend headline) with a fresh fitment per position:
    *  - new_fitment: the tyre on the position (if any) comes off as `replaced`; a new tyre goes on.
    *  - cold_retread: the fitted casing comes off as `retread` and goes back on remoulded, same
-   *    serial, retread_count + 1 — refused if the casing is damaged or out of retreads.
+   *    serial, retread_count + 1 — refused if the casing is damaged or out of retreads. With no
+   *    tyre on record there (first entry for the truck), the retreaded tyre is registered with
+   *    retread_count 1.
    * All positions or none. Recorded after the fact, so dispatch is untouched.
    */
   async recordTyreWork(
@@ -202,7 +204,7 @@ export class TyreService {
         );
 
         for (const position of positions) {
-          await this.refitPosition(manager, tenantId, actor.id, vehicle.registrationNumber, {
+          await this.refitPosition(manager, tenantId, actor.id, {
             vehicleId: vehicle.id,
             position,
             jobId: created.id,
@@ -257,19 +259,16 @@ export class TyreService {
     manager: EntityManager,
     tenantId: string,
     actorId: string,
-    registrationNumber: string,
     target: { vehicleId: string; position: string; jobId: string; input: RecordTyreWorkInput },
   ) {
     const { vehicleId, position, jobId, input } = target;
     const fittedAt = input.invoiceDate;
     const current = await this.tyreRepository.findFittedAt(tenantId, vehicleId, position, manager);
 
-    if (input.action === 'cold_retread') {
-      if (!current) {
-        throw new ConflictError(
-          `${position} on ${registrationNumber} has no tyre fitted to retread — record a new fitment`,
-        );
-      }
+    const isRetread = input.action === 'cold_retread';
+    // A retread on a position with nothing on record (e.g. the truck's first entry here) just
+    // registers the retreaded tyre; one that is on record must still be retreadable.
+    if (isRetread && current) {
       if (current.casingCondition === 'damaged') {
         throw new ConflictError(`${position}: the casing is damaged and can't be retreaded`);
       }
@@ -291,30 +290,32 @@ export class TyreService {
           status: 'removed',
           removedAt: fittedAt,
           removedOdometerKm: input.odometerKm,
-          removedReason: input.action === 'cold_retread' ? 'retread' : 'replaced',
+          removedReason: isRetread ? 'retread' : 'replaced',
           updatedBy: actorId,
         },
         manager,
       );
     }
 
-    const retread = input.action === 'cold_retread' && current;
+    // The casing carried over from the tyre on record, when this is a retread of one.
+    const casing = isRetread ? current : null;
     await this.tyreRepository.create(
       {
         tenantId,
         vehicleId,
         position,
-        serialNumber: retread ? current.serialNumber : null,
+        serialNumber: casing?.serialNumber ?? null,
         brand: input.brand,
-        sizeCode: input.sizeCode ?? (retread ? current.sizeCode : null),
+        sizeCode: input.sizeCode ?? casing?.sizeCode ?? null,
         maintenanceJobId: jobId,
         originalTreadMm: String(
-          input.originalTreadMm ?? (retread ? DEFAULT_RETREAD_TREAD_MM : DEFAULT_NEW_TYRE_TREAD_MM),
+          input.originalTreadMm ??
+            (isRetread ? DEFAULT_RETREAD_TREAD_MM : DEFAULT_NEW_TYRE_TREAD_MM),
         ),
         fittedAt,
         fittedOdometerKm: input.odometerKm,
-        retreadCount: retread ? current.retreadCount + 1 : 0,
-        maxRetreads: retread ? current.maxRetreads : DEFAULT_MAX_RETREADS,
+        retreadCount: isRetread ? (casing ? casing.retreadCount + 1 : 1) : 0,
+        maxRetreads: casing?.maxRetreads ?? DEFAULT_MAX_RETREADS,
         casingCondition: 'ok',
         createdBy: actorId,
       },
