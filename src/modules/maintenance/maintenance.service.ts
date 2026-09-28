@@ -1059,6 +1059,7 @@ export function blankJob(tenantId: string, vehicleId: string, actorId: string) {
     tenantId,
     vehicleId,
     serviceType: null,
+    tyreAction: null,
     closedAt: null,
     odometerKm: null,
     workshopName: null,
