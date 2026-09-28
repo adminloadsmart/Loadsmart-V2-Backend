@@ -16,6 +16,13 @@ const isoDateTime = z.iso.datetime();
 const money = z.number().nonnegative().max(9999999999);
 const odometerKm = z.number().int().nonnegative().max(9999999);
 const optionalText = (max: number) => z.string().trim().min(1).max(max).optional();
+/** A wheel position code as the modal sends it (FL, R1LO, R2RI, …) — fits tyres.position. */
+const positionCode = z
+  .string()
+  .trim()
+  .min(1)
+  .max(20)
+  .regex(/^[A-Za-z0-9-]+$/, 'position must be letters, digits or -');
 
 /** Same filter/from/to shape and rules as dashboards.validators.ts's getLoadsSummary. */
 const periodFields = {
@@ -219,7 +226,7 @@ export const maintenanceValidators = {
     body: z
       .object({
         vehicleId: uuid,
-        position: z.string().trim().min(1).max(20),
+        position: positionCode,
         serialNumber: optionalText(50),
         brand: optionalText(100),
         originalTreadMm: z.number().positive().max(40),
@@ -238,7 +245,7 @@ export const maintenanceValidators = {
     body: z
       .object({
         vehicleId: uuid,
-        positions: z.array(z.string().trim().min(1).max(20)).min(1).max(22),
+        positions: z.array(positionCode).min(1).max(22),
         action: z.enum(TYRE_WORK_ACTIONS),
         brand: z.string().trim().min(1).max(100),
         sizeCode: optionalText(50),
