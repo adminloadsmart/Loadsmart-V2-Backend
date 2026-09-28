@@ -10,6 +10,7 @@ import {
   BatteryPackParams,
   JobParams,
   ListJobsInput,
+  ListVehicleJobsInput,
   PeriodInput,
   TyreParams,
   VehicleParams,
@@ -85,6 +86,16 @@ export class MaintenanceController {
     const jobs = await this.maintenanceService.listJobs(
       requireTenantId(req),
       req.validatedQuery as ListJobsInput,
+      canSeeMaintenanceCosts(req),
+    );
+    respond(res, jobs);
+  };
+
+  listVehicleJobs = async (req: Request<VehicleParams>, res: Response) => {
+    const jobs = await this.maintenanceService.listVehicleJobs(
+      requireTenantId(req),
+      req.params.vehicleId,
+      req.validatedQuery as ListVehicleJobsInput,
       canSeeMaintenanceCosts(req),
     );
     respond(res, jobs);

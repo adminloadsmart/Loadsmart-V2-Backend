@@ -35,6 +35,7 @@ import {
   CompleteServiceInput,
   JobCostInput,
   ListJobsInput,
+  ListVehicleJobsInput,
   LogServiceInput,
   OpenBreakdownInput,
   PeriodInput,
@@ -782,6 +783,34 @@ export class MaintenanceService {
     }
   }
 
+  /** One truck's full maintenance history — readable even once the truck is inactive/retired. */
+  async listVehicleJobs(
+    tenantId: string,
+    vehicleId: string,
+    input: ListVehicleJobsInput,
+    canSeeCosts: boolean,
+  ) {
+    try {
+      const vehicle = await this.findOwnFleetVehicle(tenantId, vehicleId);
+      const [jobs, total] = await this.jobRepository.listForVehicle(tenantId, vehicle.id, {
+        jobType: input.jobType,
+        page: input.page,
+        limit: input.limit,
+      });
+      const now = new Date();
+      return {
+        vehicle: toVehicleSummary(vehicle),
+        ...paginate(
+          jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          total,
+          input,
+        ),
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to list vehicle maintenance jobs');
+    }
+  }
+
   /* -------------------------------------------------------------------- helpers */
 
   resolvePeriod(input: PeriodInput) {
@@ -792,9 +821,9 @@ export class MaintenanceService {
 
   /**
    * Only owned/leased trucks have a workshop record with us — an attached truck is operated for
-   * the shipper by somebody else, so every write refuses it (acceptance criterion 5).
+   * the shipper by somebody else. No status check, so history reads still work on retired trucks.
    */
-  async assertOwnFleetVehicle(tenantId: string, vehicleId: string): Promise<VehicleEntity> {
+  async findOwnFleetVehicle(tenantId: string, vehicleId: string): Promise<VehicleEntity> {
     const vehicle = await this.fleetRepository.findVehicle(tenantId, vehicleId);
     if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
     if (!(OWN_FLEET_OWNERSHIP_TYPES as readonly string[]).includes(vehicle.ownershipType)) {
@@ -802,6 +831,13 @@ export class MaintenanceService {
         `${vehicle.registrationNumber} is an attached vehicle — its workshop is its operator's, not tracked here`,
       );
     }
+    return vehicle;
+  }
+
+  /** findOwnFleetVehicle plus a working status — every write refuses anything else
+   *  (acceptance criterion 5). */
+  async assertOwnFleetVehicle(tenantId: string, vehicleId: string): Promise<VehicleEntity> {
+    const vehicle = await this.findOwnFleetVehicle(tenantId, vehicleId);
     if (vehicle.status !== 'active' && vehicle.status !== 'under_maintenance') {
       throw new ConflictError(`${vehicle.registrationNumber} is ${vehicle.status}`);
     }

@@ -166,4 +166,25 @@ export class MaintenanceJobRepository {
       take: limit,
     });
   }
+
+  /** One truck's full job history — every job it ever had, newest first. */
+  listForVehicle(
+    tenantId: string,
+    vehicleId: string,
+    filters: { jobType?: MaintenanceJobType; page: number; limit: number },
+  ): Promise<[MaintenanceJobEntity[], number]> {
+    const { jobType, page, limit } = filters;
+    return this.jobs.findAndCount({
+      where: {
+        tenantId,
+        vehicleId,
+        vehicle: ownFleet,
+        ...(jobType ? { jobType } : {}),
+      },
+      relations: { vehicle: { truckType: true }, tyres: true },
+      order: { openedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+  }
 }

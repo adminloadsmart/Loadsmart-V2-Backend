@@ -30,6 +30,11 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
     validate(v.vehicleTyres),
     asyncHandler(controller.getVehicleTyres),
   );
+  router.get(
+    '/vehicles/:vehicleId/jobs',
+    validate(v.listVehicleJobs),
+    asyncHandler(controller.listVehicleJobs),
+  );
 
   // Log a service (finished, dated today) — finishes the truck's open workshop visit if it has one.
   router.post('/services', canManage, validate(v.logService), asyncHandler(controller.logService));
