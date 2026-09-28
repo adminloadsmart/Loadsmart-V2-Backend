@@ -377,7 +377,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
       'Record Tyre Maintenance — one invoice across one or more positions, as a closed `tyre` ' +
         'job (its totalCost counts in maintenance spend). new_fitment: the tyre on each position ' +
         'comes off as replaced and a new one goes on. cold_retread: the fitted casing is ' +
-        'remoulded (same serial, retreadCount + 1) — 409 if damaged or out of retreads. All ' +
+        'remoulded (same serial, retreadCount + 1) — 409 if damaged or out of retreads; with no ' +
+        'tyre on record at the position, the retreaded tyre is registered (retreadCount 1). All ' +
         'positions or none; dispatch is untouched. positions are the modal’s own codes for ' +
         'whatever it drew (e.g. FL, R1LO, R2RI) — stored as sent (upper-cased), one tyre each, ' +
         'not checked against a fixed axle layout. action is kept on the job as tyreAction.',
