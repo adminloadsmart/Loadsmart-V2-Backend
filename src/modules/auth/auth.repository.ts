@@ -151,6 +151,20 @@ export class AuthRepository {
     return { items, total };
   }
 
+  // Unpaginated counterpart to listOrganizationUsers, for a notification producer fanning out to
+  // every user holding one of a set of organization-scope roles in a tenant (see
+  // notifications/notify-by-type.ts) — not a UI listing, so no search/page/limit.
+  listUsersByRole(tenantId: string, roleNames: string[]): Promise<UserEntity[]> {
+    return this.users.find({
+      where: {
+        tenantId,
+        deletedAt: IsNull(),
+        role: { scope: 'organization', name: In(roleNames) },
+      },
+      relations: { role: true },
+    });
+  }
+
   async softDeleteUser(userId: string): Promise<void> {
     await this.users.update({ id: userId }, { deletedAt: new Date() });
   }
