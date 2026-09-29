@@ -39,9 +39,16 @@ export class PushChannel implements NotificationChannel {
     await messaging.send({
       token: destination,
       notification: { title: notification.title, body: notification.body },
-      data: notification.metadata
-        ? Object.fromEntries(Object.entries(notification.metadata).map(([k, v]) => [k, String(v)]))
-        : undefined,
+      // `severity` rides alongside metadata so the app can style/prioritize the push the same way
+      // as the in-app list — an extra data key, ignored by clients that don't read it.
+      data: {
+        ...(notification.metadata
+          ? Object.fromEntries(
+              Object.entries(notification.metadata).map(([k, v]) => [k, String(v)]),
+            )
+          : {}),
+        severity: notification.severity,
+      },
     });
   }
 }

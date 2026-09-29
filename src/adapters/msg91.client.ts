@@ -60,8 +60,12 @@ export class Msg91Client {
    * variable names it expects are template-defined, so `variables`' keys here (currently `title`/
    * `body`) are provisional until a real template exists to verify against.
    */
-  async sendTransactional(phoneNumber: string, variables: Record<string, string>): Promise<void> {
-    if (!env.msg91AuthKey || !env.msg91NotificationTemplateId) {
+  async sendTransactional(
+    phoneNumber: string,
+    variables: Record<string, string>,
+    templateId: string | undefined = env.msg91NotificationTemplateId,
+  ): Promise<void> {
+    if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
       );
@@ -71,7 +75,7 @@ export class Msg91Client {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authkey: env.msg91AuthKey },
       body: JSON.stringify({
-        template_id: env.msg91NotificationTemplateId,
+        template_id: templateId,
         recipients: [{ mobiles: phoneNumber, ...variables }],
       }),
     });
@@ -95,8 +99,12 @@ export class Msg91Client {
    * send API lives on a different host from the rest of their v5 API, confirmed against
    * https://msg91.com/help/whatsapp/send-whatsapp.
    */
-  async sendWhatsapp(phoneNumber: string, variables: string[]): Promise<void> {
-    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !env.msg91WhatsappTemplateName) {
+  async sendWhatsapp(
+    phoneNumber: string,
+    variables: string[],
+    templateName: string | undefined = env.msg91WhatsappTemplateName,
+  ): Promise<void> {
+    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',
       );
@@ -118,7 +126,7 @@ export class Msg91Client {
             messaging_product: 'whatsapp',
             type: 'template',
             template: {
-              name: env.msg91WhatsappTemplateName,
+              name: templateName,
               language: { code: 'en', policy: 'deterministic' },
               namespace: env.msg91WhatsappNamespace,
               to_and_components: [{ to: [phoneNumber], components }],
@@ -131,6 +139,54 @@ export class Msg91Client {
 
     if (body?.type !== 'success') {
       throw new Error(`MSG91 send WhatsApp message failed: ${body?.message ?? response.status}`);
+    }
+  }
+
+  /**
+   * Transactional email via MSG91's Email API — used by the notifications module's EmailChannel.
+   * Same "template lives on the MSG91 dashboard" model as sendWhatsapp: the subject and body are
+   * authored there (against a domain verified on the dashboard); this only forwards the
+   * template's variables. Request/response shape per MSG91's v5 email/send API — the response
+   * carries `status`/`hasError`, not the `type` field the SMS/OTP APIs use.
+   */
+  async sendEmail(
+    to: { email: string; name?: string | null },
+    variables: Record<string, string>,
+    templateId: string | undefined,
+  ): Promise<void> {
+    if (!env.msg91AuthKey || !env.msg91EmailDomain || !env.msg91EmailFrom || !templateId) {
+      throw new Error(
+        'MSG91_AUTH_KEY / MSG91_EMAIL_DOMAIN / MSG91_EMAIL_FROM / email template id not configured — cannot send email',
+      );
+    }
+
+    const response = await fetch(`${env.msg91BaseUrl}/api/v5/email/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        authkey: env.msg91AuthKey,
+      },
+      body: JSON.stringify({
+        recipients: [
+          {
+            to: [{ email: to.email, ...(to.name ? { name: to.name } : {}) }],
+            variables,
+          },
+        ],
+        from: { email: env.msg91EmailFrom, name: env.msg91EmailFromName },
+        domain: env.msg91EmailDomain,
+        template_id: templateId,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      status?: string;
+      hasError?: boolean;
+      message?: string;
+    } | null;
+
+    if (!response.ok || body?.hasError || body?.status !== 'success') {
+      throw new Error(`MSG91 send email failed: ${body?.message ?? response.status}`);
     }
   }
 }

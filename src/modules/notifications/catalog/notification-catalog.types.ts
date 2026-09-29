@@ -1,4 +1,20 @@
-import { NotificationChannelName } from '../notifications.types';
+import { NotificationChannelName, NotificationSeverity } from '../notifications.types';
+
+export interface NotificationRecipient {
+  fullName: string | null;
+}
+
+/** Template ids/names are env-sourced and may be unset until provisioned on the MSG91 dashboard —
+ *  the channel then fails that delivery with a clear "not configured" error. */
+export interface NotificationTemplates {
+  /** `variables`: metadata keys in the Meta-approved template's {{1}}, {{2}}... order. */
+  whatsapp?: { templateName: string | undefined; variables: string[] };
+  /** `variables`: MSG91 Flow template variable name → metadata key. */
+  sms?: { templateId: string | undefined; variables: Record<string, string> };
+  /** `variables`: MSG91 email template variable name → metadata key. The subject lives in the
+   *  MSG91 template itself. */
+  email?: { templateId: string | undefined; variables: Record<string, string> };
+}
 
 /**
  * The shape every domain catalog (masters-notifications.catalog.ts, vehicle-notifications.
@@ -27,7 +43,26 @@ export interface NotificationTypeDefinition<TContext> {
    *  mockup's shown toggle states per row. "Reset to Default" (notification-preferences.service.ts)
    *  puts a tenant back to exactly this. */
   defaultChannels: NotificationChannelName[];
-  buildContent(context: TContext): {
+  /** P1 Critical / P2 Action / P3 Info — stored on every notification of this type and seeded
+   *  into notification_types.severity for the settings screen. */
+  severity: NotificationSeverity;
+  /** 'once_per_tenant' → notify-by-type.ts skips the whole dispatch if this tenant already has a
+   *  notification of this type (e.g. "account approved" must never repeat). Default: 'always'. */
+  frequency?: 'always' | 'once_per_tenant';
+  /** true → WhatsApp only goes to recipients with users.whatsapp_opt_in === true (not captured
+   *  or declined → no WhatsApp; SMS still goes out if the type sends it). Default false: the
+   *  type's WhatsApp dispatch ignores opt-in, as it always has. */
+  requiresWhatsappOptIn?: boolean;
+  /** Per-type MSG91 templates, overriding the channel's env-level default template. Each channel
+   *  maps its template's variables from the notification's `metadata` by key; a type with no
+   *  entry here keeps each channel's original behavior (see channels/*.channel.ts). */
+  templates?: NotificationTemplates;
+  /** `recipient` is the user this copy is for — lets a type personalize per recipient (e.g. a
+   *  first name) without the trigger site having to look users up itself. */
+  buildContent(
+    context: TContext,
+    recipient: NotificationRecipient,
+  ): {
     title: string;
     body: string;
     /** Structured variables forwarded as-is to MSG91-templated channels (e.g. whatsapp) — the

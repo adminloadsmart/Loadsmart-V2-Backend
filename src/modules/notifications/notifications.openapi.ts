@@ -18,7 +18,7 @@ export function registerNotificationsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.NOTIFICATIONS],
     operationId: 'notifications.listNotifications',
     ...authenticated(
-      'List the caller’s own notifications, paginated, with an optional unread-only filter. There is no endpoint to create a notification here — sending is done in-process by other services.',
+      'List the caller’s own notifications, paginated, with optional unread-only and severity filters. Each item carries `severity` (`p1_critical` / `p2_action` / `p3_info`). There is no endpoint to create a notification here — sending is done in-process by other services.',
     ),
     request: { query: notificationValidators.list.shape.query },
     responses: { 200: { description: 'Paginated notifications' } },
@@ -29,7 +29,7 @@ export function registerNotificationsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.NOTIFICATIONS],
     operationId: 'notifications.getNotification',
     ...authenticated(
-      'Full detail of one of the caller’s own notifications, including the per-channel delivery outcome (email/sms/push).',
+      'Full detail of one of the caller’s own notifications, including its `severity` and the per-channel delivery outcome (email/sms/push/whatsapp).',
     ),
     request: { params: notificationValidators.get.shape.params },
     responses: {

@@ -232,6 +232,22 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/me/whatsapp-opt-in`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.updateWhatsappOptIn',
+    ...authenticated(
+      'Record the caller’s WhatsApp notification consent — the first-login prompt when `whatsappOptIn` is null (not captured at signup), and the settings opt-in/opt-out toggle. Only `true` enables WhatsApp; SMS, email, and in-app notifications are unaffected.',
+    ),
+    request: { body: json(authValidators.updateWhatsappOptIn.shape.body) },
+    responses: {
+      200: { description: 'Updated — returns { whatsappOptIn }' },
+      400: { description: 'Validation failed', ...errorContent },
+      404: { description: 'User not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/logout`,
     tags: [TAGS.AUTH],

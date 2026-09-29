@@ -20,6 +20,7 @@ export class AuthController {
     const tokens = await this.authService.verifyOtp({
       phoneNumber,
       otp: req.body.otp,
+      whatsappOptIn: req.body.whatsappOptIn,
       fcmToken: req.body.fcmToken,
       deviceType: req.body.deviceType,
       deviceInfo: req.body.deviceInfo,
@@ -60,6 +61,11 @@ export class AuthController {
   me = async (req: Request, res: Response) => {
     const profile = await this.authService.getProfile(req.user!.id);
     respond(res, profile);
+  };
+
+  updateWhatsappOptIn = async (req: Request, res: Response) => {
+    const result = await this.authService.updateWhatsappOptIn(req.user!, req.body.optIn);
+    respond(res, result);
   };
 
   refresh = async (req: Request, res: Response) => {

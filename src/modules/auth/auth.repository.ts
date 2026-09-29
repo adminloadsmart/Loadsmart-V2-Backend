@@ -61,6 +61,7 @@ export class AuthRepository {
       passwordHash?: string | null;
       fullName?: string | null;
       coverage?: string | null;
+      whatsappOptIn?: boolean | null;
     },
     manager?: EntityManager,
   ): Promise<UserEntity> {
@@ -73,6 +74,7 @@ export class AuthRepository {
       passwordHash: data.passwordHash ?? null,
       fullName: data.fullName ?? null,
       coverage: data.coverage ?? null,
+      whatsappOptIn: data.whatsappOptIn ?? null,
       deletedAt: null,
     });
     const saved = await users.save(user);
@@ -193,6 +195,10 @@ export class AuthRepository {
     });
     if (!user) throw new NotFoundError(`User ${userId} not found`);
     return user;
+  }
+
+  async setWhatsappOptIn(userId: string, optIn: boolean): Promise<void> {
+    await this.users.update({ id: userId }, { whatsappOptIn: optIn });
   }
 
   async updateUserTenant(userId: string, tenantId: string, manager?: EntityManager): Promise<void> {

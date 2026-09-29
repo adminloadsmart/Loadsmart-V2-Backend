@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paginationQuery } from '../../shared/validators/pagination';
+import { NOTIFICATION_SEVERITIES } from './notifications.types';
 
 const params = z.object({ notificationId: z.string().uuid() });
 
@@ -9,6 +10,7 @@ export const notificationValidators = {
   list: z.object({
     query: paginationQuery.extend({
       unreadOnly: z.coerce.boolean().optional(),
+      severity: z.enum(NOTIFICATION_SEVERITIES).optional(),
     }),
   }),
   get: z.object({ params }),

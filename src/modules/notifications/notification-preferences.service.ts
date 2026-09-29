@@ -1,12 +1,13 @@
 import { AuthorizationError, NotFoundError, rethrow } from '../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
-import { NotificationChannelName } from './notifications.types';
+import { NotificationChannelName, NotificationSeverity } from './notifications.types';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
 
 export interface NotificationPreferenceView {
   key: string;
   label: string;
   description: string | null;
+  severity: NotificationSeverity;
   supportedChannels: NotificationChannelName[];
   preferences: { email: boolean; sms: boolean; push: boolean; whatsapp: boolean };
 }
@@ -49,6 +50,7 @@ export class NotificationPreferencesService {
         key: type.key,
         label: type.label,
         description: type.description,
+        severity: type.severity,
         supportedChannels: type.channels,
         preferences: preference
           ? {

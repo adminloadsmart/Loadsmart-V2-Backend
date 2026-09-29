@@ -65,11 +65,17 @@ async function notifyByTypeImpl(
 ): Promise<void> {
   const definition = catalog[type];
   try {
+    if (
+      definition.frequency === 'once_per_tenant' &&
+      (await deps.notificationsService.hasNotificationOfType(tenantId, type))
+    ) {
+      return;
+    }
+
     const recipients = await deps.authRepository.listUsersByRole(
       tenantId,
       definition.recipientRoles,
     );
-    const { title, body, metadata } = definition.buildContent(context);
 
     // One row per (tenant, type) — org-wide, so every recipient in this dispatch shares the same
     // preference (see NotificationPreferencesRepository). No saved row falls back to the type's
@@ -105,6 +111,9 @@ async function notifyByTypeImpl(
 
     await Promise.all(
       recipients.map(async (recipient) => {
+        const { title, body, metadata } = definition.buildContent(context, {
+          fullName: recipient.fullName,
+        });
         const channels: NotificationChannelName[] = [];
         const destinations: NotificationDestinations = {};
 
@@ -112,7 +121,27 @@ async function notifyByTypeImpl(
           channels.push('email');
           destinations.email = recipient.email;
         }
-        if (definition.channels.includes('whatsapp') && recipient.phoneNumber && enabled.whatsapp) {
+        // SMS needs a per-type DLT-approved template (India's DLT rules register exact message
+        // text), so only types declaring `templates.sms` are texted — the generic env template
+        // was never real, and before this no type was dispatched over SMS at all.
+        if (
+          definition.channels.includes('sms') &&
+          definition.templates?.sms &&
+          recipient.phoneNumber &&
+          enabled.sms
+        ) {
+          channels.push('sms');
+          destinations.phoneNumber = recipient.phoneNumber;
+        }
+        // Types with requiresWhatsappOptIn only WhatsApp recipients who opted in
+        // (users.whatsapp_opt_in — captured at signup or at first login); null (never captured)
+        // or false → no WhatsApp, SMS only. Other types are unaffected by opt-in.
+        if (
+          definition.channels.includes('whatsapp') &&
+          recipient.phoneNumber &&
+          (!definition.requiresWhatsappOptIn || recipient.whatsappOptIn === true) &&
+          enabled.whatsapp
+        ) {
           channels.push('whatsapp');
           destinations.whatsappNumber = recipient.phoneNumber;
         }
@@ -140,6 +169,7 @@ async function notifyByTypeImpl(
           channels,
           destinations,
           metadata,
+          severity: definition.severity,
         });
       }),
     );

@@ -85,6 +85,7 @@ type AuthSession = {
     id: string;
     phoneNumber: string;
     hasPassword: boolean;
+    whatsappOptIn: boolean | null;
   };
   onboardingStatus: OnboardingStatus;
   onboardingStep: OnboardingStep;
@@ -151,6 +152,7 @@ export class AuthService {
         phoneNumber,
         tenantId: null,
         roleId,
+        whatsappOptIn: input.whatsappOptIn ?? null,
       });
     }
 
@@ -313,9 +315,32 @@ export class AuthService {
       coverage: user.coverage,
       permissions: await this.roleService.getEffectivePermissions(user.id),
       hasPassword: Boolean(user.passwordHash),
+      whatsappOptIn: user.whatsappOptIn,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  /** WhatsApp notification consent (see user.entity.ts) — the "collect opt-in at first login"
+   *  path for users who didn't give it at signup, and the way to opt out later. */
+  async updateWhatsappOptIn(user: AuthenticatedUser, optIn: boolean) {
+    try {
+      const current = await this.getUserById(user.id);
+      await this.authRepository.setWhatsappOptIn(user.id, optIn);
+
+      await this.auditService.log({
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'USER_WHATSAPP_OPT_IN_UPDATED',
+        resourceType: 'user',
+        oldData: { whatsappOptIn: current.whatsappOptIn },
+        newData: { whatsappOptIn: optIn },
+      });
+
+      return { whatsappOptIn: optIn };
+    } catch (error) {
+      rethrow(error, 'Failed to update WhatsApp opt-in');
+    }
   }
 
   /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
@@ -1286,6 +1311,8 @@ export class AuthService {
         id: user.id,
         phoneNumber: user.phoneNumber,
         hasPassword: Boolean(user.passwordHash),
+        // null → consent never captured: the client shows the WhatsApp opt-in prompt now.
+        whatsappOptIn: user.whatsappOptIn,
       },
       onboardingStatus: progress.onboardingStatus,
       onboardingStep: progress.onboardingStep,

@@ -4,7 +4,8 @@ import {
   DOCUMENTS_OPS_ROLE,
   FINANCE_ACCOUNTS_ROLE,
 } from '../../../shared/constants/roles';
-import { NotificationTypeDefinition } from './notification-catalog.types';
+import { env } from '../../../config/env';
+import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
 
 /**
  * Every notification type in the app, in one place — deliberately not split per domain: with a
@@ -34,7 +35,17 @@ export interface VehicleComplianceContext {
   expiryDate: string;
 }
 
+export interface OrganizationApprovedContext {
+  orgName: string;
+}
+
 type NoContext = Record<string, never>;
+
+/** First word of the recipient's name for "Hi {{first_name}}" copy — the org-signup user's
+ *  fullName is optional (saved in the onboarding user-details step), hence the fallback. */
+function firstNameOf(fullName: string | null): string {
+  return fullName?.trim().split(/\s+/)[0] || 'there';
+}
 
 function stub(
   label: string,
@@ -51,6 +62,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push'],
+    severity: 'p2_action',
     buildContent: ({ complianceType, vehicleNo, expiryDate }: VehicleComplianceContext) => ({
       title: 'Vehicle compliance expiring soon',
       body: `${complianceType} for vehicle ${vehicleNo} expires in 15 days on ${expiryDate}. Please renew it before the expiry date.`,
@@ -62,6 +74,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['email', 'whatsapp', 'push'],
+    severity: 'p1_critical',
     buildContent: ({ complianceType, vehicleNo, expiryDate }: VehicleComplianceContext) => ({
       title: 'Vehicle compliance expired',
       body: `${complianceType} for vehicle ${vehicleNo} expired on ${expiryDate}. The vehicle may be blocked from dispatch until valid documents are updated.`,
@@ -72,6 +85,45 @@ export const NOTIFICATION_CATALOG = {
     }),
   },
 
+  // LS_N_0001 — fired once by admin.service.ts's approveOrganization. The WhatsApp/SMS/email
+  // copy itself lives in MSG91 templates (DLT/Meta-approved); this app only sends the variables.
+  // SMS always goes out; WhatsApp only when whatsappOptIn is true — not captured (null) or
+  // declined means SMS only (see notify-by-type.ts).
+  'organization.account_approved': {
+    label: 'Account approved',
+    description: 'Your organisation has been approved on Loadsmart.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    channels: ['whatsapp', 'sms', 'email'],
+    defaultChannels: ['whatsapp', 'sms', 'email'],
+    severity: 'p2_action',
+    frequency: 'once_per_tenant',
+    requiresWhatsappOptIn: true,
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateOrgApproved,
+        variables: ['first_name', 'org_name'],
+      },
+      sms: { templateId: env.msg91SmsTemplateOrgApproved, variables: { var1: 'org_name' } },
+      email: {
+        templateId: env.msg91EmailTemplateOrgApproved,
+        variables: { first_name: 'first_name', org_name: 'org_name' },
+      },
+    },
+    buildContent: ({ orgName }: OrganizationApprovedContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `${orgName} is live on Loadsmart`,
+        body: `Welcome ${firstName}. Your account is approved. Add your vehicles and drivers, then create your first trip.`,
+        metadata: {
+          first_name: firstName,
+          org_name: orgName,
+          cta_label: 'Set up my fleet',
+          cta_path: '/',
+        },
+      };
+    },
+  },
+
   // --- Placeholders below: settings-screen metadata only, no trigger built yet. ---
 
   'load.stage_handoff': {
@@ -80,6 +132,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push'],
+    severity: 'p3_info',
     buildContent: stub(
       'Stage handoff',
       'Dispatched, reached loading point, in-transit, and delivered updates.',
@@ -91,6 +144,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'sms', 'email'],
+    severity: 'p1_critical',
     buildContent: stub(
       'E-way bill expiry',
       'Expiring within 4 hours or breached validity warnings.',
@@ -102,6 +156,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'email'],
+    severity: 'p2_action',
     buildContent: stub(
       'Document expiry',
       'Vehicle RC, Fitness certificate, National Permit, and Policy renewals.',
@@ -113,6 +168,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['sms', 'email'],
+    severity: 'p2_action',
     buildContent: stub(
       'Driver licence expiry',
       'Renewal notices scheduled at 30, 15, and 7 days prior to expiry.',
@@ -124,6 +180,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'sms'],
+    severity: 'p2_action',
     buildContent: stub(
       'Trip delay & Exception',
       'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',
@@ -135,6 +192,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push'],
+    severity: 'p1_critical',
     buildContent: stub(
       'Geofence breach',
       'Vehicle deviates from corridor > 5km or unapproved geofence exit.',
@@ -146,6 +204,7 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [FINANCE_ACCOUNTS_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'sms', 'email'],
+    severity: 'p2_action',
     buildContent: stub(
       'Payment due & Settlement',
       'Pending transporter balance, detention approval, and overdue ledger alerts.',
@@ -157,9 +216,30 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['email'],
+    severity: 'p2_action',
     buildContent: stub(
       'Maintenance & Compliance due',
       'Odometer threshold reached, scheduled servicing alert, oil changes.',
     ),
   },
 } satisfies Record<string, NotificationTypeDefinition<any>>;
+
+/** Per-type MSG91 template config for the channels (see channels/*.channel.ts) — undefined for a
+ *  type with none, which keeps each channel on its env-level default template. */
+export function getNotificationTemplates(type: string): NotificationTemplates | undefined {
+  return (NOTIFICATION_CATALOG as Record<string, { templates?: NotificationTemplates }>)[type]
+    ?.templates;
+}
+
+/** Builds a template's `{ templateVar: value }` payload from the notification's metadata. */
+export function mapTemplateVariables(
+  mapping: Record<string, string>,
+  metadata: Record<string, unknown> | null,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(mapping).map(([templateVar, key]) => [
+      templateVar,
+      String(metadata?.[key] ?? ''),
+    ]),
+  );
+}

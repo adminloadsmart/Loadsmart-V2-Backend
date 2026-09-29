@@ -59,7 +59,7 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
   const msg91Client = new Msg91Client(); // per-module adapter instance, same pattern
   // masters/index.ts uses for SarathiClient.
   const channels: Record<NotificationChannelName, NotificationChannel> = {
-    email: new EmailChannel(),
+    email: new EmailChannel(msg91Client),
     sms: new SmsChannel(msg91Client),
     push: new PushChannel(),
     whatsapp: new WhatsappChannel(msg91Client),

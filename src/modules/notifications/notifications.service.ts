@@ -8,7 +8,11 @@ import {
   ListNotificationsInput,
   NotificationDestinations,
 } from './notifications.interface';
-import { NotificationChannelName, DeliveryStatus } from './notifications.types';
+import {
+  DEFAULT_NOTIFICATION_SEVERITY,
+  NotificationChannelName,
+  DeliveryStatus,
+} from './notifications.types';
 
 function resolveDestination(
   channel: NotificationChannelName,
@@ -62,6 +66,7 @@ export class NotificationsService {
           body: input.body,
           channels,
           metadata: input.metadata ?? null,
+          severity: input.severity ?? DEFAULT_NOTIFICATION_SEVERITY,
         },
         destinations,
       );
@@ -74,6 +79,11 @@ export class NotificationsService {
     } catch (error) {
       rethrow(error, 'Failed to send notification');
     }
+  }
+
+  /** Backs a catalog type's `frequency: 'once_per_tenant'` (see notify-by-type.ts). */
+  hasNotificationOfType(tenantId: string, type: string): Promise<boolean> {
+    return this.repository.existsForTenantAndType(tenantId, type);
   }
 
   async list(tenantId: string, recipientUserId: string, input: ListNotificationsInput) {

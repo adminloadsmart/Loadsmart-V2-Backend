@@ -15,6 +15,8 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
 import { StorageService } from '../storage/storage.service';
+import { NotifyByType } from '../notifications/notify-by-type';
+import { NOTIFICATION_CATALOG } from '../notifications/catalog/notification-catalog';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
@@ -49,6 +51,7 @@ export class AdminService {
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
+    private readonly notifyByType: NotifyByType,
   ) {}
 
   /** platform_admin gets every org, unfiltered. online_kyc_desk/offline_kyc_desk only ever see
@@ -536,9 +539,38 @@ export class AdminService {
         newData: { status: 'active', journeyStage: updated.journeyStage },
       });
 
+      await this.notifyAccountApproved(updated);
+
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to approve organization');
+    }
+  }
+
+  /** Best-effort LS_N_0001 "account approved" to the org admin — a notification failure must
+   *  never fail the approval itself, so it's logged, not rethrown (same pattern as
+   *  vehicle.service.ts's scheduleComplianceAlerts). The catalog entry's once_per_tenant
+   *  frequency makes a repeat approval a no-op. */
+  private async notifyAccountApproved(organization: OrganizationEntity): Promise<void> {
+    try {
+      const orgName =
+        organization.name ||
+        organization.registeredBusinessName ||
+        organization.companyLegalName ||
+        'your organisation';
+      await this.notifyByType(
+        NOTIFICATION_CATALOG,
+        'organization.account_approved',
+        organization.id,
+        {
+          orgName,
+        },
+      );
+    } catch (error) {
+      console.warn(
+        `Failed to send account-approved notification for org ${organization.id}`,
+        error,
+      );
     }
   }
 

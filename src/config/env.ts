@@ -130,6 +130,16 @@ export const env = {
   // MSG91's WhatsApp send API lives on a different host (api.msg91.com) from the rest of their
   // v5 API (msg91BaseUrl/control.msg91.com) — see Msg91Client.sendWhatsapp.
   msg91WhatsappBaseUrl: process.env.MSG91_WHATSAPP_BASE_URL || 'https://api.msg91.com',
+  // MSG91 Email API (EmailChannel) — sends from a domain verified on the MSG91 dashboard, using a
+  // template created there. Optional, same "fails loudly but doesn't crash boot" contract.
+  msg91EmailDomain: process.env.MSG91_EMAIL_DOMAIN || undefined,
+  msg91EmailFrom: process.env.MSG91_EMAIL_FROM || undefined,
+  msg91EmailFromName: process.env.MSG91_EMAIL_FROM_NAME || 'Loadsmart',
+  // Per-notification-type MSG91 templates (see catalog/notification-catalog.ts's `templates`) —
+  // LS_N_0001 "account approved". Optional until provisioned on the MSG91 dashboard.
+  msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
+  msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
+  msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

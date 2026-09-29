@@ -26,6 +26,7 @@ export async function seedNotificationTypes(dataSource: DataSource): Promise<voi
           description: definition.description ?? null,
           channels: definition.channels,
           defaultChannels: definition.defaultChannels,
+          severity: definition.severity,
         }),
       );
       console.log(`created notification type ${key}`);
@@ -34,6 +35,7 @@ export async function seedNotificationTypes(dataSource: DataSource): Promise<voi
       existing.description = definition.description ?? null;
       existing.channels = definition.channels;
       existing.defaultChannels = definition.defaultChannels;
+      existing.severity = definition.severity;
       await typeRepo.save(existing);
       console.log(`updated notification type ${key}`);
     }

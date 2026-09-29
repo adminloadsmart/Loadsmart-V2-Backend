@@ -5,7 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { NotificationChannelName } from '../notifications.types';
+import {
+  NOTIFICATION_SEVERITIES,
+  NotificationChannelName,
+  NotificationSeverity,
+} from '../notifications.types';
 
 /**
  * App-wide catalog of notification types (no tenantId — same "fixed, seeded catalog" shape as
@@ -40,6 +44,10 @@ export class NotificationTypeEntity {
   // (notification-preferences.service.ts) puts a tenant back to exactly this.
   @Column({ name: 'default_channels', type: 'jsonb' })
   defaultChannels!: NotificationChannelName[];
+
+  // Mirrors the catalog entry's severity (seeded) — shown on the settings screen.
+  @Column({ type: 'enum', enum: NOTIFICATION_SEVERITIES, default: 'p3_info' })
+  severity!: NotificationSeverity;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

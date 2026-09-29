@@ -6,7 +6,12 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { NotificationChannelName, NotificationStatus } from './notifications.types';
+import {
+  NOTIFICATION_SEVERITIES,
+  NotificationChannelName,
+  NotificationSeverity,
+  NotificationStatus,
+} from './notifications.types';
 
 /**
  * The permanent record of every notification sent — not just a transient queue payload. Created
@@ -49,6 +54,10 @@ export class NotificationEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
+
+  // P1/P2/P3 — see notifications.types.ts's NOTIFICATION_SEVERITIES.
+  @Column({ type: 'enum', enum: NOTIFICATION_SEVERITIES, default: 'p3_info' })
+  severity!: NotificationSeverity;
 
   @Column({
     type: 'enum',

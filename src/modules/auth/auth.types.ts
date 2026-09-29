@@ -27,6 +27,7 @@ export interface DeviceCaptureInput {
 export interface VerifyOtpInput extends DeviceCaptureInput {
   phoneNumber: string;
   otp: string;
+  whatsappOptIn?: boolean;
 }
 
 export interface VerifyLoginOtpInput extends DeviceCaptureInput {

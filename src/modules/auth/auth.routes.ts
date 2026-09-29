@@ -81,6 +81,11 @@ export function createAuthProtectedRoutes(controller: AuthController): Router {
   const router = Router();
 
   router.get('/me', asyncHandler(controller.me));
+  router.patch(
+    '/me/whatsapp-opt-in',
+    validate(authValidators.updateWhatsappOptIn),
+    asyncHandler(controller.updateWhatsappOptIn),
+  );
   // No body — sid/jti/exp come from the caller's own access token, see auth.controller.ts.
   router.post('/logout', asyncHandler(controller.logout));
   router.post(

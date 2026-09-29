@@ -188,6 +188,7 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     storageService: storage.service,
     dataSource,
+    notifyByType,
   });
 
   // No cross-module deps of its own — built before dashboards, which reads its service directly

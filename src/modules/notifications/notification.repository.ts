@@ -1,7 +1,12 @@
 import { DataSource, Repository } from 'typeorm';
 import { NotificationEntity } from './notifications.entity';
 import { NotificationDeliveryEntity } from './notification-delivery.entity';
-import { NotificationChannelName, DeliveryStatus, NotificationStatus } from './notifications.types';
+import {
+  NotificationChannelName,
+  DeliveryStatus,
+  NotificationSeverity,
+  NotificationStatus,
+} from './notifications.types';
 import { ListNotificationsInput } from './notifications.interface';
 
 export interface CreateNotificationData {
@@ -12,6 +17,7 @@ export interface CreateNotificationData {
   body: string;
   channels: NotificationChannelName[];
   metadata: Record<string, unknown> | null;
+  severity: NotificationSeverity;
 }
 
 // Postgres error codes worth retrying the whole transaction for — both are about lock
@@ -74,6 +80,10 @@ export class NotificationRepository {
     return this.repo.save(entity);
   }
 
+  existsForTenantAndType(tenantId: string, type: string): Promise<boolean> {
+    return this.repo.existsBy({ tenantId, type });
+  }
+
   findById(id: string): Promise<NotificationEntity | null> {
     return this.repo.findOneBy({ id });
   }
@@ -98,6 +108,7 @@ export class NotificationRepository {
           body: data.body,
           channels: data.channels,
           metadata: data.metadata,
+          severity: data.severity,
           status: data.channels.length ? 'pending' : 'sent',
           readAt: null,
         }),
@@ -135,6 +146,9 @@ export class NotificationRepository {
 
     if (input.unreadOnly) {
       qb.andWhere('notification.read_at IS NULL');
+    }
+    if (input.severity) {
+      qb.andWhere('notification.severity = :severity', { severity: input.severity });
     }
 
     return qb
