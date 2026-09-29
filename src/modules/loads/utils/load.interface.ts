@@ -34,6 +34,11 @@ export interface ConfirmLoadingInput {
   ewayBillFileKey?: string;
   elrNumber?: string;
   elrFileKey?: string;
+  /** Non-mandatory — up to 3 photos of the loaded truck (back + sides). Never gates the
+   *  assigned -> loading_confirmed flip, unlike the mandatory documents above. */
+  loadingPhotoFileKeys?: string[];
+  /** Non-mandatory. */
+  weighingSlipFileKey?: string;
 }
 
 export interface UpdateLoadStatusInput {

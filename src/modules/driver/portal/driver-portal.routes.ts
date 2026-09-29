@@ -87,6 +87,15 @@ export function createDriverPortalRoutes(
     asyncHandler(controller.getMyTripDetail),
   );
 
+  // Loading Confirmation — mandatory invoice/e-way-bill/E-LR (skippable per-document once already
+  // on the load) plus non-mandatory loading photos/weighing slip. Same ownership-check-as-404
+  // convention as the routes below.
+  router.patch(
+    '/loads/:loadId/confirm-loading',
+    validate(driverPortalValidators.confirmMyLoading),
+    asyncHandler(controller.confirmMyLoading),
+  );
+
   // Self-service load actions — distinct from /me/status above (that's the driver's own
   // operational status; this is a load's movement status). Ownership (this load must be the
   // caller's own) is enforced in LoadService, not here — see driver-portal.controller.ts.

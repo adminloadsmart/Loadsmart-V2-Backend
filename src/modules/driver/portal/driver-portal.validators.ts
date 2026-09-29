@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { paginationQuery as pagination } from '../../../shared/validators/pagination';
-import { updateStatusBody, uploadPodBody } from '../../loads/load.validators';
+import { confirmLoadingBody, updateStatusBody, uploadPodBody } from '../../loads/load.validators';
 import { reportLoadIssueBody } from '../../loads/load-issue.validators';
 import {
   LOAD_SOURCE_TYPES,
@@ -9,10 +9,21 @@ import {
 } from '../../loads/utils/loads.types';
 import { DRIVER_OPERATIONAL_STATUSES } from '../drivers.types';
 
-// The two storage purposes reachable through driver-portal's own upload handshake — kept as an
+// The storage purposes reachable through driver-portal's own upload handshake — kept as an
 // explicit allow-list (not the full UPLOAD_PURPOSES enum) so a driver can never request an
-// upload URL for a purpose meant for staff-only flows (masters/driver, kyc, etc.).
-const driverUploadPurpose = z.enum(['trips/pod', 'loads/issue']);
+// upload URL for a purpose meant for staff-only flows (masters/driver, kyc, etc.). The
+// loads/invoice, loads/eway-bill, trips/lr, loads/loading-photo, and loads/weighing-slip purposes
+// back confirmMyLoading below — the driver can now submit Loading Confirmation documents
+// themselves, not just staff.
+const driverUploadPurpose = z.enum([
+  'trips/pod',
+  'loads/issue',
+  'loads/invoice',
+  'loads/eway-bill',
+  'trips/lr',
+  'loads/loading-photo',
+  'loads/weighing-slip',
+]);
 
 const uuid = z.string().uuid();
 const loadParams = z.object({ loadId: uuid });
@@ -61,6 +72,11 @@ export const driverPortalValidators = {
   // actually be assigned to req.driver!.id) is enforced in LoadService, not here.
   updateMyLoadStatus: z.object({ params: loadParams, body: updateStatusBody }),
   uploadMyPod: z.object({ params: loadParams, body: uploadPodBody }),
+
+  // Loading Confirmation — reuses loads/load.validators.ts's exact body shape, same convention as
+  // updateMyLoadStatus/uploadMyPod above. Any of the mandatory documents already on the load (set
+  // earlier by staff) don't need to be resent — see LoadService.confirmLoading's isComplete check.
+  confirmMyLoading: z.object({ params: loadParams, body: confirmLoadingBody }),
 
   // Driver-app "Report An Issue" — reuses load-issue.validators.ts's body shape, same convention
   // as updateMyLoadStatus/uploadMyPod above.

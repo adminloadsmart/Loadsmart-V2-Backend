@@ -210,36 +210,50 @@ export class LoadService {
     actorRole: string,
     load: LoadEntity,
   ): Promise<LoadEntity> {
-    const resolve = async (key: string | null) => {
-      if (!key) return key;
+    const resolve = async (key: string): Promise<string> => {
       const { downloadUrl } = await this.storageService.getByKey(
         { tenantId, role: actorRole },
         key,
       );
       return downloadUrl ?? key;
     };
+    const resolveNullable = async (key: string | null) => (key ? resolve(key) : key);
     return {
       ...load,
-      invoiceFileKey: await resolve(load.invoiceFileKey),
-      ewayBillFileKey: await resolve(load.ewayBillFileKey),
-      elrFileKey: await resolve(load.elrFileKey),
-      podFileKey: await resolve(load.podFileKey),
+      invoiceFileKey: await resolveNullable(load.invoiceFileKey),
+      ewayBillFileKey: await resolveNullable(load.ewayBillFileKey),
+      elrFileKey: await resolveNullable(load.elrFileKey),
+      podFileKey: await resolveNullable(load.podFileKey),
+      weighingSlipFileKey: await resolveNullable(load.weighingSlipFileKey),
+      loadingPhotoFileKeys: load.loadingPhotoFileKeys
+        ? await Promise.all(load.loadingPhotoFileKeys.map(resolve))
+        : load.loadingPhotoFileKeys,
     };
   }
 
-  /** Ops attaches invoice/e-way bill/E-LR and confirms loading — triggers tracking and,
-   *  for market loads, enables advance payment. Documents may be submitted one at a time or all
-   *  together (load.validators.ts's confirmLoading allows any non-empty subset); this only flips
-   *  the load to loading_confirmed once all three end up present on the row. */
+  /** Ops or the assigned driver attaches invoice/e-way bill/E-LR (mandatory — but only whichever
+   *  aren't already on the load, see isComplete below) plus optional loading photos/weighing slip,
+   *  and confirms loading — triggers tracking and, for market loads, enables advance payment.
+   *  Documents may be submitted one at a time or all together (load.validators.ts's
+   *  confirmLoading allows any non-empty subset); this only flips the load to loading_confirmed
+   *  once all three mandatory documents end up present on the row, whether accumulated across
+   *  calls or already present from an earlier caller.
+   *
+   *  `driverOwnerId` is set only by driver-portal's self-service call — same ownership-check-as-
+   *  404 convention as uploadPod/reportIssue above. */
   async confirmLoading(
     tenantId: string,
     actorId: string,
     actorRole: string,
     loadId: string,
     input: ConfirmLoadingInput,
+    driverOwnerId?: string,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
+      if (driverOwnerId && load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
       if (load.status !== 'assigned') {
         throw new ConflictError('Only an assigned load can have loading confirmed');
       }
@@ -279,6 +293,19 @@ export class LoadService {
       if (input.elrFileKey) {
         await this.assertLoadDocumentUpload(tenantId, actorRole, input.elrFileKey, 'trips/lr');
       }
+      if (input.loadingPhotoFileKeys) {
+        for (const key of input.loadingPhotoFileKeys) {
+          await this.assertLoadDocumentUpload(tenantId, actorRole, key, 'loads/loading-photo');
+        }
+      }
+      if (input.weighingSlipFileKey) {
+        await this.assertLoadDocumentUpload(
+          tenantId,
+          actorRole,
+          input.weighingSlipFileKey,
+          'loads/weighing-slip',
+        );
+      }
 
       const now = new Date();
       const fields: UpdateLoadData = { updatedBy: actorId };
@@ -293,6 +320,13 @@ export class LoadService {
       }
       if (input.elrNumber !== undefined) fields.elrNumber = nextElrNumber ?? null;
       if (input.elrFileKey !== undefined) fields.elrFileKey = input.elrFileKey;
+      // Non-mandatory — whole-array replace, not accumulated, same as every field above.
+      if (input.loadingPhotoFileKeys !== undefined) {
+        fields.loadingPhotoFileKeys = input.loadingPhotoFileKeys;
+      }
+      if (input.weighingSlipFileKey !== undefined) {
+        fields.weighingSlipFileKey = input.weighingSlipFileKey;
+      }
 
       // Step 1 — persist whatever arrived this call as a plain partial update, then re-read.
       // Completeness below is decided from this fresh, post-write row rather than an in-memory

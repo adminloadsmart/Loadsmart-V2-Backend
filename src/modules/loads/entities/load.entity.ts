@@ -181,6 +181,14 @@ export class LoadEntity {
   @Column({ name: 'elr_file_key', type: 'text', nullable: true })
   elrFileKey!: string | null;
 
+  /** Non-mandatory Loading Confirmation uploads — never gate the assigned -> loading_confirmed
+   *  flip, unlike invoice/eway-bill/elr above. See load.service.ts's confirmLoading. */
+  @Column({ name: 'loading_photo_file_keys', type: 'text', array: true, nullable: true })
+  loadingPhotoFileKeys!: string[] | null;
+
+  @Column({ name: 'weighing_slip_file_key', type: 'text', nullable: true })
+  weighingSlipFileKey!: string | null;
+
   @Column({ name: 'loading_confirmed_at', type: 'timestamptz', nullable: true })
   loadingConfirmedAt!: Date | null;
 

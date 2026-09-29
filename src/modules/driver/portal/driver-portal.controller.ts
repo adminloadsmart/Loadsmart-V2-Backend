@@ -4,6 +4,7 @@ import { PaginationInput } from '../../../shared/utils/pagination';
 import { DriverService } from '../driver.service';
 import { LoadService } from '../../loads/load.service';
 import {
+  ConfirmLoadingInput,
   ListLoadsInput,
   LoadParams,
   UpdateLoadStatusInput,
@@ -131,6 +132,22 @@ export class DriverPortalController {
       req.driver!.id,
       req.params.loadId,
       (req.body as UpdateLoadStatusInput).toStatus,
+      req.driver!.id,
+    );
+    respond(res, load);
+  };
+
+  // Same LoadService.confirmLoading the staff PATCH /loads/:loadId/confirm-loading endpoint uses —
+  // mandatory invoice/e-way-bill/E-LR (skippable per-document once already on the load) plus the
+  // non-mandatory loading photos/weighing slip. Same ownership-check-as-404/actorRole-literal
+  // convention as uploadMyPod below.
+  confirmMyLoading = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.confirmLoading(
+      req.driver!.tenantId!,
+      req.driver!.id,
+      'driver',
+      req.params.loadId,
+      req.body as ConfirmLoadingInput,
       req.driver!.id,
     );
     respond(res, load);

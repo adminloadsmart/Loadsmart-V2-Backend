@@ -249,6 +249,44 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'patch',
+    path: `${BASE}/loads/{loadId}/confirm-loading`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.confirmMyLoading',
+    ...authenticated(
+      'Attach invoice/e-way bill/E-LR (mandatory) and confirm loading for a load assigned to ' +
+        'the caller — same rules as the staff PATCH /loads/{loadId}/confirm-loading. A document ' +
+        'staff already attached never needs to be resent: the load only stays "assigned" while ' +
+        'any of the three mandatory documents are genuinely still missing from the row. Also ' +
+        'accepts two non-mandatory fields that never affect that flip: loadingPhotoFileKeys (up ' +
+        'to 3 photos of the loaded truck, back and sides) and weighingSlipFileKey. File keys must ' +
+        'be confirmed uploads from POST /driver-portal/files with the matching purpose ' +
+        '(loads/invoice, loads/eway-bill, trips/lr, loads/loading-photo, loads/weighing-slip).',
+    ),
+    request: {
+      params: driverPortalValidators.confirmMyLoading.shape.params,
+      body: json(driverPortalValidators.confirmMyLoading.shape.body),
+    },
+    responses: {
+      200: {
+        description:
+          'Document(s) saved; load remains "assigned" until all three mandatory documents are ' +
+          'present, then flips to "loading_confirmed"',
+      },
+      400: {
+        description: 'A file is not a confirmed upload for the expected purpose',
+        ...errorContent,
+      },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: {
+        description:
+          'Load is not in the "assigned" state, or the E-LR number is already used on another load (C-04)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
     path: `${BASE}/loads/{loadId}/status`,
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.updateMyLoadStatus',

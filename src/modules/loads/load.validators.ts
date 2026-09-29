@@ -17,6 +17,47 @@ const params = z.object({ loadId: uuid });
 // same body shape instead of a hand-kept duplicate that could drift out of sync.
 export const updateStatusBody = z.object({ toStatus: z.enum(MANUAL_TRACKING_STATUSES) }).strict();
 
+// Any subset of the three mandatory document pairs may be submitted per call — invoice/e-way
+// bill/E-LR can be uploaded one at a time or all together (LoadService.confirmLoading only flips
+// the load to loading_confirmed once all three end up present on the row, whether accumulated
+// across calls or already present from an earlier caller — a document already on the load never
+// needs to be resent). loadingPhotoFileKeys/weighingSlipFileKey are non-mandatory and never gate
+// that flip. Exported so driver-portal.validators.ts's confirmMyLoading reuses the exact same
+// body shape instead of a hand-kept duplicate that could drift out of sync.
+export const confirmLoadingBody = z
+  .object({
+    invoiceNumber: z.string().trim().min(1).max(50).optional(),
+    invoiceFileKey: z.string().trim().min(1).optional(),
+    ewayBillNumber: z.string().trim().min(1).max(50).optional(),
+    ewayBillFileKey: z.string().trim().min(1).optional(),
+    elrNumber: z.string().trim().max(50).optional(),
+    elrFileKey: z.string().trim().min(1).optional(),
+    loadingPhotoFileKeys: z.array(z.string().trim().min(1)).max(3).optional(),
+    weighingSlipFileKey: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (data) => (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined),
+    'invoiceNumber and invoiceFileKey must be submitted together',
+  )
+  .refine(
+    (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
+    'ewayBillNumber and ewayBillFileKey must be submitted together',
+  )
+  .refine(
+    (data) => data.elrNumber === undefined || data.elrFileKey !== undefined,
+    'elrNumber cannot be submitted without elrFileKey',
+  )
+  .refine(
+    (data) =>
+      data.invoiceFileKey !== undefined ||
+      data.ewayBillFileKey !== undefined ||
+      data.elrFileKey !== undefined ||
+      data.loadingPhotoFileKeys !== undefined ||
+      data.weighingSlipFileKey !== undefined,
+    'At least one document must be submitted',
+  );
+
 export const uploadPodBody = z
   .object({
     podFileKey: z.string().trim().min(1),
@@ -93,40 +134,9 @@ export const loadValidators = {
       .strict(),
   }),
 
-  // Any subset of the three document pairs may be submitted per call — invoice/e-way bill/E-LR
-  // can be uploaded one at a time or all together (LoadService.confirmLoading only flips the
-  // load to loading_confirmed once all three end up present on the row).
   confirmLoading: z.object({
     params,
-    body: z
-      .object({
-        invoiceNumber: z.string().trim().min(1).max(50).optional(),
-        invoiceFileKey: z.string().trim().min(1).optional(),
-        ewayBillNumber: z.string().trim().min(1).max(50).optional(),
-        ewayBillFileKey: z.string().trim().min(1).optional(),
-        elrNumber: z.string().trim().max(50).optional(),
-        elrFileKey: z.string().trim().min(1).optional(),
-      })
-      .strict()
-      .refine(
-        (data) => (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined),
-        'invoiceNumber and invoiceFileKey must be submitted together',
-      )
-      .refine(
-        (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
-        'ewayBillNumber and ewayBillFileKey must be submitted together',
-      )
-      .refine(
-        (data) => data.elrNumber === undefined || data.elrFileKey !== undefined,
-        'elrNumber cannot be submitted without elrFileKey',
-      )
-      .refine(
-        (data) =>
-          data.invoiceFileKey !== undefined ||
-          data.ewayBillFileKey !== undefined ||
-          data.elrFileKey !== undefined,
-        'At least one document (invoice, e-way bill, or E-LR) must be submitted',
-      ),
+    body: confirmLoadingBody,
   }),
 
   updateStatus: z.object({

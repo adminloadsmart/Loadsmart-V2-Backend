@@ -306,14 +306,19 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.confirmLoading',
     ...manageDocuments(
-      'Attach invoice/e-way bill/E-LR. Documents may be submitted one at a time or all ' +
-        'together — invoiceNumber+invoiceFileKey and ewayBillNumber+ewayBillFileKey must each ' +
-        'arrive as a pair, elrFileKey may arrive without elrNumber, and at least one document ' +
-        'must be present per call. The load stays "assigned" until all three documents are ' +
-        'present (accumulated across calls or sent at once), at which point it flips to ' +
-        '"loading_confirmed" and tracking/advance payment (market loads) are enabled. File keys ' +
+      'Attach invoice/e-way bill/E-LR (mandatory), plus optional loading photos ' +
+        '(loadingPhotoFileKeys, up to 3 — back and sides of the loaded truck) and a weighing ' +
+        'slip (weighingSlipFileKey). Documents may be submitted one at a time or all together — ' +
+        'invoiceNumber+invoiceFileKey and ewayBillNumber+ewayBillFileKey must each arrive as a ' +
+        'pair, elrFileKey may arrive without elrNumber, and at least one field must be present ' +
+        'per call. The load stays "assigned" until all three MANDATORY documents are present ' +
+        '(accumulated across calls, already on the load from an earlier caller, or sent at once ' +
+        '— a document staff already attached never needs to be resent), at which point it flips ' +
+        'to "loading_confirmed" and tracking/advance payment (market loads) are enabled; the two ' +
+        'non-mandatory fields never affect this flip. This same endpoint is also reachable by ' +
+        'the assigned driver via PATCH /driver-portal/loads/{loadId}/confirm-loading. File keys ' +
         'must be confirmed uploads from POST /files with the matching purpose (loads/invoice, ' +
-        'loads/eway-bill, trips/lr).',
+        'loads/eway-bill, trips/lr, loads/loading-photo, loads/weighing-slip).',
     ),
     request: {
       params: loadValidators.confirmLoading.shape.params,
