@@ -31,6 +31,9 @@ export interface MarketTruckLineInput {
   /** Balance isn't a separate input — Plan Dispatch v2.0 §6.3/§6.4: "Balance is calculated
    *  automatically as 100 minus advance." Defaults 30 (balance defaults to 70). */
   advancePercentage?: number;
+  /** The own-fleet truck in the workshop these market trucks are covering, if any — see
+   *  LoadEntity.coversVehicleId. */
+  coversVehicleId?: string;
 }
 
 export type TruckLineInput = OwnFleetTruckLineInput | MarketTruckLineInput;

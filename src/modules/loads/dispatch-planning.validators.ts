@@ -32,6 +32,9 @@ const marketLine = z
     // Balance isn't submitted — it's 100 minus this, derived server-side in
     // dispatch-planning.service.ts's buildMarketLine (Plan Dispatch v2.0 §6.3/§6.4).
     advancePercentage: z.number().min(0).max(100).default(30),
+    // Set when these market trucks replace an own-fleet truck that is in the workshop — feeds the
+    // maintenance screen's "loads bought from the market" line. Must be under_maintenance.
+    coversVehicleId: uuid.optional(),
   })
   .strict()
   .refine(

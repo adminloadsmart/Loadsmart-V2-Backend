@@ -19,7 +19,11 @@ import { NotificationTemplateEntity } from '../modules/notifications/templates/t
 import { NotificationTypeEntity } from '../modules/notifications/entities/notification-type.entity';
 import { NotificationPreferenceEntity } from '../modules/notifications/entities/notification-preference.entity';
 import { PaymentEntity } from '../modules/payments/payments.entity';
-import { MaintenanceRecordEntity } from '../modules/maintenance/maintenance.entity';
+import { MaintenanceJobEntity } from '../modules/maintenance/entities/maintenance-job.entity';
+import { TyreEntity } from '../modules/maintenance/entities/tyre.entity';
+import { TyreReadingEntity } from '../modules/maintenance/entities/tyre-reading.entity';
+import { BatteryPackEntity } from '../modules/maintenance/entities/battery-pack.entity';
+import { BatterySohReadingEntity } from '../modules/maintenance/entities/battery-soh-reading.entity';
 import { AuditLogEntity } from '../modules/audit/audit.entity';
 import { VehicleEntity } from '../modules/masters/vehicle/entities/vehicle.entity';
 import { VehicleDocumentEntity } from '../modules/masters/vehicle/entities/vehicle-document.entity';
@@ -79,7 +83,12 @@ export const AppDataSource = new DataSource({
     NotificationTypeEntity,
     NotificationPreferenceEntity,
     PaymentEntity,
-    MaintenanceRecordEntity,
+    // maintenance module
+    MaintenanceJobEntity,
+    TyreEntity,
+    TyreReadingEntity,
+    BatteryPackEntity,
+    BatterySohReadingEntity,
     AuditLogEntity,
     VehicleEntity,
     VehicleDocumentEntity,

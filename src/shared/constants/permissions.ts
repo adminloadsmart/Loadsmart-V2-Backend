@@ -38,3 +38,10 @@ export const FILES_DELETE = 'storage.files.delete';
 // Approve/reject a pending vehicle or driver created by a non-org-admin (currently: dispatch).
 // Org_admin only — same one-key-per-module shape as MASTERS_WRITE, not split per entity.
 export const MASTERS_APPROVE = 'masters.approve';
+
+// Maintenance (FMS-MNT-000). MANAGE gates every workshop write (log a service, open/close a
+// breakdown, tyres, batteries). COSTS_VIEW is not a route gate: the maintenance screen's reads are
+// open to every tenant seat, and this key only decides whether the money on it — spend and
+// downtime headlines, job costs — is included (see maintenance/utils/cost-visibility.ts).
+export const MAINTENANCE_MANAGE = 'maintenance.manage';
+export const MAINTENANCE_COSTS_VIEW = 'maintenance.costs.view';

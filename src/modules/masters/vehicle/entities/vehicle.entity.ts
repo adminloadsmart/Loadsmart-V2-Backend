@@ -71,6 +71,10 @@ export class VehicleEntity {
   })
   bodyType!: VehicleBodyType | null;
 
+  /** Manufacturer and model, e.g. "Tata Signa 4825.TK" — shown under the registration number. */
+  @Column({ name: 'make_model', type: 'varchar', length: 100, nullable: true })
+  makeModel!: string | null;
+
   @Column({ name: 'wheel_count', type: 'smallint', nullable: true })
   wheelCount!: number | null;
 

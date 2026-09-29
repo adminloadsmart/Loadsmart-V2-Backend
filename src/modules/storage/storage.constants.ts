@@ -12,6 +12,7 @@ export const UPLOAD_PURPOSES = [
   'loads/eway-bill',
   'loads/payment-proof',
   'loads/issue',
+  'maintenance/invoice',
   'loads/loading-photo',
   'loads/weighing-slip',
 ] as const;
@@ -87,6 +88,12 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png'],
     keyPrefix: 'loads/issue',
+  },
+  // Invoice / work order attached to Log a service and Record Tyre Maintenance.
+  'maintenance/invoice': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
+    keyPrefix: 'maintenance/invoice',
   },
   // Non-mandatory Loading Confirmation uploads — see load.service.ts's confirmLoading. Reachable
   // via driver-portal's own POST /files, same as trips/pod and loads/issue.
