@@ -6,12 +6,14 @@ import {
   LOAD_STATUSES,
   LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
+  POD_STATUSES,
   POD_REVIEW_DECISIONS,
   SEAL_STATUSES,
   SHORTAGE_OR_DAMAGE_STATUSES,
 } from './utils/loads.types';
 
 const uuid = z.string().uuid();
+export const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 const params = z.object({ loadId: uuid });
 
 // Exported so driver-portal.validators.ts's driver-facing status/POD schemas can reuse the exact
@@ -128,7 +130,14 @@ export const loadValidators = {
         transporterId: uuid.optional(),
         vehicleId: uuid.optional(),
         driverId: uuid.optional(),
+        podStatus: z.enum(POD_STATUSES).optional(),
+        fromDate: dateOnly.optional(),
+        toDate: dateOnly.optional(),
       })
+      .refine(
+        (data) => !(data.fromDate && data.toDate) || data.fromDate <= data.toDate,
+        'fromDate must not be after toDate',
+      )
       .refine(
         (data) => !(data.status && data.group),
         'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',

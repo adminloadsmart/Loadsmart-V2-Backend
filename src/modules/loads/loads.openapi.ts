@@ -203,8 +203,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.listLoads',
     ...authenticated(
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
-        'completed` is the Trips Home-page tab filter (completed = delivered + closed), mutually ' +
-        "exclusive with `status`. `search` matches (case-insensitive, partial) against the load's " +
+        'completed|open|upcoming` is the tab filter (upcoming = created + assigned), mutually ' +
+        'exclusive with `status`. `podStatus=pending|accepted|rejected` filters by E-POD status. ' +
+        '`fromDate`/`toDate` (YYYY-MM-DD, inclusive, UTC, either optional) filter on deliveredAt ' +
+        'when group=completed, otherwise on createdAt. ' +
+        "`search` matches (case-insensitive, partial) against the load's " +
         "requisition's customer name. Each row's `route`/`customer` come from the load's " +
         'requisition; `source.label` is "Own fleet" or "Market · {transporter name}". ' +
         '`expectedRate` is the planned freight rate — market loads only, always null for ' +
@@ -249,7 +252,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          '{ load, timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
+          '{ load (document fields are download URLs), documentKeys (the same document fields as raw ' +
+          'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
           'TripStepperStep[], nextAction: TripNextAction }',
       },
       404: { description: 'Load not found', ...errorContent },

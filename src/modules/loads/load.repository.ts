@@ -1,4 +1,5 @@
 import {
+  Between,
   DataSource,
   EntityManager,
   FindManyOptions,
@@ -6,6 +7,8 @@ import {
   ILike,
   In,
   IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
   Not,
   Repository,
 } from 'typeorm';
@@ -201,6 +204,9 @@ export class LoadRepository {
       transporterId,
       vehicleId,
       driverId,
+      podStatus,
+      fromDate,
+      toDate,
       search,
     } = filters;
 
@@ -217,6 +223,18 @@ export class LoadRepository {
     if (transporterId) base.transporterId = transporterId;
     if (vehicleId) base.vehicleId = vehicleId;
     if (driverId) base.driverId = driverId;
+    if (podStatus) base.podStatus = podStatus;
+    const dateColumn = group === 'completed' ? 'deliveredAt' : 'createdAt';
+    if (fromDate || toDate) {
+      const from = new Date(`${fromDate ?? toDate}T00:00:00.000Z`);
+      const to = new Date(`${toDate ?? fromDate}T23:59:59.999Z`);
+      base[dateColumn] =
+        fromDate && toDate
+          ? Between(from, to)
+          : fromDate
+            ? MoreThanOrEqual(from)
+            : LessThanOrEqual(to);
+    }
 
     // Matches the load's own LOAD-nnnn code or its requisition's customer name — a dispatcher
     // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS

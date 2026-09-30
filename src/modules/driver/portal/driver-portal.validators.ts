@@ -1,10 +1,16 @@
 import { z } from 'zod';
 import { paginationQuery as pagination } from '../../../shared/validators/pagination';
-import { confirmLoadingBody, updateStatusBody, uploadPodBody } from '../../loads/load.validators';
+import {
+  confirmLoadingBody,
+  dateOnly,
+  updateStatusBody,
+  uploadPodBody,
+} from '../../loads/load.validators';
 import { reportLoadIssueBody } from '../../loads/load-issue.validators';
 import {
   LOAD_SOURCE_TYPES,
   LOAD_STATUS_GROUPS,
+  POD_STATUSES,
   LOAD_STATUSES,
 } from '../../loads/utils/loads.types';
 import { DRIVER_OPERATIONAL_STATUSES } from '../drivers.types';
@@ -49,7 +55,14 @@ export const driverPortalValidators = {
         // narrower version of `status` above, so the two aren't combined in one request.
         group: z.enum(LOAD_STATUS_GROUPS).optional(),
         sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
+        podStatus: z.enum(POD_STATUSES).optional(),
+        fromDate: dateOnly.optional(),
+        toDate: dateOnly.optional(),
       })
+      .refine(
+        (data) => !(data.fromDate && data.toDate) || data.fromDate <= data.toDate,
+        'fromDate must not be after toDate',
+      )
       .refine(
         (data) => !(data.status && data.group),
         'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',

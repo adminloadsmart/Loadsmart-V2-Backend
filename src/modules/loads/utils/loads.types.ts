@@ -105,12 +105,15 @@ export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
 export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
   (status) => status !== 'closed',
 );
-export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open'] as const;
+/** Driver-app "Upcoming" tab — assigned to the driver but not yet moving. */
+export const UPCOMING_LOAD_STATUSES: readonly LoadStatus[] = ['created', 'assigned'];
+export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
   active: ACTIVE_LOAD_STATUSES,
   completed: COMPLETED_LOAD_STATUSES,
   open: OPEN_LOAD_STATUSES,
+  upcoming: UPCOMING_LOAD_STATUSES,
 };
 
 /**

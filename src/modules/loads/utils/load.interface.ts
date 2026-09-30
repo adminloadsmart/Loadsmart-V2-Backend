@@ -4,6 +4,7 @@ import {
   LoadSourceType,
   LoadStatus,
   LoadStatusGroup,
+  PodStatus,
   ManualTrackingStatus,
   PodReviewDecision,
   SealStatus,
@@ -77,6 +78,12 @@ export interface ListLoadsInput extends PaginationInput {
   transporterId?: string;
   vehicleId?: string;
   driverId?: string;
+  /** Driver-app POD Status filter. */
+  podStatus?: PodStatus;
+  /** Inclusive YYYY-MM-DD range (UTC). Applies to deliveredAt when group is 'completed',
+   *  otherwise to createdAt. */
+  fromDate?: string;
+  toDate?: string;
   /** Matches against the load's requisition's customer name (case-insensitive, partial). */
   search?: string;
 }

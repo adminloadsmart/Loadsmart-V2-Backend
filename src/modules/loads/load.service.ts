@@ -60,8 +60,19 @@ export interface TripsDoneResult extends Paginated<TripListRow> {
   epodVerifiedPercentage: number;
 }
 
+/** Raw storage keys for a load's documents — `load` carries these same fields as download URLs. */
+export interface LoadDocumentKeys {
+  invoiceFileKey: string | null;
+  ewayBillFileKey: string | null;
+  elrFileKey: string | null;
+  podFileKey: string | null;
+  weighingSlipFileKey: string | null;
+  loadingPhotoFileKeys: string[] | null;
+}
+
 export interface LoadDetailView {
   load: LoadEntity;
+  documentKeys: LoadDocumentKeys;
   timeline: LoadActivityWithActor[];
   payments: LoadPaymentEntity[];
   ewayBillExpiry: EwayBillExpiry;
@@ -449,6 +460,36 @@ export class LoadService {
             oldData: { id: loadId, status: 'at_plant' },
             newData: { id: loadId, status: 'loading_confirmed' },
           });
+
+          // Confirming loading means the truck is leaving the plant — advance straight to
+          // in_transit, still passing through loading_confirmed above so the activity/audit trail
+          // and stepper keep every stage. Guarded on loading_confirmed so it can't double-fire.
+          const inTransit = await this.repository.updateStatus(
+            tenantId,
+            loadId,
+            ['loading_confirmed'],
+            'in_transit',
+            { inTransitAt: new Date(), updatedBy: actorId },
+          );
+          if (inTransit) {
+            updated = inTransit;
+            await this.loadActivityService.record(
+              tenantId,
+              loadId,
+              actorId,
+              'STATUS_CHANGED',
+              'loading_confirmed',
+              'in_transit',
+            );
+            await this.auditService.log({
+              tenantId,
+              userId: actorId,
+              action: 'LOAD_STATUS_UPDATED',
+              resourceType: 'load',
+              oldData: { id: loadId, status: 'loading_confirmed' },
+              newData: { id: loadId, status: 'in_transit' },
+            });
+          }
         } else {
           // Lost the race — a concurrent call already completed the transition and logged
           // STATUS_CHANGED/the audit entry. Reflect current state without duplicating those.
@@ -887,6 +928,14 @@ export class LoadService {
 
       return {
         load: loadWithUrls,
+        documentKeys: {
+          invoiceFileKey: load.invoiceFileKey,
+          ewayBillFileKey: load.ewayBillFileKey,
+          elrFileKey: load.elrFileKey,
+          podFileKey: load.podFileKey,
+          weighingSlipFileKey: load.weighingSlipFileKey,
+          loadingPhotoFileKeys: load.loadingPhotoFileKeys,
+        },
         timeline,
         payments,
         ewayBillExpiry: this.getEwayBillExpiry(load),
