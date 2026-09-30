@@ -58,9 +58,44 @@ export class OrganizationDocumentService {
     );
   }
 
+  async findActiveById(documentId: string): Promise<OrganizationDocumentEntity | null> {
+    return this.organizationDocumentRepository.findActiveById(documentId);
+  }
+
+  // Automated IDfy verification (see OrganizationDocumentVerificationService) — remembers the
+  // IDfy request_id so a retried job polls the same task instead of submitting a duplicate.
+  async recordVerificationRequest(documentId: string, requestId: string): Promise<void> {
+    await this.organizationDocumentRepository.updateById(documentId, {
+      sourceReference: requestId,
+    });
+  }
+
+  // IDfy returned the document's details — the document is valid with no admin step.
+  async applyAutoVerification(
+    documentId: string,
+    result: { registeredName: string | null; rawResponse: Record<string, unknown> },
+  ): Promise<void> {
+    await this.organizationDocumentRepository.updateById(documentId, {
+      verificationStatus: 'verified',
+      verifiedAt: new Date(),
+      ...(result.registeredName ? { registeredName: result.registeredName } : {}),
+      rawResponse: result.rawResponse,
+      rejectionReason: null,
+      updatedBy: null,
+    });
+  }
+
+  // IDfy couldn't confirm the document — stays 'pending' for admin review; only the raw
+  // response is kept for the reviewer.
+  async recordAutoVerificationFailure(
+    documentId: string,
+    rawResponse: Record<string, unknown>,
+  ): Promise<void> {
+    await this.organizationDocumentRepository.updateById(documentId, { rawResponse });
+  }
+
   // Platform-admin action (PATCH /admin/organizations/:organizationId/documents/:documentId) —
-  // the only place a document's verificationStatus can be changed today (no automated gov-API
-  // verification wired up yet).
+  // manual override; GST/Udyam/CIN numbers are also verified automatically via IDfy.
   async updateVerificationStatus(
     organizationId: string,
     documentId: string,

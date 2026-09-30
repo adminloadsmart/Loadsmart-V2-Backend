@@ -1,4 +1,5 @@
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import {
   DocumentVerificationStatus,
   OrganizationDocumentEntity,
@@ -67,6 +68,10 @@ export class OrganizationDocumentRepository {
         existing.pinCode = document.registeredAddress?.pinCode ?? existing.pinCode ?? null;
         existing.verificationStatus = 'pending' as DocumentVerificationStatus;
         existing.verifiedAt = null;
+        // Clear any previous automated-verification trail so a resubmit is verified afresh.
+        existing.sourceReference = null;
+        existing.rawResponse = null;
+        existing.rejectionReason = null;
         existing.updatedBy = actingUserId;
         saved.push(await repo.save(existing));
         continue;
@@ -119,6 +124,25 @@ export class OrganizationDocumentRepository {
   ): Promise<OrganizationDocumentEntity | null> {
     await this.repo.update({ id }, data);
     return this.findActiveById(id);
+  }
+
+  // Partial update used by the automated IDfy verification worker (no acting user).
+  async updateById(
+    id: string,
+    data: Partial<
+      Pick<
+        OrganizationDocumentEntity,
+        | 'verificationStatus'
+        | 'verifiedAt'
+        | 'sourceReference'
+        | 'rawResponse'
+        | 'registeredName'
+        | 'rejectionReason'
+        | 'updatedBy'
+      >
+    >,
+  ): Promise<void> {
+    await this.repo.update({ id }, data as QueryDeepPartialEntity<OrganizationDocumentEntity>);
   }
 
   async softDeleteActiveByType(

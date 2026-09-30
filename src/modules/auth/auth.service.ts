@@ -18,6 +18,7 @@ import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { StorageService } from '../storage/storage.service';
@@ -97,6 +98,7 @@ export class AuthService {
     private readonly authRepository: AuthRepository,
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly documentVerificationService: OrganizationDocumentVerificationService,
     private readonly organizationOnboardingService: OrganizationOnboardingService,
     private readonly organizationJourneyStageService: OrganizationJourneyStageService,
     private readonly storageService: StorageService,
@@ -1064,7 +1066,8 @@ export class AuthService {
     const documentUrls = [...documentFrontKeys, ...uploadedDocumentKeys];
     const shopPremisesKey = shopPremisesPhoto?.key ?? shopPremisesPhotoKey;
 
-    return this.dataSource.transaction(async (manager) => {
+    let savedDocuments: Awaited<ReturnType<OrganizationDocumentService['upsertDocuments']>> = [];
+    const response = await this.dataSource.transaction(async (manager) => {
       if (input.replaceDocumentType && input.replaceDocumentType !== input.documentType) {
         await this.organizationDocumentService.removeActiveDocumentType(
           tenantId,
@@ -1105,6 +1108,7 @@ export class AuthService {
         ],
         manager,
       );
+      savedDocuments = documents;
 
       await this.auditService.log(
         {
@@ -1125,6 +1129,11 @@ export class AuthService {
 
       return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     });
+
+    // After commit so the worker can see the rows; GST/Udyam/CIN are verified via IDfy in the
+    // background and flip to 'verified' on their own.
+    await this.documentVerificationService.enqueueVerification(savedDocuments);
+    return response;
   }
 
   async submitOrganization(user: AuthenticatedUser, input: SubmitOrganizationInput) {
