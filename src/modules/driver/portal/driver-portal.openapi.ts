@@ -84,9 +84,12 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMyLoads',
     ...authenticated(
-      'List loads assigned to the caller, paginated. Also reachable with an identity-access ' +
-        'token (no active tenant relation required) — returns an empty page in that case, since ' +
-        'a driver with no active relation cannot be assigned to any load in any tenant.',
+      'List loads assigned to the caller, paginated. `group=open` is the "Open Trips" tab — ' +
+        'every status except closed, including a delivered load whose E-POD is still pending or ' +
+        'was rejected (podStatus/podRejectionReason are included per item so the app can route a ' +
+        'rejected one back to re-upload). Also reachable with an identity-access token (no ' +
+        'active tenant relation required) — returns an empty page in that case, since a driver ' +
+        'with no active relation cannot be assigned to any load in any tenant.',
     ),
     request: { query: driverPortalValidators.listMyLoads.shape.query },
     responses: {
@@ -126,19 +129,24 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMyHome',
     ...authenticated(
-      'Home screen — one call bundling driver name/vehicle number, on-time %/trips-done stats, ' +
-        'the current active job (first of GET /me/loads?group=active), the upcoming-jobs list ' +
-        '(GET /me/loads?status=assigned, first 5), and the unread notification count. Also ' +
-        'reachable with an identity-access token (no active tenant relation required) — driver ' +
-        'name and unreadNotificationCount still populate in that case, but stats/currentJob/' +
-        'upcomingJobs come back zeroed/empty. Settlement Due, per-trip Distance, and a driver ' +
-        'Score/Rating are deliberately not included — no backing data exists for any of them yet.',
+      'Home screen — one call bundling driver name/vehicle number, on-time %/trips-done/open-' +
+        'trips stats, the current active job (first of GET /me/loads?group=active), the ' +
+        'upcoming-jobs list (GET /me/loads?status=assigned, first 5), and the unread ' +
+        "notification count. stats.openTrips (GET /me/loads?group=open's total) counts loads " +
+        'not yet closed, including a delivered load pending or rejected E-POD review — it can ' +
+        'overlap with stats.tripsDone, which answers a different question (completed-only, ' +
+        'always the "Trips Done" tab). Also reachable with an identity-access token (no active ' +
+        'tenant relation required) — driver name and unreadNotificationCount still populate in ' +
+        'that case, but stats/currentJob/upcomingJobs come back zeroed/empty. Settlement Due, ' +
+        'per-trip Distance, and a driver Score/Rating are deliberately not included — no backing ' +
+        'data exists for any of them yet.',
     ),
     responses: {
       200: {
         description:
-          '{ data: { driver: { fullName, vehicleNumber }, stats: { tripsDone, onTimePercentage }, ' +
-          'currentJob: TripListRow | null, upcomingJobs: TripListRow[], unreadNotificationCount } }',
+          '{ data: { driver: { fullName, vehicleNumber }, stats: { tripsDone, onTimePercentage, ' +
+          'openTrips }, currentJob: TripListRow | null, upcomingJobs: TripListRow[], ' +
+          'unreadNotificationCount } }',
       },
     },
   });
@@ -280,6 +288,38 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
       409: {
         description:
           'Load is not in the "assigned" state, or the E-LR number is already used on another load (C-04)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/documents`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.updateMyDocuments',
+    ...authenticated(
+      'Attach or replace documents on a load assigned to the caller, with no status-transition ' +
+        'side effects — unlike PATCH /driver-portal/loads/{loadId}/confirm-loading, this never ' +
+        "checks completeness and never flips the load's status. Usable at any point in the " +
+        'load\'s lifecycle except once "closed"; intended for correcting a document after loading ' +
+        'has already been confirmed, or attaching one that only arrived later. Same body shape ' +
+        'and file-key rules as confirm-loading.',
+    ),
+    request: {
+      params: driverPortalValidators.updateMyDocuments.shape.params,
+      body: json(driverPortalValidators.updateMyDocuments.shape.body),
+    },
+    responses: {
+      200: { description: 'Document(s) saved; load status is unchanged' },
+      400: {
+        description: 'A file is not a confirmed upload for the expected purpose',
+        ...errorContent,
+      },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: {
+        description:
+          'Load is already "closed", or the E-LR number is already used on another load (C-04)',
         ...errorContent,
       },
     },

@@ -17,6 +17,7 @@ import {
   LOAD_STATUSES,
   MANUAL_TRACKING_STATUSES,
   ManualTrackingStatus,
+  PodReviewDecision,
 } from './utils/loads.types';
 import { LoadActivityWithActor } from './utils/load-activity.interface';
 import { ReportLoadIssueInput } from './utils/load-issue.interface';
@@ -231,6 +232,147 @@ export class LoadService {
     };
   }
 
+  /** Shared by confirmLoading and updateDocuments — verifies whichever document fields were
+   *  submitted this call (previously-saved keys were already verified as confirmed uploads for
+   *  the right purpose when first submitted) and returns the row fields to persist. Doesn't touch
+   *  status/completeness — callers own that. */
+  private async buildDocumentFields(
+    tenantId: string,
+    actorId: string,
+    actorRole: string,
+    load: LoadEntity,
+    input: ConfirmLoadingInput,
+  ): Promise<UpdateLoadData> {
+    // C-04 — LR numbers are statutory and can never repeat, checked across every load in the
+    // tenant regardless of status. Blocking, no override. Only checked when this call is
+    // actually setting/changing the number — otherwise a partial-submission caller resubmitting
+    // its own already-stored elrNumber would self-clash against the row it's about to update.
+    const nextElrNumber = input.elrNumber?.trim();
+    if (nextElrNumber && nextElrNumber !== load.elrNumber) {
+      const clash = await this.repository.findByElrNumber(tenantId, nextElrNumber);
+      if (clash) {
+        throw new ConflictError(
+          `E-LR number "${nextElrNumber}" is already used on load ${clash.code}`,
+        );
+      }
+    }
+
+    if (input.invoiceFileKey) {
+      await this.assertLoadDocumentUpload(
+        tenantId,
+        actorRole,
+        input.invoiceFileKey,
+        'loads/invoice',
+      );
+    }
+    if (input.ewayBillFileKey) {
+      await this.assertLoadDocumentUpload(
+        tenantId,
+        actorRole,
+        input.ewayBillFileKey,
+        'loads/eway-bill',
+      );
+    }
+    if (input.elrFileKey) {
+      await this.assertLoadDocumentUpload(tenantId, actorRole, input.elrFileKey, 'trips/lr');
+    }
+    if (input.loadingPhotoFileKeys) {
+      for (const key of input.loadingPhotoFileKeys) {
+        await this.assertLoadDocumentUpload(tenantId, actorRole, key, 'loads/loading-photo');
+      }
+    }
+    if (input.weighingSlipFileKey) {
+      await this.assertLoadDocumentUpload(
+        tenantId,
+        actorRole,
+        input.weighingSlipFileKey,
+        'loads/weighing-slip',
+      );
+    }
+
+    const fields: UpdateLoadData = { updatedBy: actorId };
+    if (input.invoiceNumber !== undefined) fields.invoiceNumber = input.invoiceNumber.trim();
+    if (input.invoiceFileKey !== undefined) fields.invoiceFileKey = input.invoiceFileKey;
+    if (input.ewayBillNumber !== undefined) fields.ewayBillNumber = input.ewayBillNumber.trim();
+    if (input.ewayBillFileKey !== undefined) {
+      fields.ewayBillFileKey = input.ewayBillFileKey;
+      // Stamped when the e-way bill is actually uploaded (this call), not whenever the last
+      // document happens to land — getEwayBillExpiry's 2-hour clock runs from generation time.
+      fields.ewayBillGeneratedAt = new Date();
+    }
+    if (input.elrNumber !== undefined) fields.elrNumber = nextElrNumber ?? null;
+    if (input.elrFileKey !== undefined) fields.elrFileKey = input.elrFileKey;
+    // Non-mandatory — whole-array replace, not accumulated, same as every field above.
+    if (input.loadingPhotoFileKeys !== undefined) {
+      fields.loadingPhotoFileKeys = input.loadingPhotoFileKeys;
+    }
+    if (input.weighingSlipFileKey !== undefined) {
+      fields.weighingSlipFileKey = input.weighingSlipFileKey;
+    }
+    return fields;
+  }
+
+  private async recordDocumentUpload(
+    tenantId: string,
+    loadId: string,
+    actorId: string,
+    input: ConfirmLoadingInput,
+  ): Promise<void> {
+    const uploadedMetadata: Record<string, unknown> = {};
+    if (input.invoiceNumber !== undefined) uploadedMetadata.invoiceNumber = input.invoiceNumber;
+    if (input.ewayBillNumber !== undefined) uploadedMetadata.ewayBillNumber = input.ewayBillNumber;
+    if (input.elrFileKey !== undefined) uploadedMetadata.elrNumber = input.elrNumber ?? null;
+    await this.loadActivityService.record(
+      tenantId,
+      loadId,
+      actorId,
+      'DOCUMENT_UPLOADED',
+      null,
+      null,
+      uploadedMetadata,
+    );
+  }
+
+  /**
+   * Attach/replace load documents (invoice/e-way bill/E-LR/loading photos/weighing slip) without
+   * confirmLoading's status-transition semantics below — usable at any point in the load's
+   * lifecycle except once closed (terminal), never checks completeness, never flips status.
+   * confirmLoading remains the only path that transitions at_plant -> loading_confirmed. Useful
+   * for correcting or adding a document after loading has already been confirmed (e.g. a wrong
+   * invoice number, or a document that only arrived after the fact).
+   *
+   * `driverOwnerId` is set only by driver-portal's self-service call — same ownership-check-as-
+   * 404 convention as confirmLoading/uploadPod below.
+   */
+  async updateDocuments(
+    tenantId: string,
+    actorId: string,
+    actorRole: string,
+    loadId: string,
+    input: ConfirmLoadingInput,
+    driverOwnerId?: string,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (driverOwnerId && load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      if (load.status === 'closed') {
+        throw new ConflictError('Documents cannot be changed once a load is closed');
+      }
+
+      const fields = await this.buildDocumentFields(tenantId, actorId, actorRole, load, input);
+      const updated = await this.repository.update(tenantId, loadId, fields);
+      if (!updated) throw new ConflictError('Updating documents failed');
+
+      await this.recordDocumentUpload(tenantId, loadId, actorId, input);
+
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to update load documents');
+    }
+  }
+
   /** Ops or the assigned driver attaches invoice/e-way bill/E-LR (mandatory — but only whichever
    *  aren't already on the load, see isComplete below) plus optional loading photos/weighing slip,
    *  and confirms loading — triggers tracking and, for market loads, enables advance payment.
@@ -254,79 +396,12 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      if (load.status !== 'assigned') {
-        throw new ConflictError('Only an assigned load can have loading confirmed');
-      }
-
-      // C-04 — LR numbers are statutory and can never repeat, checked across every load in the
-      // tenant regardless of status. Blocking, no override. Only checked when this call is
-      // actually setting/changing the number — otherwise a partial-submission caller resubmitting
-      // its own already-stored elrNumber would self-clash against the row it's about to update.
-      const nextElrNumber = input.elrNumber?.trim();
-      if (nextElrNumber && nextElrNumber !== load.elrNumber) {
-        const clash = await this.repository.findByElrNumber(tenantId, nextElrNumber);
-        if (clash) {
-          throw new ConflictError(
-            `E-LR number "${nextElrNumber}" is already used on load ${clash.code}`,
-          );
-        }
-      }
-
-      // Verify only the documents submitted this call — previously-saved keys were already
-      // verified (as confirmed uploads for the right purpose) when they were first submitted.
-      if (input.invoiceFileKey) {
-        await this.assertLoadDocumentUpload(
-          tenantId,
-          actorRole,
-          input.invoiceFileKey,
-          'loads/invoice',
-        );
-      }
-      if (input.ewayBillFileKey) {
-        await this.assertLoadDocumentUpload(
-          tenantId,
-          actorRole,
-          input.ewayBillFileKey,
-          'loads/eway-bill',
-        );
-      }
-      if (input.elrFileKey) {
-        await this.assertLoadDocumentUpload(tenantId, actorRole, input.elrFileKey, 'trips/lr');
-      }
-      if (input.loadingPhotoFileKeys) {
-        for (const key of input.loadingPhotoFileKeys) {
-          await this.assertLoadDocumentUpload(tenantId, actorRole, key, 'loads/loading-photo');
-        }
-      }
-      if (input.weighingSlipFileKey) {
-        await this.assertLoadDocumentUpload(
-          tenantId,
-          actorRole,
-          input.weighingSlipFileKey,
-          'loads/weighing-slip',
-        );
+      if (load.status !== 'at_plant') {
+        throw new ConflictError('Only a load at the plant can have loading confirmed');
       }
 
       const now = new Date();
-      const fields: UpdateLoadData = { updatedBy: actorId };
-      if (input.invoiceNumber !== undefined) fields.invoiceNumber = input.invoiceNumber.trim();
-      if (input.invoiceFileKey !== undefined) fields.invoiceFileKey = input.invoiceFileKey;
-      if (input.ewayBillNumber !== undefined) fields.ewayBillNumber = input.ewayBillNumber.trim();
-      if (input.ewayBillFileKey !== undefined) {
-        fields.ewayBillFileKey = input.ewayBillFileKey;
-        // Stamped when the e-way bill is actually uploaded (this call), not whenever the last
-        // document happens to land — getEwayBillExpiry's 2-hour clock runs from generation time.
-        fields.ewayBillGeneratedAt = now;
-      }
-      if (input.elrNumber !== undefined) fields.elrNumber = nextElrNumber ?? null;
-      if (input.elrFileKey !== undefined) fields.elrFileKey = input.elrFileKey;
-      // Non-mandatory — whole-array replace, not accumulated, same as every field above.
-      if (input.loadingPhotoFileKeys !== undefined) {
-        fields.loadingPhotoFileKeys = input.loadingPhotoFileKeys;
-      }
-      if (input.weighingSlipFileKey !== undefined) {
-        fields.weighingSlipFileKey = input.weighingSlipFileKey;
-      }
+      const fields = await this.buildDocumentFields(tenantId, actorId, actorRole, load, input);
 
       // Step 1 — persist whatever arrived this call as a plain partial update, then re-read.
       // Completeness below is decided from this fresh, post-write row rather than an in-memory
@@ -336,20 +411,7 @@ export class LoadService {
       let updated = await this.repository.update(tenantId, loadId, fields);
       if (!updated) throw new ConflictError('Confirming loading failed');
 
-      const uploadedMetadata: Record<string, unknown> = {};
-      if (input.invoiceNumber !== undefined) uploadedMetadata.invoiceNumber = input.invoiceNumber;
-      if (input.ewayBillNumber !== undefined)
-        uploadedMetadata.ewayBillNumber = input.ewayBillNumber;
-      if (input.elrFileKey !== undefined) uploadedMetadata.elrNumber = input.elrNumber ?? null;
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        actorId,
-        'DOCUMENT_UPLOADED',
-        null,
-        null,
-        uploadedMetadata,
-      );
+      await this.recordDocumentUpload(tenantId, loadId, actorId, input);
 
       const isComplete =
         !!updated.invoiceNumber &&
@@ -358,14 +420,14 @@ export class LoadService {
         !!updated.ewayBillFileKey &&
         !!updated.elrFileKey; // elrNumber intentionally excluded — same asymmetry as before
 
-      if (isComplete && updated.status === 'assigned') {
-        // Step 2 — conditional flip. WHERE status IN ('assigned') is both the business guard and
+      if (isComplete && updated.status === 'at_plant') {
+        // Step 2 — conditional flip. WHERE status IN ('at_plant') is both the business guard and
         // the race guard: if two concurrent calls each complete the set at the same instant, only
         // one UPDATE matches, so only one call ever logs STATUS_CHANGED/the audit entry.
         const confirmed = await this.repository.updateStatus(
           tenantId,
           loadId,
-          ['assigned'],
+          ['at_plant'],
           'loading_confirmed',
           { loadingConfirmedAt: now, loadingConfirmedBy: actorId, updatedBy: actorId },
         );
@@ -376,7 +438,7 @@ export class LoadService {
             loadId,
             actorId,
             'STATUS_CHANGED',
-            'assigned',
+            'at_plant',
             'loading_confirmed',
           );
           await this.auditService.log({
@@ -384,7 +446,7 @@ export class LoadService {
             userId: actorId,
             action: 'LOAD_LOADING_CONFIRMED',
             resourceType: 'load',
-            oldData: { id: loadId, status: 'assigned' },
+            oldData: { id: loadId, status: 'at_plant' },
             newData: { id: loadId, status: 'loading_confirmed' },
           });
         } else {
@@ -515,7 +577,11 @@ export class LoadService {
         'in_transit',
         'reached_delivery_point',
       ];
-      if (!validPriorStatuses.includes(load.status)) {
+      // A rejected E-POD can be resubmitted from 'delivered' — the truck already arrived, only
+      // the paperwork is being redone, so this is the one case 'delivered' is itself a valid
+      // prior status. See LoadEntity's podStatus doc comment.
+      const isResubmission = load.status === 'delivered' && load.podStatus === 'rejected';
+      if (!validPriorStatuses.includes(load.status) && !isResubmission) {
         throw new ConflictError('E-POD can only be recorded once loading is confirmed');
       }
 
@@ -526,7 +592,9 @@ export class LoadService {
 
       const updated = await this.repository.update(tenantId, loadId, {
         status: 'delivered',
-        deliveredAt: new Date(),
+        // Only stamp deliveredAt on the first upload — a resubmission after rejection doesn't
+        // change when the truck physically arrived.
+        ...(isResubmission ? {} : { deliveredAt: new Date() }),
         podFileKey: input.podFileKey,
         podReceiverName: input.podReceiverName,
         podReceiverMobile: input.podReceiverMobile,
@@ -538,6 +606,9 @@ export class LoadService {
           input.numberOfTonnesShort === undefined ? null : String(input.numberOfTonnesShort),
         damagePhotoKey: input.damagePhotoKey ?? null,
         podRemarks: input.podRemarks ?? null,
+        // Every upload (first or resubmission) restarts staff review from scratch.
+        podStatus: 'pending',
+        podRejectionReason: null,
         updatedBy: actorId,
       });
       if (!updated) throw new ConflictError('Recording E-POD failed');
@@ -588,18 +659,86 @@ export class LoadService {
       // TODO: notify Accounts for balance payment once real notification/queue
       // infra exists — src/jobs/queue-registry.ts is currently a no-op placeholder.
 
-      if (updated.sourceType === 'own_fleet') {
-        return await this.closeLoad(tenantId, actorId, loadId);
-      }
-
+      // No auto-close here — podStatus is 'pending' until staff reviews it via reviewPod below,
+      // own-fleet included (own-fleet used to auto-close right here with no review at all; that
+      // gap is what reviewPod exists to close).
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to upload E-POD');
     }
   }
 
-  /** Internal — own-fleet loads close right after E-POD (no payment gate); market loads close
-   *  from load-payment.service.ts's recordBalance once both advance and balance are paid. */
+  /** Staff decision on a pending E-POD (PATCH /loads/:loadId/pod/review). Accepting an own-fleet
+   *  load closes it immediately (no payment gate — R-17); accepting a market load only closes it
+   *  if both advance and balance are already paid, otherwise load-payment.service.ts's
+   *  recordBalance closes it later once the second payment lands (see that method's own doc
+   *  comment for why the two checks together never double-close or leave a closeable load
+   *  stuck). Rejecting leaves the load at 'delivered' — the driver resubmits via uploadPod above,
+   *  which resets podStatus back to 'pending'. */
+  async reviewPod(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    decision: PodReviewDecision,
+    reason?: string,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.podStatus !== 'pending') {
+        throw new ConflictError('This load has no E-POD pending review');
+      }
+      if (decision === 'rejected' && !reason) {
+        throw new ValidationError('reason is required when rejecting an E-POD');
+      }
+
+      const updated = await this.repository.update(tenantId, loadId, {
+        podStatus: decision,
+        podRejectionReason: decision === 'rejected' ? reason! : null,
+        podReviewedAt: new Date(),
+        podReviewedBy: actorId,
+        updatedBy: actorId,
+      });
+      if (!updated) throw new ConflictError('Reviewing E-POD failed');
+
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'POD_REVIEWED',
+        'pending',
+        decision,
+        decision === 'rejected' ? { reason } : null,
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: decision === 'accepted' ? 'LOAD_POD_ACCEPTED' : 'LOAD_POD_REJECTED',
+        resourceType: 'load',
+        oldData: { id: loadId, podStatus: 'pending' },
+        newData: {
+          id: loadId,
+          podStatus: decision,
+          ...(decision === 'rejected' ? { reason } : {}),
+        },
+      });
+
+      if (decision === 'accepted') {
+        if (updated.sourceType === 'own_fleet') {
+          return await this.closeLoad(tenantId, actorId, loadId);
+        }
+        if (updated.advancePaidAt && updated.balancePaidAt) {
+          return await this.closeLoad(tenantId, actorId, loadId);
+        }
+      }
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to review E-POD');
+    }
+  }
+
+  /** Internal — own-fleet loads close as soon as their E-POD is accepted (no payment gate);
+   *  market loads close once their E-POD is accepted AND both advance and balance are paid,
+   *  whichever of reviewPod/load-payment.service.ts's recordBalance happens to complete last. */
   async closeLoad(tenantId: string, actorId: string, loadId: string): Promise<LoadEntity> {
     try {
       const updated = await this.repository.update(tenantId, loadId, {
@@ -664,9 +803,7 @@ export class LoadService {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
       if (COMPLETED_LOAD_STATUSES.includes(load.status)) {
-        throw new ConflictError(
-          'Cannot report an issue on a load that is already delivered/closed',
-        );
+        throw new ConflictError('Cannot report an issue on a load that is already closed');
       }
 
       for (const key of input.photoFileKeys ?? []) {

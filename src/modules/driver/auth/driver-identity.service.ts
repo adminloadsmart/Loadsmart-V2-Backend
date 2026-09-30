@@ -198,11 +198,13 @@ export class DriverIdentityService {
       // Front and back DL photos are always required now, regardless of Sarathi's verification
       // result — see the cumulative-type check after document creation below, not here.
       // Pre-transaction read, since newDocuments (about to be inserted) aren't visible to a query
-      // outside the transaction until it commits.
+      // outside the transaction until it commits. Also backs the replace-on-resubmit step below —
+      // e.g. licence renewal after an expiry: the driver resends the same licenseNumber/
+      // dateOfBirth plus fresh driving_license_front/back photos, which must replace the old ones
+      // (not sit alongside them) so getMyProfile's documentStatus never reflects a stale photo.
       const newDocuments = input.documents ?? [];
-      const existingDocumentTypes = new Set(
-        (await this.driverRepository.listDocuments(driverId)).map((doc) => doc.documentType),
-      );
+      const existingDocuments = await this.driverRepository.listDocuments(driverId);
+      const existingDocumentTypes = new Set(existingDocuments.map((doc) => doc.documentType));
 
       let licenseVerificationStatus: CompleteRegistrationResult['licenseVerificationStatus'] = null;
 
@@ -246,6 +248,15 @@ export class DriverIdentityService {
             throw new ConflictError(
               `File ${document.fileUrl} must be confirmed before it can be attached`,
             );
+          }
+          // Replace, not append — a resubmitted document of a type already on file (e.g. a
+          // licence renewal's fresh front/back photos) retires every old row of that type rather
+          // than sitting alongside them, which would otherwise leave which one is "current"
+          // ambiguous (and, pre-existing rows notwithstanding, keep more than one active).
+          for (const stale of existingDocuments.filter(
+            (doc) => doc.documentType === document.documentType,
+          )) {
+            await this.driverRepository.softDeleteDocument(driverId, stale.id, null);
           }
           await this.driverRepository.createDocument(
             {
@@ -316,19 +327,30 @@ export class DriverIdentityService {
           );
         }
 
+        // Lets a driver who skipped bank details at registration add them later by calling this
+        // same endpoint again — idempotent (not a ConflictError) so resending the same payload on
+        // a retry, or on every call as a matter of client habit, never fails the whole request.
         if (input.bankDetails) {
-          await this.driverRepository.createBankDetails(
-            {
-              tenantId: null,
-              driverId,
-              accountNumber: input.bankDetails.accountNumber,
-              ifsc: input.bankDetails.ifsc.toUpperCase(),
-              accountHolderName: input.bankDetails.accountHolderName ?? null,
-              upiId: input.bankDetails.upiId ?? null,
-              createdBy: null,
-            },
-            manager,
+          const ifsc = input.bankDetails.ifsc.toUpperCase();
+          const existingBankDetails = await this.driverRepository.findBankDetailsByAccount(
+            driverId,
+            input.bankDetails.accountNumber,
+            ifsc,
           );
+          if (!existingBankDetails) {
+            await this.driverRepository.createBankDetails(
+              {
+                tenantId: null,
+                driverId,
+                accountNumber: input.bankDetails.accountNumber,
+                ifsc,
+                accountHolderName: input.bankDetails.accountHolderName ?? null,
+                upiId: input.bankDetails.upiId ?? null,
+                createdBy: null,
+              },
+              manager,
+            );
+          }
         }
       });
 

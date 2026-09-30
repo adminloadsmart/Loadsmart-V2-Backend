@@ -175,9 +175,14 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
         'dateOfBirth every call, but `documents` is required regardless of the verification ' +
         'outcome now — both driving_license_front and driving_license_back must exist for the ' +
         'driver, cumulatively across calls (not necessarily both on the same call: a driver who ' +
-        'already has one on file from a prior attempt only needs to send the other). License ' +
-        'photos must be uploaded first via the tenant-less upload flow with purpose ' +
-        '`masters/driver`, confirmed, then referenced by their storage key in `documents`. ' +
+        'already has one on file from a prior attempt only needs to send the other). Resubmitting ' +
+        'a document of a type already on file (e.g. fresh driving_license_front/back after a ' +
+        'licence renewal — call POST /register/verify-dl first with the same licenseNumber/' +
+        'dateOfBirth to preview the updated expiry) replaces the old one outright, so the profile ' +
+        'never shows a stale photo. License photos must be uploaded first via the tenant-less ' +
+        'upload flow with purpose `masters/driver`, confirmed, then referenced by their storage ' +
+        'key in `documents`. `bankDetails` is idempotent — resending the same account on a later ' +
+        'call (e.g. adding it after skipping it at first) never creates a duplicate. ' +
         '`hasHealthInsurance`/`hasLifeInsurance` are plain boolean toggles — no provider/policy/' +
         'expiry detail fields are captured. `onboardingStep` is a resume-position bookmark the ' +
         'client reports for its own 3-screen wizard UI — not validated for ordering.',

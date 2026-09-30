@@ -53,7 +53,14 @@ export type DriverNotificationCategory = keyof typeof NOTIFICATION_TYPE_PREFIXES
 
 export interface DriverHomeView {
   driver: { driverId: string; fullName: string; vehicleNumber: string | null; phoneNumber: string };
-  stats: { tripsDone: number; onTimePercentage: number | null };
+  stats: {
+    tripsDone: number;
+    onTimePercentage: number | null;
+    /** Loads assigned to this driver that aren't 'closed' yet — includes trips still moving and
+     *  a 'delivered' trip whose E-POD is pending/rejected review. See loads.types.ts's
+     *  OPEN_LOAD_STATUSES. Backs the driver app's "Open Trips" tab. */
+    openTrips: number;
+  };
   currentJob: TripListRow | null;
   upcomingJobs: TripListRow[];
   unreadNotificationCount: number;

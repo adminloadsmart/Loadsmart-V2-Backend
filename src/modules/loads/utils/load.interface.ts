@@ -5,6 +5,7 @@ import {
   LoadStatus,
   LoadStatusGroup,
   ManualTrackingStatus,
+  PodReviewDecision,
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
@@ -35,7 +36,7 @@ export interface ConfirmLoadingInput {
   elrNumber?: string;
   elrFileKey?: string;
   /** Non-mandatory — up to 3 photos of the loaded truck (back + sides). Never gates the
-   *  assigned -> loading_confirmed flip, unlike the mandatory documents above. */
+   *  at_plant -> loading_confirmed flip, unlike the mandatory documents above. */
   loadingPhotoFileKeys?: string[];
   /** Non-mandatory. */
   weighingSlipFileKey?: string;
@@ -43,6 +44,13 @@ export interface ConfirmLoadingInput {
 
 export interface UpdateLoadStatusInput {
   toStatus: ManualTrackingStatus;
+}
+
+/** Staff's decision on a pending E-POD — see LoadService.reviewPod. `reason` is required when
+ *  rejecting (see load.validators.ts's reviewPodBody), unused when accepting. */
+export interface ReviewPodInput {
+  decision: PodReviewDecision;
+  reason?: string;
 }
 
 /** The delivery receipt — photo of the signed/stamped POD, who took it, what came off the truck,

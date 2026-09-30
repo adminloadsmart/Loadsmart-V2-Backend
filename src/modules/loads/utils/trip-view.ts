@@ -9,6 +9,7 @@ import {
   MARKET_LIFECYCLE_STATUSES,
   OWN_FLEET_LIFECYCLE_STATUSES,
   PAYMENTS_STAGE,
+  PodStatus,
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
@@ -83,11 +84,17 @@ export interface TripListRow {
   /** Market only — the target/starting rate captured at planning (LoadEntity.expectedRate).
    *  Always null for own-fleet loads; the Freight column shows "Internal" for those instead. */
   expectedRate: string | null;
+  /** null until the first E-POD upload. 'pending'/'rejected' rows are what the driver app's Open
+   *  Trips tab surfaces — see LoadEntity's doc comment. */
+  podStatus: PodStatus | null;
+  /** Staff's reason when podStatus is 'rejected' — shown to the driver before they resubmit via
+   *  the same uploadPod endpoint. Always null otherwise. */
+  podRejectionReason: string | null;
   createdAt: string;
 }
 
 /** One entry of the trip-detail screen's 8-step progress stepper — walks LOAD_STATUSES in the
- *  true backend order (loading_confirmed before at_plant). */
+ *  true backend order (at_plant before loading_confirmed). */
 export interface TripStepperStep {
   key: LoadStatus;
   label: string;
@@ -188,6 +195,8 @@ export function toTripListRow(load: LoadEntity): TripListRow {
       tonnesPerTruck: item.tonnesPerTruck,
     })),
     expectedRate: load.sourceType === 'own_fleet' ? null : load.expectedRate,
+    podStatus: load.podStatus,
+    podRejectionReason: load.podRejectionReason,
     createdAt: load.createdAt.toISOString(),
   };
 }
@@ -236,6 +245,11 @@ export interface TripDoneDetail {
     shortageOrDamage: ShortageOrDamageStatus | null;
     numberOfTonnesShort: string | null;
     podRemarks: string | null;
+    /** Staff-review state of this trip's E-POD — see LoadEntity's doc comment. Also reachable
+     *  (deliberately) for a load that's 'delivered' but not yet 'closed', so a rejected trip's
+     *  driver can see why and re-upload via the same uploadPod endpoint. */
+    podStatus: PodStatus | null;
+    podRejectionReason: string | null;
   } | null;
   closedAt: string | null;
 }
@@ -283,6 +297,8 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
           shortageOrDamage: load.shortageOrDamage,
           numberOfTonnesShort: load.numberOfTonnesShort,
           podRemarks: load.podRemarks,
+          podStatus: load.podStatus,
+          podRejectionReason: load.podRejectionReason,
         }
       : null,
     closedAt: load.closedAt?.toISOString() ?? null,

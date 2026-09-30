@@ -18,6 +18,7 @@ import {
   ConfirmLoadingInput,
   ListLoadsInput,
   LoadParams,
+  ReviewPodInput,
   UpdateLoadStatusInput,
   UploadPodInput,
 } from './utils/load.interface';
@@ -139,6 +140,19 @@ export class LoadsController {
     respond(res, load);
   };
 
+  // Plain document attach/replace — no status-transition semantics, usable any time before
+  // closed. See LoadService.updateDocuments.
+  updateDocuments = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.updateDocuments(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      req.params.loadId,
+      req.body as ConfirmLoadingInput,
+    );
+    respond(res, load);
+  };
+
   updateLoadStatus = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.updateStatus(
       requireTenantId(req),
@@ -156,6 +170,18 @@ export class LoadsController {
       req.user!.role,
       req.params.loadId,
       req.body as UploadPodInput,
+    );
+    respond(res, load);
+  };
+
+  reviewPod = async (req: Request<LoadParams>, res: Response) => {
+    const { decision, reason } = req.body as ReviewPodInput;
+    const load = await this.loadService.reviewPod(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      decision,
+      reason,
     );
     respond(res, load);
   };

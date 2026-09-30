@@ -13,9 +13,9 @@ import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
-  ACTIVE_LOAD_STATUSES,
   COMPLETED_LOAD_STATUSES,
   FreightMode,
+  LOAD_STATUS_GROUP_FILTERS,
   LoadSourceType,
   LoadStatus,
 } from './utils/loads.types';
@@ -208,9 +208,10 @@ export class LoadRepository {
     if (requisitionId) base.requisitionId = requisitionId;
     if (status) base.status = status;
     // Mutually exclusive with `status` — enforced by the validator's .refine(), see
-    // load.validators.ts. The Trips Home-page tab filter (Active/Completed).
+    // load.validators.ts. The Trips Home-page tab filter (Active/Completed) plus the driver
+    // app's Open Trips filter — see LOAD_STATUS_GROUP_FILTERS' own doc comment.
     if (group) {
-      base.status = In(group === 'active' ? ACTIVE_LOAD_STATUSES : COMPLETED_LOAD_STATUSES);
+      base.status = In(LOAD_STATUS_GROUP_FILTERS[group]);
     }
     if (sourceType) base.sourceType = sourceType;
     if (transporterId) base.transporterId = transporterId;

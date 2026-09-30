@@ -95,6 +95,13 @@ export function createDriverPortalRoutes(
     validate(driverPortalValidators.confirmMyLoading),
     asyncHandler(controller.confirmMyLoading),
   );
+  // Plain document attach/replace, decoupled from confirm-loading's status transition — usable
+  // any time before the load is closed, e.g. to correct a document after loading was confirmed.
+  router.patch(
+    '/loads/:loadId/documents',
+    validate(driverPortalValidators.updateMyDocuments),
+    asyncHandler(controller.updateMyDocuments),
+  );
 
   // Self-service load actions — distinct from /me/status above (that's the driver's own
   // operational status; this is a load's movement status). Ownership (this load must be the

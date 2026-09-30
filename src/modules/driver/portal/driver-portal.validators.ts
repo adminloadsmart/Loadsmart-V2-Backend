@@ -78,6 +78,10 @@ export const driverPortalValidators = {
   // earlier by staff) don't need to be resent — see LoadService.confirmLoading's isComplete check.
   confirmMyLoading: z.object({ params: loadParams, body: confirmLoadingBody }),
 
+  // Plain document attach/replace, decoupled from confirmMyLoading's status-transition semantics
+  // — see LoadService.updateDocuments. Same body shape, reused for the same reason.
+  updateMyDocuments: z.object({ params: loadParams, body: confirmLoadingBody }),
+
   // Driver-app "Report An Issue" — reuses load-issue.validators.ts's body shape, same convention
   // as updateMyLoadStatus/uploadMyPod above.
   reportMyIssue: z.object({ params: loadParams, body: reportLoadIssueBody }),

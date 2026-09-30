@@ -344,6 +344,39 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'patch',
+    path: `${BASE}/loads/{loadId}/documents`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.updateDocuments',
+    ...manageDocuments(
+      'Attach or replace load documents (invoice/e-way bill/E-LR/loading photos/weighing slip) ' +
+        'with no status-transition side effects — unlike PATCH /loads/{loadId}/confirm-loading, ' +
+        'this never checks completeness and never flips the load to "loading_confirmed". Usable ' +
+        'at any point in the load\'s lifecycle except once "closed" (terminal); intended for ' +
+        'correcting a document after loading has already been confirmed, or attaching one that ' +
+        'only arrived later. Same body shape and file-key rules (purposes, pairing, E-LR ' +
+        'uniqueness) as confirm-loading. Also reachable by the assigned driver via PATCH ' +
+        '/driver-portal/loads/{loadId}/documents.',
+    ),
+    request: {
+      params: loadValidators.updateDocuments.shape.params,
+      body: json(loadValidators.updateDocuments.shape.body),
+    },
+    responses: {
+      200: { description: 'Document(s) saved; load status is unchanged' },
+      400: {
+        description: 'A file is not a confirmed upload for the expected purpose',
+        ...errorContent,
+      },
+      409: {
+        description:
+          'Load is already "closed", or the E-LR number is already used on another load (C-04)',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
     path: `${BASE}/loads/{loadId}/status`,
     tags: [TAGS.LOADS],
     operationId: 'loads.updateLoadStatus',
@@ -373,7 +406,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
         'becomes required only when shortageOrDamage is `damage` or `both`. Neither a broken ' +
         'seal nor a damage/shortage report ever blocks — both are recorded on the activity/audit ' +
         'trail only, advisory pending a future exceptions/escalations module. Marks the load ' +
-        'Delivered; own-fleet loads close immediately, market loads wait for the balance payment.',
+        'Delivered and its podStatus `pending` — closing to Closed now requires staff to accept ' +
+        'the E-POD via PATCH /loads/{loadId}/pod/review. Also usable to resubmit after a ' +
+        'rejection (load stays Delivered, podStatus resets to `pending`).',
     ),
     request: {
       params: loadValidators.uploadPod.shape.params,
@@ -383,6 +418,30 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Updated load' },
       400: { description: 'A required delivery-receipt field is missing', ...errorContent },
       409: { description: 'Loading has not been confirmed yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/pod/review`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.reviewPod',
+    ...manageDocuments(
+      'Staff accept/reject of a pending E-POD. `reason` is required when `decision` is ' +
+        '`rejected`. Accepting: an own-fleet load closes immediately; a market load closes only ' +
+        'if both advance and balance are already paid, otherwise it stays Delivered until ' +
+        'POST /loads/{loadId}/payments/balance closes it once that payment lands. Rejecting ' +
+        'leaves status at Delivered — the driver resubmits via PATCH /loads/{loadId}/pod, which ' +
+        'resets podStatus back to `pending`.',
+    ),
+    request: {
+      params: loadValidators.reviewPod.shape.params,
+      body: json(loadValidators.reviewPod.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      400: { description: 'reason is missing on a rejected decision', ...errorContent },
+      409: { description: "This load's E-POD is not pending review", ...errorContent },
     },
   });
 

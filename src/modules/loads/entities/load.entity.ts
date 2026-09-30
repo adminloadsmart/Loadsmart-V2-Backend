@@ -24,6 +24,8 @@ import {
   LOAD_STATUSES,
   LoadSourceType,
   LoadStatus,
+  POD_STATUSES,
+  PodStatus,
   SEAL_STATUSES,
   SealStatus,
   SHORTAGE_OR_DAMAGE_STATUSES,
@@ -38,8 +40,9 @@ import {
  * `status` tracks movement only (created → ... → delivered → closed). Advance/balance payment
  * are tracked separately via `advancePaidAt`/`balancePaidAt` rather than folded into `status`,
  * since they run in parallel with movement and don't block it — a single linear enum can't
- * represent both at once. `closed` requires `deliveredAt`
- * set and, for market loads, both payment timestamps set — see load.service.ts's closeLoad.
+ * represent both at once. `closed` requires `podStatus === 'accepted'` (staff has reviewed the
+ * E-POD) and, for market loads, both payment timestamps set — see load.service.ts's
+ * closeLoad/reviewPod.
  */
 @Entity({ schema: 'loads', name: 'loads' })
 @Index('loads_tenant_id_idx', ['tenantId'])
@@ -192,7 +195,7 @@ export class LoadEntity {
   @Column({ name: 'elr_file_key', type: 'text', nullable: true })
   elrFileKey!: string | null;
 
-  /** Non-mandatory Loading Confirmation uploads — never gate the assigned -> loading_confirmed
+  /** Non-mandatory Loading Confirmation uploads — never gate the at_plant -> loading_confirmed
    *  flip, unlike invoice/eway-bill/elr above. See load.service.ts's confirmLoading. */
   @Column({ name: 'loading_photo_file_keys', type: 'text', array: true, nullable: true })
   loadingPhotoFileKeys!: string[] | null;
@@ -276,6 +279,23 @@ export class LoadEntity {
 
   @Column({ name: 'pod_remarks', type: 'varchar', nullable: true })
   podRemarks!: string | null;
+
+  /** null until the first uploadPod call, which sets it to 'pending'. Only 'accepted' lets the
+   *  load reach 'closed' — see class doc comment and LoadService.reviewPod/closeLoad. 'rejected'
+   *  lets the driver resubmit via the same uploadPod endpoint, which resets this to 'pending'. */
+  @Column({ name: 'pod_status', type: 'enum', enum: [...POD_STATUSES], nullable: true })
+  podStatus!: PodStatus | null;
+
+  /** Staff's reason for rejecting the E-POD, shown to the driver so they know what to fix on
+   *  resubmission. Cleared (null) whenever podStatus isn't 'rejected'. */
+  @Column({ name: 'pod_rejection_reason', type: 'text', nullable: true })
+  podRejectionReason!: string | null;
+
+  @Column({ name: 'pod_reviewed_at', type: 'timestamptz', nullable: true })
+  podReviewedAt!: Date | null;
+
+  @Column({ name: 'pod_reviewed_by', type: 'uuid', nullable: true })
+  podReviewedBy!: string | null;
 
   // --- Payments — market only; run in parallel with movement, see class doc comment. ---
 

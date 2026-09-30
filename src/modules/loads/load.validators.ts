@@ -6,6 +6,7 @@ import {
   LOAD_STATUSES,
   LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
+  POD_REVIEW_DECISIONS,
   SEAL_STATUSES,
   SHORTAGE_OR_DAMAGE_STATUSES,
 } from './utils/loads.types';
@@ -94,6 +95,24 @@ export const uploadPodBody = z
     }
   });
 
+// Staff's accept/reject decision on a pending E-POD — see LoadService.reviewPod. `reason` is
+// required when rejecting (so the driver knows what to fix on resubmission), unused otherwise.
+export const reviewPodBody = z
+  .object({
+    decision: z.enum(POD_REVIEW_DECISIONS),
+    reason: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.decision === 'rejected' && !data.reason) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message: 'reason is required when decision is rejected',
+      });
+    }
+  });
+
 export const loadValidators = {
   list: z.object({
     // `search` (inherited from `pagination`) matches against the load's requisition's customer
@@ -139,6 +158,13 @@ export const loadValidators = {
     body: confirmLoadingBody,
   }),
 
+  // Same body shape as confirmLoading above (same document set), but no status-transition
+  // semantics — see LoadService.updateDocuments.
+  updateDocuments: z.object({
+    params,
+    body: confirmLoadingBody,
+  }),
+
   updateStatus: z.object({
     params,
     body: updateStatusBody,
@@ -149,5 +175,10 @@ export const loadValidators = {
   uploadPod: z.object({
     params,
     body: uploadPodBody,
+  }),
+
+  reviewPod: z.object({
+    params,
+    body: reviewPodBody,
   }),
 };

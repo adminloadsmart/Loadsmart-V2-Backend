@@ -153,6 +153,21 @@ export class DriverPortalController {
     respond(res, load);
   };
 
+  // Plain document attach/replace — no status-transition semantics, usable any time before
+  // closed (e.g. to fix a document after loading was already confirmed). See
+  // LoadService.updateDocuments.
+  updateMyDocuments = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.updateDocuments(
+      req.driver!.tenantId!,
+      req.driver!.id,
+      'driver',
+      req.params.loadId,
+      req.body as ConfirmLoadingInput,
+      req.driver!.id,
+    );
+    respond(res, load);
+  };
+
   // Same LoadService.uploadPod the staff PATCH /loads/:loadId/pod endpoint uses. actorRole is a
   // literal here (a driver token carries no role) — LoadService only branches on it when tenantId
   // is falsy, which is never true for a driver-scoped call.

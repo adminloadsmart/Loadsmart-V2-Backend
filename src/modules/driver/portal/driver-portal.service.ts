@@ -201,12 +201,16 @@ export class DriverPortalService {
     return this.loadService.getMyTripsDone(tenantId, driverId, query);
   }
 
-  /** Home screen — bundles driver name/vehicle, on-time %/trips-done stats, the current active
-   *  job, the upcoming-jobs list, and the unread notification count into one call. No tenant
-   *  relation means driver/notifications still populate (global profile, tenant-less inbox) but
-   *  stats/jobs come back zeroed/empty — same "empty, not an error" convention as every method
-   *  above. Settlement Due, Distance, and Score/Rating are deliberately not here — no backing
-   *  data exists for any of them yet. */
+  /** Home screen — bundles driver name/vehicle, on-time %/trips-done/open-trips stats, the
+   *  current active job, the upcoming-jobs list, and the unread notification count into one
+   *  call. `stats.openTrips` counts this driver's non-'closed' loads (group: 'open' — see
+   *  loads.types.ts's OPEN_LOAD_STATUSES), backing the "Open Trips" tab; it's independent of
+   *  `stats.tripsDone` and the two can double-count a 'delivered' load pending E-POD review —
+   *  that's intentional, they answer different questions. No tenant relation means driver/
+   *  notifications still populate (global profile, tenant-less inbox) but stats/jobs come back
+   *  zeroed/empty — same "empty, not an error" convention as every method above. Settlement Due,
+   *  Distance, and Score/Rating are deliberately not here — no backing data exists for any of
+   *  them yet. */
   async getMyHome(driverId: string, tenantId: string | null): Promise<DriverHomeView> {
     const unreadNotificationCount = await this.notificationsService.countUnreadForDriver(driverId);
 
@@ -219,18 +223,19 @@ export class DriverPortalService {
           vehicleNumber: null,
           phoneNumber: driver.phoneNumber,
         },
-        stats: { tripsDone: 0, onTimePercentage: null },
+        stats: { tripsDone: 0, onTimePercentage: null, openTrips: 0 },
         currentJob: null,
         upcomingJobs: [],
         unreadNotificationCount,
       };
     }
 
-    const [profile, tripsDone, activeJobs, upcomingJobs] = await Promise.all([
+    const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
       this.fetchTenantProfile(tenantId, driverId),
       this.loadService.getMyTripsDone(tenantId, driverId, { page: 1, limit: 1 }),
       this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'active' }),
       this.loadService.list(tenantId, { page: 1, limit: 5, driverId, status: 'assigned' }),
+      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'open' }),
     ]);
 
     return {
@@ -243,6 +248,7 @@ export class DriverPortalService {
       stats: {
         tripsDone: tripsDone.totalTrips,
         onTimePercentage: profile.performance.onTimeDeliveryPercentage,
+        openTrips: openTrips.total,
       },
       currentJob: activeJobs.items[0] ?? null,
       upcomingJobs: upcomingJobs.items,
