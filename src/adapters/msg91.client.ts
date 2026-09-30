@@ -1,4 +1,5 @@
 import { env } from '../config/env';
+import { toIndianMsisdn } from '../shared/utils/phone-number';
 
 interface Msg91Response {
   type?: string; // 'success' | 'error'
@@ -6,6 +7,9 @@ interface Msg91Response {
 }
 
 /**
+ * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
+ * numbers, and they're stored without the country code.
+ *
  * Wraps MSG91's OTP API (`/api/v5/otp` + `/api/v5/otp/verify`) — unlike a generic SMS gateway,
  * MSG91 both generates the OTP and verifies it: we never see or store the code ourselves.
  * `sendOtp` requires a DLT-approved `template_id` to be configured on the MSG91 dashboard first;
@@ -19,7 +23,7 @@ export class Msg91Client {
   async sendOtp(phoneNumber: string): Promise<void> {
     const url = new URL(`${env.msg91BaseUrl}/api/v5/otp`);
     url.searchParams.set('template_id', env.msg91TemplateId!);
-    url.searchParams.set('mobile', phoneNumber);
+    url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
     url.searchParams.set('authkey', env.msg91AuthKey!);
 
     const response = await fetch(url.toString(), {
@@ -39,7 +43,7 @@ export class Msg91Client {
   async verifyOtp(phoneNumber: string, otp: string): Promise<boolean> {
     const url = new URL(`${env.msg91BaseUrl}/api/v5/otp/verify`);
     url.searchParams.set('otp', otp);
-    url.searchParams.set('mobile', phoneNumber);
+    url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
 
     const response = await fetch(url.toString(), {
       method: 'POST',
@@ -76,7 +80,7 @@ export class Msg91Client {
       headers: { 'Content-Type': 'application/json', authkey: env.msg91AuthKey },
       body: JSON.stringify({
         template_id: templateId,
-        recipients: [{ mobiles: phoneNumber, ...variables }],
+        recipients: [{ mobiles: toIndianMsisdn(phoneNumber), ...variables }],
       }),
     });
     const body = (await response.json().catch(() => null)) as Msg91Response | null;
@@ -129,7 +133,7 @@ export class Msg91Client {
               name: templateName,
               language: { code: 'en', policy: 'deterministic' },
               namespace: env.msg91WhatsappNamespace,
-              to_and_components: [{ to: [phoneNumber], components }],
+              to_and_components: [{ to: [toIndianMsisdn(phoneNumber)], components }],
             },
           },
         }),
@@ -175,6 +179,8 @@ export class Msg91Client {
           },
         ],
         from: { email: env.msg91EmailFrom, name: env.msg91EmailFromName },
+        // Only when configured — otherwise the request body is exactly as before.
+        ...(env.msg91EmailReplyTo ? { reply_to: [{ email: env.msg91EmailReplyTo }] } : {}),
         domain: env.msg91EmailDomain,
         template_id: templateId,
       }),

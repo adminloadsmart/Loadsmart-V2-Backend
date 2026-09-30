@@ -1,12 +1,17 @@
-import { Queue, JobsOptions } from 'bullmq';
+import { Queue, JobsOptions, DeduplicationOptions } from 'bullmq';
 import { getQueueConnection } from './queue-connection';
 
+// Optional per-job settings. `deduplication` (BullMQ's own) collapses adds sharing an id while
+// the job is pending, releasing the id once it completes or fails — unlike a fixed `jobId`, a
+// permanently failed job never blocks a later genuine re-add. See notification-triggers.ts.
+export interface EnqueueOptions {
+  delay?: number;
+  jobId?: string;
+  deduplication?: DeduplicationOptions;
+}
+
 export interface JobQueue {
-  enqueue(
-    jobName: string,
-    payload: unknown,
-    options?: { delay?: number; jobId?: string },
-  ): Promise<void>;
+  enqueue(jobName: string, payload: unknown, options?: EnqueueOptions): Promise<void>;
   // Removes a still-delayed/waiting job by its jobId — a no-op if it's already run, already
   // removed, or was never scheduled. Lets a caller reschedule a one-time delayed job (e.g. vehicle
   // compliance alerts) by cancelling the stale one before enqueuing the new one.
@@ -40,11 +45,7 @@ export function createJobQueue(name: string): JobQueue {
   const resolvedQueue = queue;
 
   return {
-    async enqueue(
-      jobName: string,
-      payload: unknown,
-      options?: { delay?: number; jobId?: string },
-    ): Promise<void> {
+    async enqueue(jobName: string, payload: unknown, options?: EnqueueOptions): Promise<void> {
       await resolvedQueue.add(jobName, payload, options);
     },
     async cancel(jobId: string): Promise<void> {

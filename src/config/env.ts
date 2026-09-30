@@ -135,6 +135,9 @@ export const env = {
   msg91EmailDomain: process.env.MSG91_EMAIL_DOMAIN || undefined,
   msg91EmailFrom: process.env.MSG91_EMAIL_FROM || undefined,
   msg91EmailFromName: process.env.MSG91_EMAIL_FROM_NAME || 'Loadsmart',
+  // Optional reply-to for notification emails (e.g. a monitored sales/support inbox) — LS_N_0004
+  // asks the applicant to "reply to this mail". Unset = no reply-to, replies go to MSG91_EMAIL_FROM.
+  msg91EmailReplyTo: process.env.MSG91_EMAIL_REPLY_TO || undefined,
   // Per-notification-type MSG91 templates (see catalog/notification-catalog.ts's `templates`) —
   // LS_N_0001 "account approved". Optional until provisioned on the MSG91 dashboard.
   msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
@@ -143,6 +146,15 @@ export const env = {
   // LS_N_0002 "signup received, under review" (SMS + email only).
   msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,
   msg91EmailTemplateSignupReceived: process.env.MSG91_EMAIL_TEMPLATE_SIGNUP_RECEIVED || undefined,
+  // LS_N_0003 "more information needed" — a KYC document couldn't be verified (SMS + email only).
+  msg91SmsTemplateDocumentPending: process.env.MSG91_SMS_TEMPLATE_DOCUMENT_PENDING || undefined,
+  msg91EmailTemplateDocumentPending: process.env.MSG91_EMAIL_TEMPLATE_DOCUMENT_PENDING || undefined,
+  // LS_N_0004 "account not approved" (email only).
+  msg91EmailTemplateOrgNotApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_NOT_APPROVED || undefined,
+  // LS_N_0005 "team member invited" (SMS + email) and LS_N_0006 "your access changed" (email).
+  msg91SmsTemplateTeamInvite: process.env.MSG91_SMS_TEMPLATE_TEAM_INVITE || undefined,
+  msg91EmailTemplateTeamInvite: process.env.MSG91_EMAIL_TEMPLATE_TEAM_INVITE || undefined,
+  msg91EmailTemplateAccessChanged: process.env.MSG91_EMAIL_TEMPLATE_ACCESS_CHANGED || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

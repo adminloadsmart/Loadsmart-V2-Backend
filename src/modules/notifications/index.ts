@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
 import { Router } from 'express';
 import { Worker } from 'bullmq';
-import { createJobQueue } from '../../jobs/queue-registry';
+import { createJobQueue, JobQueue } from '../../jobs/queue-registry';
 import { Msg91Client } from '../../adapters/msg91.client';
 import { NotificationRepository } from './notification.repository';
 import { NotificationsService } from './notifications.service';
@@ -36,6 +36,9 @@ export interface NotificationsModule {
   // own queue, so trigger sites can take it without depending on notifyByType's build order.
   // Its worker is built in composition-root.ts (it runs notifyByType).
   triggers: NotificationTriggers;
+  // The same queue `triggers` writes to — handed to the trigger worker (built in
+  // composition-root.ts) so it can schedule reminders.
+  triggersQueue: JobQueue;
 }
 
 /** No cross-module deps — a "producer" module, same build-order bucket as tracking/payments in
@@ -75,7 +78,8 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
   };
   const worker = createNotificationDispatchWorker(service, channels);
 
-  const triggers = createNotificationTriggers(createJobQueue(NOTIFICATION_TRIGGERS_QUEUE));
+  const triggersQueue = createJobQueue(NOTIFICATION_TRIGGERS_QUEUE);
+  const triggers = createNotificationTriggers(triggersQueue);
 
-  return { service, router, worker, notificationPreferencesRepository, triggers };
+  return { service, router, worker, notificationPreferencesRepository, triggers, triggersQueue };
 }

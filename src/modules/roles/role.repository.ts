@@ -44,6 +44,10 @@ export class RoleRepository {
     return this.permissions.findOneBy({ id });
   }
 
+  findPermissionsByKeys(keys: string[]): Promise<PermissionEntity[]> {
+    return keys.length ? this.permissions.findBy({ key: In(keys) }) : Promise.resolve([]);
+  }
+
   listPermissions(filters: { scope?: PermissionScope }): Promise<PermissionEntity[]> {
     return this.permissions.find({
       where: filters.scope ? { scope: filters.scope } : {},

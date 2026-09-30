@@ -24,6 +24,11 @@ import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotifyByType } from './modules/notifications/notify-by-type';
 import { createNotificationTriggerWorker } from './modules/notifications/workers/notification-trigger.worker';
+import {
+  createAccessChangeRecorder,
+  createAccessChangeResolver,
+} from './modules/notifications/access-change';
+import { organizationDisplayName } from './modules/organization/organization.constants';
 import { createPaymentsModule } from './modules/payments';
 import { createMaintenanceModule } from './modules/maintenance';
 import { createAuditModule } from './modules/audit';
@@ -67,6 +72,11 @@ export function buildContainer(dataSource: DataSource): Container {
   const audit = createAuditModule(dataSource);
   const auditMiddleware = createAudit(audit.service);
 
+  // Producer — no cross-module deps of its own beyond dataSource, so it can be built first: roles
+  // (LS_N_0006), auth (LS_N_0002/0005) and admin (LS_N_0001/0003/0004) enqueue notifications
+  // through its `triggers`; notifyByType below needs its service.
+  const notifications = createNotificationsModule(dataSource);
+
   // Built before auth: auth.service.ts needs roles's roleService injected directly to build the
   // JWT's `permissions` claim (see modules/auth/index.ts and modules/roles/index.ts). That same
   // build order means roles can't take a typed dependency on auth's AuthService/AuthRepository
@@ -80,6 +90,8 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     revokeRefreshTokensForUser: (userId) =>
       earlyAuthRepository.revokeAllRefreshTokensForUser(userId),
+    // LS_N_0006 "your access changed" — see modules/notifications/access-change.ts.
+    onCapabilitiesChanged: createAccessChangeRecorder(notifications.triggers),
   });
 
   // Standalone — built before auth because the post-submission organization photo endpoint
@@ -98,11 +110,6 @@ export function buildContainer(dataSource: DataSource): Container {
   // shared/services/otp.service.ts.
   const msg91Client = new Msg91Client();
   const otpService = new OtpService(msg91Client);
-
-  // Producer — no cross-module deps of its own beyond dataSource. Built before auth: auth
-  // (LS_N_0002) and admin (LS_N_0001) enqueue notifications through its `triggers`; notifyByType
-  // below needs its service. Same build-order bucket as tracking/payments.
-  const notifications = createNotificationsModule(dataSource);
 
   const auth = createAuthModule(dataSource, {
     auditService: audit.service,
@@ -135,11 +142,6 @@ export function buildContainer(dataSource: DataSource): Container {
     authService: auth.service,
     notificationPreferencesRepository: notifications.notificationPreferencesRepository,
   });
-
-  // Runs notifyByType for jobs queued via notifications.triggers (LS_N_0001/LS_N_0002 and future
-  // event-driven notifications) — built here since notifyByType needs auth. See
-  // modules/notifications/notification-triggers.ts.
-  const notificationTriggerWorker = createNotificationTriggerWorker(notifyByType);
 
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
   // docs/driver-auth.md), and fleetDriverLinkService (inside masters) needs driverRepository to
@@ -198,6 +200,34 @@ export function buildContainer(dataSource: DataSource): Container {
     dataSource,
     notificationTriggers: notifications.triggers,
   });
+
+  // Runs notifyByType for jobs queued via notifications.triggers (LS_N_0001–0006 and future
+  // event-driven notifications), scheduling one-shot reminders and batching debounced bursts —
+  // built here, after admin, since notifyByType needs auth and the relevance checks / context
+  // resolvers read other modules' state. See modules/notifications/notification-triggers.ts.
+  const notificationTriggerWorker = createNotificationTriggerWorker(
+    notifyByType,
+    notifications.triggersQueue,
+    {
+      'organization.document_more_info_needed': (tenantId, context) =>
+        admin.service.isDocumentReuploadPending(tenantId, context.documentId),
+      // LS_N_0005's 24h reminder only while the invitee still hasn't signed in.
+      'organization.team_member_invited': async (_tenantId, context) =>
+        !(await auth.authRepository.hasEverSignedIn(context.userId)),
+    },
+    {
+      'user.access_changed': createAccessChangeResolver({
+        getEffectivePermissions: (userId) => roles.service.getEffectivePermissions(userId),
+        describePermissions: (keys) => roles.service.describePermissions(keys),
+        getUserFullName: async (userId) =>
+          (await auth.authRepository.findUserById(userId))?.fullName ?? null,
+        getOrganizationName: async (tenantId) =>
+          organizationDisplayName(
+            await organization.organizationService.getOrganizationStatus(tenantId),
+          ),
+      }),
+    },
+  );
 
   // No cross-module deps of its own — built before dashboards, which reads its service directly
   // (Settings → Approvals aggregates pending customers alongside pending vehicles/drivers).

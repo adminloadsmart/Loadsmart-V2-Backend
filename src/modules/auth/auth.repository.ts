@@ -43,6 +43,13 @@ export class AuthRepository {
     return this.users.findOne({ where: { id, deletedAt: IsNull() }, relations: { role: true } });
   }
 
+  /** Whether this user has ever completed a login (OTP or password) — every successful login
+   *  issues a refresh token, and revoked ones are kept, so any row means yes. Backs LS_N_0005's
+   *  "remind the invitee only if they haven't started yet". */
+  hasEverSignedIn(userId: string): Promise<boolean> {
+    return this.refreshTokens.existsBy({ userId });
+  }
+
   // Batched — for resolving many actor ids at once (e.g. a load's audit-trail timeline), not a
   // per-row lookup. Deliberately does NOT filter deletedAt like the finders above: a historical
   // audit-trail row should still show the actor's name even if that staff member has since been

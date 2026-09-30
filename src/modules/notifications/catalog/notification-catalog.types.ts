@@ -31,6 +31,11 @@ export interface NotificationTypeDefinition<TContext> {
   description?: string;
   /** Organization-scope role names (see shared/constants/roles.ts) to fan this notification out to. */
   recipientRoles: string[];
+  /** For a notification about one specific person (e.g. the invited teammate, or the user whose
+   *  access changed): that user's id, read from the context. When set, it replaces the
+   *  recipientRoles fan-out — only that user (in this tenant, not deleted) is notified. Method
+   *  syntax for the same bivariance reason as dedupeKey. */
+  recipientUserId?(context: TContext): string;
   /** Every channel this type could ever use — seeded into notification_types.channels. Currently
    *  every type lists all four (nothing is grayed out in the settings UI); kept as its own field
    *  rather than removed so a future type CAN restrict itself again without a schema change. A
@@ -57,6 +62,23 @@ export interface NotificationTypeDefinition<TContext> {
    *  shown in the app: GET /notifications omits it and GET/PATCH /notifications/:id 404 it — for
    *  types whose recipient has no app access yet (e.g. LS_N_0002). Default true. */
   inApp?: boolean;
+  /** Identifies one occurrence of the event (e.g. a document id) for the trigger queue (see
+   *  notification-triggers.ts): near-simultaneous triggers with the same key collapse into one
+   *  job, and it keys this type's reminder job so a repeat trigger replaces a pending reminder
+   *  instead of stacking another. once_per_tenant types key by tenant without needing this. */
+  // Method syntax (like buildContent below), not a function-typed property: keeps this
+  // parameter bivariant, so a catalog with a context-specific dedupeKey still satisfies
+  // NotifyByType's `Record<string, NotificationTypeDefinition<unknown>>` constraint.
+  dedupeKey?(context: TContext): string;
+  /** "Throttle and escalation": send exactly one reminder this long after the notification, then
+   *  stop — only if the trigger worker's relevance check for this type (if any) still passes at
+   *  that time. Reminders are ordinary notifications of the same type with `isReminder: true`
+   *  merged into their context. */
+  reminderAfterMs?: number;
+  /** Batch a burst of triggers for the same occurrence (dedupeKey) into ONE notification sent
+   *  this long after the last of them — e.g. an admin toggling several capabilities one call at
+   *  a time. Each new trigger restarts the wait and replaces the queued payload. */
+  debounceMs?: number;
   /** Per-type MSG91 templates, overriding the channel's env-level default template. Each channel
    *  maps its template's variables from the notification's `metadata` by key; a type with no
    *  entry here keeps each channel's original behavior (see channels/*.channel.ts). */

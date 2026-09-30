@@ -37,5 +37,6 @@ export function createAdminModule(deps: {
   const controller = new AdminController(service);
   const router = createAdminRoutes(controller);
 
-  return { router };
+  // service exposed for composition-root.ts's notification relevance checks (LS_N_0003).
+  return { router, service };
 }

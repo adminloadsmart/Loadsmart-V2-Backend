@@ -1,5 +1,6 @@
 import { AuthRepository } from '../auth/auth.repository';
 import { AuthService } from '../auth/auth.service';
+import { UserEntity } from '../auth/entities/user.entity';
 import { NotificationsService } from './notifications.service';
 import { NotificationDestinations } from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
@@ -72,10 +73,10 @@ async function notifyByTypeImpl(
       return;
     }
 
-    const recipients = await deps.authRepository.listUsersByRole(
-      tenantId,
-      definition.recipientRoles,
-    );
+    const targetUserId = definition.recipientUserId?.(context);
+    const recipients = targetUserId
+      ? await findTenantUser(deps.authRepository, tenantId, targetUserId)
+      : await deps.authRepository.listUsersByRole(tenantId, definition.recipientRoles);
 
     // One row per (tenant, type) — org-wide, so every recipient in this dispatch shares the same
     // preference (see NotificationPreferencesRepository). No saved row falls back to the type's
@@ -176,6 +177,17 @@ async function notifyByTypeImpl(
   } catch (error) {
     rethrow(error, `Failed to notify by type ${type} for tenant ${tenantId}`);
   }
+}
+
+/** A single named recipient — only if they still exist (not deleted) and belong to this tenant,
+ *  so a context can never direct a notification into another tenant. */
+async function findTenantUser(
+  authRepository: AuthRepository,
+  tenantId: string,
+  userId: string,
+): Promise<UserEntity[]> {
+  const user = await authRepository.findUserById(userId);
+  return user && user.tenantId === tenantId ? [user] : [];
 }
 
 /**

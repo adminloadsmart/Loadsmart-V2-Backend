@@ -43,6 +43,64 @@ export interface OrganizationSignupReceivedContext {
   orgName: string;
 }
 
+export interface OrganizationNotApprovedContext {
+  orgName: string;
+  /** The reviewer's deny reason, sent verbatim (organization.decisionReason). */
+  reason: string;
+}
+
+export interface TeamMemberInvitedContext {
+  /** The invited user — the recipient. */
+  userId: string;
+  inviterName: string;
+  orgName: string;
+  /** What they can do, e.g. "manage load requisitions and create customers". */
+  capabilitySummary: string;
+  /** Set by the trigger worker on the 24-hour reminder. */
+  isReminder?: boolean;
+}
+
+export interface AccessChangedContext {
+  /** The user whose access changed — the recipient. */
+  userId: string;
+  adminUserId: string;
+  /** Effective permission keys before the first change of the burst (see access-change.ts). */
+  baselinePermissions: string[];
+  // Filled in by the context resolver right before sending (access-change.ts):
+  adminName?: string;
+  orgName?: string;
+  addedCapabilities?: string;
+  removedCapabilities?: string;
+  removedCount?: number;
+}
+
+/** LS_N_0006's two optional sentences — also sent whole to the email template as access_summary,
+ *  since a template can't drop a sentence when its list is empty. */
+function accessChangeSentences({
+  addedCapabilities,
+  removedCapabilities,
+  removedCount,
+}: AccessChangedContext): string {
+  const sentences: string[] = [];
+  if (addedCapabilities) sentences.push(`You can now ${addedCapabilities}.`);
+  if (removedCapabilities) {
+    const removed = removedCapabilities.charAt(0).toUpperCase() + removedCapabilities.slice(1);
+    sentences.push(
+      `${removed} ${(removedCount ?? 0) > 1 ? 'are' : 'is'} no longer available to you.`,
+    );
+  }
+  return sentences.join(' ');
+}
+
+export interface OrganizationDocumentPendingContext {
+  orgName: string;
+  /** Human-readable name of the exact document, e.g. "GST certificate". */
+  docType: string;
+  documentId: string;
+  /** Set by the trigger worker on the 48-hour reminder. */
+  isReminder?: boolean;
+}
+
 type NoContext = Record<string, never>;
 
 /** First word of the recipient's name for "Hi {{first_name}}" copy — the org-signup user's
@@ -154,6 +212,170 @@ export const NOTIFICATION_CATALOG = {
         title: `We have your application for ${orgName}`,
         body: `${firstName}, we are verifying the GST and PAN details for ${orgName}. Most accounts are approved within one working day and we will message you as soon as it is done.`,
         metadata: { first_name: firstName, org_name: orgName },
+      };
+    },
+  },
+
+  // LS_N_0003 — fired by admin.service.ts's verifyOrganizationDocument when a reviewer marks a KYC
+  // document invalid (unreadable/missing) while the org is under review. SMS + email only, not
+  // in-app (no app access yet). One reminder after 48h, only if that exact document is still
+  // invalid then (see AdminService.isDocumentReuploadPending), then stop.
+  'organization.document_more_info_needed': {
+    label: 'More information needed',
+    description: 'A KYC document could not be verified and a clear copy is needed.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    channels: ['sms', 'email'],
+    defaultChannels: ['sms', 'email'],
+    severity: 'p2_action',
+    inApp: false,
+    dedupeKey: (context: OrganizationDocumentPendingContext) => context.documentId,
+    reminderAfterMs: 48 * 60 * 60 * 1000,
+    templates: {
+      sms: { templateId: env.msg91SmsTemplateDocumentPending, variables: { var1: 'org_name' } },
+      email: {
+        templateId: env.msg91EmailTemplateDocumentPending,
+        variables: { first_name: 'first_name', org_name: 'org_name', doc_type: 'doc_type' },
+      },
+    },
+    buildContent: (
+      { orgName, docType, documentId, isReminder }: OrganizationDocumentPendingContext,
+      recipient,
+    ) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `One document pending for ${orgName}`,
+        body: `${firstName}, we could not verify ${docType} for ${orgName}. Send a clear copy and we will approve the account the same day.`,
+        metadata: {
+          first_name: firstName,
+          org_name: orgName,
+          doc_type: docType,
+          document_id: documentId,
+          ...(isReminder ? { reminder: 'true' } : {}),
+        },
+      };
+    },
+  },
+
+  // LS_N_0004 — fired by admin.service.ts's denyOrganization (POST .../deny only). Email only:
+  // the spec rules out SMS for a rejection, and there's no app access (sessions are revoked on
+  // deny). `reason` is the reviewer's text as typed. Once per organisation.
+  'organization.account_not_approved': {
+    label: 'Account not approved',
+    description: 'Your organisation could not be approved.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    channels: ['email'],
+    defaultChannels: ['email'],
+    severity: 'p3_info',
+    frequency: 'once_per_tenant',
+    inApp: false,
+    templates: {
+      email: {
+        templateId: env.msg91EmailTemplateOrgNotApproved,
+        variables: { first_name: 'first_name', org_name: 'org_name', reason: 'reason' },
+      },
+    },
+    buildContent: ({ orgName, reason }: OrganizationNotApprovedContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `About your Loadsmart application for ${orgName}`,
+        body: `${firstName}, we are not able to open a Loadsmart account for ${orgName} at this time. Reason: ${reason}. If this looks wrong, reply to this mail and we will look again.`,
+        metadata: { first_name: firstName, org_name: orgName, reason },
+      };
+    },
+  },
+
+  // LS_N_0005 — fired by auth.service.ts's inviteOrganizationUser, to the invited person only.
+  // SMS (+ email only if they have one on file). Not in-app ("until the password is set") and no
+  // WhatsApp (no opt-in captured yet). One reminder after 24h only if they still haven't signed in
+  // (relevance check in composition-root.ts), then stop.
+  'organization.team_member_invited': {
+    label: 'Team member invited',
+    description: 'You have been added to an organisation on Loadsmart.',
+    recipientRoles: [],
+    recipientUserId: (context: TeamMemberInvitedContext) => context.userId,
+    channels: ['sms', 'email'],
+    defaultChannels: ['sms', 'email'],
+    severity: 'p2_action',
+    inApp: false,
+    dedupeKey: (context: TeamMemberInvitedContext) => context.userId,
+    reminderAfterMs: 24 * 60 * 60 * 1000,
+    templates: {
+      sms: { templateId: env.msg91SmsTemplateTeamInvite, variables: { var1: 'org_name' } },
+      email: {
+        templateId: env.msg91EmailTemplateTeamInvite,
+        variables: {
+          first_name: 'first_name',
+          inviter_name: 'inviter_name',
+          org_name: 'org_name',
+          capability_summary: 'capability_summary',
+        },
+      },
+    },
+    buildContent: (
+      { inviterName, orgName, capabilitySummary, isReminder }: TeamMemberInvitedContext,
+      recipient,
+    ) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `${inviterName} has added you to ${orgName} on Loadsmart`,
+        body: `${firstName}, ${inviterName} has added you to ${orgName} on Loadsmart. You can ${capabilitySummary}. Set your password to get started.`,
+        metadata: {
+          first_name: firstName,
+          inviter_name: inviterName,
+          org_name: orgName,
+          capability_summary: capabilitySummary,
+          cta_label: 'Set my password',
+          ...(isReminder ? { reminder: 'true' } : {}),
+        },
+      };
+    },
+  },
+
+  // LS_N_0006 — fired (via RoleService's onCapabilitiesChanged hook, see access-change.ts) when an
+  // org admin grants/revokes a capability or changes a teammate's role. In-app + email (if on
+  // file). Debounced: a burst of changes becomes ONE message ~2 min after the last one, listing
+  // the net additions/removals; nothing is sent when the net effect is nil.
+  'user.access_changed': {
+    label: 'Your access changed',
+    description: 'What you can do in your organisation was updated.',
+    recipientRoles: [],
+    recipientUserId: (context: AccessChangedContext) => context.userId,
+    channels: ['email'],
+    defaultChannels: ['email'],
+    severity: 'p3_info',
+    dedupeKey: (context: AccessChangedContext) => context.userId,
+    debounceMs: 2 * 60 * 1000,
+    templates: {
+      email: {
+        templateId: env.msg91EmailTemplateAccessChanged,
+        variables: {
+          first_name: 'first_name',
+          admin_name: 'admin_name',
+          org_name: 'org_name',
+          added_capabilities: 'added_capabilities',
+          removed_capabilities: 'removed_capabilities',
+          access_summary: 'access_summary',
+        },
+      },
+    },
+    buildContent: (context: AccessChangedContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      const adminName = context.adminName ?? 'Your admin';
+      const orgName = context.orgName ?? 'your organisation';
+      const summary = accessChangeSentences(context);
+      return {
+        title: 'Your access has been updated',
+        body: `${firstName}, ${adminName} updated what you can do in ${orgName}. ${summary}`.trim(),
+        metadata: {
+          first_name: firstName,
+          admin_name: adminName,
+          org_name: orgName,
+          added_capabilities: context.addedCapabilities ?? '',
+          removed_capabilities: context.removedCapabilities ?? '',
+          access_summary: summary,
+          cta_label: 'See what I can do',
+          cta_path: '/',
+        },
       };
     },
   },

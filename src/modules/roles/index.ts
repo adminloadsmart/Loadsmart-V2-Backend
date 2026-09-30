@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { RoleRepository } from './role.repository';
-import { RoleService } from './role.service';
+import { CapabilitiesChange, RoleService } from './role.service';
 import { RoleController } from './role.controller';
 import { createRoleRoutes } from './role.routes';
 
@@ -19,10 +19,17 @@ export function createRolesModule(
     // role.service.ts and composition-root.ts for why (auth already depends on roles.service,
     // so the reverse can't be a typed cross-module import without cycling).
     revokeRefreshTokensForUser: (userId: string) => Promise<void>;
+    // LS_N_0006 "your access changed" — optional; see RoleService's constructor.
+    onCapabilitiesChanged?: (change: CapabilitiesChange) => Promise<void>;
   },
 ) {
   const repository = new RoleRepository(dataSource);
-  const service = new RoleService(repository, deps.auditService, deps.revokeRefreshTokensForUser);
+  const service = new RoleService(
+    repository,
+    deps.auditService,
+    deps.revokeRefreshTokensForUser,
+    deps.onCapabilitiesChanged,
+  );
   const controller = new RoleController(service);
   const router = createRoleRoutes(controller);
 

@@ -6,10 +6,12 @@ import {
   OrganizationEntity,
   OrganizationJourneyStage,
 } from '../organization/entities/organization.entity';
+import { OrganizationDocumentEntity } from '../organization/entities/organization-document.entity';
 import { AuthService } from '../auth/auth.service';
 import {
   isTenantAccessible,
   organizationDisplayName,
+  ORGANIZATION_DOCUMENT_TYPE_LABELS,
 } from '../organization/organization.constants';
 import {
   ReferralCodeService,
@@ -260,6 +262,11 @@ export class AdminService {
           rejectionReason: document.rejectionReason,
         },
       });
+
+      // LS_N_0003 — only while the org is still under review (its account isn't live yet).
+      if (input.verificationStatus === 'invalid' && organization.status !== 'active') {
+        await this.notifyDocumentMoreInfoNeeded(organization, document);
+      }
 
       // Auto-complete online KYC the moment this update makes every submitted document verified —
       // folds the old separate POST .../online-kyc/complete step into this one, since there's
@@ -566,6 +573,54 @@ export class AdminService {
     }
   }
 
+  /** Best-effort LS_N_0003 "more information needed" to the signup contact, naming the exact
+   *  document — only the enqueue happens here (see notification-triggers.ts; the trigger worker
+   *  retries the rest and schedules the one 48-hour reminder), and even that failing must never
+   *  fail the document review, so it's logged, not rethrown. */
+  private async notifyDocumentMoreInfoNeeded(
+    organization: OrganizationEntity,
+    document: OrganizationDocumentEntity,
+  ): Promise<void> {
+    try {
+      await this.notificationTriggers.enqueue(
+        'organization.document_more_info_needed',
+        organization.id,
+        {
+          orgName: organizationDisplayName(organization),
+          docType: ORGANIZATION_DOCUMENT_TYPE_LABELS[document.documentType],
+          documentId: document.id,
+        },
+      );
+    } catch (error) {
+      console.warn(
+        `Failed to queue more-info-needed notification for org ${organization.id} document ${document.id}`,
+        error,
+      );
+    }
+  }
+
+  /** LS_N_0003's relevance check (wired into the notification trigger worker by
+   *  composition-root.ts), run before the first send and before the 48-hour reminder: true only
+   *  while this exact document is still active and 'invalid' — a re-upload resets it to 'pending'
+   *  (OrganizationDocumentRepository.upsert) — and the org is still under review. */
+  async isDocumentReuploadPending(organizationId: string, documentId: string): Promise<boolean> {
+    try {
+      const [organization, documents] = await Promise.all([
+        this.organizationService.getOrganizationStatus(organizationId),
+        this.organizationDocumentService.listByOrganization(organizationId),
+      ]);
+      if (organization.status === 'active' || !isTenantAccessible(organization.status)) {
+        return false;
+      }
+      return documents.some(
+        (document) => document.id === documentId && document.verificationStatus === 'invalid',
+      );
+    } catch (error) {
+      if (error instanceof NotFoundError) return false; // org gone — nothing to remind about
+      rethrow(error, 'Failed to check document re-upload status');
+    }
+  }
+
   async rejectOrganization(
     actingUser: AuthenticatedUser,
     organizationId: string,
@@ -589,14 +644,42 @@ export class AdminService {
     input: OrganizationDecisionReasonInput,
   ) {
     try {
-      return await this.decideOrganization(
+      const organization = await this.decideOrganization(
         actingUser,
         organizationId,
         input.reason,
         'ORGANIZATION_DENIED',
       );
+      await this.notifyAccountNotApproved(organization, input.reason);
+      return organization;
     } catch (error) {
       rethrow(error, 'Failed to deny organization');
+    }
+  }
+
+  /** Best-effort LS_N_0004 "account not approved" email to the signup contact, quoting the
+   *  reviewer's deny reason as typed — only the enqueue happens here (see
+   *  notification-triggers.ts; the trigger worker retries the rest), and even that failing must
+   *  never fail the deny, so it's logged, not rethrown. Deny only, not reject (product decision).
+   *  The catalog entry's once_per_tenant frequency makes a repeat deny a no-op. */
+  private async notifyAccountNotApproved(
+    organization: OrganizationEntity,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.notificationTriggers.enqueue(
+        'organization.account_not_approved',
+        organization.id,
+        {
+          orgName: organizationDisplayName(organization),
+          reason,
+        },
+      );
+    } catch (error) {
+      console.warn(
+        `Failed to queue account-not-approved notification for org ${organization.id}`,
+        error,
+      );
     }
   }
 

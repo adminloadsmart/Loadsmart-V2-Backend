@@ -70,6 +70,7 @@ import {
 import { UserEntity } from './entities/user.entity';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { NotificationTriggers } from '../notifications/notification-triggers';
+import { joinCapabilities } from '../notifications/capability-wording';
 
 // Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
 type DeviceContext = {
@@ -469,6 +470,8 @@ export class AuthService {
       newData: { id: user.id, fullName, phoneNumber: user.phoneNumber, role: role.name },
     });
 
+    await this.notifyTeamMemberInvited(actingUser, organization, user.id);
+
     return {
       id: user.id,
       fullName: user.fullName,
@@ -478,6 +481,32 @@ export class AuthService {
       permissions: await this.roleService.getEffectivePermissions(user.id),
       createdAt: user.createdAt,
     };
+  }
+
+  /** Best-effort LS_N_0005 "team member invited" to the invitee — says what they can do (their
+   *  effective capabilities, described), never their role or password. Only the enqueue happens
+   *  here (see notification-triggers.ts); even that failing must never fail the invite, so it's
+   *  logged, not rethrown. */
+  private async notifyTeamMemberInvited(
+    actingUser: AuthenticatedUser,
+    organization: OrganizationEntity,
+    invitedUserId: string,
+  ): Promise<void> {
+    try {
+      const [inviter, capabilityKeys] = await Promise.all([
+        this.authRepository.findUserById(actingUser.id),
+        this.roleService.getEffectivePermissions(invitedUserId),
+      ]);
+      const capabilities = await this.roleService.describePermissions([...capabilityKeys].sort());
+      await this.notificationTriggers.enqueue('organization.team_member_invited', organization.id, {
+        userId: invitedUserId,
+        inviterName: inviter?.fullName || 'Your admin',
+        orgName: organizationDisplayName(organization),
+        capabilitySummary: joinCapabilities(capabilities),
+      });
+    } catch (error) {
+      console.warn(`Failed to queue team-invite notification for user ${invitedUserId}`, error);
+    }
   }
 
   async listOrganizationUsers(actingUser: AuthenticatedUser, input: ListOrganizationUsersInput) {
