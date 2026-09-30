@@ -23,6 +23,7 @@ import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotifyByType } from './modules/notifications/notify-by-type';
+import { createNotificationTriggerWorker } from './modules/notifications/workers/notification-trigger.worker';
 import { createPaymentsModule } from './modules/payments';
 import { createMaintenanceModule } from './modules/maintenance';
 import { createAuditModule } from './modules/audit';
@@ -98,6 +99,11 @@ export function buildContainer(dataSource: DataSource): Container {
   const msg91Client = new Msg91Client();
   const otpService = new OtpService(msg91Client);
 
+  // Producer — no cross-module deps of its own beyond dataSource. Built before auth: auth
+  // (LS_N_0002) and admin (LS_N_0001) enqueue notifications through its `triggers`; notifyByType
+  // below needs its service. Same build-order bucket as tracking/payments.
+  const notifications = createNotificationsModule(dataSource);
+
   const auth = createAuthModule(dataSource, {
     auditService: audit.service,
     roleService: roles.service,
@@ -108,6 +114,7 @@ export function buildContainer(dataSource: DataSource): Container {
     referralCodeService: organization.referralCodeService,
     storageService: storage.service,
     otpService,
+    notificationTriggers: notifications.triggers,
   });
   const authMiddleware = createAuth(auth.authRepository);
 
@@ -116,10 +123,6 @@ export function buildContainer(dataSource: DataSource): Container {
   // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
-
-  // Producer, built here (right after auth) — no cross-module deps of its own beyond dataSource,
-  // and notifyByType below needs its service. Same build-order bucket as tracking/payments.
-  const notifications = createNotificationsModule(dataSource);
 
   // The one dispatcher every notification trigger site below calls against a domain catalog (see
   // modules/notifications/catalog/*) — currently just vehicle compliance (WhatsApp/push); the
@@ -132,6 +135,11 @@ export function buildContainer(dataSource: DataSource): Container {
     authService: auth.service,
     notificationPreferencesRepository: notifications.notificationPreferencesRepository,
   });
+
+  // Runs notifyByType for jobs queued via notifications.triggers (LS_N_0001/LS_N_0002 and future
+  // event-driven notifications) — built here since notifyByType needs auth. See
+  // modules/notifications/notification-triggers.ts.
+  const notificationTriggerWorker = createNotificationTriggerWorker(notifyByType);
 
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
   // docs/driver-auth.md), and fleetDriverLinkService (inside masters) needs driverRepository to
@@ -188,7 +196,7 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     storageService: storage.service,
     dataSource,
-    notifyByType,
+    notificationTriggers: notifications.triggers,
   });
 
   // No cross-module deps of its own — built before dashboards, which reads its service directly
@@ -265,6 +273,10 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/driver-auth', router: driverAuth.protectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
-    backgroundWorkers: [notifications.worker, masters.vehicleComplianceAlertsWorker],
+    backgroundWorkers: [
+      notifications.worker,
+      notificationTriggerWorker,
+      masters.vehicleComplianceAlertsWorker,
+    ],
   };
 }

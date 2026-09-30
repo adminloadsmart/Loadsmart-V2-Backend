@@ -39,6 +39,10 @@ export interface OrganizationApprovedContext {
   orgName: string;
 }
 
+export interface OrganizationSignupReceivedContext {
+  orgName: string;
+}
+
 type NoContext = Record<string, never>;
 
 /** First word of the recipient's name for "Hi {{first_name}}" copy — the org-signup user's
@@ -120,6 +124,36 @@ export const NOTIFICATION_CATALOG = {
           cta_label: 'Set up my fleet',
           cta_path: '/',
         },
+      };
+    },
+  },
+
+  // LS_N_0002 — fired by auth.service.ts's submitOrganization on the org's first submission for
+  // review (not correction resubmits). SMS + email only: no WhatsApp opt-in exists yet at this
+  // point. SMS/email copy lives in MSG91 templates; this app only sends the variables.
+  'organization.signup_received': {
+    label: 'Signup received',
+    description: 'Your application has been received and is under review.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    channels: ['sms', 'email'],
+    defaultChannels: ['sms', 'email'],
+    severity: 'p3_info',
+    frequency: 'once_per_tenant',
+    // Spec: in-app "Not applicable, no app access yet" — stored for tracking, hidden in the app.
+    inApp: false,
+    templates: {
+      sms: { templateId: env.msg91SmsTemplateSignupReceived, variables: { var1: 'org_name' } },
+      email: {
+        templateId: env.msg91EmailTemplateSignupReceived,
+        variables: { first_name: 'first_name', org_name: 'org_name' },
+      },
+    },
+    buildContent: ({ orgName }: OrganizationSignupReceivedContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `We have your application for ${orgName}`,
+        body: `${firstName}, we are verifying the GST and PAN details for ${orgName}. Most accounts are approved within one working day and we will message you as soon as it is done.`,
+        metadata: { first_name: firstName, org_name: orgName },
       };
     },
   },
@@ -230,6 +264,14 @@ export function getNotificationTemplates(type: string): NotificationTemplates | 
   return (NOTIFICATION_CATALOG as Record<string, { templates?: NotificationTemplates }>)[type]
     ?.templates;
 }
+
+/** Types stored but never shown in the app (`inApp: false`) — excluded by the in-app read
+ *  endpoints (see notifications.service.ts). */
+export const IN_APP_HIDDEN_TYPES: string[] = Object.entries(
+  NOTIFICATION_CATALOG as Record<string, { inApp?: boolean }>,
+)
+  .filter(([, definition]) => definition.inApp === false)
+  .map(([key]) => key);
 
 /** Builds a template's `{ templateVar: value }` payload from the notification's metadata. */
 export function mapTemplateVariables(

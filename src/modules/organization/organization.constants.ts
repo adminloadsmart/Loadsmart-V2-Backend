@@ -1,4 +1,21 @@
-import { OrganizationJourneyStage, OrganizationStatus } from './entities/organization.entity';
+import {
+  OrganizationEntity,
+  OrganizationJourneyStage,
+  OrganizationStatus,
+} from './entities/organization.entity';
+
+/** The org's name as shown to its own users (e.g. {{org_name}} in notifications) — first
+ *  non-empty of name / registered business name / legal name. */
+export function organizationDisplayName(
+  organization: Pick<OrganizationEntity, 'name' | 'registeredBusinessName' | 'companyLegalName'>,
+): string {
+  return (
+    organization.name ||
+    organization.registeredBusinessName ||
+    organization.companyLegalName ||
+    'your organisation'
+  );
+}
 
 // Allow-list, not deny-list: onboarding states (pending/partial_pending/draft) must stay
 // accessible — the org still needs to hit POST /auth/organization to finish its profile. Only

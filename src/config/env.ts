@@ -140,6 +140,9 @@ export const env = {
   msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
   msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
   msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
+  // LS_N_0002 "signup received, under review" (SMS + email only).
+  msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,
+  msg91EmailTemplateSignupReceived: process.env.MSG91_EMAIL_TEMPLATE_SIGNUP_RECEIVED || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

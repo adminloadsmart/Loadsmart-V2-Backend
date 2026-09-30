@@ -53,6 +53,10 @@ export interface NotificationTypeDefinition<TContext> {
    *  or declined → no WhatsApp; SMS still goes out if the type sends it). Default false: the
    *  type's WhatsApp dispatch ignores opt-in, as it always has. */
   requiresWhatsappOptIn?: boolean;
+  /** false → the notification row is still stored (delivery tracking, once_per_tenant) but never
+   *  shown in the app: GET /notifications omits it and GET/PATCH /notifications/:id 404 it — for
+   *  types whose recipient has no app access yet (e.g. LS_N_0002). Default true. */
+  inApp?: boolean;
   /** Per-type MSG91 templates, overriding the channel's env-level default template. Each channel
    *  maps its template's variables from the notification's `metadata` by key; a type with no
    *  entry here keeps each channel's original behavior (see channels/*.channel.ts). */

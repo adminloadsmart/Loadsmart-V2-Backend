@@ -18,6 +18,11 @@ import { SmsChannel } from './channels/sms.channel';
 import { PushChannel } from './channels/push.channel';
 import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationChannelName } from './notifications.types';
+import {
+  createNotificationTriggers,
+  NOTIFICATION_TRIGGERS_QUEUE,
+  NotificationTriggers,
+} from './notification-triggers';
 
 export interface NotificationsModule {
   service: NotificationsService;
@@ -27,6 +32,10 @@ export interface NotificationsModule {
   // notify-by-type.ts lives here too, but it's built in composition-root.ts alongside auth's
   // services, so this repository crosses the same boundary.
   notificationPreferencesRepository: NotificationPreferencesRepository;
+  // Queue-backed trigger entry point (see notification-triggers.ts) — only needs this module's
+  // own queue, so trigger sites can take it without depending on notifyByType's build order.
+  // Its worker is built in composition-root.ts (it runs notifyByType).
+  triggers: NotificationTriggers;
 }
 
 /** No cross-module deps — a "producer" module, same build-order bucket as tracking/payments in
@@ -66,5 +75,7 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
   };
   const worker = createNotificationDispatchWorker(service, channels);
 
-  return { service, router, worker, notificationPreferencesRepository };
+  const triggers = createNotificationTriggers(createJobQueue(NOTIFICATION_TRIGGERS_QUEUE));
+
+  return { service, router, worker, notificationPreferencesRepository, triggers };
 }

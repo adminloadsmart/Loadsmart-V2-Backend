@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Not, Repository } from 'typeorm';
 import { NotificationEntity } from './notifications.entity';
 import { NotificationDeliveryEntity } from './notification-delivery.entity';
 import {
@@ -138,11 +138,16 @@ export class NotificationRepository {
     tenantId: string,
     recipientUserId: string,
     input: ListNotificationsInput,
+    hiddenTypes: string[] = [],
   ): Promise<[NotificationEntity[], number]> {
     const qb = this.repo
       .createQueryBuilder('notification')
       .where('notification.tenant_id = :tenantId', { tenantId })
       .andWhere('notification.recipient_user_id = :recipientUserId', { recipientUserId });
+
+    if (hiddenTypes.length) {
+      qb.andWhere('notification.type NOT IN (:...hiddenTypes)', { hiddenTypes });
+    }
 
     if (input.unreadOnly) {
       qb.andWhere('notification.read_at IS NULL');
@@ -159,14 +164,20 @@ export class NotificationRepository {
   }
 
   /** Scoped to (tenantId, recipientUserId) — returns null for a notification that doesn't exist
-   *  OR belongs to someone else, so the controller 404s either way rather than leaking existence
-   *  of another user's notification. */
+   *  OR belongs to someone else (or is of a `hiddenTypes` type), so the controller 404s either way
+   *  rather than leaking existence of another user's notification. */
   findByIdForRecipient(
     tenantId: string,
     recipientUserId: string,
     id: string,
+    hiddenTypes: string[] = [],
   ): Promise<NotificationEntity | null> {
-    return this.repo.findOneBy({ id, tenantId, recipientUserId });
+    return this.repo.findOneBy({
+      id,
+      tenantId,
+      recipientUserId,
+      ...(hiddenTypes.length ? { type: Not(In(hiddenTypes)) } : {}),
+    });
   }
 
   findDeliveriesByNotificationId(notificationId: string): Promise<NotificationDeliveryEntity[]> {
@@ -186,8 +197,14 @@ export class NotificationRepository {
     tenantId: string,
     recipientUserId: string,
     id: string,
+    hiddenTypes: string[] = [],
   ): Promise<NotificationEntity | null> {
-    const notification = await this.findByIdForRecipient(tenantId, recipientUserId, id);
+    const notification = await this.findByIdForRecipient(
+      tenantId,
+      recipientUserId,
+      id,
+      hiddenTypes,
+    );
     if (!notification) return null;
     if (!notification.readAt) {
       notification.readAt = new Date();

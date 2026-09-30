@@ -25,6 +25,7 @@ import { OtpService } from '../../shared/services/otp.service';
 import {
   isTenantAccessible,
   isTenantWriteAccessible,
+  organizationDisplayName,
 } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -67,6 +68,8 @@ import {
   OrganizationOnboardingProgress,
 } from '../organization/organization.types';
 import { UserEntity } from './entities/user.entity';
+import { OrganizationEntity } from '../organization/entities/organization.entity';
+import { NotificationTriggers } from '../notifications/notification-triggers';
 
 // Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
 type DeviceContext = {
@@ -106,6 +109,7 @@ export class AuthService {
     private readonly auditService: AuditService,
     private readonly otpService: OtpService,
     private readonly dataSource: DataSource,
+    private readonly notificationTriggers: NotificationTriggers,
   ) {}
 
   async signup(input: SignupInput) {
@@ -1190,7 +1194,7 @@ export class AuthService {
       ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
       : undefined;
 
-    return this.dataSource.transaction(async (manager) => {
+    const { submitted, response } = await this.dataSource.transaction(async (manager) => {
       const organization = await this.organizationService.updateOrganization(
         user.tenantId!,
         {
@@ -1244,8 +1248,39 @@ export class AuthService {
         manager,
       );
 
-      return this.organizationOnboardingService.buildOrganizationResponse(withStage, documents);
+      return {
+        submitted: withStage,
+        response: this.organizationOnboardingService.buildOrganizationResponse(
+          withStage,
+          documents,
+        ),
+      };
     });
+
+    // After commit, so the notification never references a submission that rolled back. First
+    // submission only — a correction resubmission isn't a new signup (the catalog entry's
+    // once_per_tenant frequency also guards against repeats).
+    if (!isCorrectionResubmission) {
+      await this.notifySignupReceived(submitted);
+    }
+
+    return response;
+  }
+
+  /** Best-effort LS_N_0002 "signup received, under review" to the signup contact — only the
+   *  enqueue happens here (see notification-triggers.ts; the trigger worker retries the rest), and
+   *  even that failing must never fail the submission, so it's logged, not rethrown. */
+  private async notifySignupReceived(organization: OrganizationEntity): Promise<void> {
+    try {
+      await this.notificationTriggers.enqueue('organization.signup_received', organization.id, {
+        orgName: organizationDisplayName(organization),
+      });
+    } catch (error) {
+      console.warn(
+        `Failed to queue signup-received notification for org ${organization.id}`,
+        error,
+      );
+    }
   }
 
   private async loginWithPhone(

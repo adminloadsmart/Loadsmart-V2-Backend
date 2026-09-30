@@ -7,7 +7,10 @@ import {
   OrganizationJourneyStage,
 } from '../organization/entities/organization.entity';
 import { AuthService } from '../auth/auth.service';
-import { isTenantAccessible } from '../organization/organization.constants';
+import {
+  isTenantAccessible,
+  organizationDisplayName,
+} from '../organization/organization.constants';
 import {
   ReferralCodeService,
   resolveReferralCodeStatus,
@@ -15,8 +18,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
 import { StorageService } from '../storage/storage.service';
-import { NotifyByType } from '../notifications/notify-by-type';
-import { NOTIFICATION_CATALOG } from '../notifications/catalog/notification-catalog';
+import { NotificationTriggers } from '../notifications/notification-triggers';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
@@ -51,7 +53,7 @@ export class AdminService {
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
-    private readonly notifyByType: NotifyByType,
+    private readonly notificationTriggers: NotificationTriggers,
   ) {}
 
   /** platform_admin gets every org, unfiltered. online_kyc_desk/offline_kyc_desk only ever see
@@ -547,28 +549,18 @@ export class AdminService {
     }
   }
 
-  /** Best-effort LS_N_0001 "account approved" to the org admin — a notification failure must
-   *  never fail the approval itself, so it's logged, not rethrown (same pattern as
-   *  vehicle.service.ts's scheduleComplianceAlerts). The catalog entry's once_per_tenant
-   *  frequency makes a repeat approval a no-op. */
+  /** Best-effort LS_N_0001 "account approved" to the org admin — only the enqueue happens here
+   *  (see notification-triggers.ts; the trigger worker retries the rest), and even that failing
+   *  must never fail the approval, so it's logged, not rethrown. The catalog entry's
+   *  once_per_tenant frequency makes a repeat approval a no-op. */
   private async notifyAccountApproved(organization: OrganizationEntity): Promise<void> {
     try {
-      const orgName =
-        organization.name ||
-        organization.registeredBusinessName ||
-        organization.companyLegalName ||
-        'your organisation';
-      await this.notifyByType(
-        NOTIFICATION_CATALOG,
-        'organization.account_approved',
-        organization.id,
-        {
-          orgName,
-        },
-      );
+      await this.notificationTriggers.enqueue('organization.account_approved', organization.id, {
+        orgName: organizationDisplayName(organization),
+      });
     } catch (error) {
       console.warn(
-        `Failed to send account-approved notification for org ${organization.id}`,
+        `Failed to queue account-approved notification for org ${organization.id}`,
         error,
       );
     }
