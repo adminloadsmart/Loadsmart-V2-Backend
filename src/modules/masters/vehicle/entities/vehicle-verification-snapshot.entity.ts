@@ -69,6 +69,13 @@ export class VehicleVerificationSnapshotEntity {
   @Column({ name: 'vehicle_class', type: 'varchar', length: 100, nullable: true })
   vehicleClass!: string | null;
 
+  /** The RTO the vehicle is registered at, e.g. "Ludhiana". */
+  @Column({ name: 'registering_authority', type: 'varchar', length: 100, nullable: true })
+  registeringAuthority!: string | null;
+
+  @Column({ name: 'financier_name', type: 'varchar', length: 150, nullable: true })
+  financierName!: string | null;
+
   @Column({ name: 'address_line1', type: 'varchar', length: 255, nullable: true })
   addressLine1!: string | null;
 

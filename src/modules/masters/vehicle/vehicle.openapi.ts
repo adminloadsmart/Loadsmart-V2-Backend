@@ -188,9 +188,15 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.onboardVehicle',
     ...write(
-      'Create a vehicle and every section of the "Add a vehicle" form in one transaction: ' +
-        'VAHAN verification (which folds registry expiry dates into the document rows), documents, ' +
-        'telemetry, service usage, operational status, and an optional driver link. When ' +
+      'Create a vehicle and every section of the "Add a truck" drawer in one transaction. Only ' +
+        'registrationNumber and a truck type are required: `truckType` from the picker (body → ' +
+        'wheelCount or axleType → capacityTons → bodyLengthFt; finds or creates the matching ' +
+        'tenant truck type) or an existing `truckTypeId`. Optional blocks: VAHAN verification ' +
+        '(folds registry expiry dates, incl. road tax and the insurer, into the document rows), ' +
+        '`cost` (EMI/months left/premium for owned or financed; lease rent, lease end and who pays ' +
+        'fuel/tolls for attached), `gps`, service usage, `tyres` (whole-set preset plus ' +
+        'per-position overrides — not for attached trucks), documents, operational status, and ' +
+        'an optional driver link. `telemetry` is deprecated in favour of `cost` and `gps`. When ' +
         'driverLink is given it is applied in the same transaction, so the vehicle and its driver ' +
         'link succeed or fail together; the link can also be made or changed later via ' +
         'POST /vehicles/{vehicleId}/drivers. Only org_admin and dispatch may call this at all — ' +

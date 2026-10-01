@@ -23,7 +23,10 @@ export type UpdateTyreData = Partial<
     'status' | 'removedAt' | 'removedOdometerKm' | 'removedReason' | 'casingCondition' | 'updatedBy'
   >
 >;
-export type CreateTyreReadingData = Omit<TyreReadingEntity, 'id' | 'tyre' | 'createdAt'>;
+export type CreateTyreReadingData = Omit<
+  TyreReadingEntity,
+  'id' | 'tyre' | 'createdAt' | 'isEstimated'
+> & { isEstimated?: boolean };
 
 export class TyreRepository {
   private readonly tyres: Repository<TyreEntity>;
@@ -78,8 +81,9 @@ export class TyreRepository {
     });
   }
 
-  createReading(data: CreateTyreReadingData): Promise<TyreReadingEntity> {
-    return this.readings.save(this.readings.create(data));
+  createReading(data: CreateTyreReadingData, manager?: EntityManager): Promise<TyreReadingEntity> {
+    const repo = manager?.getRepository(TyreReadingEntity) ?? this.readings;
+    return repo.save(repo.create(data));
   }
 
   /** Every tyre currently fitted to a running own-fleet truck. */

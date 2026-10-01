@@ -1,7 +1,14 @@
+import { EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
 import { TruckTypeEntity } from './entities/truck-type.entity';
 import { TruckTypeRepository } from './truck-type.repository';
 import { TruckTypeCatalogRepository } from '../truck-type-catalog/truck-type-catalog.repository';
+import {
+  findPickerRow,
+  pickerTruckTypeName,
+  TruckTypePick,
+} from '../vehicle/truck-type-picker.constants';
+import { AXLE_TYPE_WHEEL_COUNTS } from '../vehicle/vehicle.type';
 import {
   AddTruckTypesFromCatalogInput,
   CreateTruckTypeInput,
@@ -121,6 +128,43 @@ export class TruckTypeService {
       });
     } catch (error) {
       rethrow(error, 'Failed to resolve truck type from catalog');
+    }
+  }
+
+  /**
+   * The Add Truck drawer's picker (body → tyres/axle → tonnes → feet) — get-or-create, like
+   * resolveFromCatalog but against the picker's own table (TRUCK_TYPE_PICKER_ROWS) rather than the
+   * global catalog, since the picker also splits by length. Matched on the generated name, which is
+   * unique per tenant, so the same pick always lands on one row. Takes the onboarding transaction.
+   */
+  async findOrCreateFromPicker(
+    tenantId: string,
+    actorId: string,
+    pick: TruckTypePick,
+    manager?: EntityManager,
+  ): Promise<TruckTypeEntity> {
+    try {
+      const row = findPickerRow(pick);
+      if (!row) throw new ValidationError('Not a truck type the picker offers');
+
+      const name = pickerTruckTypeName(row, pick.bodyLengthFt);
+      const existing = await this.truckTypeRepository.findByName(tenantId, name, manager);
+      if (existing) return existing;
+
+      return await this.truckTypeRepository.create(
+        {
+          tenantId,
+          name,
+          bodyType: row.family,
+          wheelConfiguration:
+            typeof row.wheel === 'number' ? row.wheel : AXLE_TYPE_WHEEL_COUNTS[row.wheel],
+          capacityTons: String(row.capacityTons),
+          createdBy: actorId,
+        },
+        manager,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to resolve truck type from picker');
     }
   }
 
