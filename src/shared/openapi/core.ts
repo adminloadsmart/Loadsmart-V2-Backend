@@ -25,6 +25,7 @@ export const TAGS = {
   DRIVER_AUTH: 'driver-auth',
   DRIVER_PORTAL: 'driver-portal',
   MAINTENANCE: 'maintenance',
+  PLACES: 'places',
 } as const;
 
 /**

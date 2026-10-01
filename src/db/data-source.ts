@@ -16,6 +16,8 @@ import { TrackingEventEntity } from '../modules/tracking/tracking.entity';
 import { NotificationEntity } from '../modules/notifications/notifications.entity';
 import { NotificationDeliveryEntity } from '../modules/notifications/notification-delivery.entity';
 import { NotificationTemplateEntity } from '../modules/notifications/templates/template.entity';
+import { NotificationTypeEntity } from '../modules/notifications/entities/notification-type.entity';
+import { NotificationPreferenceEntity } from '../modules/notifications/entities/notification-preference.entity';
 import { PaymentEntity } from '../modules/payments/payments.entity';
 import { MaintenanceJobEntity } from '../modules/maintenance/entities/maintenance-job.entity';
 import { TyreEntity } from '../modules/maintenance/entities/tyre.entity';
@@ -26,6 +28,7 @@ import { AuditLogEntity } from '../modules/audit/audit.entity';
 import { VehicleEntity } from '../modules/masters/vehicle/entities/vehicle.entity';
 import { VehicleDocumentEntity } from '../modules/masters/vehicle/entities/vehicle-document.entity';
 import { DriverEntity } from '../modules/driver/entities/driver.entity';
+import { DriverTenantRelationEntity } from '../modules/driver/entities/driver-tenant-relation.entity';
 import { FleetDriverLinkEntity } from '../modules/masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import { DriverDocumentEntity } from '../modules/driver/entities/driver-document.entity';
 import { DriverVerificationEntity } from '../modules/driver/entities/driver-verification.entity';
@@ -77,6 +80,8 @@ export const AppDataSource = new DataSource({
     NotificationEntity,
     NotificationDeliveryEntity,
     NotificationTemplateEntity,
+    NotificationTypeEntity,
+    NotificationPreferenceEntity,
     PaymentEntity,
     // maintenance module
     MaintenanceJobEntity,
@@ -88,6 +93,7 @@ export const AppDataSource = new DataSource({
     VehicleEntity,
     VehicleDocumentEntity,
     DriverEntity,
+    DriverTenantRelationEntity,
     FleetDriverLinkEntity,
     DriverDocumentEntity,
     DriverVerificationEntity,

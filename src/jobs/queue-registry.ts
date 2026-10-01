@@ -2,7 +2,15 @@ import { Queue, JobsOptions } from 'bullmq';
 import { getQueueConnection } from './queue-connection';
 
 export interface JobQueue {
-  enqueue(jobName: string, payload: unknown): Promise<void>;
+  enqueue(
+    jobName: string,
+    payload: unknown,
+    options?: { delay?: number; jobId?: string },
+  ): Promise<void>;
+  // Removes a still-delayed/waiting job by its jobId — a no-op if it's already run, already
+  // removed, or was never scheduled. Lets a caller reschedule a one-time delayed job (e.g. vehicle
+  // compliance alerts) by cancelling the stale one before enqueuing the new one.
+  cancel(jobId: string): Promise<void>;
 }
 
 // One BullMQ Queue instance per name, reused across calls — BullMQ recommends against creating a
@@ -32,8 +40,23 @@ export function createJobQueue(name: string): JobQueue {
   const resolvedQueue = queue;
 
   return {
-    async enqueue(jobName: string, payload: unknown): Promise<void> {
-      await resolvedQueue.add(jobName, payload);
+    async enqueue(
+      jobName: string,
+      payload: unknown,
+      options?: { delay?: number; jobId?: string },
+    ): Promise<void> {
+      await resolvedQueue.add(jobName, payload, options);
+    },
+    async cancel(jobId: string): Promise<void> {
+      const job = await resolvedQueue.getJob(jobId);
+      if (!job) return;
+      // Only a still-pending job should be pulled — one that's already active/completed has
+      // either already run or is currently running, and BullMQ's own state guards throw rather
+      // than silently no-op if remove() is called on those states.
+      const state = await job.getState();
+      if (state === 'delayed' || state === 'waiting') {
+        await job.remove();
+      }
     },
   };
 }

@@ -15,9 +15,10 @@ import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
 import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
 import { registerNotificationsOpenApi } from '../../modules/notifications/notifications.openapi';
-import { registerDriverAuthOpenApi } from '../../modules/driver/driver-auth.openapi';
-import { registerDriverPortalOpenApi } from '../../modules/driver/driver-portal.openapi';
+import { registerDriverAuthOpenApi } from '../../modules/driver/auth/driver-auth.openapi';
+import { registerDriverPortalOpenApi } from '../../modules/driver/portal/driver-portal.openapi';
 import { registerMaintenanceOpenApi } from '../../modules/maintenance/maintenance.openapi';
+import { registerPlacesOpenApi } from '../../modules/places/places.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -57,6 +58,7 @@ function getOpenApiDocument() {
     registerDriverAuthOpenApi(registry);
     registerDriverPortalOpenApi(registry);
     registerMaintenanceOpenApi(registry);
+    registerPlacesOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -100,12 +102,12 @@ function getOpenApiDocument() {
         {
           name: TAGS.NOTIFICATIONS,
           description:
-            'Read-only: list and view the caller’s own notifications (in-app record of every email/SMS/push sent to them) and mark them read. Sending is done in-process by other services, not over HTTP.',
+            'List and view the caller’s own notifications (in-app record of every email/SMS/push/WhatsApp sent to them) and mark them read — sending itself is done in-process by other services, not over HTTP. Also: org-wide notification channel preferences ("Choose how your team gets alerted") under /preferences — org_admin manages which channels are on per notification type, any org member can view them.',
         },
         {
           name: TAGS.DRIVER_AUTH,
           description:
-            'Driver-app login (phone + OTP only) and session management — a separate identity domain from TAGS.AUTH, not auth.users/roles. See docs/driver-auth.md.',
+            'Driver-app login (phone + OTP only), self-registration, session management, and cross-tenant relation management (a driver profile is global and can be linked, with mutual approval, to more than one fleet owner) — a separate identity domain from TAGS.AUTH, not auth.users/roles. See docs/driver-auth.md.',
         },
         {
           name: TAGS.DRIVER_PORTAL,
@@ -116,6 +118,11 @@ function getOpenApiDocument() {
           name: TAGS.MAINTENANCE,
           description:
             'Own-fleet workshop (FMS-MNT-000): headlines, service due, breakdowns (take a truck out of / back into dispatch), tyres, EV batteries and job history.',
+        },
+        {
+          name: TAGS.PLACES,
+          description:
+            'Place lookup backed by Google Places: search any place by text, then fetch its full details (address, coordinates, city/state/pin) by placeId',
         },
       ],
     });

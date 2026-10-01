@@ -99,6 +99,16 @@ export const env = {
     'DRIVER_VERIFY_DL_RATE_LIMIT_WINDOW_SECONDS',
     60,
   ),
+  // Google Maps Places API (GooglePlacesClient) — powers the places search/details lookup. Optional:
+  // the lookup endpoints fail loudly per-request when the key is unset instead of crashing boot.
+  googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || undefined,
+  googleMapsBaseUrl: process.env.GOOGLE_MAPS_BASE_URL || 'https://maps.googleapis.com',
+  // Throttles GET /places/search and /places/:placeId — each call is a paid Google request.
+  locationLookupRateLimitMax: numberWithDefault('LOCATION_LOOKUP_RATE_LIMIT_MAX', 20),
+  locationLookupRateLimitWindowSeconds: numberWithDefault(
+    'LOCATION_LOOKUP_RATE_LIMIT_WINDOW_SECONDS',
+    300,
+  ),
   // IDfy's `verify_with_source` DL check (Sarathi registry). SarathiClient falls back to
   // manual_review whenever any of these is missing, so the app runs fine without them.
   idfyApiKey: process.env.IDFY_API_KEY || undefined,
@@ -121,6 +131,15 @@ export const env = {
   // Optional: SmsChannel throws a clear per-delivery error when unset instead of crashing the
   // server, same "fails loudly but doesn't crash boot" contract as msg91AuthKey/idfyApiKey.
   msg91NotificationTemplateId: process.env.MSG91_NOTIFICATION_TEMPLATE_ID || undefined,
+  // MSG91's WhatsApp Business API (WhatsappChannel) — a Meta-approved template, provisioned on
+  // the MSG91/WhatsApp Business dashboard, not composed in code (see Msg91Client.sendWhatsapp).
+  // Optional, same "fails loudly but doesn't crash boot" contract as the MSG91 vars above.
+  msg91WhatsappIntegratedNumber: process.env.MSG91_WHATSAPP_INTEGRATED_NUMBER || undefined,
+  msg91WhatsappNamespace: process.env.MSG91_WHATSAPP_NAMESPACE || undefined,
+  msg91WhatsappTemplateName: process.env.MSG91_WHATSAPP_TEMPLATE_NAME || undefined,
+  // MSG91's WhatsApp send API lives on a different host (api.msg91.com) from the rest of their
+  // v5 API (msg91BaseUrl/control.msg91.com) — see Msg91Client.sendWhatsapp.
+  msg91WhatsappBaseUrl: process.env.MSG91_WHATSAPP_BASE_URL || 'https://api.msg91.com',
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

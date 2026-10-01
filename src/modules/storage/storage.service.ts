@@ -185,6 +185,21 @@ export class StorageService {
     }
   }
 
+  // Tenant-less counterpart to getByKey, for driver self-registration (driver-identity.service.ts)
+  // — a driver with no tenant yet uploads license photos via generateUploadUrl(null, ...), so
+  // there is no FileAccessActor role to check against PLATFORM_SCOPE_ROLES here. Matches
+  // tenant_id IS NULL specifically, same "can never surface a real tenant's file" guarantee as
+  // getByKey's platform-scope branch.
+  async getByKeyNullTenant(key: string): Promise<FileWithUrlResult> {
+    try {
+      const file = await this.repository.findByKeyNullTenant(key);
+      if (!file) throw new NotFoundError(`File with key ${key} not found`);
+      return await this.withDownloadUrl(file);
+    } catch (error) {
+      rethrow(error, 'Failed to fetch file');
+    }
+  }
+
   async remove(tenantId: string, fileId: string): Promise<{ success: true }> {
     try {
       const file = await this.repository.findById(tenantId, fileId);
