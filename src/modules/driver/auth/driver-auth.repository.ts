@@ -1,5 +1,5 @@
 import { DataSource, IsNull, MoreThan, Not, Repository } from 'typeorm';
-import { DriverSessionEntity } from './entities/driver-session.entity';
+import { DriverSessionEntity } from '../entities/driver-session.entity';
 import { DriverDevicePlatform } from './driver-auth.types';
 
 // The driver-identity counterpart to modules/auth/auth.repository.ts's refresh-token methods —
@@ -14,6 +14,8 @@ export class DriverSessionRepository {
 
   async createSession(data: {
     driverId: string;
+    tenantId: string | null;
+    driverTenantRelationId: string | null;
     tokenHash: string;
     expiresAt: Date;
     fcmToken?: string | null;

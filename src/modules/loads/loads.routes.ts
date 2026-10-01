@@ -98,6 +98,14 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadValidators.confirmLoading),
     asyncHandler(controller.confirmLoading),
   );
+  // Plain document attach/replace, decoupled from confirm-loading's status transition — usable
+  // any time before the load is closed, e.g. to correct a document after loading was confirmed.
+  router.patch(
+    '/loads/:loadId/documents',
+    canManageDocuments,
+    validate(loadValidators.updateDocuments),
+    asyncHandler(controller.updateDocuments),
+  );
   router.patch(
     '/loads/:loadId/status',
     canManageDocuments,
@@ -109,6 +117,13 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     canManageDocuments,
     validate(loadValidators.uploadPod),
     asyncHandler(controller.uploadPod),
+  );
+  // Staff accept/reject of a pending E-POD — see LoadService.reviewPod.
+  router.patch(
+    '/loads/:loadId/pod/review',
+    canManageDocuments,
+    validate(loadValidators.reviewPod),
+    asyncHandler(controller.reviewPod),
   );
 
   // --- Payments — Accounts. ---

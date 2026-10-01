@@ -10,12 +10,14 @@ import {
 } from 'typeorm';
 import { VehicleEntity } from '../../vehicle/entities/vehicle.entity';
 import { DriverEntity } from '../../../driver/entities/driver.entity';
+import { DriverTenantRelationEntity } from '../../../driver/entities/driver-tenant-relation.entity';
 import { FLEET_DRIVER_LINK_STATUSES, FleetDriverLinkStatus } from '../fleet-driver-link.type';
 
 @Entity({ schema: 'masters', name: 'fleet_driver_links' })
 @Index('fleet_driver_links_tenant_id_idx', ['tenantId'])
 @Index('fleet_driver_links_vehicle_id_idx', ['vehicleId'])
 @Index('fleet_driver_links_driver_id_idx', ['driverId'])
+@Index('fleet_driver_links_relation_id_idx', ['driverTenantRelationId'])
 // Backs "at most one primary driver per vehicle" (see fleet-driver-link.service.ts's linkDriver/
 // setPrimaryDriver) at the DB level — those methods already check-then-act inside a transaction,
 // but two concurrent calls against the same vehicle can each pass that check before either
@@ -39,12 +41,23 @@ export class FleetDriverLinkEntity {
   @JoinColumn({ name: 'vehicle_id' })
   vehicle!: VehicleEntity;
 
+  // Denormalized global driver id, kept in sync at write time with driverTenantRelation.driverId
+  // so vehicle-assignment queries that want the driver's name/phone don't need a double join.
   @Column({ name: 'driver_id', type: 'uuid' })
   driverId!: string;
 
-  @ManyToOne(() => DriverEntity, (driver) => driver.vehicleLinks, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => DriverEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'driver_id' })
   driver!: DriverEntity;
+
+  @Column({ name: 'driver_tenant_relation_id', type: 'uuid' })
+  driverTenantRelationId!: string;
+
+  @ManyToOne(() => DriverTenantRelationEntity, (relation) => relation.vehicleLinks, {
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({ name: 'driver_tenant_relation_id' })
+  driverTenantRelation!: DriverTenantRelationEntity;
 
   @Column({ name: 'is_primary', type: 'boolean', default: true })
   isPrimary!: boolean;

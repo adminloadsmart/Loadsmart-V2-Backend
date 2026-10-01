@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { LoadEntity } from '../../loads/entities/load.entity';
 import { DriverEntity } from '../../driver/entities/driver.entity';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import {
   DriverAnalyticsDateRange,
@@ -45,17 +46,25 @@ function isOnTime(load: LoadEntity): boolean {
 // createQueryBuilder/raw SQL expressions) — see prefer-typeorm-no-raw-sql.
 export class DriverAnalyticsRepository {
   private readonly drivers;
+  private readonly driverTenantRelations;
   private readonly fleetDriverLinks;
   private readonly loads;
 
   constructor(dataSource: DataSource) {
     this.drivers = dataSource.getRepository(DriverEntity);
+    this.driverTenantRelations = dataSource.getRepository(DriverTenantRelationEntity);
     this.fleetDriverLinks = dataSource.getRepository(FleetDriverLinkEntity);
     this.loads = dataSource.getRepository(LoadEntity);
   }
 
   async getHeader(tenantId: string, driverId: string): Promise<DriverAnalyticsHeader | null> {
-    const driver = await this.drivers.findOneBy({ id: driverId, tenantId, deletedAt: IsNull() });
+    const relation = await this.driverTenantRelations.findOneBy({
+      tenantId,
+      driverId,
+      deletedAt: IsNull(),
+    });
+    if (!relation) return null;
+    const driver = await this.drivers.findOneBy({ id: driverId, deletedAt: IsNull() });
     if (!driver) return null;
 
     const link = await this.fleetDriverLinks.findOne({

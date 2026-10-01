@@ -6,15 +6,60 @@ import {
   LOAD_STATUSES,
   LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
+  POD_STATUSES,
+  POD_REVIEW_DECISIONS,
   SEAL_STATUSES,
+  SHORTAGE_OR_DAMAGE_STATUSES,
 } from './utils/loads.types';
 
 const uuid = z.string().uuid();
+export const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 const params = z.object({ loadId: uuid });
 
 // Exported so driver-portal.validators.ts's driver-facing status/POD schemas can reuse the exact
 // same body shape instead of a hand-kept duplicate that could drift out of sync.
 export const updateStatusBody = z.object({ toStatus: z.enum(MANUAL_TRACKING_STATUSES) }).strict();
+
+// Any subset of the three mandatory document pairs may be submitted per call — invoice/e-way
+// bill/E-LR can be uploaded one at a time or all together (LoadService.confirmLoading only flips
+// the load to loading_confirmed once all three end up present on the row, whether accumulated
+// across calls or already present from an earlier caller — a document already on the load never
+// needs to be resent). loadingPhotoFileKeys/weighingSlipFileKey are non-mandatory and never gate
+// that flip. Exported so driver-portal.validators.ts's confirmMyLoading reuses the exact same
+// body shape instead of a hand-kept duplicate that could drift out of sync.
+export const confirmLoadingBody = z
+  .object({
+    invoiceNumber: z.string().trim().min(1).max(50).optional(),
+    invoiceFileKey: z.string().trim().min(1).optional(),
+    ewayBillNumber: z.string().trim().min(1).max(50).optional(),
+    ewayBillFileKey: z.string().trim().min(1).optional(),
+    elrNumber: z.string().trim().max(50).optional(),
+    elrFileKey: z.string().trim().min(1).optional(),
+    loadingPhotoFileKeys: z.array(z.string().trim().min(1)).max(3).optional(),
+    weighingSlipFileKey: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (data) => (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined),
+    'invoiceNumber and invoiceFileKey must be submitted together',
+  )
+  .refine(
+    (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
+    'ewayBillNumber and ewayBillFileKey must be submitted together',
+  )
+  .refine(
+    (data) => data.elrNumber === undefined || data.elrFileKey !== undefined,
+    'elrNumber cannot be submitted without elrFileKey',
+  )
+  .refine(
+    (data) =>
+      data.invoiceFileKey !== undefined ||
+      data.ewayBillFileKey !== undefined ||
+      data.elrFileKey !== undefined ||
+      data.loadingPhotoFileKeys !== undefined ||
+      data.weighingSlipFileKey !== undefined,
+    'At least one document must be submitted',
+  );
 
 export const uploadPodBody = z
   .object({
@@ -24,12 +69,51 @@ export const uploadPodBody = z
       .string()
       .trim()
       .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
-    podReceiverDesignation: z.string().trim().min(1).max(150),
+    // Optional as of the driver-app ePOD screen redesign — that screen doesn't collect either of
+    // these, but a staff-side or older caller may still send them.
+    podReceiverDesignation: z.string().trim().min(1).max(150).optional(),
     podQuantityReceived: z.number().nonnegative(),
-    sealStatus: z.enum(SEAL_STATUSES),
+    sealStatus: z.enum(SEAL_STATUSES).optional(),
+    // Cargo-condition-on-arrival — see SHORTAGE_OR_DAMAGE_STATUSES' doc comment (loads.types.ts).
+    // numberOfTonnesShort is accepted regardless of shortageOrDamage's value (no server-side
+    // requirement tying it to 'shortage'/'both' — the client's own UI decides when to show/
+    // require it). damagePhotoKey IS enforced server-side, below, when damage is reported.
+    shortageOrDamage: z.enum(SHORTAGE_OR_DAMAGE_STATUSES).optional(),
+    numberOfTonnesShort: z.number().nonnegative().optional(),
+    damagePhotoKey: z.string().trim().min(1).optional(),
     podRemarks: z.string().trim().max(500).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (
+      (data.shortageOrDamage === 'damage' || data.shortageOrDamage === 'both') &&
+      !data.damagePhotoKey
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['damagePhotoKey'],
+        message: 'damagePhotoKey is required when shortageOrDamage is damage or both',
+      });
+    }
+  });
+
+// Staff's accept/reject decision on a pending E-POD — see LoadService.reviewPod. `reason` is
+// required when rejecting (so the driver knows what to fix on resubmission), unused otherwise.
+export const reviewPodBody = z
+  .object({
+    decision: z.enum(POD_REVIEW_DECISIONS),
+    reason: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.decision === 'rejected' && !data.reason) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message: 'reason is required when decision is rejected',
+      });
+    }
+  });
 
 export const loadValidators = {
   list: z.object({
@@ -46,7 +130,14 @@ export const loadValidators = {
         transporterId: uuid.optional(),
         vehicleId: uuid.optional(),
         driverId: uuid.optional(),
+        podStatus: z.enum(POD_STATUSES).optional(),
+        fromDate: dateOnly.optional(),
+        toDate: dateOnly.optional(),
       })
+      .refine(
+        (data) => !(data.fromDate && data.toDate) || data.fromDate <= data.toDate,
+        'fromDate must not be after toDate',
+      )
       .refine(
         (data) => !(data.status && data.group),
         'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',
@@ -71,40 +162,16 @@ export const loadValidators = {
       .strict(),
   }),
 
-  // Any subset of the three document pairs may be submitted per call — invoice/e-way bill/E-LR
-  // can be uploaded one at a time or all together (LoadService.confirmLoading only flips the
-  // load to loading_confirmed once all three end up present on the row).
   confirmLoading: z.object({
     params,
-    body: z
-      .object({
-        invoiceNumber: z.string().trim().min(1).max(50).optional(),
-        invoiceFileKey: z.string().trim().min(1).optional(),
-        ewayBillNumber: z.string().trim().min(1).max(50).optional(),
-        ewayBillFileKey: z.string().trim().min(1).optional(),
-        elrNumber: z.string().trim().max(50).optional(),
-        elrFileKey: z.string().trim().min(1).optional(),
-      })
-      .strict()
-      .refine(
-        (data) => (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined),
-        'invoiceNumber and invoiceFileKey must be submitted together',
-      )
-      .refine(
-        (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
-        'ewayBillNumber and ewayBillFileKey must be submitted together',
-      )
-      .refine(
-        (data) => data.elrNumber === undefined || data.elrFileKey !== undefined,
-        'elrNumber cannot be submitted without elrFileKey',
-      )
-      .refine(
-        (data) =>
-          data.invoiceFileKey !== undefined ||
-          data.ewayBillFileKey !== undefined ||
-          data.elrFileKey !== undefined,
-        'At least one document (invoice, e-way bill, or E-LR) must be submitted',
-      ),
+    body: confirmLoadingBody,
+  }),
+
+  // Same body shape as confirmLoading above (same document set), but no status-transition
+  // semantics — see LoadService.updateDocuments.
+  updateDocuments: z.object({
+    params,
+    body: confirmLoadingBody,
   }),
 
   updateStatus: z.object({
@@ -117,5 +184,10 @@ export const loadValidators = {
   uploadPod: z.object({
     params,
     body: uploadPodBody,
+  }),
+
+  reviewPod: z.object({
+    params,
+    body: reviewPodBody,
   }),
 };

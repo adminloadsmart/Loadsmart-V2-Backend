@@ -8,17 +8,24 @@ import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverBankVerificationStatus } from './drivers.types';
 import {
   CreateDriverBankDetailsData,
-  CreateDriverData,
   CreateDriverDocumentData,
   CreateDriverOperationalStatusData,
+  CreateDriverProfileData,
   CreateDriverTripMetricsData,
   CreateDriverVerificationData,
-  ListDriversFilters,
-  UpdateDriverData,
   UpdateDriverOperationalStatusData,
+  UpdateDriverProfileData,
   UpdateDriverTripMetricsData,
 } from './drivers.interface';
 
+/**
+ * Person-level driver data — the global profile (masters.drivers) and everything hung off it
+ * directly (documents, verifications, bank details). None of this is tenant-scoped: a document
+ * uploaded while onboarding at one tenant is visible to every tenant the driver later links to.
+ * `tenantId` is still recorded on create as a non-enforced "originating tenant" audit column.
+ * Tenant-scoped employment data (salary, approval status, operational status, trip metrics) lives
+ * in DriverTenantRelationRepository / driver_tenant_relations instead.
+ */
 export class DriverRepository {
   private readonly drivers: Repository<DriverEntity>;
   private readonly documents: Repository<DriverDocumentEntity>;
@@ -36,151 +43,41 @@ export class DriverRepository {
     this.tripMetrics = dataSource.getRepository(DriverTripMetricsEntity);
   }
 
-  async create(data: CreateDriverData, manager?: EntityManager): Promise<DriverEntity> {
+  async create(data: CreateDriverProfileData, manager?: EntityManager): Promise<DriverEntity> {
     const drivers = manager ? manager.getRepository(DriverEntity) : this.drivers;
     const driver = drivers.create({ ...data, deletedAt: null });
     return drivers.save(driver);
   }
 
-  findById(tenantId: string, id: string, manager?: EntityManager): Promise<DriverEntity | null> {
+  findById(id: string, manager?: EntityManager): Promise<DriverEntity | null> {
     const drivers = manager ? manager.getRepository(DriverEntity) : this.drivers;
-    return drivers.findOneBy({ id, tenantId, deletedAt: IsNull() });
+    return drivers.findOneBy({ id, deletedAt: IsNull() });
   }
 
-  // Not tenant-scoped, like findActiveDriversByPhone above — used only by
-  // driver-auth.service.ts's refresh, which starts from a driver_sessions row (driverId only, no
-  // tenantId) rather than a request already carrying a verified tenantId claim.
-  findByIdAnyTenant(id: string): Promise<DriverEntity | null> {
-    return this.drivers.findOneBy({ id, deletedAt: IsNull() });
-  }
-
-  findByIdWithRelations(tenantId: string, id: string): Promise<DriverEntity | null> {
+  findByIdWithPersonRelations(id: string): Promise<DriverEntity | null> {
     return this.drivers.findOne({
-      where: { id, tenantId, deletedAt: IsNull() },
-      relations: {
-        documents: true,
-        verifications: true,
-        bankDetails: true,
-        vehicleLinks: { vehicle: true },
-      },
+      where: { id, deletedAt: IsNull() },
+      relations: { documents: true, verifications: true, bankDetails: true },
     });
   }
 
-  // Driver-portal profile screen — everything findByIdWithRelations above loads, plus the
-  // assigned vehicle's own compliance documents (insurance/fitness expiry) and truck type, and
-  // trip metrics, so the profile response can add its own fields on top of the same full driver
-  // record the staff detail view returns, rather than a narrower reshaped one.
-  findByIdWithProfileRelations(tenantId: string, id: string): Promise<DriverEntity | null> {
-    return this.drivers.findOne({
-      where: { id, tenantId, deletedAt: IsNull() },
-      relations: {
-        documents: true,
-        verifications: true,
-        bankDetails: true,
-        tripMetrics: true,
-        vehicleLinks: { vehicle: { truckType: true, documents: true } },
-      },
-    });
+  // Global natural key — a phone/license number identifies at most one driver profile, period.
+  findByPhoneNumber(phoneNumber: string): Promise<DriverEntity | null> {
+    return this.drivers.findOneBy({ phoneNumber, deletedAt: IsNull() });
   }
 
-  findByPhoneNumber(tenantId: string, phoneNumber: string): Promise<DriverEntity | null> {
-    return this.drivers.findOneBy({ tenantId, phoneNumber, deletedAt: IsNull() });
-  }
-
-  // Deliberately NOT tenant-scoped, unlike every other finder here — used only by
-  // driver-auth.service.ts's OTP login, which doesn't know the caller's tenant yet.
-  // drivers_tenant_phone_number_active_unique only enforces uniqueness *per tenant*
-  // (driver.entity.ts), so the same phone can legitimately match an active driver record in more
-  // than one tenant; the caller resolves 0/1/many matches itself (see docs/driver-auth.md).
-  findActiveDriversByPhone(phoneNumber: string): Promise<DriverEntity[]> {
-    return this.drivers.find({ where: { phoneNumber, status: 'active', deletedAt: IsNull() } });
-  }
-
-  findByLicenseNumber(tenantId: string, licenseNumber: string): Promise<DriverEntity | null> {
-    return this.drivers.findOneBy({ tenantId, licenseNumber, deletedAt: IsNull() });
-  }
-
-  async list(
-    tenantId: string,
-    filters: ListDriversFilters,
-  ): Promise<{ items: DriverEntity[]; total: number }> {
-    const { status, operationalStatus, search, page, limit } = filters;
-
-    const base: FindOptionsWhere<DriverEntity> = { tenantId, deletedAt: IsNull() };
-    if (status) base.status = status;
-    // The drivers table filters on the satellite row ("On trip" / "On leave"), not the lifecycle status.
-    if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
-
-    // Search spans two columns, so it becomes two OR'd where-clauses rather than one.
-    const where: FindOptionsWhere<DriverEntity>[] = search
-      ? [
-          { ...base, fullName: ILike(`%${search}%`) },
-          { ...base, phoneNumber: ILike(`%${search}%`) },
-        ]
-      : [base];
-
-    // The table renders DL verification, status, trip figures and linked vehicle per row, so load
-    // them with the page rather than leaving the caller to fan out one request per driver.
-    const [items, total] = await this.drivers.findAndCount({
-      where,
-      relations: {
-        operationalStatus: true,
-        tripMetrics: true,
-        verifications: true,
-        vehicleLinks: { vehicle: true },
-      },
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-
-    return { items, total };
+  findByLicenseNumber(licenseNumber: string): Promise<DriverEntity | null> {
+    return this.drivers.findOneBy({ licenseNumber, deletedAt: IsNull() });
   }
 
   async update(
-    tenantId: string,
     id: string,
-    data: UpdateDriverData,
+    data: UpdateDriverProfileData,
     manager?: EntityManager,
   ): Promise<DriverEntity | null> {
     const drivers = manager ? manager.getRepository(DriverEntity) : this.drivers;
-    await drivers.update({ id, tenantId, deletedAt: IsNull() }, data);
-    return drivers.findOneBy({ id, tenantId, deletedAt: IsNull() });
-  }
-
-  async softDelete(tenantId: string, id: string, deletedBy: string | null): Promise<void> {
-    await this.drivers.update(
-      { id, tenantId, deletedAt: IsNull() },
-      { deletedAt: new Date(), updatedBy: deletedBy },
-    );
-  }
-
-  /** Only a `pending` driver (dispatch's own onboardDriver call) can be approved. */
-  async approve(tenantId: string, id: string, actorId: string): Promise<DriverEntity | null> {
-    const result = await this.drivers.update(
-      { id, tenantId, status: 'pending', deletedAt: IsNull() },
-      {
-        status: 'active',
-        approvedBy: actorId,
-        approvedAt: new Date(),
-        rejectionReason: null,
-        updatedBy: actorId,
-      },
-    );
-    return result.affected === 1 ? this.findById(tenantId, id) : null;
-  }
-
-  async reject(
-    tenantId: string,
-    id: string,
-    actorId: string,
-    reason: string,
-  ): Promise<DriverEntity | null> {
-    const result = await this.drivers.update(
-      { id, tenantId, status: 'pending', deletedAt: IsNull() },
-      { status: 'rejected', rejectionReason: reason, updatedBy: actorId },
-    );
-    return result.affected === 1 ? this.findById(tenantId, id) : null;
+    await drivers.update({ id, deletedAt: IsNull() }, data);
+    return drivers.findOneBy({ id, deletedAt: IsNull() });
   }
 
   async createDocument(
@@ -192,29 +89,20 @@ export class DriverRepository {
     return documents.save(document);
   }
 
-  findDocumentById(
-    tenantId: string,
-    driverId: string,
-    id: string,
-  ): Promise<DriverDocumentEntity | null> {
-    return this.documents.findOneBy({ id, driverId, tenantId, deletedAt: IsNull() });
+  findDocumentById(driverId: string, id: string): Promise<DriverDocumentEntity | null> {
+    return this.documents.findOneBy({ id, driverId, deletedAt: IsNull() });
   }
 
-  listDocuments(tenantId: string, driverId: string): Promise<DriverDocumentEntity[]> {
+  listDocuments(driverId: string): Promise<DriverDocumentEntity[]> {
     return this.documents.find({
-      where: { tenantId, driverId, deletedAt: IsNull() },
+      where: { driverId, deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async softDeleteDocument(
-    tenantId: string,
-    driverId: string,
-    id: string,
-    deletedBy: string | null,
-  ): Promise<void> {
+  async softDeleteDocument(driverId: string, id: string, deletedBy: string | null): Promise<void> {
     await this.documents.update(
-      { id, driverId, tenantId, deletedAt: IsNull() },
+      { id, driverId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
   }
@@ -230,9 +118,9 @@ export class DriverRepository {
     return verifications.save(verification);
   }
 
-  listVerifications(tenantId: string, driverId: string): Promise<DriverVerificationEntity[]> {
+  listVerifications(driverId: string): Promise<DriverVerificationEntity[]> {
     return this.verifications.find({
-      where: { tenantId, driverId, deletedAt: IsNull() },
+      where: { driverId, deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
     });
   }
@@ -246,38 +134,26 @@ export class DriverRepository {
     return bank.save(bankDetails);
   }
 
-  findBankDetailsById(
-    tenantId: string,
-    driverId: string,
-    id: string,
-  ): Promise<DriverBankDetailsEntity | null> {
-    return this.bankDetails.findOneBy({ id, driverId, tenantId, deletedAt: IsNull() });
+  findBankDetailsById(driverId: string, id: string): Promise<DriverBankDetailsEntity | null> {
+    return this.bankDetails.findOneBy({ id, driverId, deletedAt: IsNull() });
   }
 
   findBankDetailsByAccount(
-    tenantId: string,
     driverId: string,
     accountNumber: string,
     ifsc: string,
   ): Promise<DriverBankDetailsEntity | null> {
-    return this.bankDetails.findOneBy({
-      tenantId,
-      driverId,
-      accountNumber,
-      ifsc,
-      deletedAt: IsNull(),
-    });
+    return this.bankDetails.findOneBy({ driverId, accountNumber, ifsc, deletedAt: IsNull() });
   }
 
-  listBankDetails(tenantId: string, driverId: string): Promise<DriverBankDetailsEntity[]> {
+  listBankDetails(driverId: string): Promise<DriverBankDetailsEntity[]> {
     return this.bankDetails.find({
-      where: { tenantId, driverId, deletedAt: IsNull() },
+      where: { driverId, deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
     });
   }
 
   async updateBankDetailsVerification(
-    tenantId: string,
     driverId: string,
     id: string,
     data: {
@@ -286,27 +162,25 @@ export class DriverRepository {
       updatedBy: string | null;
     },
   ): Promise<DriverBankDetailsEntity | null> {
-    await this.bankDetails.update({ id, driverId, tenantId, deletedAt: IsNull() }, data);
-    return this.findBankDetailsById(tenantId, driverId, id);
+    await this.bankDetails.update({ id, driverId, deletedAt: IsNull() }, data);
+    return this.findBankDetailsById(driverId, id);
   }
 
   async softDeleteBankDetails(
-    tenantId: string,
     driverId: string,
     id: string,
     deletedBy: string | null,
   ): Promise<void> {
     await this.bankDetails.update(
-      { id, driverId, tenantId, deletedAt: IsNull() },
+      { id, driverId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
   }
 
   findOperationalStatus(
-    tenantId: string,
-    driverId: string,
+    driverTenantRelationId: string,
   ): Promise<DriverOperationalStatusEntity | null> {
-    return this.operationalStatuses.findOneBy({ tenantId, driverId, deletedAt: IsNull() });
+    return this.operationalStatuses.findOneBy({ driverTenantRelationId, deletedAt: IsNull() });
   }
 
   async createOperationalStatus(
@@ -321,23 +195,20 @@ export class DriverRepository {
   }
 
   async updateOperationalStatus(
-    tenantId: string,
-    driverId: string,
+    driverTenantRelationId: string,
     data: UpdateDriverOperationalStatusData,
   ): Promise<DriverOperationalStatusEntity | null> {
-    await this.operationalStatuses.update({ tenantId, driverId, deletedAt: IsNull() }, data);
-    return this.findOperationalStatus(tenantId, driverId);
+    await this.operationalStatuses.update({ driverTenantRelationId, deletedAt: IsNull() }, data);
+    return this.findOperationalStatus(driverTenantRelationId);
   }
 
   findTripMetricsByPeriod(
-    tenantId: string,
-    driverId: string,
+    driverTenantRelationId: string,
     periodStart: string,
     periodEnd: string,
   ): Promise<DriverTripMetricsEntity | null> {
     return this.tripMetrics.findOneBy({
-      tenantId,
-      driverId,
+      driverTenantRelationId,
       periodStart,
       periodEnd,
       deletedAt: IsNull(),
@@ -350,18 +221,26 @@ export class DriverRepository {
   }
 
   async updateTripMetrics(
-    tenantId: string,
     id: string,
     data: UpdateDriverTripMetricsData,
   ): Promise<DriverTripMetricsEntity | null> {
-    await this.tripMetrics.update({ id, tenantId, deletedAt: IsNull() }, data);
-    return this.tripMetrics.findOneBy({ id, tenantId, deletedAt: IsNull() });
+    await this.tripMetrics.update({ id, deletedAt: IsNull() }, data);
+    return this.tripMetrics.findOneBy({ id, deletedAt: IsNull() });
   }
 
-  listTripMetrics(tenantId: string, driverId: string): Promise<DriverTripMetricsEntity[]> {
+  listTripMetrics(driverTenantRelationId: string): Promise<DriverTripMetricsEntity[]> {
     return this.tripMetrics.find({
-      where: { tenantId, driverId, deletedAt: IsNull() },
+      where: { driverTenantRelationId, deletedAt: IsNull() },
       order: { periodStart: 'DESC' },
     });
   }
 }
+
+// Re-exported so call sites that only need the `search` helper don't need to import TypeORM directly.
+export const driverSearchWhere = (
+  base: FindOptionsWhere<DriverEntity>,
+  search: string,
+): FindOptionsWhere<DriverEntity>[] => [
+  { ...base, fullName: ILike(`%${search}%`) },
+  { ...base, phoneNumber: ILike(`%${search}%`) },
+];

@@ -13,6 +13,8 @@ export const UPLOAD_PURPOSES = [
   'loads/payment-proof',
   'loads/issue',
   'maintenance/invoice',
+  'loads/loading-photo',
+  'loads/weighing-slip',
 ] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
@@ -92,6 +94,18 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     keyPrefix: 'maintenance/invoice',
+  },
+  // Non-mandatory Loading Confirmation uploads — see load.service.ts's confirmLoading. Reachable
+  // via driver-portal's own POST /files, same as trips/pod and loads/issue.
+  'loads/loading-photo': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    keyPrefix: 'loads/loading-photo',
+  },
+  'loads/weighing-slip': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    keyPrefix: 'loads/weighing-slip',
   },
 };
 

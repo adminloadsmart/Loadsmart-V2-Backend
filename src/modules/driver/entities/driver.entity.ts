@@ -6,40 +6,38 @@ import {
   UpdateDateColumn,
   Index,
   OneToMany,
-  OneToOne,
 } from 'typeorm';
-import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import { DriverDocumentEntity } from './driver-document.entity';
 import { DriverVerificationEntity } from './driver-verification.entity';
 import { DriverBankDetailsEntity } from './driver-bank-details.entity';
+import { DriverTenantRelationEntity } from './driver-tenant-relation.entity';
 import {
   DRIVER_BLOOD_GROUPS,
+  DRIVER_ONBOARDING_STEPS,
+  DRIVER_REGISTRATION_SOURCES,
   DRIVER_SALARY_TYPES,
-  DRIVER_STATUSES,
   DriverBloodGroup,
+  DriverOnboardingStep,
+  DriverRegistrationSource,
   DriverSalaryType,
-  DriverStatus,
 } from '../drivers.types';
-import { DriverOperationalStatusEntity } from './driver-operational-status.entity';
-import { DriverTripMetricsEntity } from './driver-trip-metrics.entity';
 
+// A driver profile is global (one row per person), not tenant-scoped — a driver links to many
+// tenants via DriverTenantRelationEntity, which carries the approval workflow (status,
+// initiatedBy, approvedBy). Employment fields (salary, dateOfJoining) stay here, on the shared
+// profile: a driver is treated as having one job at a time, not a different salary per tenant. See
+// docs/driver-auth.md and the driver-tenant-relation entity for the split rationale.
 @Entity({ schema: 'masters', name: 'drivers' })
-@Index('drivers_tenant_id_idx', ['tenantId'])
-@Index('drivers_tenant_phone_number_active_unique', ['tenantId', 'phoneNumber'], {
-  unique: true,
-  where: '"deleted_at" IS NULL',
-})
-// NULL licence numbers do not collide in Postgres, so drivers pending a licence stay insertable.
-@Index('drivers_tenant_license_number_active_unique', ['tenantId', 'licenseNumber'], {
-  unique: true,
-  where: '"deleted_at" IS NULL',
-})
+// Neither phone nor licence number is globally unique — both were only unique per tenant on the
+// old tenant-scoped table, so either can legitimately collide across rows in the data today.
+// App-layer lookups (findByPhoneNumber/findByLicenseNumber in driver.service.ts /
+// driver-identity.service.ts) already prevent creating a new duplicate going forward, without
+// requiring every existing row to be reconciled first. Plain indexes for lookup performance only.
+@Index('drivers_phone_number_idx', ['phoneNumber'])
+@Index('drivers_license_number_idx', ['licenseNumber'])
 export class DriverEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
-
-  @Column({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string;
 
   @Column({ name: 'full_name', type: 'varchar', length: 150 })
   fullName!: string;
@@ -58,6 +56,12 @@ export class DriverEntity {
 
   @Column({ name: 'date_of_joining', type: 'date', nullable: true })
   dateOfJoining!: string | null;
+
+  @Column({ name: 'salary_type', type: 'enum', enum: [...DRIVER_SALARY_TYPES], nullable: true })
+  salaryType!: DriverSalaryType | null;
+
+  @Column({ name: 'salary_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  salaryAmount!: string | null;
 
   // Required by the Sarathi DL check (IDfy's verify_with_source needs id_number + date_of_birth
   // together), so it's captured on the driver even though nothing else in the product needs it yet.
@@ -85,27 +89,32 @@ export class DriverEntity {
   @Column({ name: 'emergency_contact_phone', type: 'varchar', length: 15, nullable: true })
   emergencyContactPhone!: string | null;
 
-  @Column({ name: 'salary_type', type: 'enum', enum: [...DRIVER_SALARY_TYPES], nullable: true })
-  salaryType!: DriverSalaryType | null;
+  @Column({ name: 'emergency_contact_relation', type: 'varchar', length: 50, nullable: true })
+  emergencyContactRelation!: string | null;
 
-  @Column({ name: 'salary_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
-  salaryAmount!: string | null;
+  @Column({ name: 'has_health_insurance', type: 'boolean', default: false })
+  hasHealthInsurance!: boolean;
 
-  @Column({ type: 'enum', enum: [...DRIVER_STATUSES], default: 'active' })
-  status!: DriverStatus;
+  @Column({ name: 'has_life_insurance', type: 'boolean', default: false })
+  hasLifeInsurance!: boolean;
 
-  @Column({ name: 'approved_by', type: 'uuid', nullable: true })
-  approvedBy!: string | null;
+  @Column({
+    name: 'registration_source',
+    type: 'enum',
+    enum: [...DRIVER_REGISTRATION_SOURCES],
+    default: 'staff_created',
+  })
+  registrationSource!: DriverRegistrationSource;
 
-  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
-  approvedAt!: Date | null;
-
-  // Set by reject, cleared by approve — mirrors CustomerEntity.rejectionReason.
-  @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
-  rejectionReason!: string | null;
-
-  @OneToMany(() => FleetDriverLinkEntity, (link) => link.driver)
-  vehicleLinks!: FleetDriverLinkEntity[];
+  // Self-registration's 3-screen wizard progress — driver-app-only, null for staff-created
+  // profiles. See drivers.types.ts's DRIVER_ONBOARDING_STEPS doc comment.
+  @Column({
+    name: 'onboarding_step',
+    type: 'enum',
+    enum: [...DRIVER_ONBOARDING_STEPS],
+    nullable: true,
+  })
+  onboardingStep!: DriverOnboardingStep | null;
 
   @OneToMany(() => DriverDocumentEntity, (document) => document.driver)
   documents!: DriverDocumentEntity[];
@@ -116,11 +125,8 @@ export class DriverEntity {
   @OneToMany(() => DriverBankDetailsEntity, (bankDetails) => bankDetails.driver)
   bankDetails!: DriverBankDetailsEntity[];
 
-  @OneToOne(() => DriverOperationalStatusEntity, (status) => status.driver)
-  operationalStatus!: DriverOperationalStatusEntity;
-
-  @OneToMany(() => DriverTripMetricsEntity, (metric) => metric.driver)
-  tripMetrics!: DriverTripMetricsEntity[];
+  @OneToMany(() => DriverTenantRelationEntity, (relation) => relation.driver)
+  tenantRelations!: DriverTenantRelationEntity[];
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;

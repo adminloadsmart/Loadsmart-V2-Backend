@@ -1,11 +1,17 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { notificationValidators } from './notifications.validators';
+import { registerNotificationPreferencesOpenApi } from './notification-preferences.openapi';
 import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import { TAGS, authenticated, errorContent } from '../../shared/openapi/core';
 
 const BASE = `${API_VERSION_PREFIX}/notifications`; // absolute path — must match its mount in app.ts
 
+/** Delegates the /preferences sub-resource to its own file (same aggregation style
+ *  masters.openapi.ts uses for its submodules) — no separate call needed in docs.ts, it's reached
+ *  transitively through this function. */
 export function registerNotificationsOpenApi(registry: OpenAPIRegistry): void {
+  registerNotificationPreferencesOpenApi(registry);
+
   registry.registerPath({
     method: 'get',
     path: BASE,

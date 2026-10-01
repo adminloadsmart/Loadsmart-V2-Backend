@@ -9,7 +9,7 @@ import {
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_OPERATIONAL_STATUSES,
   DRIVER_SALARY_TYPES,
-  DRIVER_STATUSES,
+  DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
 } from './drivers.types';
@@ -93,7 +93,17 @@ const driverVerificationBody = z.object({
   rawResponse: z.record(z.string(), z.unknown()).optional(),
 });
 
-const driverBankDetailsBody = z.object({
+// Fields IDfy needs to check an account — shared by every bank-account preflight endpoint.
+export const bankAccountCheckBody = z.object({
+  accountNumber: z.string().min(6).max(30),
+  ifsc: z
+    .string()
+    .trim()
+    .transform((value) => value.toUpperCase())
+    .refine((value) => IFSC_REGEX.test(value), 'Invalid IFSC code'),
+});
+
+export const driverBankDetailsBody = z.object({
   accountNumber: z.string().min(6).max(30),
   ifsc: z
     .string()
@@ -101,6 +111,12 @@ const driverBankDetailsBody = z.object({
     .transform((value) => value.toUpperCase())
     .refine((value) => IFSC_REGEX.test(value), 'Invalid IFSC code'),
   accountHolderName: z.string().min(1).max(150).optional(),
+  upiId: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine((value) => /^[a-z0-9.\-_]{2,50}@[a-z]{2,50}$/.test(value), 'Invalid UPI id')
+    .optional(),
 });
 
 const driverDocumentBody = z.object({
@@ -126,6 +142,9 @@ export const driverValidators = {
    */
   verifyDriverDl: z.object({ body: driverVerifyDlBody }),
 
+  /** Bank-account preflight for the "Add a driver" form — nothing is saved. */
+  verifyDriverBankAccount: z.object({ body: bankAccountCheckBody }),
+
   /** The whole "Add a driver" form in one request. */
   onboardDriver: z.object({
     body: z.object({
@@ -138,7 +157,7 @@ export const driverValidators = {
   }),
   listDrivers: z.object({
     query: pagination.extend({
-      status: z.enum(DRIVER_STATUSES).optional(),
+      status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
       operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
     }),
   }),
@@ -170,7 +189,6 @@ export const driverValidators = {
           .optional(),
         salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
         salaryAmount: z.number().nonnegative().max(9999999999).optional(),
-        status: z.enum(DRIVER_STATUSES).optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
@@ -180,6 +198,17 @@ export const driverValidators = {
     params: driverParams,
     body: z.object({ reason: z.string().trim().min(1) }),
   }),
+
+  inviteDriver: z.object({
+    body: z.object({
+      phoneNumber: driverCoreFields.phoneNumber,
+      fullName: z.string().min(1).max(150).optional(),
+      dateOfJoining: isoDate.optional(),
+      salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
+      salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+    }),
+  }),
+  listJoinRequests: z.object({ query: pagination }),
 
   addDriverDocument: z.object({
     params: driverParams,

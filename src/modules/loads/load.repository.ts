@@ -1,10 +1,14 @@
 import {
+  Between,
   DataSource,
   EntityManager,
   FindManyOptions,
   FindOptionsWhere,
   ILike,
   In,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
   Not,
   Repository,
 } from 'typeorm';
@@ -12,9 +16,9 @@ import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
-  ACTIVE_LOAD_STATUSES,
   COMPLETED_LOAD_STATUSES,
   FreightMode,
+  LOAD_STATUS_GROUP_FILTERS,
   LoadSourceType,
   LoadStatus,
 } from './utils/loads.types';
@@ -109,7 +113,7 @@ export class LoadRepository {
       where: { id, tenantId },
       relations: {
         cargoItems: { product: true },
-        vehicle: true,
+        vehicle: { truckType: true },
         driver: true,
         transporter: true,
         truckType: true,
@@ -200,6 +204,9 @@ export class LoadRepository {
       transporterId,
       vehicleId,
       driverId,
+      podStatus,
+      fromDate,
+      toDate,
       search,
     } = filters;
 
@@ -207,14 +214,35 @@ export class LoadRepository {
     if (requisitionId) base.requisitionId = requisitionId;
     if (status) base.status = status;
     // Mutually exclusive with `status` — enforced by the validator's .refine(), see
-    // load.validators.ts. The Trips Home-page tab filter (Active/Completed).
+    // load.validators.ts. The Trips Home-page tab filter (Active/Completed) plus the driver
+    // app's Open Trips filter — see LOAD_STATUS_GROUP_FILTERS' own doc comment.
     if (group) {
-      base.status = In(group === 'active' ? ACTIVE_LOAD_STATUSES : COMPLETED_LOAD_STATUSES);
+      base.status = In(LOAD_STATUS_GROUP_FILTERS[group]);
+    }
+    // Upcoming means the pickup is still ahead — a created/assigned load whose requisition
+    // pickupDate has already passed isn't "upcoming" anymore. Today counts as upcoming. The date
+    // is the server's UTC day, matching how fromDate/toDate are read below.
+    const requisitionWhere: FindOptionsWhere<LoadEntity['requisition']> = {};
+    if (group === 'upcoming') {
+      requisitionWhere.pickupDate = MoreThanOrEqual(new Date().toISOString().slice(0, 10));
+      base.requisition = requisitionWhere;
     }
     if (sourceType) base.sourceType = sourceType;
     if (transporterId) base.transporterId = transporterId;
     if (vehicleId) base.vehicleId = vehicleId;
     if (driverId) base.driverId = driverId;
+    if (podStatus) base.podStatus = podStatus;
+    const dateColumn = group === 'completed' ? 'deliveredAt' : 'createdAt';
+    if (fromDate || toDate) {
+      const from = new Date(`${fromDate ?? toDate}T00:00:00.000Z`);
+      const to = new Date(`${toDate ?? fromDate}T23:59:59.999Z`);
+      base[dateColumn] =
+        fromDate && toDate
+          ? Between(from, to)
+          : fromDate
+            ? MoreThanOrEqual(from)
+            : LessThanOrEqual(to);
+    }
 
     // Matches the load's own LOAD-nnnn code or its requisition's customer name — a dispatcher
     // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS
@@ -222,7 +250,10 @@ export class LoadRepository {
     const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
       ? [
           { ...base, code: ILike(`%${search}%`) },
-          { ...base, requisition: { customer: { name: ILike(`%${search}%`) } } },
+          {
+            ...base,
+            requisition: { ...requisitionWhere, customer: { name: ILike(`%${search}%`) } },
+          },
         ]
       : base;
 
@@ -231,8 +262,11 @@ export class LoadRepository {
       relations: {
         // driverLinks is loaded so toTripListRow can fall back to the vehicle's current driver
         // when this load's own driverId snapshot is null (e.g. planned before any driver was
-        // linked to the vehicle) — see load.service.ts.
-        vehicle: { driverLinks: { driver: true } },
+        // linked to the vehicle) — see load.service.ts. truckType is loaded on both `vehicle`
+        // (own-fleet) and the load itself (market — see load.entity.ts's own doc comment) so
+        // toTripListRow can resolve a truck-type name regardless of sourcing strategy.
+        vehicle: { driverLinks: { driver: true }, truckType: true },
+        truckType: true,
         driver: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
@@ -290,6 +324,31 @@ export class LoadRepository {
       },
       { active: 0, completed: 0 },
     );
+  }
+
+  /** Backs the driver-app "Trips Done" screen's header stats — see
+   *  driver-portal.controller.ts's getMyTripsDone. podVerifiedCount is currently always equal to
+   *  totalCompleted (uploadPod, the only path to 'delivered'/'closed', always sets podFileKey),
+   *  but this is a real query rather than an assumed 100% so the two can genuinely diverge if
+   *  that invariant ever changes. */
+  async getCompletedStatsForDriver(
+    tenantId: string,
+    driverId: string,
+  ): Promise<{ totalCompleted: number; podVerifiedCount: number }> {
+    const [totalCompleted, podVerifiedCount] = await Promise.all([
+      this.loads.count({
+        where: { tenantId, driverId, status: In(COMPLETED_LOAD_STATUSES) },
+      }),
+      this.loads.count({
+        where: {
+          tenantId,
+          driverId,
+          status: In(COMPLETED_LOAD_STATUSES),
+          podFileKey: Not(IsNull()),
+        },
+      }),
+    ]);
+    return { totalCompleted, podVerifiedCount };
   }
 
   async createMany(rows: CreateLoadData[], manager: EntityManager): Promise<LoadEntity[]> {
