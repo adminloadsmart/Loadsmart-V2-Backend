@@ -25,6 +25,8 @@ import {
 import { blankJob, MaintenanceService } from './maintenance.service';
 import { toJobView, toVehicleSummary } from './maintenance.views';
 import { isUniqueViolation } from './utils/unique-violation';
+import { InitialTyreSetInput } from '../masters/vehicle/vehicle.interface';
+import { TYRE_CONDITION_PRESETS } from '../masters/vehicle/vehicle.type';
 
 function toTyreView(tyre: TyreEntity) {
   return {
@@ -423,6 +425,86 @@ export class TyreService {
       };
     } catch (error) {
       rethrow(error, 'Failed to record tyre reading');
+    }
+  }
+
+  /**
+   * The Add Truck drawer's "Tyre life": a tyre at every position of the new truck's layout, each
+   * starting at the whole-set preset's depth (an estimate, so its reading is flagged
+   * `is_estimated`) unless the operator measured that position. Runs in the onboarding transaction
+   * — called through masters' TyreSetupGateway — so a bad position rolls the whole truck back.
+   */
+  async fitInitialSet(
+    tenantId: string,
+    actorId: string,
+    vehicle: { id: string; wheelCount: number | null; odometerKm: number | null },
+    input: InitialTyreSetInput,
+    manager: EntityManager,
+  ): Promise<void> {
+    try {
+      const positions = tyrePositions(vehicle.wheelCount);
+      const overrides = new Map(
+        (input.positions ?? []).map((override) => [override.position.toUpperCase(), override]),
+      );
+
+      const unknown = [...overrides.keys()].filter((position) => !positions.includes(position));
+      if (unknown.length > 0) {
+        throw new ValidationError(
+          `Not a position on this truck: ${unknown.join(', ')} (expected ${positions.join(', ')})`,
+        );
+      }
+
+      const today = toIstDateString(new Date());
+      const presetMm = TYRE_CONDITION_PRESETS[input.preset];
+
+      for (const position of positions) {
+        const override = overrides.get(position);
+        const treadMm = override?.treadMm ?? presetMm;
+        const fittedAt = override?.fittedAt ?? today;
+        if (fittedAt > today) {
+          throw new ValidationError(`Position ${position}: fittedAt cannot be in the future`);
+        }
+
+        const tyre = await this.tyreRepository.create(
+          {
+            tenantId,
+            vehicleId: vehicle.id,
+            position,
+            serialNumber: null,
+            brand: override?.brand ?? null,
+            sizeCode: null,
+            maintenanceJobId: null,
+            // We don't know what these went on at — assume a new tyre, or the measured depth if
+            // somebody's reading is deeper than that.
+            originalTreadMm: String(Math.max(DEFAULT_NEW_TYRE_TREAD_MM, treadMm)),
+            fittedAt,
+            fittedOdometerKm: vehicle.odometerKm ?? 0,
+            retreadCount: 0,
+            maxRetreads: DEFAULT_MAX_RETREADS,
+            casingCondition: 'ok',
+            createdBy: actorId,
+          },
+          manager,
+        );
+
+        await this.tyreRepository.createReading(
+          {
+            tenantId,
+            tyreId: tyre.id,
+            treadMm: String(treadMm),
+            readingDate: today,
+            odometerKm: vehicle.odometerKm,
+            isEstimated: !override,
+            createdBy: actorId,
+          },
+          manager,
+        );
+      }
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictError('That truck already has tyres fitted');
+      }
+      rethrow(error, 'Failed to fit the initial tyre set');
     }
   }
 

@@ -14,10 +14,12 @@ import { VehicleDocumentEntity } from './vehicle-document.entity';
 import { FleetDriverLinkEntity } from '../../fleet-driver-link/entities/fleet-driver-link.entity';
 import { TruckTypeEntity } from '../../truck-type/entities/truck-type.entity';
 import {
+  AXLE_TYPES,
   BODY_TYPES,
   FUEL_TYPES,
   OWNERSHIP_TYPES,
   VEHICLE_STATUSES,
+  VehicleAxleType,
   VehicleBodyType,
   VehicleFuelType,
   VehicleOwnershipType,
@@ -78,6 +80,35 @@ export class VehicleEntity {
   @Column({ name: 'wheel_count', type: 'smallint', nullable: true })
   wheelCount!: number | null;
 
+  /** Picker step 2 for 32 ft containers, sold by axle — wheelCount then holds the tyre count it
+   *  implies (AXLE_TYPE_WHEEL_COUNTS). Null for everything sold by tyre count. */
+  @Column({ name: 'axle_type', type: 'enum', enum: [...AXLE_TYPES], nullable: true })
+  axleType!: VehicleAxleType | null;
+
+  /** Picker step 4. Text because the smallest LCVs are sold as a range ("8-10"). */
+  @Column({ name: 'body_length_ft', type: 'varchar', length: 10, nullable: true })
+  bodyLengthFt!: string | null;
+
+  /** Vahan's "passing" weight. With unladen weight it gives the legal load (GVW − unladen). */
+  @Column({ name: 'gross_vehicle_weight_kg', type: 'int', nullable: true })
+  grossVehicleWeightKg!: number | null;
+
+  @Column({ name: 'unladen_weight_kg', type: 'int', nullable: true })
+  unladenWeightKg!: number | null;
+
+  /** e.g. "BS-VI", from Vahan. */
+  @Column({ name: 'emission_norm', type: 'varchar', length: 20, nullable: true })
+  emissionNorm!: string | null;
+
+  /** Vahan's own body description ("HSD", "Closed body") — kept raw; bodyType is the picked one. */
+  @Column({ name: 'vahan_body_type', type: 'varchar', length: 50, nullable: true })
+  vahanBodyType!: string | null;
+
+  /** The lender on a financed truck, from Vahan's hypothecation. */
+  @Column({ name: 'financier_name', type: 'varchar', length: 150, nullable: true })
+  financierName!: string | null;
+
+  /** The size the truck is sold as (picker step 3), not the legal load — see grossVehicleWeightKg. */
   @Column({
     name: 'capacity_tons',
     type: 'numeric',

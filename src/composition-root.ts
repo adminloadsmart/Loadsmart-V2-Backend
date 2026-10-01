@@ -39,6 +39,7 @@ import { createDriverAnalyticsModule } from './modules/analytics/driver-analytic
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 import { FleetGatewayLocal as MaintenanceFleetGatewayLocal } from './modules/maintenance/gateways/fleet.gateway.local';
+import { TyreSetupGatewayLocal } from './modules/maintenance/gateways/tyre-setup.gateway.local';
 import { StorageGatewayLocal as MaintenanceStorageGatewayLocal } from './modules/maintenance/gateways/storage.gateway.local';
 
 export interface Container {
@@ -184,6 +185,9 @@ export function buildContainer(dataSource: DataSource): Container {
     storageGateway: new MaintenanceStorageGatewayLocal(storage.service),
     auditService: audit.service,
   });
+  // The Add Truck drawer's "Tyre life" block fits tyres at onboarding — masters can't depend on
+  // maintenance, so maintenance's tyre service is handed back to it here.
+  masters.vehicleService.setTyreSetupGateway(new TyreSetupGatewayLocal(maintenance.tyreService));
 
   // Reads organization's organizationService/organizationDocumentService/referralCodeService and
   // auth's authService directly — cross-tenant ops, not a producer/consumer integration, so no

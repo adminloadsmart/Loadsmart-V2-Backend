@@ -56,5 +56,5 @@ export function createMaintenanceModule(
     batteryService,
   );
   const router = createMaintenanceRoutes(controller);
-  return { service, router };
+  return { service, tyreService, router };
 }

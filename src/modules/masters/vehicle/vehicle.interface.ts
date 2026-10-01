@@ -1,7 +1,11 @@
 import { PaginationInput } from '../../../shared/utils/pagination';
 import { LinkDriverInput } from '../fleet-driver-link/fleet-driver-link.interface';
+import { PickerBody } from './truck-type-picker.constants';
 import {
+  TyreConditionPreset,
+  VehicleAxleType,
   VehicleBodyType,
+  VehicleCostPayer,
   VehicleDocumentStatus,
   VehicleDocumentType,
   VehicleDocumentTypeWithExpiry,
@@ -9,6 +13,7 @@ import {
   VehicleOperationalStatus,
   VehicleOwnershipType,
   VehicleStatus,
+  VehicleTollPayer,
   VehicleVerificationStatus,
   VehicleVerificationType,
 } from './vehicle.type';
@@ -24,6 +29,13 @@ export interface CreateVehicleInput {
   wheelCount?: number;
   capacityTons?: number;
   ownershipType?: VehicleOwnershipType;
+  axleType?: VehicleAxleType;
+  bodyLengthFt?: string;
+  grossVehicleWeightKg?: number;
+  unladenWeightKg?: number;
+  emissionNorm?: string;
+  vahanBodyType?: string;
+  financierName?: string;
 }
 
 export interface UpdateVehicleInput {
@@ -34,6 +46,8 @@ export interface UpdateVehicleInput {
   wheelCount?: number;
   capacityTons?: number;
   ownershipType?: VehicleOwnershipType;
+  axleType?: VehicleAxleType;
+  bodyLengthFt?: string;
   status?: VehicleStatus;
   /** Re-links this driver as the vehicle's primary driver — see FleetDriverLinkService.setPrimaryDriver. */
   driverId?: string;
@@ -62,6 +76,7 @@ export interface ListComplianceAlertsInput extends PaginationInput {
 export interface AddVehicleDocumentInput {
   documentType: VehicleDocumentType;
   documentNumber?: string;
+  providerName?: string;
   issueDate?: string;
   expiryDate?: string;
   fileUrl?: string;
@@ -69,6 +84,7 @@ export interface AddVehicleDocumentInput {
 
 export interface UpdateVehicleDocumentInput {
   documentNumber?: string;
+  providerName?: string;
   issueDate?: string;
   expiryDate?: string;
   fileUrl?: string;
@@ -86,6 +102,13 @@ export interface CreateVehicleData {
   wheelCount: number | null;
   capacityTons: string | null;
   ownershipType: VehicleOwnershipType;
+  axleType: VehicleAxleType | null;
+  bodyLengthFt: string | null;
+  grossVehicleWeightKg: number | null;
+  unladenWeightKg: number | null;
+  emissionNorm: string | null;
+  vahanBodyType: string | null;
+  financierName: string | null;
   status: VehicleStatus;
   approvedBy: string | null;
   approvedAt: Date | null;
@@ -100,6 +123,8 @@ export interface UpdateVehicleData {
   wheelCount?: number | null;
   capacityTons?: string | null;
   ownershipType?: VehicleOwnershipType;
+  axleType?: VehicleAxleType | null;
+  bodyLengthFt?: string | null;
   status?: VehicleStatus;
   updatedBy?: string | null;
 }
@@ -126,6 +151,7 @@ export interface CreateVehicleDocumentData {
   vehicleId: string;
   documentType: VehicleDocumentType;
   documentNumber: string | null;
+  providerName?: string | null;
   issueDate: string | null;
   expiryDate: string | null;
   fileUrl: string | null;
@@ -135,6 +161,7 @@ export interface CreateVehicleDocumentData {
 
 export interface UpdateVehicleDocumentData {
   documentNumber?: string | null;
+  providerName?: string | null;
   issueDate?: string | null;
   expiryDate?: string | null;
   fileUrl?: string | null;
@@ -171,8 +198,15 @@ export interface UpdateVehicleOperationalStatusData {
 export interface SetVehicleTelemetryMetaInput {
   gpsProvider?: string;
   gpsEnabled?: boolean;
+  hasGps?: boolean;
+  gpsDeviceImei?: string;
   emiAmount?: number;
   emiEndDate?: string;
+  insurancePremiumYearly?: number;
+  leaseRentMonthly?: number;
+  leaseEndDate?: string;
+  fuelPaidBy?: VehicleCostPayer;
+  tollPaidBy?: VehicleTollPayer;
   fixedCostMonthly?: number;
 }
 
@@ -181,8 +215,15 @@ export interface CreateVehicleTelemetryMetaData {
   vehicleId: string;
   gpsProvider: string | null;
   gpsEnabled: boolean;
+  hasGps: boolean | null;
+  gpsDeviceImei: string | null;
   emiAmount: string | null;
   emiEndDate: string | null;
+  insurancePremiumYearly: string | null;
+  leaseRentMonthly: string | null;
+  leaseEndDate: string | null;
+  fuelPaidBy: VehicleCostPayer | null;
+  tollPaidBy: VehicleTollPayer | null;
   fixedCostMonthly: string | null;
   createdBy: string | null;
 }
@@ -190,8 +231,15 @@ export interface CreateVehicleTelemetryMetaData {
 export interface UpdateVehicleTelemetryMetaData {
   gpsProvider?: string | null;
   gpsEnabled?: boolean;
+  hasGps?: boolean | null;
+  gpsDeviceImei?: string | null;
   emiAmount?: string | null;
   emiEndDate?: string | null;
+  insurancePremiumYearly?: string | null;
+  leaseRentMonthly?: string | null;
+  leaseEndDate?: string | null;
+  fuelPaidBy?: VehicleCostPayer | null;
+  tollPaidBy?: VehicleTollPayer | null;
   fixedCostMonthly?: string | null;
   updatedBy?: string | null;
 }
@@ -205,6 +253,9 @@ export interface VehicleVerificationPapersInput {
   permitValidTo?: string;
   pucValidTo?: string;
   fitnessValidTo?: string;
+  roadTaxValidTo?: string;
+  /** The insurer, written onto the insurance document. */
+  insuranceProvider?: string;
 }
 
 export interface RecordVehicleVerificationInput {
@@ -214,6 +265,8 @@ export interface RecordVehicleVerificationInput {
   registeredName?: string;
   registeredOn?: string;
   vehicleClass?: string;
+  registeringAuthority?: string;
+  financierName?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
@@ -231,6 +284,8 @@ export interface CreateVehicleVerificationSnapshotData {
   registeredName: string | null;
   registeredOn: string | null;
   vehicleClass: string | null;
+  registeringAuthority: string | null;
+  financierName: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   city: string | null;
@@ -277,6 +332,48 @@ export interface UpdateVehicleServiceUsageData {
   updatedBy?: string | null;
 }
 
+/** The truck-type picker's four steps — body, then a tyre count or (32 ft containers) an axle type,
+ *  then tonnes, then feet. Must be a combination TRUCK_TYPE_PICKER_ROWS offers. */
+export interface TruckTypePickInput {
+  body: PickerBody;
+  wheelCount?: number;
+  axleType?: VehicleAxleType;
+  capacityTons: number;
+  bodyLengthFt: string;
+}
+
+/** "Truck cost" (owned/financed) or "Lease and trip cost" (attached). */
+export interface OnboardVehicleCostInput {
+  emiAmount?: number;
+  /** "Months left" on the loan — stored as emi_end_date, counted from today. */
+  emiMonthsLeft?: number;
+  insurancePremiumYearly?: number;
+  leaseRentMonthly?: number;
+  leaseEndDate?: string;
+  fuelPaidBy?: VehicleCostPayer;
+  tollPaidBy?: VehicleTollPayer;
+}
+
+export interface OnboardVehicleGpsInput {
+  hasGps: boolean;
+  provider?: string;
+  deviceImei?: string;
+}
+
+/** One position the operator measured or corrected after the whole-set preset. */
+export interface TyrePositionInput {
+  position: string;
+  treadMm: number;
+  fittedAt?: string;
+  brand?: string;
+}
+
+/** "Tyre life": every position starts at the preset's depth, then `positions` override some. */
+export interface InitialTyreSetInput {
+  preset: TyreConditionPreset;
+  positions?: TyrePositionInput[];
+}
+
 /**
  * The whole "Add a vehicle" form in one request. Every section past the first is optional, and the
  * service applies them in a single transaction so a failure late on cannot leave a half-built vehicle.
@@ -287,7 +384,12 @@ export interface UpdateVehicleServiceUsageData {
  * changed) later via a standalone `POST /vehicles/:vehicleId/drivers` call.
  */
 export interface OnboardVehicleInput extends CreateVehicleInput {
+  truckType?: TruckTypePickInput;
   verification?: RecordVehicleVerificationInput;
+  cost?: OnboardVehicleCostInput;
+  gps?: OnboardVehicleGpsInput;
+  tyres?: InitialTyreSetInput;
+  /** @deprecated — the old form's EMI/GPS block; use `cost` and `gps`. */
   telemetry?: SetVehicleTelemetryMetaInput;
   serviceUsage?: SetVehicleServiceUsageInput;
   documents?: AddVehicleDocumentInput[];

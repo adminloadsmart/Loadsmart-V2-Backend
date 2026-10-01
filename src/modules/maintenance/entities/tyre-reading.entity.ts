@@ -36,6 +36,10 @@ export class TyreReadingEntity {
   @Column({ name: 'odometer_km', type: 'int', nullable: true })
   odometerKm!: number | null;
 
+  /** Set when the depth came from the Add Truck drawer's whole-set preset rather than a gauge. */
+  @Column({ name: 'is_estimated', type: 'boolean', default: false })
+  isEstimated!: boolean;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 
