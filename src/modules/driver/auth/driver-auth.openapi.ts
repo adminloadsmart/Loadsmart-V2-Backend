@@ -228,6 +228,24 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/register/verify-bank-account`,
+    tags: [TAGS.DRIVER_AUTH],
+    operationId: 'driverAuth.verifyBankAccount',
+    ...authenticated(
+      'Bank-account preflight, mirroring /register/verify-dl — checks an account number + IFSC ' +
+        'against IDfy (penny-less, then penny drop) before the driver submits it. Polls IDfy in ' +
+        'the request. Returns verificationStatus verified | rejected | pending (no verdict). ' +
+        'Read-only: /register re-runs the check when it saves `bankDetails` and stores that result.',
+    ),
+    request: { body: json(driverAuthValidators.verifyBankAccount.shape.body) },
+    responses: {
+      200: { description: '{ verificationStatus, nameAtBank?, sourceReference?, rawResponse? }' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/register/files`,
     tags: [TAGS.DRIVER_AUTH],
     operationId: 'driverAuth.requestUploadUrl',

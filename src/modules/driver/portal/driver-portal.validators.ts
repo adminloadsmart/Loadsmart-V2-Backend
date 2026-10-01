@@ -14,6 +14,7 @@ import {
   LOAD_STATUSES,
 } from '../../loads/utils/loads.types';
 import { DRIVER_OPERATIONAL_STATUSES } from '../drivers.types';
+import { bankAccountCheckBody, driverBankDetailsBody } from '../driver.validators';
 
 // The storage purposes reachable through driver-portal's own upload handshake — kept as an
 // explicit allow-list (not the full UPLOAD_PURPOSES enum) so a driver can never request an
@@ -47,6 +48,8 @@ export const driverPortalValidators = {
   // Mirrors loads/load.validators.ts's `list` query filters — status/group/sourceType only
   // (no requisitionId/transporterId/vehicleId/driverId here, unlike the staff-facing schema:
   // this list is always implicitly scoped to req.driver!.id, never another scope).
+  verifyMyBankAccount: z.object({ body: bankAccountCheckBody }),
+  addMyBankDetails: z.object({ body: driverBankDetailsBody }),
   listMyLoads: z.object({
     query: pagination
       .extend({

@@ -31,6 +31,20 @@ export function createDriverRoutes(controller: DriverController): Router {
     asyncHandler(controller.verifyDriverDl),
   );
 
+  // Bank-account preflight — same shape/throttling as verify-dl; fans out to IDfy's paid check.
+  const verifyDriverBankRateLimit = createIpRateLimit({
+    keyPrefix: 'verify-bank-account',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
+  router.post(
+    '/drivers/verify-bank-account',
+    verifyDriverBankRateLimit,
+    canWrite,
+    validate(driverValidators.verifyDriverBankAccount),
+    asyncHandler(controller.verifyDriverBankAccount),
+  );
+
   // Backs the single "Save driver" button — whole form, one transaction.
   router.post(
     '/drivers/onboard',

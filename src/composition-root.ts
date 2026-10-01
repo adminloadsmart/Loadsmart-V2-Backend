@@ -232,6 +232,7 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationService: organization.organizationService,
     driverAuthService: driverAuth.service,
     auditService: audit.service,
+    idfyClient: driver.idfyClient,
     notifyByType,
   });
 

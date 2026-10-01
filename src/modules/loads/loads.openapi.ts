@@ -203,7 +203,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.listLoads',
     ...authenticated(
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
-        'completed|open|upcoming` is the tab filter (upcoming = created + assigned), mutually ' +
+        'completed|open|upcoming` is the tab filter (upcoming = created + assigned loads whose requisition pickupDate is today or later), mutually ' +
         'exclusive with `status`. `podStatus=pending|accepted|rejected` filters by E-POD status. ' +
         '`fromDate`/`toDate` (YYYY-MM-DD, inclusive, UTC, either optional) filter on deliveredAt ' +
         'when group=completed, otherwise on createdAt. ' +

@@ -126,6 +126,18 @@ export function createDriverAuthProtectedRoutes(
     asyncHandler(controller.verifyDl),
   );
 
+  const verifyBankRateLimit = createIpRateLimit({
+    keyPrefix: 'driver-auth-verify-bank',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
+  router.post(
+    '/register/verify-bank-account',
+    verifyBankRateLimit,
+    validate(driverAuthValidators.verifyBankAccount),
+    asyncHandler(controller.verifyBankAccount),
+  );
+
   // Upload handshake for the driver's own DL photos before /register — tenant-less mirror of
   // driver-portal's /files endpoints. The resulting key is what gets passed as documents[].fileUrl.
   router.post(

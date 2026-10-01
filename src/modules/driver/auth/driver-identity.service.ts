@@ -1,4 +1,9 @@
 import { DataSource } from 'typeorm';
+import {
+  BankAccountVerificationResult,
+  IdfyClient,
+  toBankVerificationColumns,
+} from '../../../adapters/idfy.client';
 import { env } from '../../../config/env';
 import {
   AuthenticationError,
@@ -60,6 +65,7 @@ export class DriverIdentityService {
     private readonly driverAuthService: DriverAuthService,
     private readonly auditService: AuditService,
     private readonly notifyByType: NotifyByType,
+    private readonly idfyClient: IdfyClient,
   ) {}
 
   async requestOtp(phoneNumber: string) {
@@ -158,6 +164,19 @@ export class DriverIdentityService {
    * result actually gets persisted (as a driver_verifications row); this call is purely so the
    * mobile UI can react to the outcome before the driver taps "Next".
    */
+  /** Bank-account preflight, mirroring DriverService.checkBankAccount — read-only; completeRegistration
+   *  re-runs the same check when it saves the account. */
+  async checkBankAccount(
+    accountNumber: string,
+    ifsc: string,
+  ): Promise<BankAccountVerificationResult> {
+    try {
+      return await this.idfyClient.verifyBankAccount(accountNumber, ifsc.toUpperCase());
+    } catch (error) {
+      rethrow(error, 'Failed to check bank account');
+    }
+  }
+
   async checkDrivingLicence(
     licenseNumber: string,
     dateOfBirth: string,
@@ -207,6 +226,23 @@ export class DriverIdentityService {
       const existingDocumentTypes = new Set(existingDocuments.map((doc) => doc.documentType));
 
       let licenseVerificationStatus: CompleteRegistrationResult['licenseVerificationStatus'] = null;
+
+      // Only a not-yet-saved account is verified, and outside the transaction — the IDfy poll can
+      // take ~15s and shouldn't hold it open.
+      let bankVerification: ReturnType<typeof toBankVerificationColumns> | null = null;
+      if (input.bankDetails) {
+        const bankIfsc = input.bankDetails.ifsc.toUpperCase();
+        const alreadySaved = await this.driverRepository.findBankDetailsByAccount(
+          driverId,
+          input.bankDetails.accountNumber,
+          bankIfsc,
+        );
+        if (!alreadySaved) {
+          bankVerification = toBankVerificationColumns(
+            await this.idfyClient.verifyBankAccount(input.bankDetails.accountNumber, bankIfsc),
+          );
+        }
+      }
 
       await this.dataSource.transaction(async (manager) => {
         await this.driverRepository.update(
@@ -346,6 +382,7 @@ export class DriverIdentityService {
                 ifsc,
                 accountHolderName: input.bankDetails.accountHolderName ?? null,
                 upiId: input.bankDetails.upiId ?? null,
+                ...bankVerification,
                 createdBy: null,
               },
               manager,

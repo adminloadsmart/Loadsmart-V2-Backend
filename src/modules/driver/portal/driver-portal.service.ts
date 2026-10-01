@@ -3,6 +3,7 @@ import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagi
 import { DriverService, flattenRelation } from '../driver.service';
 import { DriverRepository } from '../driver.repository';
 import { DriverTenantRelationRepository } from '../driver-tenant-relation.repository';
+import { AddBankDetailsInput } from '../drivers.interface';
 import { DriverEntity } from '../entities/driver.entity';
 import { DriverOperationalStatusEntity } from '../entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity';
@@ -175,6 +176,25 @@ export class DriverPortalService {
 
   /** No tenant relation means this driver cannot be assigned to any load in any tenant — an
    *  empty page, not a permissions error. */
+  /** Bank-account preflight — see DriverService.checkBankAccount. Nothing is saved. */
+  checkMyBankAccount(accountNumber: string, ifsc: string) {
+    return this.driverService.checkBankAccount(accountNumber, ifsc);
+  }
+
+  /** Saves the account (works with or without a tenant relation); the IDfy check is re-run
+   *  in-request and its result stored — see DriverService.addOwnBankDetails. */
+  addMyBankDetails(driverId: string, input: AddBankDetailsInput) {
+    return this.driverService.addOwnBankDetails(driverId, input);
+  }
+
+  async listMyBankDetails(driverId: string) {
+    try {
+      return await this.driverRepository.listBankDetails(driverId);
+    } catch (error) {
+      rethrow(error, 'Failed to list bank details');
+    }
+  }
+
   getMyLoads(
     driverId: string,
     tenantId: string | null,

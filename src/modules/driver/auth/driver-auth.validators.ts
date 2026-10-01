@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../../shared/utils/date';
+import { bankAccountCheckBody } from '../driver.validators';
 import { IFSC_REGEX } from '../../masters/masters.constants';
 import {
   DRIVER_BLOOD_GROUPS,
@@ -170,6 +171,9 @@ export const driverAuthValidators = {
       dateOfBirth: isoDate,
     }),
   }),
+
+  // Bank-account preflight — mirrors verifyDl above.
+  verifyBankAccount: z.object({ body: bankAccountCheckBody }),
 
   // Tenant-less upload handshake for the driver's own DL photos — mirrors
   // driver-portal.validators.ts's requestUploadUrl/confirmUpload, but locked to the single

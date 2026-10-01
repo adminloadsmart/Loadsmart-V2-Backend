@@ -142,6 +142,11 @@ export class DriverController {
     respond(res, result);
   };
 
+  verifyDriverBankAccount = async (req: Request, res: Response) => {
+    const result = await this.driverService.checkBankAccount(req.body.accountNumber, req.body.ifsc);
+    respond(res, result);
+  };
+
   onboardDriver = async (req: Request, res: Response) => {
     const driver = await this.driverService.onboardDriver(
       requireTenantId(req),

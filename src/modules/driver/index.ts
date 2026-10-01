@@ -22,6 +22,7 @@ import { DriverPortalController } from './portal/driver-portal.controller';
 import { DriverPortalService } from './portal/driver-portal.service';
 import { createDriverPortalRoutes } from './portal/driver-portal.routes';
 import { DriverIdentityService } from './auth/driver-identity.service';
+import { IdfyClient } from '../../adapters/idfy.client';
 import { NotifyByType } from '../notifications/notify-by-type';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -47,6 +48,7 @@ export function createDriverModule(
     new DriverSessionRepository(dataSource),
     deps.notificationsService,
   );
+  const idfyClient = new IdfyClient();
   const driverService = new DriverService(
     driverRepository,
     driverTenantRelationRepository,
@@ -56,6 +58,7 @@ export function createDriverModule(
     deps.storageService,
     deps.organizationService,
     driverPushNotifier,
+    idfyClient,
   );
   const driverController = new DriverController(driverService);
 
@@ -64,6 +67,7 @@ export function createDriverModule(
     driverTenantRelationRepository,
     driverService,
     driverController,
+    idfyClient,
     dlVerificationClient: sarathiClient,
   };
 }
@@ -118,6 +122,7 @@ export function createDriverIdentityModule(
     driverAuthService: DriverAuthService;
     auditService: AuditService;
     notifyByType: NotifyByType;
+    idfyClient: IdfyClient;
   },
 ) {
   const service = new DriverIdentityService(
@@ -131,6 +136,7 @@ export function createDriverIdentityModule(
     deps.driverAuthService,
     deps.auditService,
     deps.notifyByType,
+    deps.idfyClient,
   );
 
   const authController = new DriverAuthController(

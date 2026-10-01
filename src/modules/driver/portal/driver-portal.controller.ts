@@ -71,6 +71,23 @@ export class DriverPortalController {
     respond(res, status);
   };
 
+  verifyMyBankAccount = async (req: Request, res: Response) => {
+    const result = await this.driverPortalService.checkMyBankAccount(
+      req.body.accountNumber,
+      req.body.ifsc,
+    );
+    respond(res, result);
+  };
+
+  addMyBankDetails = async (req: Request, res: Response) => {
+    const bankDetails = await this.driverPortalService.addMyBankDetails(req.driver!.id, req.body);
+    respond(res, bankDetails, 201);
+  };
+
+  listMyBankDetails = async (req: Request, res: Response) => {
+    respond(res, await this.driverPortalService.listMyBankDetails(req.driver!.id));
+  };
+
   getMyTripMetrics = async (req: Request, res: Response) => {
     const metrics = await this.driverPortalService.getMyTripMetrics(
       req.driver!.id,

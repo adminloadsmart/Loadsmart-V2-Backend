@@ -219,6 +219,14 @@ export class LoadRepository {
     if (group) {
       base.status = In(LOAD_STATUS_GROUP_FILTERS[group]);
     }
+    // Upcoming means the pickup is still ahead — a created/assigned load whose requisition
+    // pickupDate has already passed isn't "upcoming" anymore. Today counts as upcoming. The date
+    // is the server's UTC day, matching how fromDate/toDate are read below.
+    const requisitionWhere: FindOptionsWhere<LoadEntity['requisition']> = {};
+    if (group === 'upcoming') {
+      requisitionWhere.pickupDate = MoreThanOrEqual(new Date().toISOString().slice(0, 10));
+      base.requisition = requisitionWhere;
+    }
     if (sourceType) base.sourceType = sourceType;
     if (transporterId) base.transporterId = transporterId;
     if (vehicleId) base.vehicleId = vehicleId;
@@ -242,7 +250,10 @@ export class LoadRepository {
     const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
       ? [
           { ...base, code: ILike(`%${search}%`) },
-          { ...base, requisition: { customer: { name: ILike(`%${search}%`) } } },
+          {
+            ...base,
+            requisition: { ...requisitionWhere, customer: { name: ILike(`%${search}%`) } },
+          },
         ]
       : base;
 

@@ -1,6 +1,8 @@
 import { Router, RequestHandler } from 'express';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
+import { createIpRateLimit } from '../../../shared/middleware/rate-limit.middleware';
+import { env } from '../../../config/env';
 import { DriverPortalController } from './driver-portal.controller';
 import { driverPortalValidators } from './driver-portal.validators';
 
@@ -31,6 +33,25 @@ export function createDriverPortalRoutes(
 
   router.get('/me', driverIdentityAuth, asyncHandler(controller.getMe));
   router.get('/me/status', driverIdentityAuth, asyncHandler(controller.getMyStatus));
+  // Rate-limited like the other IDfy-backed preflights (verify-dl) — it fans out to a paid check.
+  router.post(
+    '/me/bank-details/verify',
+    createIpRateLimit({
+      keyPrefix: 'driver-portal-verify-bank',
+      limit: env.driverVerifyDlRateLimitMax,
+      windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+    }),
+    driverIdentityAuth,
+    validate(driverPortalValidators.verifyMyBankAccount),
+    asyncHandler(controller.verifyMyBankAccount),
+  );
+  router.post(
+    '/me/bank-details',
+    driverIdentityAuth,
+    validate(driverPortalValidators.addMyBankDetails),
+    asyncHandler(controller.addMyBankDetails),
+  );
+  router.get('/me/bank-details', driverIdentityAuth, asyncHandler(controller.listMyBankDetails));
   router.get('/me/trip-metrics', driverIdentityAuth, asyncHandler(controller.getMyTripMetrics));
   router.get(
     '/me/loads',

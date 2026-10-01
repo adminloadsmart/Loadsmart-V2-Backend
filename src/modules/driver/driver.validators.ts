@@ -93,7 +93,17 @@ const driverVerificationBody = z.object({
   rawResponse: z.record(z.string(), z.unknown()).optional(),
 });
 
-const driverBankDetailsBody = z.object({
+// Fields IDfy needs to check an account — shared by every bank-account preflight endpoint.
+export const bankAccountCheckBody = z.object({
+  accountNumber: z.string().min(6).max(30),
+  ifsc: z
+    .string()
+    .trim()
+    .transform((value) => value.toUpperCase())
+    .refine((value) => IFSC_REGEX.test(value), 'Invalid IFSC code'),
+});
+
+export const driverBankDetailsBody = z.object({
   accountNumber: z.string().min(6).max(30),
   ifsc: z
     .string()
@@ -131,6 +141,9 @@ export const driverValidators = {
    * Preflight check for step 2 of "Add a driver", before the driver exists — no driverId param.
    */
   verifyDriverDl: z.object({ body: driverVerifyDlBody }),
+
+  /** Bank-account preflight for the "Add a driver" form — nothing is saved. */
+  verifyDriverBankAccount: z.object({ body: bankAccountCheckBody }),
 
   /** The whole "Add a driver" form in one request. */
   onboardDriver: z.object({

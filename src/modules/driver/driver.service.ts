@@ -22,6 +22,11 @@ import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
 import {
+  BankAccountVerificationResult,
+  IdfyClient,
+  toBankVerificationColumns,
+} from '../../adapters/idfy.client';
+import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
   CreateDriverInput,
@@ -90,6 +95,7 @@ export class DriverService {
     private readonly storageService: StorageService,
     private readonly organizationService: OrganizationService,
     private readonly driverPushNotifier: DriverPushNotifier,
+    private readonly idfyClient: IdfyClient,
   ) {}
 
   /**
@@ -145,6 +151,29 @@ export class DriverService {
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
     }
+  }
+
+  /**
+   * Bank-account preflight, the bank counterpart of checkDrivingLicence: checks an account +
+   * IFSC against IDfy before the bank details exist. Submits an async IDfy task and polls for the
+   * result before responding. Read-only — every save path (addBankDetails, onboardDriver,
+   * DriverIdentityService.completeRegistration) re-runs this same check server-side and persists
+   * that result, so nothing the client sends can mark an account verified.
+   */
+  async checkBankAccount(
+    accountNumber: string,
+    ifsc: string,
+  ): Promise<BankAccountVerificationResult> {
+    try {
+      return await this.idfyClient.verifyBankAccount(accountNumber, ifsc.toUpperCase());
+    } catch (error) {
+      rethrow(error, 'Failed to check bank account');
+    }
+  }
+
+  /** Runs the IDfy check and shapes it into driver_bank_details columns. */
+  private async verifyBankAccountFields(accountNumber: string, ifsc: string) {
+    return toBankVerificationColumns(await this.idfyClient.verifyBankAccount(accountNumber, ifsc));
   }
 
   /**
@@ -509,10 +538,46 @@ export class DriverService {
         ifsc,
         accountHolderName: input.accountHolderName ?? null,
         upiId: input.upiId ?? null,
+        ...(await this.verifyBankAccountFields(input.accountNumber, ifsc)),
         createdBy: actorId,
       });
     } catch (error) {
       rethrow(error, 'Failed to add driver bank details');
+    }
+  }
+
+  /** Driver-app self-service add — keyed on the driver's global id alone (no tenant relation
+   *  needed, same as registration-time bank details, tenantId null). Verified against IDfy
+   *  in-request, like addBankDetails. */
+  async addOwnBankDetails(
+    driverId: string,
+    input: AddBankDetailsInput,
+  ): Promise<DriverBankDetailsEntity> {
+    try {
+      const driver = await this.driverRepository.findByIdWithPersonRelations(driverId);
+      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
+      const ifsc = input.ifsc.toUpperCase();
+      const existing = await this.driverRepository.findBankDetailsByAccount(
+        driverId,
+        input.accountNumber,
+        ifsc,
+      );
+      if (existing) {
+        throw new ConflictError('This bank account is already on file for the driver');
+      }
+
+      return await this.driverRepository.createBankDetails({
+        tenantId: null,
+        driverId,
+        accountNumber: input.accountNumber,
+        ifsc,
+        accountHolderName: input.accountHolderName ?? null,
+        upiId: input.upiId ?? null,
+        ...(await this.verifyBankAccountFields(input.accountNumber, ifsc)),
+        createdBy: null,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to add bank details');
     }
   }
 
@@ -692,6 +757,14 @@ export class DriverService {
     try {
       const { verification, bankDetails, documents, operationalStatus, ...driverInput } = input;
 
+      // Outside the transaction — the IDfy poll can take ~15s and shouldn't hold it open.
+      const bankVerification = bankDetails
+        ? await this.verifyBankAccountFields(
+            bankDetails.accountNumber,
+            bankDetails.ifsc.toUpperCase(),
+          )
+        : null;
+
       const driverId = await this.dataSource.transaction(async (manager) => {
         const { driver } = await this.createDriver(
           tenantId,
@@ -731,6 +804,7 @@ export class DriverService {
               ifsc: bankDetails.ifsc.toUpperCase(),
               accountHolderName: bankDetails.accountHolderName ?? null,
               upiId: bankDetails.upiId ?? null,
+              ...bankVerification,
               createdBy: actorId,
             },
             manager,

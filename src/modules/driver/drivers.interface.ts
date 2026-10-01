@@ -1,4 +1,5 @@
 import {
+  DriverBankVerificationStatus,
   DriverBloodGroup,
   DriverDocumentType,
   DriverDocumentVerificationSource,
@@ -219,6 +220,11 @@ export interface CreateDriverBankDetailsData {
   ifsc: string;
   accountHolderName: string | null;
   upiId: string | null;
+  verificationStatus?: DriverBankVerificationStatus;
+  verifiedAt?: Date | null;
+  sourceReference?: string | null;
+  nameAtBank?: string | null;
+  rawResponse?: Record<string, unknown> | null;
   createdBy: string | null;
 }
 

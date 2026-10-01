@@ -64,6 +64,50 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/me/bank-details/verify`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.verifyMyBankAccount',
+    ...authenticated(
+      'Bank-account preflight, like the licence check — verifies an account number + IFSC ' +
+        'against IDfy (penny-less, then penny drop), polling IDfy in the request. Returns ' +
+        'verificationStatus verified | rejected | pending (no verdict) and nameAtBank. Nothing ' +
+        'is saved. Works with an identity-access token (no tenant relation needed).',
+    ),
+    request: { body: json(driverPortalValidators.verifyMyBankAccount.shape.body) },
+    responses: {
+      200: { description: '{ verificationStatus, nameAtBank?, sourceReference?, rawResponse? }' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/me/bank-details`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.addMyBankDetails',
+    ...authenticated(
+      'Add the caller’s own bank account. The IDfy check is re-run server-side and its result ' +
+        'stored (verificationStatus verified | rejected | pending, plus nameAtBank) — the client ' +
+        'cannot supply it. Call POST /me/bank-details/verify first to show the result before saving.',
+    ),
+    request: { body: json(driverPortalValidators.addMyBankDetails.shape.body) },
+    responses: {
+      201: { description: 'Created bank details, with the verification outcome' },
+      409: { description: 'Account already on file', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/me/bank-details`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.listMyBankDetails',
+    ...authenticated('List the caller’s own bank accounts with their verification status.'),
+    responses: { 200: { description: 'Bank details' } },
+  });
+
+  registry.registerPath({
     method: 'get',
     path: `${BASE}/me/trip-metrics`,
     tags: [TAGS.DRIVER_PORTAL],

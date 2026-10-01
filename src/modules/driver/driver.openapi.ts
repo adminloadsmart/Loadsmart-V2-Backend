@@ -317,6 +317,26 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/drivers/verify-bank-account`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyDriverBankAccount',
+    ...write(
+      'Check a bank account number + IFSC against IDfy (penny-less first, then penny drop) ' +
+        'before the bank details exist. Submits an async IDfy task and polls for the result ' +
+        'before responding. Returns verificationStatus verified | rejected | pending (pending = ' +
+        'no verdict: IDfy unconfigured/out of credits/timed out). Nothing is saved — adding the ' +
+        'bank details (POST /drivers/onboard or /drivers/{driverId}/bank-details) re-runs the ' +
+        'check server-side and stores that result.',
+    ),
+    request: { body: json(driverValidators.verifyDriverBankAccount.shape.body) },
+    responses: {
+      200: { description: '{ verificationStatus, nameAtBank?, sourceReference?, rawResponse? }' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/drivers/onboard`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.onboardDriver',

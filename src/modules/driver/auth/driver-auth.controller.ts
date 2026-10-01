@@ -139,6 +139,16 @@ export class DriverAuthController {
     respond(res, result);
   };
 
+  // Bank-account preflight, mirroring verifyDl — read-only; /register re-runs the check when it
+  // saves the account.
+  verifyBankAccount = async (req: Request, res: Response) => {
+    const result = await this.driverIdentityService.checkBankAccount(
+      req.body.accountNumber,
+      req.body.ifsc,
+    );
+    respond(res, result);
+  };
+
   // Upload handshake for a self-registering driver's own DL photos, before they've linked to any
   // tenant — a tenant-less mirror of driver-portal.controller.ts's requestUploadUrl/confirmUpload
   // (which require a tenant-scoped driver-access token this caller doesn't have yet). Restricted
