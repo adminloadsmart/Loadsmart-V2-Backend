@@ -171,7 +171,8 @@ export function buildContainer(dataSource: DataSource): Container {
   // Producers with no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
   const payments = createPaymentsModule(dataSource);
-  // Stateless Google Places proxy — no DB, no cross-module deps.
+  // Stateless Google Places proxy — no DB, no cross-module deps. Mounted in authenticatedRouters
+  // below (no tenant required).
   const places = createPlacesModule();
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs. Maintenance
@@ -270,6 +271,9 @@ export function buildContainer(dataSource: DataSource): Container {
     authenticatedRouters: [
       { path: '/auth', router: auth.protectedRouter },
       { path: '/auth', router: organizationOnboarding.router },
+      // Not tenant-scoped: onboarding users (org_admin before an organization exists) need place
+      // lookup too, and it's reference data rather than a tenant-owned resource.
+      { path: '/places', router: places.router },
     ],
     routers: [
       { path: '/roles', router: roles.router },
@@ -286,7 +290,6 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
-      { path: '/places', router: places.router },
     ],
     driverRouters: [
       { path: '/driver-auth', router: driverIdentity.authPublicRouter },

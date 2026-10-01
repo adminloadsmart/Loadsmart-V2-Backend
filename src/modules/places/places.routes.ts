@@ -6,8 +6,9 @@ import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware
 import { PlacesController } from './places.controller';
 import { placesValidators } from './places.validators';
 
-// No requirePermission/requireTenant: place lookup is reference data, not a tenant-owned
-// resource, so any authenticated caller past the global tenant-scope middleware may use it.
+// Mounted in composition-root's authenticatedRouters tier, i.e. before the global tenant-scope
+// middleware, so a user mid-onboarding (no organization/tenant yet) can use it too. No
+// requirePermission/requireTenant: place lookup is reference data, not a tenant-owned resource.
 // Rate-limited per IP since every call is a paid Google request.
 export function createPlacesRoutes(controller: PlacesController): Router {
   const router = Router();
