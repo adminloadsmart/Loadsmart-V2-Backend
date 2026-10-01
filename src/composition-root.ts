@@ -31,6 +31,7 @@ import { createAdminModule } from './modules/admin';
 import { createDashboardsModule } from './modules/dashboards';
 import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
+import { createPlacesModule } from './modules/places';
 import { createLoadsModule } from './modules/loads';
 import { createAnalyticsModule } from './modules/analytics';
 import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
@@ -170,6 +171,8 @@ export function buildContainer(dataSource: DataSource): Container {
   // Producers with no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
   const payments = createPaymentsModule(dataSource);
+  // Stateless Google Places proxy — no DB, no cross-module deps.
+  const places = createPlacesModule();
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs. Maintenance
   // writes to vehicles through masters' vehicleService (the breakdown ⇄ dispatch hold) and reads
@@ -283,6 +286,7 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
       { path: '/files', router: storage.router },
+      { path: '/places', router: places.router },
     ],
     driverRouters: [
       { path: '/driver-auth', router: driverIdentity.authPublicRouter },
