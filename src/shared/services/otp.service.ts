@@ -1,6 +1,7 @@
 import { RateLimitError, AuthenticationError, rethrow } from '../errors';
 import { redisManager } from '../../db/redis';
 import { Msg91Client } from '../../adapters/msg91.client';
+import { MessageRef } from '../i18n/translate';
 import {
   MAX_OTP_ATTEMPTS,
   DEV_BYPASS_OTP,
@@ -53,8 +54,8 @@ export class OtpService {
     otp: string;
     purpose: string;
     ttlSeconds: number;
-    invalidOtpMessage: string;
-    tooManyAttemptsMessage: string;
+    invalidOtpMessage: string | MessageRef;
+    tooManyAttemptsMessage: string | MessageRef;
   }): Promise<void> {
     const { phoneNumber, otp, purpose, ttlSeconds, invalidOtpMessage, tooManyAttemptsMessage } =
       input;

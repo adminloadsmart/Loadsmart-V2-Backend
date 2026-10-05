@@ -277,6 +277,31 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/loads/{loadId}/documents`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.getMyDocuments',
+    ...authenticated(
+      'Show papers — the load’s E-way bill, LR and Invoice for showing at a checkpoint. Always ' +
+        'returns all three, in that order; one the driver hasn’t uploaded yet comes back with ' +
+        '`available: false` and null number/fileUrl. `fileUrl` is a short-lived (5 minute) signed ' +
+        'download URL, so the app should download and cache the file when it fetches this. ' +
+        '`validTill`/`expired` (E-way bill only) come from the e-way bill’s generation time plus ' +
+        'the 2-hour validity window the loads module tracks, not a statutory expiry date.',
+    ),
+    request: { params: driverPortalValidators.getMyDocuments.shape.params },
+    responses: {
+      200: {
+        description:
+          '{ loadId, loadCode, status, vehicleNumber, route: { from: { title, city }, to: ' +
+          '{ location, city } } | null, documents: [{ type: eway_bill|lr|invoice, available, ' +
+          'number, fileUrl, validTill?, expired? }] }',
+      },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/loads/{loadId}/trip-detail`,
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.getMyTripDetail',

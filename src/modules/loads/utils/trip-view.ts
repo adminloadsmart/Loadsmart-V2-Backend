@@ -1,5 +1,6 @@
 import { computeShareAmount } from '../load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
+import { EwayBillExpiry } from './load.interface';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
   LIFECYCLE_STAGE_LABELS,
@@ -302,6 +303,79 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
         }
       : null,
     closedAt: load.closedAt?.toISOString() ?? null,
+  };
+}
+
+export const LOAD_PAPER_TYPES = ['eway_bill', 'lr', 'invoice'] as const;
+export type LoadPaperType = (typeof LOAD_PAPER_TYPES)[number];
+
+export interface LoadPaper {
+  type: LoadPaperType;
+  /** True when a number or a file is on record — false means the driver hasn't uploaded it yet. */
+  available: boolean;
+  number: string | null;
+  /** Short-lived signed download URL; null when no file is on record or it isn't confirmed. */
+  fileUrl: string | null;
+  /** E-way bill only. */
+  validTill?: string | null;
+  expired?: boolean;
+}
+
+/** Driver-app "Show papers" screen — the load's E-way bill / LR / Invoice, always all three in
+ *  that order (the screen's tabs), with unuploaded ones empty rather than omitted. See
+ *  load.service.ts's getMyDocuments. */
+export interface LoadPapers {
+  loadId: string;
+  loadCode: string;
+  status: LoadStatus;
+  vehicleNumber: string | null;
+  route: {
+    from: { title: string; city: string };
+    to: { location: string; city: string | null };
+  } | null;
+  documents: LoadPaper[];
+}
+
+export function toLoadPapers(
+  load: LoadEntity,
+  fileUrls: Record<LoadPaperType, string | null>,
+  ewayBillExpiry: EwayBillExpiry,
+): LoadPapers {
+  const req = load.requisition;
+  const paper = (
+    type: LoadPaperType,
+    number: string | null,
+    fileKey: string | null,
+  ): LoadPaper => ({
+    type,
+    available: Boolean(number || fileKey),
+    number,
+    fileUrl: fileUrls[type],
+  });
+
+  return {
+    loadId: load.id,
+    loadCode: load.code,
+    status: load.status,
+    vehicleNumber: load.vehicleNumber,
+    route: req
+      ? {
+          from: { title: req.loadingPoint.title, city: req.loadingPoint.city },
+          to: {
+            location: req.customerDeliveryPoint.location,
+            city: req.customerDeliveryPoint.city ?? null,
+          },
+        }
+      : null,
+    documents: [
+      {
+        ...paper('eway_bill', load.ewayBillNumber, load.ewayBillFileKey),
+        validTill: ewayBillExpiry.expiresAt,
+        expired: ewayBillExpiry.expired,
+      },
+      paper('lr', load.elrNumber, load.elrFileKey),
+      paper('invoice', load.invoiceNumber, load.invoiceFileKey),
+    ],
   };
 }
 

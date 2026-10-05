@@ -139,6 +139,17 @@ export class DriverPortalController {
     respond(res, result);
   };
 
+  // Driver-app "Show papers" screen — E-way bill / LR / Invoice for a load assigned to the
+  // caller. Same ownership-check-as-404 convention as getMyTripDetail above.
+  getLoadDocuments = async (req: Request<LoadParams>, res: Response) => {
+    const result = await this.loadService.getLoadDocuments(
+      req.driver!.tenantId!,
+      req.driver!.id,
+      req.params.loadId,
+    );
+    respond(res, result);
+  };
+
   // Manual tracking advance (at_plant -> in_transit -> reached_delivery_point) for a load this
   // driver is the assigned own-fleet driver of. Same LoadService.updateStatus the staff
   // PATCH /loads/:loadId/status endpoint uses — driverOwnerId makes it 404 instead of updating a

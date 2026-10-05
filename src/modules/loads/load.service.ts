@@ -31,6 +31,8 @@ import {
 import {
   buildNextAction,
   buildStepper,
+  LoadPapers,
+  toLoadPapers,
   toTripDoneDetail,
   toTripListRow,
   TripDoneDetail,
@@ -222,13 +224,8 @@ export class LoadService {
     actorRole: string,
     load: LoadEntity,
   ): Promise<LoadEntity> {
-    const resolve = async (key: string): Promise<string> => {
-      const { downloadUrl } = await this.storageService.getByKey(
-        { tenantId, role: actorRole },
-        key,
-      );
-      return downloadUrl ?? key;
-    };
+    const resolve = async (key: string): Promise<string> =>
+      (await this.resolveDownloadUrl(tenantId, actorRole, key)) ?? key;
     const resolveNullable = async (key: string | null) => (key ? resolve(key) : key);
     return {
       ...load,
@@ -241,6 +238,17 @@ export class LoadService {
         ? await Promise.all(load.loadingPhotoFileKeys.map(resolve))
         : load.loadingPhotoFileKeys,
     };
+  }
+
+  /** A fresh signed download URL for a stored file key, or null when the file isn't a confirmed
+   *  upload (StorageService hands back no URL for pending/failed files). */
+  private async resolveDownloadUrl(
+    tenantId: string,
+    actorRole: string,
+    key: string,
+  ): Promise<string | null> {
+    const { downloadUrl } = await this.storageService.getByKey({ tenantId, role: actorRole }, key);
+    return downloadUrl;
   }
 
   /** Shared by confirmLoading and updateDocuments — verifies whichever document fields were
@@ -964,6 +972,28 @@ export class LoadService {
       return toTripDoneDetail(load);
     } catch (error) {
       rethrow(error, 'Failed to fetch trip detail');
+    }
+  }
+
+  /** Driver-app "Show papers" screen — the load's E-way bill / LR / Invoice with signed download
+   *  URLs, plus the vehicle and route header. Ownership check identical to getMyTripDetail's;
+   *  any load status is allowed, since the papers matter most while the trip is in transit. */
+  async getLoadDocuments(tenantId: string, driverId: string, loadId: string): Promise<LoadPapers> {
+    try {
+      const load = await this.assertDetailExists(tenantId, loadId);
+      if (load.driverId !== driverId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      const resolveNullable = (key: string | null) =>
+        key ? this.resolveDownloadUrl(tenantId, 'driver', key) : Promise.resolve(null);
+      const [eway_bill, lr, invoice] = await Promise.all([
+        resolveNullable(load.ewayBillFileKey),
+        resolveNullable(load.elrFileKey),
+        resolveNullable(load.invoiceFileKey),
+      ]);
+      return toLoadPapers(load, { eway_bill, lr, invoice }, this.getEwayBillExpiry(load));
+    } catch (error) {
+      rethrow(error, 'Failed to fetch load documents');
     }
   }
 
