@@ -1,3 +1,4 @@
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DataSource } from 'typeorm';
 import { createDriverAuth } from '../../shared/middleware/driver-auth.middleware';
 import { DriverRepository } from './driver.repository';
@@ -31,6 +32,8 @@ export function createDriverModule(
     auditService: AuditService;
     storageService: StorageService;
     organizationService: OrganizationService;
+    // LS_N_0009/0010 — optional; see modules/notifications/master-approvals.ts.
+    masterApprovalNotifier?: MasterApprovalNotifier;
   },
 ) {
   const driverRepository = new DriverRepository(dataSource);
@@ -42,6 +45,7 @@ export function createDriverModule(
     deps.auditService,
     deps.storageService,
     deps.organizationService,
+    deps.masterApprovalNotifier,
   );
   const driverController = new DriverController(driverService);
 

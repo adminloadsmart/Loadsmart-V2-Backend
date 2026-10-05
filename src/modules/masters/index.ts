@@ -1,11 +1,8 @@
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DataSource } from 'typeorm';
-import { Worker } from 'bullmq';
-import { createJobQueue } from '../../jobs/queue-registry';
-import { NotifyByType } from '../notifications/notify-by-type';
 import { VehicleRepository } from './vehicle/vehicle.repository';
 import { VehicleService } from './vehicle/vehicle.service';
 import { VehicleController } from './vehicle/vehicle.controller';
-import { createVehicleComplianceAlertsWorker } from './vehicle/workers/vehicle-compliance-alerts.worker';
 import { DriverRepository } from '../driver/driver.repository';
 import { DriverController } from '../driver/driver.controller';
 import { FleetDriverLinkRepository } from './fleet-driver-link/fleet-driver-link.repository';
@@ -45,9 +42,8 @@ export function createMastersModule(
     // controller (still composed into this module's own protected router, unchanged URLs).
     driverRepository: DriverRepository;
     driverController: DriverController;
-    // Only used for the vehicle-compliance-alerts worker (WhatsApp/push) — not for the
-    // master-approval flow, which is on hold until an email provider exists.
-    notifyByType: NotifyByType;
+    // LS_N_0009/0010 — optional; see modules/notifications/master-approvals.ts.
+    masterApprovalNotifier?: MasterApprovalNotifier;
   },
 ) {
   // Built before vehicles: vehicle.service.ts validates a vehicle's truckTypeId against it.
@@ -67,7 +63,11 @@ export function createMastersModule(
   const transporterImportController = new TransporterImportController(transporterImportService);
 
   const loadingPointRepository = new LoadingPointRepository(dataSource);
-  const loadingPointService = new LoadingPointService(loadingPointRepository, deps.auditService);
+  const loadingPointService = new LoadingPointService(
+    loadingPointRepository,
+    deps.auditService,
+    deps.masterApprovalNotifier,
+  );
   const loadingPointController = new LoadingPointController(loadingPointService);
   const loadingPointImportService = new LoadingPointImportService(
     loadingPointService,
@@ -76,7 +76,11 @@ export function createMastersModule(
   const loadingPointImportController = new LoadingPointImportController(loadingPointImportService);
 
   const productRepository = new ProductRepository(dataSource);
-  const productService = new ProductService(productRepository, deps.auditService);
+  const productService = new ProductService(
+    productRepository,
+    deps.auditService,
+    deps.masterApprovalNotifier,
+  );
   const productController = new ProductController(productService);
   const productImportService = new ProductImportService(productService, deps.auditService);
   const productImportController = new ProductImportController(productImportService);
@@ -94,23 +98,15 @@ export function createMastersModule(
   );
   const fleetDriverLinkController = new FleetDriverLinkController(fleetDriverLinkService);
 
-  // Own queue for vehicle compliance's one-time delayed alert jobs (15-day-before/expiry) — see
-  // vehicle.service.ts's scheduleComplianceAlerts and workers/vehicle-compliance-alerts.worker.ts.
-  const complianceAlertsQueue = createJobQueue('vehicle-compliance-alerts');
-
   const vehicleService = new VehicleService(
     vehicleRepository,
     truckTypeService,
     fleetDriverLinkService,
     dataSource,
     deps.auditService,
-    complianceAlertsQueue,
+    deps.masterApprovalNotifier,
   );
   const vehicleController = new VehicleController(vehicleService);
-  const vehicleComplianceAlertsWorker: Worker = createVehicleComplianceAlertsWorker(
-    vehicleRepository,
-    deps.notifyByType,
-  );
 
   const protectedRouter = createMastersProtectedRoutes(
     truckTypeController,
@@ -134,6 +130,5 @@ export function createMastersModule(
     transporterService,
     productService,
     protectedRouter,
-    vehicleComplianceAlertsWorker,
   };
 }

@@ -1,4 +1,7 @@
+import { randomInt } from 'crypto';
 import { RateLimitError, AuthenticationError, rethrow } from '../errors';
+import { env } from '../../config/env';
+import { normalizePhoneNumber } from '../utils/phone-number';
 import { redisManager } from '../../db/redis';
 import { Msg91Client } from '../../adapters/msg91.client';
 import {
@@ -24,23 +27,33 @@ export class OtpService {
     phoneNumber: string;
     purpose: string;
     cooldownSeconds: number;
+    /** Client IP (req.ip) — for LS_N_0008's per-IP request limit. Omitted = per-phone only. */
+    ipAddress?: string | null;
   }): Promise<void> {
-    const { phoneNumber, purpose, cooldownSeconds } = input;
+    const { phoneNumber, purpose, cooldownSeconds, ipAddress } = input;
     const cooldownKey = this.otpCooldownKey(purpose, phoneNumber);
     if (await redisManager.get(cooldownKey)) {
       throw new RateLimitError('Please wait before requesting another OTP');
     }
+    await this.enforceRequestLimit(phoneNumber, ipAddress);
     await redisManager.set(cooldownKey, '1', cooldownSeconds);
 
     if (useDevOtpBypass()) {
       // Dev-only: no MSG91 call, no real SMS — DEV_BYPASS_OTP is the only code verifyOtpCode
       // will accept while the bypass is active.
     } else {
+      // LS_N_0008: we generate the code ourselves and hand it to MSG91, which sends it with the
+      // registered LS_OTP SMS template and later verifies exactly this code (verifyOtpCode below
+      // is unchanged) — so the same code can also go out over WhatsApp. Never stored or logged.
+      const otp = randomInt(0, 10 ** DEV_BYPASS_OTP.length)
+        .toString()
+        .padStart(DEV_BYPASS_OTP.length, '0');
       try {
-        await this.msg91Client.sendOtp(phoneNumber);
+        await this.msg91Client.sendOtp(phoneNumber, otp);
       } catch (error) {
         rethrow(error, `Failed to send OTP to ${phoneNumber}`);
       }
+      this.sendWhatsappCopy(phoneNumber, otp);
     }
 
     // A fresh OTP always gets a fresh guess budget — otherwise a stale counter from a previous
@@ -88,6 +101,51 @@ export class OtpService {
 
     await redisManager.delete(attemptsKey);
     await redisManager.delete(this.otpCooldownKey(purpose, phoneNumber));
+  }
+
+  /** LS_N_0008 throttle — counted separately per phone number and per client IP, across every
+   *  OTP purpose (signup/login/driver-login): more than env.otpRequestLimitMax requests within
+   *  env.otpRequestLimitWindowSeconds starts an env.otpRequestLockoutSeconds cool-off for that
+   *  phone/IP. A request refused here (or by the per-purpose cooldown above) doesn't count. */
+  private async enforceRequestLimit(phoneNumber: string, ipAddress?: string | null): Promise<void> {
+    const subjects = [`otp-limit:phone:${normalizePhoneNumber(phoneNumber)}`];
+    if (ipAddress) subjects.push(`otp-limit:ip:${ipAddress}`);
+
+    for (const subject of subjects) {
+      if (await redisManager.get(`${subject}:lockout`)) throw this.lockoutError();
+    }
+    for (const subject of subjects) {
+      const count = await redisManager.incrInFixedWindow(
+        `${subject}:count`,
+        env.otpRequestLimitWindowSeconds,
+      );
+      if (count > env.otpRequestLimitMax) {
+        await redisManager.set(`${subject}:lockout`, '1', env.otpRequestLockoutSeconds);
+        await redisManager.delete(`${subject}:count`); // a fresh window once the cool-off ends
+        throw this.lockoutError();
+      }
+    }
+  }
+
+  private lockoutError(): RateLimitError {
+    const minutes = Math.ceil(env.otpRequestLockoutSeconds / 60);
+    return new RateLimitError(
+      `Too many OTP requests. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}`,
+    );
+  }
+
+  /** Best-effort WhatsApp copy of the same code, once its template is configured — never awaited
+   *  by the request, and a failure never affects login (SMS is the primary channel). The code is
+   *  never included in logs. */
+  private sendWhatsappCopy(phoneNumber: string, otp: string): void {
+    if (!env.msg91WhatsappTemplateOtp) return;
+    this.msg91Client
+      .sendWhatsapp(phoneNumber, [otp], env.msg91WhatsappTemplateOtp)
+      .catch((error: unknown) =>
+        console.warn(
+          `WhatsApp OTP copy to ${phoneNumber} failed: ${error instanceof Error ? error.message.replace(otp, '****') : 'unknown error'}`,
+        ),
+      );
   }
 
   private otpRedisKey(purpose: string, phoneNumber: string): string {

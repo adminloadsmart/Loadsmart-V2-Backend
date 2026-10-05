@@ -1,3 +1,4 @@
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { CustomerRepository } from './customer.repository';
@@ -7,9 +8,14 @@ import { createCustomerRoutes } from './customer.routes';
 import { CustomerImportService } from './customer-import.service';
 import { CustomerImportController } from './customer-import.controller';
 
-export function createCustomersModule(dataSource: DataSource, auditService: AuditService) {
+export function createCustomersModule(
+  dataSource: DataSource,
+  auditService: AuditService,
+  // LS_N_0009/0010 — optional; see modules/notifications/master-approvals.ts.
+  masterApprovalNotifier?: MasterApprovalNotifier,
+) {
   const repository = new CustomerRepository(dataSource);
-  const service = new CustomerService(repository, dataSource, auditService);
+  const service = new CustomerService(repository, dataSource, auditService, masterApprovalNotifier);
   const controller = new CustomerController(service);
   const importService = new CustomerImportService(dataSource, service, auditService);
   const importController = new CustomerImportController(importService);

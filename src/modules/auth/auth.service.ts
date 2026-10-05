@@ -125,6 +125,7 @@ export class AuthService {
       phoneNumber,
       purpose: 'signup',
       cooldownSeconds: SIGNUP_RESEND_COOLDOWN_SECONDS,
+      ipAddress: input.ipAddress,
     });
     const signupToken = signToken({ phoneNumber, purpose: 'signup' }, env.signupOtpTtlSeconds);
 
@@ -182,6 +183,7 @@ export class AuthService {
       phoneNumber,
       purpose: 'login',
       cooldownSeconds: env.loginOtpResendCooldownSeconds,
+      ipAddress: input.ipAddress,
     });
     const loginToken = signToken(
       { phoneNumber, purpose: 'login', portal: input.portal },

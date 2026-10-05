@@ -41,6 +41,14 @@ export const env = {
   signupOtpTtlSeconds: numberWithDefault('SIGNUP_OTP_TTL_SECONDS', 600),
   loginOtpTtlSeconds: numberWithDefault('LOGIN_OTP_TTL_SECONDS', 600),
   loginOtpResendCooldownSeconds: numberWithDefault('LOGIN_OTP_RESEND_COOLDOWN_SECONDS', 30),
+  // LS_N_0008 throttle, applied to every OTP request (staff signup/login, driver login) by
+  // shared/services/otp.service.ts — separately per phone number and per client IP (req.ip, the
+  // same key the existing per-IP rate limiter uses): more than OTP_REQUEST_LIMIT_MAX requests
+  // within OTP_REQUEST_LIMIT_WINDOW_SECONDS locks that phone/IP out of OTP requests for
+  // OTP_REQUEST_LOCKOUT_SECONDS. Sheet defaults: 3 in 15 minutes, then a 30-minute cool-off.
+  otpRequestLimitMax: numberWithDefault('OTP_REQUEST_LIMIT_MAX', 3),
+  otpRequestLimitWindowSeconds: numberWithDefault('OTP_REQUEST_LIMIT_WINDOW_SECONDS', 15 * 60),
+  otpRequestLockoutSeconds: numberWithDefault('OTP_REQUEST_LOCKOUT_SECONDS', 30 * 60),
   userExistsCacheTtlSeconds: numberWithDefault('USER_EXISTS_CACHE_TTL_SECONDS', 30),
   permissionsVersionCacheTtlSeconds: numberWithDefault('PERMISSIONS_VERSION_CACHE_TTL_SECONDS', 30),
   // Driver-app auth — a separate identity domain from auth.users (see docs/driver-auth.md), with
@@ -143,6 +151,9 @@ export const env = {
   msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
   msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
   msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
+  // LS_N_0008 login OTP — optional WhatsApp copy of the same code (Meta-approved template whose
+  // {{1}} is the OTP). Unset = SMS only, exactly as before.
+  msg91WhatsappTemplateOtp: process.env.MSG91_WHATSAPP_TEMPLATE_OTP || undefined,
   // LS_N_0002 "signup received, under review" (SMS + email only).
   msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,
   msg91EmailTemplateSignupReceived: process.env.MSG91_EMAIL_TEMPLATE_SIGNUP_RECEIVED || undefined,
@@ -155,6 +166,19 @@ export const env = {
   msg91SmsTemplateTeamInvite: process.env.MSG91_SMS_TEMPLATE_TEAM_INVITE || undefined,
   msg91EmailTemplateTeamInvite: process.env.MSG91_EMAIL_TEMPLATE_TEAM_INVITE || undefined,
   msg91EmailTemplateAccessChanged: process.env.MSG91_EMAIL_TEMPLATE_ACCESS_CHANGED || undefined,
+  // LS_N_0047 vehicle document expiring (SMS + weekly roll-up email) / LS_N_0048 expired (SMS + email).
+  msg91SmsTemplateDocExpiring: process.env.MSG91_SMS_TEMPLATE_DOC_EXPIRING || undefined,
+  msg91EmailTemplateDocRollup: process.env.MSG91_EMAIL_TEMPLATE_DOC_ROLLUP || undefined,
+  msg91SmsTemplateDocExpired: process.env.MSG91_SMS_TEMPLATE_DOC_EXPIRED || undefined,
+  msg91EmailTemplateDocExpired: process.env.MSG91_EMAIL_TEMPLATE_DOC_EXPIRED || undefined,
+  // LS_N_0049 driver licence expired (SMS).
+  msg91SmsTemplateDlExpired: process.env.MSG91_SMS_TEMPLATE_DL_EXPIRED || undefined,
+  // LS_N_0054 driver-reported breakdown (SMS + WhatsApp).
+  msg91SmsTemplateBreakdown: process.env.MSG91_SMS_TEMPLATE_BREAKDOWN || undefined,
+  msg91WhatsappTemplateBreakdown: process.env.MSG91_WHATSAPP_TEMPLATE_BREAKDOWN || undefined,
+  // LS_N_0056 service due soon / LS_N_0057 service overdue (SMS).
+  msg91SmsTemplateServiceDue: process.env.MSG91_SMS_TEMPLATE_SERVICE_DUE || undefined,
+  msg91SmsTemplateServiceOverdue: process.env.MSG91_SMS_TEMPLATE_SERVICE_OVERDUE || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

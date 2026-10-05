@@ -45,6 +45,7 @@ import {
   MASTERS_APPROVE,
   MAINTENANCE_MANAGE,
   MAINTENANCE_COSTS_VIEW,
+  COMPLIANCE_MANAGE,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -194,6 +195,13 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       module: 'masters',
       scope: 'organization',
       description: 'Approve/reject vehicles and drivers created pending admin approval',
+    },
+    // Not in any role's default bundle (see ROLES below) — granted per user by an org admin.
+    {
+      key: COMPLIANCE_MANAGE,
+      module: 'masters',
+      scope: 'organization',
+      description: 'Get alerts when a vehicle registration cannot be verified on Vahan',
     },
   ];
 

@@ -14,6 +14,7 @@ import { Paginated, paginate } from '../../shared/utils/pagination';
 import { SarathiClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
@@ -73,6 +74,9 @@ export class DriverService {
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
     private readonly organizationService: OrganizationService,
+    // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
+    // throws (see notifications/master-approvals.ts).
+    private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
 
   /**
@@ -748,7 +752,16 @@ export class DriverService {
         return driver.id;
       });
 
-      return await this.getDriver(tenantId, driverId);
+      const driver = await this.getDriver(tenantId, driverId);
+      await this.approvalNotifier?.requested({
+        kind: 'driver',
+        tenantId,
+        recordId: driver.id,
+        masterValue: driver.fullName,
+        createdBy: driver.createdBy,
+        pending: driver.status === 'pending',
+      });
+      return driver;
     } catch (error) {
       rethrow(error, 'Failed to onboard driver');
     }
@@ -792,6 +805,14 @@ export class DriverService {
         oldData: { id: driverId, status: 'pending' },
         newData: { id: driverId, status: 'active', approvedBy: actorId },
       });
+      await this.approvalNotifier?.approved({
+        kind: 'driver',
+        tenantId,
+        recordId: driver.id,
+        masterValue: driver.fullName,
+        createdBy: driver.createdBy,
+        approvedBy: actorId,
+      });
 
       return driver;
     } catch (error) {
@@ -821,6 +842,15 @@ export class DriverService {
         resourceType: 'driver',
         oldData: { id: driverId, status: 'pending' },
         newData: { id: driverId, status: 'rejected', rejectionReason: reason },
+      });
+      await this.approvalNotifier?.rejected({
+        kind: 'driver',
+        tenantId,
+        recordId: driver.id,
+        masterValue: driver.fullName,
+        createdBy: driver.createdBy,
+        rejectedBy: actorId,
+        reason,
       });
 
       return driver;

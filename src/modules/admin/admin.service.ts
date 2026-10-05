@@ -219,6 +219,15 @@ export class AdminService {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
       this.assertOrgAccessible(actingUser, organization);
 
+      // LS_N_0003 fires only when a document BECOMES invalid — re-marking an already-invalid
+      // document (e.g. a double-clicked reject) isn't a new event, whatever the timing. Read only
+      // for invalid requests, so every other verify call does exactly the same work as before.
+      const wasInvalid =
+        input.verificationStatus === 'invalid' &&
+        (await this.organizationDocumentService.listByOrganization(organizationId)).some(
+          (existing) => existing.id === documentId && existing.verificationStatus === 'invalid',
+        );
+
       const document = await this.organizationDocumentService.updateVerificationStatus(
         organizationId,
         documentId,
@@ -264,7 +273,11 @@ export class AdminService {
       });
 
       // LS_N_0003 — only while the org is still under review (its account isn't live yet).
-      if (input.verificationStatus === 'invalid' && organization.status !== 'active') {
+      if (
+        input.verificationStatus === 'invalid' &&
+        !wasInvalid &&
+        organization.status !== 'active'
+      ) {
         await this.notifyDocumentMoreInfoNeeded(organization, document);
       }
 

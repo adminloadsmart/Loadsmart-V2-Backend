@@ -27,6 +27,7 @@ import {
   ListLoadsInput,
   UploadPodInput,
 } from './utils/load.interface';
+import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
 import {
   buildNextAction,
   buildStepper,
@@ -63,6 +64,9 @@ export class LoadService {
     private readonly storageService: StorageService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
+    // (see notifications/breakdown-alerts.ts).
+    private readonly onBreakdownReported?: BreakdownReportedNotifier,
   ) {}
 
   async assertExists(tenantId: string, id: string): Promise<LoadEntity> {
@@ -624,6 +628,9 @@ export class LoadService {
         resourceType: 'load',
         newData: { id: issue.id, loadId, category: input.category, driverId: actorId },
       });
+      if (input.category === 'breakdown') {
+        await this.onBreakdownReported?.({ tenantId, loadId, issueId: issue.id });
+      }
 
       return issue;
     } catch (error) {

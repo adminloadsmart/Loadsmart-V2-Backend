@@ -56,6 +56,7 @@ interface TriggerOptions {
   dedupeKey?: (context: unknown) => string;
   reminderAfterMs?: number;
   debounceMs?: number;
+  delayMs?: number;
 }
 
 export function triggerOptionsOf(type: string): TriggerOptions | undefined {
@@ -83,19 +84,31 @@ export interface NotificationTriggers {
     type: K,
     tenantId: string,
     context: NotificationContextOf<K>,
+    /** Send this long from now instead of immediately (needs an occurrence key — dedupeKey). */
+    options?: { delayMs?: number },
   ): Promise<void>;
 }
 
 export function createNotificationTriggers(queue: JobQueue): NotificationTriggers {
   return {
-    async enqueue(type, tenantId, context) {
+    async enqueue(type, tenantId, context, options) {
       const payload: NotificationTriggerPayload = { type, tenantId, context };
       // Near-simultaneous triggers for the same occurrence (e.g. a double-clicked approve/reject)
       // collapse into one job while it's pending (BullMQ deduplication, simple mode). The id is
       // released once that job completes or fails, so a genuine later repeat is still sent
       // (once_per_tenant types are then stopped by notify-by-type.ts's own check).
       const key = occurrenceKey(type, tenantId, context);
-      const debounceMs = triggerOptionsOf(type)?.debounceMs;
+      const { debounceMs, delayMs: typeDelayMs } = triggerOptionsOf(type) ?? {};
+      const delayMs = options?.delayMs ?? typeDelayMs;
+      if (key && delayMs) {
+        // Fixed delay from the first trigger: while that job waits, repeats are ignored (simple
+        // dedupe) — they don't restart the clock.
+        await queue.enqueue(type, payload, {
+          delay: delayMs,
+          deduplication: { id: triggerDedupeId(type, key) },
+        });
+        return;
+      }
       if (key && debounceMs) {
         // Debounce mode: every trigger in a burst replaces the queued job's payload and restarts
         // its delay, so only one job — carrying the latest payload — runs after the burst ends.

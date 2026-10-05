@@ -2,11 +2,15 @@
 
 export interface SignupInput {
   phoneNumber: string;
+  /** Server-derived (req.ip), never client-supplied — for the OTP request limit (LS_N_0008). */
+  ipAddress?: string | null;
 }
 
 export interface RequestLoginOtpInput {
   phoneNumber: string;
   portal: LoginPortal;
+  /** Server-derived (req.ip), never client-supplied — for the OTP request limit (LS_N_0008). */
+  ipAddress?: string | null;
 }
 
 export type LoginPortal = 'organization' | 'platform';

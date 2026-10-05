@@ -48,8 +48,8 @@ export function createNotificationTriggerWorker(
       if (isReminder) await job.removeDeduplicationKey();
       // Same for a debounced burst that's now being sent: a change arriving from here on starts
       // a fresh burst (and a fresh job) instead of being swallowed by this one's key.
-      const { reminderAfterMs, debounceMs } = triggerOptionsOf(type) ?? {};
-      if (debounceMs) await job.removeDeduplicationKey();
+      const { reminderAfterMs, debounceMs, delayMs } = triggerOptionsOf(type) ?? {};
+      if (debounceMs || delayMs) await job.removeDeduplicationKey();
 
       let context = isReminder
         ? { ...(job.data.context as object), isReminder: true }
@@ -67,7 +67,10 @@ export function createNotificationTriggerWorker(
         context = resolved;
       }
 
-      if (reminderAfterMs && !isReminder) {
+      const shouldRemind = (
+        NOTIFICATION_CATALOG as Record<string, { shouldRemind?: (context: unknown) => boolean }>
+      )[type]?.shouldRemind;
+      if (reminderAfterMs && !isReminder && (shouldRemind?.(context) ?? true)) {
         // Debounce mode: a repeat trigger for the same occurrence replaces the still-delayed
         // reminder, restarting its clock, instead of stacking a second one.
         await triggersQueue.enqueue(

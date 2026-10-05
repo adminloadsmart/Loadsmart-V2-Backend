@@ -8,7 +8,10 @@ export class DriverAuthController {
   constructor(private readonly driverAuthService: DriverAuthService) {}
 
   requestOtp = async (req: Request, res: Response) => {
-    const result = await this.driverAuthService.requestOtp(req.body);
+    const result = await this.driverAuthService.requestOtp({
+      ...req.body,
+      ipAddress: req.ip ?? null,
+    });
     respond(res, result, 200);
   };
 

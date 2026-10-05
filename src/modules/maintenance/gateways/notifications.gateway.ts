@@ -1,4 +1,6 @@
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional stub, not a real empty-object type; see TODO below
 export interface NotificationsGateway {
-  // TODO: define the methods maintenance actually needs to call on notifications (service reminders)
+  /** LS_N_0055 — an open workshop visit (breakdown or service) was closed and the truck is back
+   *  in front of dispatch. Called after the closing transaction commits; best-effort, never
+   *  throws (a notification problem must not fail the close). */
+  vehicleBackInService(event: { tenantId: string; jobId: string }): Promise<void>;
 }

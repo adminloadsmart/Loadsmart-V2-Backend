@@ -15,7 +15,7 @@ import {
  * App-wide catalog of notification types (no tenantId — same "fixed, seeded catalog" shape as
  * auth.roles), seeded from the in-code catalog (see catalog/notification-catalog.ts and
  * src/db/seed-notification-types.ts) rather than hand-maintained here. `key` matches the string
- * key producers already pass to notify-by-type.ts (e.g. 'vehicle.compliance_expiring_soon') — the
+ * key producers already pass to notify-by-type.ts (e.g. 'vehicle.document_expiry') — the
  * code catalog stays the source of truth for recipients/content; this table only exists so the
  * settings screen (notification-preferences.*) has something to query.
  */

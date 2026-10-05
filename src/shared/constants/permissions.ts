@@ -45,3 +45,8 @@ export const MASTERS_APPROVE = 'masters.approve';
 // downtime headlines, job costs — is included (see maintenance/utils/cost-visibility.ts).
 export const MAINTENANCE_MANAGE = 'maintenance.manage';
 export const MAINTENANCE_COSTS_VIEW = 'maintenance.costs.view';
+
+// LS_N_0012 — receives "vehicle could not be verified on Vahan" alerts. Assigned to no role by
+// default (db/seed-roles.ts); an org admin grants it to specific teammates via the existing
+// POST /roles/users/:userId/permissions.
+export const COMPLIANCE_MANAGE = 'compliance.manage';

@@ -4,6 +4,7 @@ import { AuditService } from '../../audit/audit.service';
 import { paginate } from '../../../shared/utils/pagination';
 import { LoadingPointRepository } from './loading-point.repository';
 import { LoadingPointEntity } from './entities/loading-point.entity';
+import { MasterApprovalNotifier } from '../../notifications/master-approvals';
 import {
   CreateLoadingPointInput,
   ListLoadingPointCitiesInput,
@@ -15,6 +16,9 @@ export class LoadingPointService {
   constructor(
     private readonly repository: LoadingPointRepository,
     private readonly auditService: AuditService,
+    // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
+    // throws (see notifications/master-approvals.ts).
+    private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
 
   /** org_admin's own loading point lands `active` immediately; dispatch's (the only other role
@@ -29,7 +33,7 @@ export class LoadingPointService {
     try {
       const autoApproved = actorRole === ORG_ADMIN_ROLE;
 
-      return await this.repository.create({
+      const value = await this.repository.create({
         tenantId,
         title: input.title.trim(),
         addressLine1: input.addressLine1.trim(),
@@ -50,6 +54,15 @@ export class LoadingPointService {
         rejectionReason: null,
         createdBy: actorId,
       });
+      await this.approvalNotifier?.requested({
+        kind: 'loading_point',
+        tenantId,
+        recordId: value.id,
+        masterValue: value.title,
+        createdBy: value.createdBy,
+        pending: value.status === 'pending',
+      });
+      return value;
     } catch (error) {
       rethrow(error, 'Failed to create loading point');
     }
@@ -155,6 +168,14 @@ export class LoadingPointService {
         oldData: { id, status: 'pending' },
         newData: { id, status: 'active', approvedBy: actorId },
       });
+      await this.approvalNotifier?.approved({
+        kind: 'loading_point',
+        tenantId,
+        recordId: value.id,
+        masterValue: value.title,
+        createdBy: value.createdBy,
+        approvedBy: actorId,
+      });
 
       return value;
     } catch (error) {
@@ -178,6 +199,15 @@ export class LoadingPointService {
         resourceType: 'loading_point',
         oldData: { id, status: 'pending' },
         newData: { id, status: 'rejected', rejectionReason: reason },
+      });
+      await this.approvalNotifier?.rejected({
+        kind: 'loading_point',
+        tenantId,
+        recordId: value.id,
+        masterValue: value.title,
+        createdBy: value.createdBy,
+        rejectedBy: actorId,
+        reason,
       });
 
       return value;

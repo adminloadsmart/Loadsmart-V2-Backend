@@ -55,6 +55,7 @@ export class DriverAuthService {
       phoneNumber,
       purpose: 'driver-login',
       cooldownSeconds: env.driverLoginOtpResendCooldownSeconds,
+      ipAddress: input.ipAddress,
     });
 
     const loginToken = signToken(

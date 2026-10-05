@@ -3,12 +3,16 @@ import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { AuditService } from '../../audit/audit.service';
 import { ProductRepository } from './product.repository';
 import { CreateProductInput, ListProductsInput, UpdateProductInput } from './product.interface';
+import { MasterApprovalNotifier } from '../../notifications/master-approvals';
 import { paginate } from '../../../shared/utils/pagination';
 
 export class ProductService {
   constructor(
     private readonly repository: ProductRepository,
     private readonly auditService: AuditService,
+    // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
+    // throws (see notifications/master-approvals.ts).
+    private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
   async create(tenantId: string, actorId: string, role: string, input: CreateProductInput) {
     try {
@@ -49,6 +53,14 @@ export class ProductService {
           status: product.status,
           subItemCount: product.subItems?.length ?? input.subItems?.length ?? 0,
         },
+      });
+      await this.approvalNotifier?.requested({
+        kind: 'product',
+        tenantId,
+        recordId: product.id,
+        masterValue: product.productDetails,
+        createdBy: product.createdBy,
+        pending: product.approvalStatus === 'pending_approval',
       });
       return product;
     } catch (error) {
@@ -121,7 +133,7 @@ export class ProductService {
     }
   }
   async approve(tenantId: string, actorId: string, id: string) {
-    return this.transition(tenantId, actorId, id, {
+    const value = await this.transition(tenantId, actorId, id, {
       approvalStatus: 'approved',
       status: 'active',
       approvedBy: actorId,
@@ -130,15 +142,34 @@ export class ProductService {
       rejectedAt: null,
       rejectionReason: null,
     });
+    await this.approvalNotifier?.approved({
+      kind: 'product',
+      tenantId,
+      recordId: value.id,
+      masterValue: value.productDetails,
+      createdBy: value.createdBy,
+      approvedBy: actorId,
+    });
+    return value;
   }
   async reject(tenantId: string, actorId: string, id: string, reason: string) {
-    return this.transition(tenantId, actorId, id, {
+    const value = await this.transition(tenantId, actorId, id, {
       approvalStatus: 'rejected',
       status: 'inactive',
       rejectedBy: actorId,
       rejectedAt: new Date(),
       rejectionReason: reason,
     });
+    await this.approvalNotifier?.rejected({
+      kind: 'product',
+      tenantId,
+      recordId: value.id,
+      masterValue: value.productDetails,
+      createdBy: value.createdBy,
+      rejectedBy: actorId,
+      reason,
+    });
+    return value;
   }
   private async transition(
     tenantId: string,

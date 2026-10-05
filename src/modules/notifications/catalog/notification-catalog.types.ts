@@ -1,6 +1,9 @@
 import { NotificationChannelName, NotificationSeverity } from '../notifications.types';
 
 export interface NotificationRecipient {
+  /** The recipient's user id — lets a type vary copy by who is reading (e.g. LS_N_0055 shows the
+   *  repair cost only to users who can see maintenance costs). */
+  id?: string;
   fullName: string | null;
 }
 
@@ -36,6 +39,30 @@ export interface NotificationTypeDefinition<TContext> {
    *  recipientRoles fan-out — only that user (in this tenant, not deleted) is notified. Method
    *  syntax for the same bivariance reason as dedupeKey. */
   recipientUserId?(context: TContext): string;
+  /** Recipients = this tenant's users who hold `permission` (via role or a direct grant) and, if
+   *  given, have `role` — e.g. whoever can approve a master record. Replaces the recipientRoles
+   *  fan-out (recipientUserId wins if both are set). Method syntax, like dedupeKey. */
+  recipientPermission?(
+    context: TContext,
+  ): { permission: string; role?: string } | { permission: string; role?: string }[];
+  /** Roles left out of the recipientPermission audience for this dispatch — e.g. LS_N_0057 keeps
+   *  org admins (who hold maintenance.manage via their role) out until it escalates; roles listed
+   *  in recipientRoles/extraRecipientRoles are still added. Method syntax, like dedupeKey. */
+  excludeRolesFromPermission?(context: TContext): string[];
+  /** A user never notified by this dispatch — e.g. the creator of the record being approved. */
+  excludeUserId?(context: TContext): string | null | undefined;
+  /** Roles added to recipientRoles for this particular dispatch — e.g. LS_N_0049 brings org
+   *  admins in only when escalating. Method syntax, like dedupeKey. */
+  extraRecipientRoles?(context: TContext): string[];
+  /** One extra specific user notified alongside a recipientPermission/recipientRoles audience
+   *  (same tenant, not deleted, never twice) — e.g. LS_N_0012's "the user who added it, plus
+   *  holders of compliance.manage". */
+  alsoNotifyUserId?(context: TContext): string | null | undefined;
+  /** Per-recipient cap: once a recipient has had `max` of this type within `windowSeconds`, they
+   *  stop getting individual ones for the rest of that window; each extra one instead triggers
+   *  `overflowType` (a debounced summary) for that recipient — LS_N_0009's "more than 3 in an
+   *  hour, collapse into one message". */
+  recipientRateLimit?: { max: number; windowSeconds: number; overflowType: string };
   /** Every channel this type could ever use — seeded into notification_types.channels. Currently
    *  every type lists all four (nothing is grayed out in the settings UI); kept as its own field
    *  rather than removed so a future type CAN restrict itself again without a schema change. A
@@ -75,10 +102,17 @@ export interface NotificationTypeDefinition<TContext> {
    *  that time. Reminders are ordinary notifications of the same type with `isReminder: true`
    *  merged into their context. */
   reminderAfterMs?: number;
+  /** With reminderAfterMs: whether THIS send should get a reminder (default yes) — e.g. an
+   *  escalation message isn't itself reminded. */
+  shouldRemind?(context: TContext): boolean;
   /** Batch a burst of triggers for the same occurrence (dedupeKey) into ONE notification sent
    *  this long after the last of them — e.g. an admin toggling several capabilities one call at
    *  a time. Each new trigger restarts the wait and replaces the queued payload. */
   debounceMs?: number;
+  /** Send this long after the FIRST trigger for the occurrence (dedupeKey); repeat triggers while
+   *  it's waiting don't restart the clock (unlike debounceMs) — e.g. LS_N_0012's "retry over 24
+   *  hours before notifying". A relevance check then decides at send time if it's still needed. */
+  delayMs?: number;
   /** Per-type MSG91 templates, overriding the channel's env-level default template. Each channel
    *  maps its template's variables from the notification's `metadata` by key; a type with no
    *  entry here keeps each channel's original behavior (see channels/*.channel.ts). */

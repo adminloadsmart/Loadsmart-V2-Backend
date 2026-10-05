@@ -1,6 +1,8 @@
 import { env } from '../config/env';
 import { toIndianMsisdn } from '../shared/utils/phone-number';
 
+const OTP_EXPIRY_MINUTES = 10;
+
 interface Msg91Response {
   type?: string; // 'success' | 'error'
   message?: string;
@@ -20,11 +22,19 @@ interface Msg91Response {
  * by the callers in auth.service.ts, keeping this a pure MSG91 wrapper.
  */
 export class Msg91Client {
-  async sendOtp(phoneNumber: string): Promise<void> {
+  /** `otp`: our own generated code (LS_N_0008) — MSG91 sends and later verifies exactly this code
+   *  instead of generating one, so the same code can also go out over WhatsApp. Omitted = MSG91
+   *  generates it, as before. */
+  async sendOtp(phoneNumber: string, otp?: string): Promise<void> {
     const url = new URL(`${env.msg91BaseUrl}/api/v5/otp`);
     url.searchParams.set('template_id', env.msg91TemplateId!);
     url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
     url.searchParams.set('authkey', env.msg91AuthKey!);
+    if (otp) {
+      url.searchParams.set('otp', otp);
+      // Minutes — matches the LS_OTP text ("valid for 10 minutes") and the signup/login tokens.
+      url.searchParams.set('otp_expiry', String(OTP_EXPIRY_MINUTES));
+    }
 
     const response = await fetch(url.toString(), {
       method: 'POST',

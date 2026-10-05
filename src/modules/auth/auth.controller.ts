@@ -6,12 +6,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   signup = async (req: Request, res: Response) => {
-    const tokens = await this.authService.signup(req.body);
+    const tokens = await this.authService.signup({ ...req.body, ipAddress: req.ip ?? null });
     respond(res, tokens, 201);
   };
 
   requestLoginOtp = async (req: Request, res: Response) => {
-    const result = await this.authService.requestLoginOtp(req.body);
+    const result = await this.authService.requestLoginOtp({
+      ...req.body,
+      ipAddress: req.ip ?? null,
+    });
     respond(res, result, 200);
   };
 

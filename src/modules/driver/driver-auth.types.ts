@@ -15,6 +15,8 @@ export interface DriverDeviceCaptureInput {
 
 export interface RequestDriverOtpInput {
   phoneNumber: string;
+  /** Server-derived (req.ip), never client-supplied — for the OTP request limit (LS_N_0008). */
+  ipAddress?: string | null;
 }
 
 // One entry per active driver record across all tenants that matched the phone number at
