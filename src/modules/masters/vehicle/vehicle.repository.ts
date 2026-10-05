@@ -22,6 +22,7 @@ import {
   CreateVehicleTelemetryMetaData,
   CreateVehicleVerificationSnapshotData,
   ListComplianceAlertsFilters,
+  ExportVehiclesFilters,
   ListVehiclesFilters,
   UpdateVehicleData,
   UpdateVehicleDocumentData,
@@ -115,6 +116,33 @@ export class VehicleRepository {
     });
 
     return { items, total };
+  }
+
+  /** Same filters as `list` but unpaged (capped at `limit`) and with documents loaded. */
+  listForExport(
+    tenantId: string,
+    filters: ExportVehiclesFilters,
+    limit: number,
+  ): Promise<VehicleEntity[]> {
+    const { status, operationalStatus, search } = filters;
+
+    const base: FindOptionsWhere<VehicleEntity> = { tenantId, deletedAt: IsNull() };
+    if (status) base.status = status;
+    if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
+
+    return this.vehicles.find({
+      where: search ? { ...base, registrationNumber: ILike(`%${search}%`) } : base,
+      relations: {
+        operationalStatus: true,
+        truckType: true,
+        driverLinks: true,
+        telemetryMeta: true,
+        serviceUsage: true,
+        documents: true,
+      },
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
   }
 
   async update(

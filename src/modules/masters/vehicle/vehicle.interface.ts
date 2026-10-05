@@ -129,6 +129,12 @@ export interface UpdateVehicleData {
   updatedBy?: string | null;
 }
 
+export interface ExportVehiclesFilters {
+  status?: VehicleStatus;
+  operationalStatus?: VehicleOperationalStatus;
+  search?: string;
+}
+
 export interface ListVehiclesFilters {
   status?: VehicleStatus;
   operationalStatus?: VehicleOperationalStatus;

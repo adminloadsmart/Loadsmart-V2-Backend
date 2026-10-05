@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { respond } from '../../../shared/responses/respond';
 import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
 import {
+  ExportVehiclesFilters,
   ListComplianceAlertsInput,
   ListVehiclesInput,
   VehicleDocumentParams,
@@ -18,6 +19,22 @@ export class VehicleController {
       req.validatedQuery as ListVehiclesInput,
     );
     respond(res, vehicles);
+  };
+
+  exportVehicles = async (req: Request, res: Response) => {
+    const buffer = await this.vehicleService.exportVehicles(
+      requireTenantId(req),
+      req.validatedQuery as ExportVehiclesFilters,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="vehicles-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    );
+    res.send(buffer);
   };
 
   getVehicle = async (req: Request<VehicleParams>, res: Response) => {

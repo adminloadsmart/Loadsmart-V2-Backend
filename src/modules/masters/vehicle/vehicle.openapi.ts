@@ -35,6 +35,21 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/vehicles/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportVehicles',
+    ...authenticated(
+      'Download the fleet as an Excel file (.xlsx), optionally filtered like the list. ' +
+        'Columns match the vehicle import, so the file can be edited and re-uploaded. Up to 5000 vehicles.',
+    ),
+    request: { query: vehicleValidators.exportVehicles.shape.query },
+    responses: {
+      200: { description: 'Excel file (.xlsx) attachment' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',
@@ -177,6 +192,43 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Deleted', ...json(SuccessResponseSchema) },
       404: { description: 'Document not found', ...errorContent },
+    },
+  });
+
+  // --- Vehicle bulk import ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importVehiclesExcel',
+    ...write(
+      'Bulk upload vehicles from an Excel file, one row per truck with the same fields as onboardVehicle. ' +
+        'Each row is onboarded on its own, so a bad row never blocks the others.',
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB and 1000 rows.',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Import completed with a row-level result report' },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      403: { description: 'Not permitted to write masters', ...errorContent },
     },
   });
 
