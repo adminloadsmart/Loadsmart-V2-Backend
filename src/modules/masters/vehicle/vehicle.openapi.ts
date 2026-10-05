@@ -35,6 +35,21 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/vehicles/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportVehicles',
+    ...authenticated(
+      'Download the fleet as an Excel file (.xlsx), optionally filtered like the list. ' +
+        'Columns match the vehicle import, so the file can be edited and re-uploaded. Up to 5000 vehicles.',
+    ),
+    request: { query: vehicleValidators.exportVehicles.shape.query },
+    responses: {
+      200: { description: 'Excel file (.xlsx) attachment' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',

@@ -19,6 +19,7 @@ import {
 } from './vehicle.type';
 import { TyreSetupGateway } from './gateways/tyre-setup.gateway';
 import { VehicleRepository } from './vehicle.repository';
+import { buildVehicleWorkbook, VEHICLE_EXPORT_MAX_ROWS } from './vehicle-export.mapper';
 import { TruckTypeService } from '../truck-type/truck-type.service';
 import { FleetDriverLinkService } from '../fleet-driver-link/fleet-driver-link.service';
 import { DOCUMENT_EXPIRING_SOON_DAYS, COMPLIANCE_ALERT_DAYS_BEFORE } from './vehicle.constants';
@@ -26,6 +27,7 @@ import { Paginated, paginate } from '../../../shared/utils/pagination';
 import {
   AddVehicleDocumentInput,
   CreateVehicleInput,
+  ExportVehiclesFilters,
   ListComplianceAlertsInput,
   ListVehiclesInput,
   OnboardVehicleCostInput,
@@ -263,6 +265,20 @@ export class VehicleService {
       return paginate(items, total, input);
     } catch (error) {
       rethrow(error, 'Failed to list vehicles');
+    }
+  }
+
+  /** Every vehicle matching the fleet-list filters as an .xlsx, in the vehicle import's column layout. */
+  async exportVehicles(tenantId: string, filters: ExportVehiclesFilters): Promise<Buffer> {
+    try {
+      const vehicles = await this.vehicleRepository.listForExport(
+        tenantId,
+        filters,
+        VEHICLE_EXPORT_MAX_ROWS,
+      );
+      return await buildVehicleWorkbook(vehicles);
+    } catch (error) {
+      rethrow(error, 'Failed to export vehicles');
     }
   }
 

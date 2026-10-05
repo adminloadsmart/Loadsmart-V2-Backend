@@ -35,6 +35,11 @@ export function createVehicleRoutes(
     asyncHandler(vehicleImportController.import),
   );
   router.get(
+    '/vehicles/export',
+    validate(vehicleValidators.exportVehicles),
+    asyncHandler(controller.exportVehicles),
+  );
+  router.get(
     '/vehicles',
     validate(vehicleValidators.listVehicles),
     asyncHandler(controller.listVehicles),

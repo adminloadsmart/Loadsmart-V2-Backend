@@ -317,6 +317,14 @@ export const vehicleValidators = {
       operationalStatus: z.enum(['on_trip', 'idle', 'warn_on_assign', 'inactive']).optional(),
     }),
   }),
+  /** Same filters as listVehicles, minus paging — the export returns every match. */
+  exportVehicles: z.object({
+    query: z.object({
+      status: z.enum(VEHICLE_STATUSES).optional(),
+      operationalStatus: z.enum(['on_trip', 'idle', 'warn_on_assign', 'inactive']).optional(),
+      search: z.string().min(1).optional(),
+    }),
+  }),
   getVehicle: z.object({ params: vehicleParams }),
   updateVehicle: z.object({
     params: vehicleParams,
