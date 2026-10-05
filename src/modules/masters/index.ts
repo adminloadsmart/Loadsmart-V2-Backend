@@ -5,6 +5,8 @@ import { NotifyByType } from '../notifications/notify-by-type';
 import { VehicleRepository } from './vehicle/vehicle.repository';
 import { VehicleService } from './vehicle/vehicle.service';
 import { VehicleController } from './vehicle/vehicle.controller';
+import { VehicleImportService } from './vehicle/vehicle-import.service';
+import { VehicleImportController } from './vehicle/vehicle-import.controller';
 import { createVehicleComplianceAlertsWorker } from './vehicle/workers/vehicle-compliance-alerts.worker';
 import { DriverTenantRelationRepository } from '../driver/driver-tenant-relation.repository';
 import { DriverController } from '../driver/driver.controller';
@@ -108,6 +110,8 @@ export function createMastersModule(
     complianceAlertsQueue,
   );
   const vehicleController = new VehicleController(vehicleService);
+  const vehicleImportService = new VehicleImportService(vehicleService, deps.auditService);
+  const vehicleImportController = new VehicleImportController(vehicleImportService);
   const vehicleComplianceAlertsWorker: Worker = createVehicleComplianceAlertsWorker(
     vehicleRepository,
     deps.notifyByType,
@@ -122,6 +126,7 @@ export function createMastersModule(
     transporterController,
     transporterImportController,
     vehicleController,
+    vehicleImportController,
     deps.driverController,
     fleetDriverLinkController,
   );
