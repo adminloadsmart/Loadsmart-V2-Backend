@@ -49,9 +49,9 @@ export interface DriverRelationSummary {
 /**
  * Everything a driver's own (tenant-independent) identity does: phone verification, completing
  * registration details, requesting to join a tenant, and accepting/rejecting a fleet-owner's
- * invite. The tenant-side half of the same workflow (staff inviting a driver, approving/rejecting
+ * invite. The tenant-side half of the same workflow (staff adding a driver, approving/rejecting
  * a join request) lives in DriverService — see its
- * inviteDriverByPhone/approveDriver/rejectDriver/listPendingStaffReview.
+ * onboardDriver/approveDriver/rejectDriver/listPendingStaffReview.
  */
 export class DriverIdentityService {
   constructor(
@@ -96,8 +96,8 @@ export class DriverIdentityService {
 
   /**
    * Verifies the phone and immediately creates a minimal shell driver profile (if one doesn't
-   * already exist — a fleet owner may have invited this phone first, see
-   * DriverService.inviteDriverByPhone) and issues a usable identity-scoped session. This is
+   * already exist — a fleet owner may have added this phone first, see
+   * DriverService.onboardDriver) and issues a usable identity-scoped session. This is
    * deliberately the point registration becomes "real": a driver who verifies their phone but
    * abandons before calling completeRegistration below still has a profile on file, so next time
    * they open the app they log in (not register again) and land right back on the same

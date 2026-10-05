@@ -152,16 +152,21 @@ export class DriverTenantRelationRepository {
     return relations.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
-  /** Only a `pending_staff_review` relation (dispatch onboarding or a driver join-request) can be approved. */
+  /**
+   * Only a `pending_staff_review` relation (dispatch-added driver or a driver join-request) can be
+   * approved. `nextStatus` is `pending_driver_review` when the request still needs the driver's
+   * accept, `active` when the driver already asked to join.
+   */
   async approve(
     tenantId: string,
     id: string,
     actorId: string,
+    nextStatus: 'pending_driver_review' | 'active',
   ): Promise<DriverTenantRelationEntity | null> {
     const result = await this.relations.update(
       { id, tenantId, status: 'pending_staff_review', deletedAt: IsNull() },
       {
-        status: 'active',
+        status: nextStatus,
         approvedBy: actorId,
         approvedAt: new Date(),
         rejectionReason: null,

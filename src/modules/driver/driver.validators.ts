@@ -199,15 +199,6 @@ export const driverValidators = {
     body: z.object({ reason: z.string().trim().min(1) }),
   }),
 
-  inviteDriver: z.object({
-    body: z.object({
-      phoneNumber: driverCoreFields.phoneNumber,
-      fullName: z.string().min(1).max(150).optional(),
-      dateOfJoining: isoDate.optional(),
-      salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
-      salaryAmount: z.number().nonnegative().max(9999999999).optional(),
-    }),
-  }),
   listJoinRequests: z.object({ query: pagination }),
 
   addDriverDocument: z.object({
