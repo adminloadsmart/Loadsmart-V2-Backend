@@ -57,6 +57,8 @@ export function loadFields(row: LoadSnapshotRow): SnapshotFields {
       transporterId: row.transporter_id,
       loadingPointId: row.loading_point_id,
       deliveryPointId: row.customer_delivery_point_id,
+      customerId: row.customer_id,
+      promisedDeliveryAt: iso(row.promised_delivery_at),
       milestones: {
         loadingConfirmedAt: iso(row.loading_confirmed_at),
         atPlantAt: iso(row.at_plant_at),
@@ -82,6 +84,7 @@ export function vehicleFields(row: VehicleSnapshotRow): SnapshotFields {
       gpsProvider: row.gps_provider,
       gpsEnabled: row.gps_enabled ?? false,
       gpsDeviceImei: row.gps_device_imei,
+      bodyType: row.body_type,
     }),
   };
 }

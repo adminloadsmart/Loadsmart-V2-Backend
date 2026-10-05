@@ -30,6 +30,8 @@ export interface LoadSnapshotRow {
   transporter_id: string | null;
   loading_point_id: string | null;
   customer_delivery_point_id: string | null;
+  customer_id: string | null;
+  promised_delivery_at: Date | null;
   loading_confirmed_at: Date | null;
   at_plant_at: Date | null;
   in_transit_at: Date | null;
@@ -47,6 +49,7 @@ export interface VehicleSnapshotRow {
   gps_provider: string | null;
   gps_enabled: boolean | null;
   gps_device_imei: string | null;
+  body_type: string | null;
   version: string;
 }
 
@@ -104,9 +107,14 @@ export class TrackingOutboxRepository {
       `SELECT l."id", l."tenant_id", l."code", l."status", l."source_type", l."vehicle_id",
               l."vehicle_number", l."driver_id", l."driver_number", l."driver_name",
               l."transporter_id", r."loading_point_id", r."customer_delivery_point_id",
+              r."customer_id",
+              -- Promised delivery: end of the requisition's expected delivery date, India time.
+              ((r."expected_delivery_date"::timestamp + time '23:59') AT TIME ZONE 'Asia/Kolkata')
+                AS "promised_delivery_at",
               l."loading_confirmed_at", l."at_plant_at", l."in_transit_at",
               l."reached_delivery_point_at", l."delivered_at",
-              (extract(epoch FROM l."updated_at") * 1000)::bigint AS "version"
+              -- Built from the load AND its requisition: either changing bumps the version.
+              (extract(epoch FROM GREATEST(l."updated_at", r."updated_at")) * 1000)::bigint AS "version"
        FROM "loads"."loads" l
        LEFT JOIN "loads"."requisitions" r ON r."id" = l."requisition_id"
        WHERE l."id" = ANY($1::uuid[])`,
@@ -118,8 +126,12 @@ export class TrackingOutboxRepository {
     return manager.query(
       `SELECT v."id", v."tenant_id", v."registration_number", v."status"::text AS "status",
               v."deleted_at", m."gps_provider", m."gps_enabled", m."gps_device_imei",
-              (extract(epoch FROM GREATEST(v."updated_at", m."updated_at")) * 1000)::bigint AS "version"
+              -- Tankers are a truck TYPE (catalog body type 'tanker'), so prefer the truck type's
+              -- body type over the vehicle's own (open/closed/flat_bed/…), which has no tanker.
+              COALESCE(tt."body_type"::text, v."body_type"::text) AS "body_type",
+              (extract(epoch FROM GREATEST(v."updated_at", m."updated_at", tt."updated_at")) * 1000)::bigint AS "version"
        FROM "masters"."vehicles" v
+       LEFT JOIN "masters"."truck_types" tt ON tt."id" = v."truck_type_id"
        LEFT JOIN "masters"."vehicle_telemetry_meta" m
          ON m."vehicle_id" = v."id" AND m."deleted_at" IS NULL
        WHERE v."id" = ANY($1::uuid[])`,

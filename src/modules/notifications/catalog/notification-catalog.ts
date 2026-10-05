@@ -39,6 +39,23 @@ export interface DriverLinkContext {
   phoneNumber: string;
 }
 
+/** A tracking-service alert (see modules/tracking/tracking-events.consumer.ts). */
+export interface TrackingAlertContext {
+  title: string;
+  vehicleNo: string;
+  loadCode: string | null;
+  severity: string;
+}
+
+function trackingAlertContent({ title, vehicleNo, loadCode, severity }: TrackingAlertContext) {
+  const where = loadCode ? `${vehicleNo} on ${loadCode}` : vehicleNo;
+  return {
+    title,
+    body: `${title}: ${where}.`,
+    metadata: { alert: title, vehicle_no: vehicleNo, load_code: loadCode ?? '', severity },
+  };
+}
+
 type NoContext = Record<string, never>;
 
 function stub(
@@ -151,10 +168,8 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'sms'],
-    buildContent: stub(
-      'Trip delay & Exception',
-      'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',
-    ),
+    // Real since the tracking service: DELAY (projected/actual late delivery) and HALT alerts.
+    buildContent: trackingAlertContent,
   },
   'tracking.geofence_breach': {
     label: 'Geofence breach',
@@ -162,10 +177,17 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push'],
-    buildContent: stub(
-      'Geofence breach',
-      'Vehicle deviates from corridor > 5km or unapproved geofence exit.',
-    ),
+    // Real since the tracking service: route-deviation (DEV) alerts.
+    buildContent: trackingAlertContent,
+  },
+  'tracking.vehicle_alert': {
+    label: 'Vehicle safety & device alerts',
+    description:
+      'Overspeeding, night driving, tracking device offline, tampering, unplugged or immobilizer events.',
+    recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    buildContent: trackingAlertContent,
   },
   'payments.due_settlement': {
     label: 'Payment due & Settlement',

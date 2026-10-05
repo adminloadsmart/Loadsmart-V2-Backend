@@ -45,3 +45,10 @@ export const MASTERS_APPROVE = 'masters.approve';
 // downtime headlines, job costs — is included (see maintenance/utils/cost-visibility.ts).
 export const MAINTENANCE_MANAGE = 'maintenance.manage';
 export const MAINTENANCE_COSTS_VIEW = 'maintenance.costs.view';
+
+// Tracking service (loadsmart-tracking verifies these from the JWT's permissions[]).
+// SETTINGS_MANAGE changes a tenant's tracking rule thresholds/switches (night-driving opt-in, speed
+// limits, …); ROUTES_APPROVE lets ops approve an alternate route or a new promised delivery time
+// for a trip, which also closes its route-deviation alerts.
+export const TRACKING_SETTINGS_MANAGE = 'tracking.settings.manage';
+export const TRACKING_ROUTES_APPROVE = 'tracking.routes.approve';

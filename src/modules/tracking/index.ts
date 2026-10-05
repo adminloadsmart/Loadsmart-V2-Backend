@@ -12,12 +12,17 @@ import {
   createTrackingOutboxWorker,
   TRACKING_OUTBOX_QUEUE,
   TRACKING_OUTBOX_RELAY_JOB,
+  TRACKING_EVENTS_CONSUME_JOB,
 } from './workers/tracking-outbox.worker';
+import { TrackingEventsConsumer } from './tracking-events.consumer';
+import { NotifyByType } from '../notifications/notify-by-type';
 
 // How often the outbox relay publishes changes to the loadsmart-tracking service.
 const OUTBOX_RELAY_EVERY_MS = 2000;
+// How often alerts from the tracking service are turned into notifications.
+const EVENTS_CONSUME_EVERY_MS = 3000;
 
-export function createTrackingModule(dataSource: DataSource) {
+export function createTrackingModule(dataSource: DataSource, deps: { notifyByType: NotifyByType }) {
   const repository = new TrackingRepository(dataSource);
   const service = new TrackingService(repository);
   const controller = new TrackingController(service);
@@ -29,13 +34,25 @@ export function createTrackingModule(dataSource: DataSource) {
     new TrackingOutboxRepository(dataSource),
     getQueueConnection,
   );
-  const outboxWorker: Worker = createTrackingOutboxWorker(outboxService);
+  // The tracking service's alerts → this backend's notifications (push/SMS/… per org preferences).
+  const eventsConsumer = new TrackingEventsConsumer(
+    dataSource,
+    getQueueConnection,
+    deps.notifyByType,
+  );
+  const outboxWorker: Worker = createTrackingOutboxWorker(outboxService, eventsConsumer);
   upsertRepeatingJob(
     TRACKING_OUTBOX_QUEUE,
     'tracking-outbox-relay',
     OUTBOX_RELAY_EVERY_MS,
     TRACKING_OUTBOX_RELAY_JOB,
   ).catch((err) => console.error('Failed to schedule tracking outbox relay', err));
+  upsertRepeatingJob(
+    TRACKING_OUTBOX_QUEUE,
+    'tracking-events-consume',
+    EVENTS_CONSUME_EVERY_MS,
+    TRACKING_EVENTS_CONSUME_JOB,
+  ).catch((err) => console.error('Failed to schedule tracking events consumer', err));
 
   return { service, router, outboxService, outboxWorker };
 }

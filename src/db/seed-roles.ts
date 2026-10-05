@@ -44,6 +44,8 @@ import {
   FILES_DELETE,
   MASTERS_APPROVE,
   MAINTENANCE_MANAGE,
+  TRACKING_SETTINGS_MANAGE,
+  TRACKING_ROUTES_APPROVE,
   MAINTENANCE_COSTS_VIEW,
 } from '../shared/constants/permissions';
 import {
@@ -148,6 +150,18 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       description: 'See maintenance spend, downtime cost and job costs',
     },
     {
+      key: TRACKING_SETTINGS_MANAGE,
+      module: 'tracking',
+      scope: 'organization',
+      description: 'Change tracking alert rules (thresholds, night driving, speed limits)',
+    },
+    {
+      key: TRACKING_ROUTES_APPROVE,
+      module: 'tracking',
+      scope: 'organization',
+      description: 'Approve an alternate route or a new promised delivery time for a trip',
+    },
+    {
       key: CUSTOMERS_CREATE,
       module: 'customers',
       scope: 'organization',
@@ -246,6 +260,8 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       PAYMENTS_MANAGE,
       MAINTENANCE_MANAGE,
       MAINTENANCE_COSTS_VIEW,
+      TRACKING_SETTINGS_MANAGE,
+      TRACKING_ROUTES_APPROVE,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
@@ -270,6 +286,8 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       MASTERS_WRITE,
       // Books the workshop jobs (a breakdown is a dispatch event) but doesn't see what they cost.
       MAINTENANCE_MANAGE,
+      // Runs trips day to day: approves diversions / revised delivery times.
+      TRACKING_ROUTES_APPROVE,
       FILES_READ,
       FILES_UPLOAD,
     ],

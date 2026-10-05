@@ -28,6 +28,8 @@ describe('snapshot field builders (contract: loadsmart-tracking docs/contracts/l
       transporter_id: 't1',
       loading_point_id: 'lp1',
       customer_delivery_point_id: 'dp1',
+      customer_id: 'c1',
+      promised_delivery_at: new Date('2026-10-06T18:29:00Z'),
       loading_confirmed_at: new Date('2026-10-05T08:00:00Z'),
       at_plant_at: null,
       in_transit_at: null,
@@ -47,6 +49,8 @@ describe('snapshot field builders (contract: loadsmart-tracking docs/contracts/l
       sourceType: 'market',
       loadingPointId: 'lp1',
       deliveryPointId: 'dp1',
+      customerId: 'c1',
+      promisedDeliveryAt: '2026-10-06T18:29:00.000Z',
       milestones: { loadingConfirmedAt: '2026-10-05T08:00:00.000Z', deliveredAt: null },
     });
   });
@@ -61,6 +65,7 @@ describe('snapshot field builders (contract: loadsmart-tracking docs/contracts/l
       gps_provider: null,
       gps_enabled: null,
       gps_device_imei: '359339077123456',
+      body_type: 'tanker',
       version: '5',
     };
     expect(JSON.parse(vehicleFields(row).payload)).toEqual({
@@ -69,6 +74,7 @@ describe('snapshot field builders (contract: loadsmart-tracking docs/contracts/l
       gpsProvider: null,
       gpsEnabled: false,
       gpsDeviceImei: '359339077123456',
+      bodyType: 'tanker',
     });
     expect(vehicleFields({ ...row, deleted_at: new Date() })).toEqual({
       type: 'vehicle',

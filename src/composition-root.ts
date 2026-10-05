@@ -170,7 +170,7 @@ export function buildContainer(dataSource: DataSource): Container {
   });
 
   // Producers with no cross-module deps of their own.
-  const tracking = createTrackingModule(dataSource);
+  const tracking = createTrackingModule(dataSource, { notifyByType });
   const payments = createPaymentsModule(dataSource);
   // Stateless Google Places proxy — no DB, no cross-module deps. Mounted in authenticatedRouters
   // below (no tenant required).
