@@ -26,9 +26,7 @@ const DEFAULT_JOB_OPTIONS: JobsOptions = {
   removeOnFail: { count: 1000 },
 };
 
-/** Real, BullMQ-backed job queue (see modules/notifications for the first consumer). Safe to
- *  call more than once with the same `name` — returns the same underlying Queue. */
-export function createJobQueue(name: string): JobQueue {
+function getOrCreateQueue(name: string): Queue {
   let queue = queues.get(name);
   if (!queue) {
     queue = new Queue(name, {
@@ -37,7 +35,13 @@ export function createJobQueue(name: string): JobQueue {
     });
     queues.set(name, queue);
   }
-  const resolvedQueue = queue;
+  return queue;
+}
+
+/** Real, BullMQ-backed job queue (see modules/notifications for the first consumer). Safe to
+ *  call more than once with the same `name` — returns the same underlying Queue. */
+export function createJobQueue(name: string): JobQueue {
+  const resolvedQueue = getOrCreateQueue(name);
 
   return {
     async enqueue(
@@ -59,6 +63,21 @@ export function createJobQueue(name: string): JobQueue {
       }
     },
   };
+}
+
+/** Schedules `jobName` on `queueName` every `everyMs` (BullMQ job scheduler). Idempotent — safe on
+ *  every boot and from several app instances: the scheduler id dedupes it to one schedule. */
+export async function upsertRepeatingJob(
+  queueName: string,
+  schedulerId: string,
+  everyMs: number,
+  jobName: string,
+): Promise<void> {
+  await getOrCreateQueue(queueName).upsertJobScheduler(
+    schedulerId,
+    { every: everyMs },
+    { name: jobName, opts: { removeOnComplete: true, removeOnFail: { count: 100 } } },
+  );
 }
 
 /** Called from server.ts's graceful shutdown, before closeQueueConnection(). */

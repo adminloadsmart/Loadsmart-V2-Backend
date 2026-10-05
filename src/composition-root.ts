@@ -300,6 +300,10 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/driver-auth', router: driverIdentity.authProtectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
-    backgroundWorkers: [notifications.worker, masters.vehicleComplianceAlertsWorker],
+    backgroundWorkers: [
+      notifications.worker,
+      masters.vehicleComplianceAlertsWorker,
+      tracking.outboxWorker,
+    ],
   };
 }
