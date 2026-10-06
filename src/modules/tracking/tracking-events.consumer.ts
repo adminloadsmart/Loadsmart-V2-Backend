@@ -121,5 +121,6 @@ export class TrackingEventsConsumer {
         severity: alert.severity,
       },
     );
+    await this.redis().set(seenKey, '1', 'EX', DEDUPE_TTL_SECONDS);
   }
 }

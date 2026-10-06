@@ -303,7 +303,7 @@ export function buildContainer(dataSource: DataSource): Container {
     backgroundWorkers: [
       notifications.worker,
       masters.vehicleComplianceAlertsWorker,
-      tracking.outboxWorker,
+      tracking.eventsWorker,
     ],
   };
 }

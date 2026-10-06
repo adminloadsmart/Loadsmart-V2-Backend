@@ -94,12 +94,31 @@ describe('TrackingEventsConsumer', () => {
     expect(redis.xack).toHaveBeenCalledTimes(3);
   });
 
-  it('does not ack an entry whose notification failed (redelivered next run)', async () => {
-    const { consumer, notify, redis } = build([
-      { eventId: '1', type: 'alert.opened', tenantId: 't1', payload: alert() },
-    ]);
-    notify.mockRejectedValueOnce(new Error('db down'));
-    await expect(consumer.consume()).rejects.toThrow('db down');
-    expect(redis.xack).not.toHaveBeenCalled();
+  it('marks an event seen only after notifying: a redelivery does not notify twice', async () => {
+    const seen = new Set<string>();
+    const entry = { eventId: '5', type: 'alert.opened', tenantId: 't1', payload: alert() };
+    const first = build([entry], seen);
+    await first.consumer.consume();
+    expect(first.notify).toHaveBeenCalledTimes(1);
+    expect(seen.has('tracking-events:seen:5')).toBe(true);
+
+    const redelivered = build([entry], seen);
+    await redelivered.consumer.consume();
+    expect(redelivered.notify).not.toHaveBeenCalled();
+    expect(redelivered.redis.xack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed notification is neither acked nor marked seen, so the retry notifies', async () => {
+    const seen = new Set<string>();
+    const entry = { eventId: '1', type: 'alert.opened', tenantId: 't1', payload: alert() };
+    const first = build([entry], seen);
+    first.notify.mockRejectedValueOnce(new Error('db down'));
+    await expect(first.consumer.consume()).rejects.toThrow('db down');
+    expect(first.redis.xack).not.toHaveBeenCalled();
+    expect(seen.has('tracking-events:seen:1')).toBe(false);
+
+    const retry = build([entry], seen);
+    await retry.consumer.consume();
+    expect(retry.notify).toHaveBeenCalledTimes(1);
   });
 });
