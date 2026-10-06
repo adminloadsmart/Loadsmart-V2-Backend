@@ -128,6 +128,19 @@ const onboardGpsBody = z
     'provider and deviceImei need hasGps: true',
   );
 
+/** A wheel position code (FL, FR, R1L, …) — checked against the truck's layout in the service. */
+const tyrePosition = z
+  .string()
+  .trim()
+  .min(1)
+  .max(20)
+  .regex(/^[A-Za-z0-9-]+$/, 'position must be letters, digits or -');
+
+const uniquePositions = (set: { positions?: { position: string }[] }) => {
+  const positions = (set.positions ?? []).map((p) => p.position.toUpperCase());
+  return new Set(positions).size === positions.length;
+};
+
 const tyreSetBody = z
   .object({
     preset: z.enum(TYRE_CONDITION_PRESET_KEYS),
@@ -135,12 +148,7 @@ const tyreSetBody = z
       .array(
         z
           .object({
-            position: z
-              .string()
-              .trim()
-              .min(1)
-              .max(20)
-              .regex(/^[A-Za-z0-9-]+$/, 'position must be letters, digits or -'),
+            position: tyrePosition,
             treadMm: z.number().positive().max(40),
             fittedAt: isoDate.optional(),
             brand: z.string().trim().min(1).max(100).optional(),
@@ -151,10 +159,38 @@ const tyreSetBody = z
       .optional(),
   })
   .strict()
-  .refine((set) => {
-    const positions = (set.positions ?? []).map((p) => p.position.toUpperCase());
-    return new Set(positions).size === positions.length;
-  }, 'Each position can be set only once');
+  .refine(uniquePositions, 'Each position can be set only once');
+
+/** PATCH vehicle's `tyres` — "fix any one later": re-set the whole set with a preset, correct
+ *  single positions, or both. Each position fix needs something to change. */
+const tyreUpdateBody = z
+  .object({
+    preset: z.enum(TYRE_CONDITION_PRESET_KEYS).optional(),
+    positions: z
+      .array(
+        z
+          .object({
+            position: tyrePosition,
+            treadMm: z.number().positive().max(40).optional(),
+            fittedAt: isoDate.optional(),
+            brand: z.string().trim().min(1).max(100).optional(),
+          })
+          .strict()
+          .refine(
+            (fix) =>
+              fix.treadMm !== undefined || fix.fittedAt !== undefined || fix.brand !== undefined,
+            'Send at least one of treadMm, fittedAt or brand',
+          ),
+      )
+      .min(1)
+      .max(22)
+      .optional(),
+  })
+  .strict()
+  .refine((set) => set.preset !== undefined || set.positions !== undefined, {
+    message: 'Send a preset, positions, or both',
+  })
+  .refine(uniquePositions, 'Each position can be set only once');
 
 const vehicleOperationalStatusBody = z.object({
   operationalStatus: z.enum(VEHICLE_OPERATIONAL_STATUSES),
@@ -345,8 +381,13 @@ export const vehicleValidators = {
         // Selecting a driver from the edit-vehicle dropdown re-links it as the vehicle's primary
         // driver, in the same transaction as any other field changes here — see setPrimaryDriver.
         driverId: uuid.optional(),
+        tyres: tyreUpdateBody.optional(),
       })
-      .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required')
+      .refine((data) => !(data.tyres && data.ownershipType === 'attached'), {
+        path: ['tyres'],
+        message: 'An attached truck has no tyre tracking — its owner handles tyres',
+      }),
   }),
   deleteVehicle: z.object({ params: vehicleParams }),
   approveVehicle: z.object({ params: vehicleParams }),

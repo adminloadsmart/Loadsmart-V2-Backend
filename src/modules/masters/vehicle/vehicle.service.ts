@@ -368,16 +368,26 @@ export class VehicleService {
     actorId: string,
     vehicleId: string,
     input: UpdateVehicleInput,
-  ): Promise<VehicleEntity> {
+  ): Promise<VehicleWithTyres> {
     try {
-      const { driverId, ...fields } = input;
+      const { driverId, tyres, ...fields } = input;
+
+      if (tyres && !this.tyreSetupGateway) {
+        throw new Error('Tyre setup is not wired — see composition-root.ts');
+      }
 
       if (fields.truckTypeId) {
         await this.truckTypeService.assertTruckTypeExists(tenantId, fields.truckTypeId);
       }
 
-      return await this.dataSource.transaction(async (manager) => {
+      const vehicle = await this.dataSource.transaction(async (manager) => {
         const existing = await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+        if (tyres && (fields.ownershipType ?? existing.ownershipType) === 'attached') {
+          throw new ValidationError(
+            'An attached truck has no tyre tracking — its owner handles tyres',
+          );
+        }
 
         // A truck in the workshop is released only by closing its breakdown, which puts it back
         // in front of dispatch in the same action — a manual status edit here would bypass that.
@@ -417,10 +427,31 @@ export class VehicleService {
           );
         }
 
-        const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
-        if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
-        return vehicle;
+        const updated = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
+        if (!updated) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
+
+        // After the field changes, so a wheel-count / truck-type change in the same PATCH sets
+        // the layout the tyres are checked against.
+        if (tyres) {
+          const usage = await this.vehicleRepository.findServiceUsage(tenantId, vehicleId, manager);
+          await this.tyreSetupGateway!.updateTyreSet(
+            tenantId,
+            actorId,
+            {
+              id: vehicleId,
+              wheelCount: updated.wheelCount,
+              odometerKm: usage?.odometerKm ?? null,
+            },
+            tyres,
+            manager,
+          );
+        }
+
+        return updated;
       });
+
+      const fittedTyres = await this.fetchTyres(tenantId, [vehicle]);
+      return { ...vehicle, tyres: fittedTyres.get(vehicle.id) ?? [] };
     } catch (error) {
       rethrow(error, 'Failed to update vehicle');
     }

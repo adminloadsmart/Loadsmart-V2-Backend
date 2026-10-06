@@ -447,6 +447,27 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/tyres/{tyreId}`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.updateTyre',
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Correct one fitted tyre ("Save position"). treadMm is appended as a new reading (history ' +
+        'is kept, not overwritten) and must not exceed the original tread; brand, serialNumber, ' +
+        "sizeCode and fittedAt edit the tyre. fittedAt can't be in the future or after the tyre's " +
+        'first reading.',
+    ),
+    request: { params: v.updateTyre.shape.params, body: json(v.updateTyre.shape.body) },
+    responses: {
+      200: { description: 'Tyre' },
+      400: validationFailed,
+      404: notFound,
+      409: conflict,
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/tyres/{tyreId}/remove`,
     tags: [TAGS.MAINTENANCE],
