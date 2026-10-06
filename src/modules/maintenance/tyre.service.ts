@@ -25,7 +25,7 @@ import {
 import { blankJob, MaintenanceService } from './maintenance.service';
 import { toJobView, toVehicleSummary } from './maintenance.views';
 import { isUniqueViolation } from './utils/unique-violation';
-import { InitialTyreSetInput } from '../masters/vehicle/vehicle.interface';
+import { InitialTyreSetInput, VehicleTyreSummary } from '../masters/vehicle/vehicle.interface';
 import { TYRE_CONDITION_PRESETS } from '../masters/vehicle/vehicle.type';
 
 function toTyreView(tyre: TyreEntity) {
@@ -151,6 +151,52 @@ export class TyreService {
           };
         }),
       };
+    } catch (error) {
+      rethrow(error, 'Failed to read vehicle tyres');
+    }
+  }
+
+  /** Masters' TyreSetupGateway read side — the fitted tyres of many trucks with their wear, keyed
+   *  by vehicle id, for the vehicle list / detail / onboarding responses. */
+  async listFittedSummaries(
+    tenantId: string,
+    vehicleIds: string[],
+  ): Promise<Map<string, VehicleTyreSummary[]>> {
+    try {
+      const fitted = await this.tyreRepository.listFittedForVehicles(tenantId, vehicleIds);
+      const readings = await this.tyreRepository.latestReadings(
+        tenantId,
+        fitted.map((tyre) => tyre.id),
+      );
+      const today = toIstDateString(new Date());
+
+      const byVehicle = new Map<string, VehicleTyreSummary[]>();
+      for (const tyre of fitted) {
+        const reading = readings.get(tyre.id) ?? null;
+        const wear = wearOf(tyre, reading, tyre.vehicle?.serviceUsage?.odometerKm ?? null, today);
+        const summary: VehicleTyreSummary = {
+          id: tyre.id,
+          position: tyre.position,
+          brand: tyre.brand,
+          serialNumber: tyre.serialNumber,
+          sizeCode: tyre.sizeCode,
+          fittedAt: tyre.fittedAt,
+          retreadCount: tyre.retreadCount,
+          maxRetreads: tyre.maxRetreads,
+          casingCondition: tyre.casingCondition,
+          originalTreadMm: Number(tyre.originalTreadMm),
+          currentTreadMm: wear.currentTreadMm,
+          treadEstimated: wear.estimated,
+          usableTreadLeftPct: wear.usableTreadLeftPct,
+          nearLimit: wear.nearLimit,
+          atLegalLimit: wear.atLegalLimit,
+          lastReadingDate: reading?.readingDate ?? null,
+        };
+        const list = byVehicle.get(tyre.vehicleId);
+        if (list) list.push(summary);
+        else byVehicle.set(tyre.vehicleId, [summary]);
+      }
+      return byVehicle;
     } catch (error) {
       rethrow(error, 'Failed to read vehicle tyres');
     }

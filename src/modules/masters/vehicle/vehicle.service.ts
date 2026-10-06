@@ -40,7 +40,9 @@ import {
   TruckTypePickInput,
   UpdateVehicleDocumentInput,
   UpdateVehicleInput,
+  VehicleTyreSummary,
   VehicleVerificationPapersInput,
+  VehicleWithTyres,
 } from './vehicle.interface';
 
 /** Derives the document's lifecycle state from its expiry date; undated documents stay `valid`. */
@@ -311,6 +313,44 @@ export class VehicleService {
     } catch (error) {
       rethrow(error, 'Failed to list compliance alerts');
     }
+  }
+
+  /** `listVehicles` plus each row's fitted tyres — the fleet list's response. Kept separate from
+   *  listVehicles, which other modules (dispatch, dashboards) call and don't need tyres from. */
+  async listVehiclesWithTyres(
+    tenantId: string,
+    input: ListVehiclesInput,
+  ): Promise<Paginated<VehicleWithTyres>> {
+    try {
+      const page = await this.listVehicles(tenantId, input);
+      const tyres = await this.fetchTyres(tenantId, page.items);
+      return { ...page, items: page.items.map((v) => ({ ...v, tyres: tyres.get(v.id) ?? [] })) };
+    } catch (error) {
+      rethrow(error, 'Failed to list vehicles');
+    }
+  }
+
+  /** `getVehicle` plus the vehicle's fitted tyres — the detail and onboarding response. */
+  async getVehicleWithTyres(tenantId: string, vehicleId: string): Promise<VehicleWithTyres> {
+    try {
+      const vehicle = await this.getVehicle(tenantId, vehicleId);
+      const tyres = await this.fetchTyres(tenantId, [vehicle]);
+      return { ...vehicle, tyres: tyres.get(vehicle.id) ?? [] };
+    } catch (error) {
+      rethrow(error, 'Failed to fetch vehicle');
+    }
+  }
+
+  // Not wired (e.g. a test container without maintenance) degrades to "no tyres" rather than failing a read.
+  private async fetchTyres(
+    tenantId: string,
+    vehicles: VehicleEntity[],
+  ): Promise<Map<string, VehicleTyreSummary[]>> {
+    if (!this.tyreSetupGateway || vehicles.length === 0) return new Map();
+    return this.tyreSetupGateway.listFittedForVehicles(
+      tenantId,
+      vehicles.map((v) => v.id),
+    );
   }
 
   async getVehicle(tenantId: string, vehicleId: string): Promise<VehicleEntity> {
@@ -826,7 +866,7 @@ export class VehicleService {
     actorId: string,
     actorRole: string,
     input: OnboardVehicleInput,
-  ): Promise<VehicleEntity> {
+  ): Promise<VehicleWithTyres> {
     try {
       const {
         verification,
@@ -954,7 +994,7 @@ export class VehicleService {
         return vehicle.id;
       });
 
-      return await this.getVehicle(tenantId, vehicleId);
+      return await this.getVehicleWithTyres(tenantId, vehicleId);
     } catch (error) {
       rethrow(error, 'Failed to onboard vehicle');
     }

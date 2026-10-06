@@ -1,5 +1,5 @@
 import { EntityManager } from 'typeorm';
-import { InitialTyreSetInput } from '../vehicle.interface';
+import { InitialTyreSetInput, VehicleTyreSummary } from '../vehicle.interface';
 
 /**
  * What onboarding needs from maintenance to switch on "Tyre life": fit a tyre at every position of
@@ -15,4 +15,12 @@ export interface TyreSetupGateway {
     input: InitialTyreSetInput,
     manager: EntityManager,
   ): Promise<void>;
+
+  /** The tyres currently fitted to each of these vehicles (keyed by vehicle id, positions in
+   *  order), for the fleet list / detail / onboarding responses. One batched read — vehicles with
+   *  no tyres on record are simply absent from the map. */
+  listFittedForVehicles(
+    tenantId: string,
+    vehicleIds: string[],
+  ): Promise<Map<string, VehicleTyreSummary[]>>;
 }

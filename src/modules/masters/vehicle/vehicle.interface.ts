@@ -1,6 +1,7 @@
 import { PaginationInput } from '../../../shared/utils/pagination';
 import { LinkDriverInput } from '../fleet-driver-link/fleet-driver-link.interface';
 import { PickerBody } from './truck-type-picker.constants';
+import type { VehicleEntity } from './entities/vehicle.entity';
 import {
   TyreConditionPreset,
   VehicleAxleType,
@@ -373,6 +374,33 @@ export interface TyrePositionInput {
   fittedAt?: string;
   brand?: string;
 }
+
+/** One tyre currently fitted to a vehicle, as shown on the fleet list / vehicle detail / onboarding
+ *  response. Wear figures come from maintenance's tyre-wear calculation (`treadEstimated` is true
+ *  when there's no gauge reading behind the number). Own-fleet trucks only — attached trucks have
+ *  no tyre tracking, so their `tyres` is always empty. */
+export interface VehicleTyreSummary {
+  id: string;
+  position: string;
+  brand: string | null;
+  serialNumber: string | null;
+  sizeCode: string | null;
+  fittedAt: string;
+  retreadCount: number;
+  maxRetreads: number;
+  casingCondition: string;
+  originalTreadMm: number;
+  currentTreadMm: number;
+  treadEstimated: boolean;
+  /** Share of usable tread (original down to the legal floor) still left, 0–100. */
+  usableTreadLeftPct: number;
+  nearLimit: boolean;
+  atLegalLimit: boolean;
+  lastReadingDate: string | null;
+}
+
+/** A vehicle row/detail with its fitted tyres attached. */
+export type VehicleWithTyres = VehicleEntity & { tyres: VehicleTyreSummary[] };
 
 /** "Tyre life": every position starts at the preset's depth, then `positions` override some. */
 export interface InitialTyreSetInput {
