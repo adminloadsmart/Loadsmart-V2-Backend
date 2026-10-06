@@ -56,7 +56,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks past their service interval by distance or months, whichever came first. `trigger` ' +
         'says which clock ran out (distance | time | both | no_record); only the triggered ' +
-        'overdueKm/overdueDays is set. Current state — not filtered by period. ' +
+        'overdueKm/overdueDays is set; `whatItNeeds` is the ready-made "What it needs" text. ' +
+        '`vehicle.truckTypeName` is the Class column. Current state — not filtered by period. ' +
         OWN_FLEET_NOTE,
     ),
     responses: { 200: { description: 'Service-due queue — { items, total }' } },
@@ -69,7 +70,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.listBreakdowns',
     ...authenticated(
       'Trucks currently off the road (open breakdowns), oldest first, with where/when/towed, ' +
-        'days down and market loads covering each. ' +
+        'days down and market loads covering each. `whatItNeeds.detail` is the reported problem; ' +
+        '`vehicle.truckTypeName` is the Class column. ' +
         COSTS_NOTE +
         ' ' +
         OWN_FLEET_NOTE,
@@ -114,7 +116,9 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.listInWorkshop',
     ...authenticated(
       'Every truck in the workshop right now — service check-ins and breakdowns together, ' +
-        'oldest first, with days in and market loads covering each. ' +
+        'oldest first, with days in and market loads covering each. `workshopIntake` = ' +
+        '{ since, days, hours } for "In workshop since … (1d 2h)"; `vehicle.truckTypeName` is ' +
+        'the Class column. ' +
         COSTS_NOTE +
         ' ' +
         OWN_FLEET_NOTE,
@@ -132,7 +136,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks with an expired RC/insurance/permit/PUC/fitness that are not in the workshop — ' +
         'the availability bar’s "Blocked on papers" bucket. Dispatch only warns on these ' +
-        '(dispatchEffect: warns_on_assign). ' +
+        '(dispatchEffect: warns_on_assign). `whatItNeeds.detail` names the expired papers; ' +
+        '`vehicle.truckTypeName` is the Class column. ' +
         OWN_FLEET_NOTE,
     ),
     responses: { 200: { description: 'Blocked on papers — { items, total }' } },

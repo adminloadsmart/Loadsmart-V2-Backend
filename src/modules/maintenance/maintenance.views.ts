@@ -1,6 +1,8 @@
 import { MaintenanceJobEntity, ReplacedPart } from './entities/maintenance-job.entity';
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { dailyFixedCost, elapsedDays, jobDays, money } from './calculations/downtime';
+import { elapsedDaysHours } from './calculations/dates';
+import { ServiceDueResult } from './calculations/service-due';
 import { JobCostInput } from './maintenance.interface';
 
 const toNumber = (value: string | null): number | null => (value === null ? null : Number(value));
@@ -14,6 +16,47 @@ export function toVehicleSummary(vehicle: VehicleEntity) {
     truckTypeName: vehicle.truckType?.name ?? null,
     status: vehicle.status,
   };
+}
+
+/** The "What it needs" column on a service-due row — which clock ran out and by how much. */
+export function serviceWhatItNeeds(due: ServiceDueResult) {
+  const pastInterval = (amount: number, unit: string) =>
+    amount > 0 ? `${amount.toLocaleString('en-IN')} ${unit} past the interval` : 'due now';
+
+  let detail: string;
+  if (due.trigger === 'no_record') detail = 'no service record';
+  else if (due.overdueKm) detail = pastInterval(due.overdueKm, 'km');
+  else detail = pastInterval(due.overdueDays ?? 0, 'days');
+
+  return { need: 'service' as const, detail };
+}
+
+/** The "What it needs" column on a breakdown row — the reported problem. */
+export function breakdownWhatItNeeds(job: MaintenanceJobEntity) {
+  return { need: 'breakdown' as const, detail: job.description };
+}
+
+const PAPER_LABELS: Record<string, string> = {
+  rc: 'RC',
+  insurance: 'Insurance',
+  permit: 'Permit',
+  puc: 'PUC',
+  fitness: 'Fitness',
+  road_tax: 'Road tax',
+};
+
+/** The "What it needs" column on a blocked-on-papers row — which papers to renew, and how long
+ *  the oldest has been expired. `documents` is oldest-first (expiredDocuments sorts it). */
+export function papersWhatItNeeds(documents: { documentType: string; daysExpired: number }[]) {
+  const names = documents.map((d) => PAPER_LABELS[d.documentType] ?? d.documentType).join(', ');
+  const days = documents[0]?.daysExpired ?? 0;
+  const ago = days > 0 ? `${days} ${days === 1 ? 'day' : 'days'} ago` : 'today';
+  return { need: 'papers' as const, detail: `${names} expired ${ago}` };
+}
+
+/** The "Workshop intake" column on the in-workshop queue — when it went in and for how long. */
+export function toWorkshopIntake(job: MaintenanceJobEntity, now = new Date()) {
+  return { since: job.openedAt, ...elapsedDaysHours(job.openedAt, now) };
 }
 
 /**

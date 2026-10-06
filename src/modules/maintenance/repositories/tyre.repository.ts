@@ -81,6 +81,16 @@ export class TyreRepository {
     });
   }
 
+  /** Fitted tyres across several trucks in one query, with each truck's odometer for the wear maths. */
+  listFittedForVehicles(tenantId: string, vehicleIds: string[]): Promise<TyreEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    return this.tyres.find({
+      where: { tenantId, vehicleId: In(vehicleIds), status: 'fitted' },
+      relations: { vehicle: { serviceUsage: true } },
+      order: { position: 'ASC' },
+    });
+  }
+
   createReading(data: CreateTyreReadingData, manager?: EntityManager): Promise<TyreReadingEntity> {
     const repo = manager?.getRepository(TyreReadingEntity) ?? this.readings;
     return repo.save(repo.create(data));

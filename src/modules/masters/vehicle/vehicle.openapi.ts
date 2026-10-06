@@ -28,7 +28,9 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     request: { query: vehicleValidators.listVehicles.shape.query },
     responses: {
       200: {
-        description: 'Paginated vehicles — { data: { items, page, limit, total, totalPages } }',
+        description:
+          'Paginated vehicles — { data: { items, page, limit, total, totalPages } }. ' +
+          'Each vehicle carries `tyres` — the tyres currently fitted (position, brand, serial, size, fitted date, retreads, casing, current/original tread mm, usableTreadLeftPct, nearLimit/atLegalLimit, treadEstimated); empty for attached trucks or when none are on record.',
       },
     },
   });
@@ -54,7 +56,7 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',
     ...authenticated(
-      'Get a single vehicle, including its documents, linked drivers, and telemetry (EMI + GPS).',
+      'Get a single vehicle, including its documents, linked drivers, telemetry (EMI + GPS) and fitted `tyres` with their wear.',
     ),
     request: { params: vehicleValidators.getVehicle.shape.params },
     responses: {
@@ -257,7 +259,10 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { body: json(vehicleValidators.onboardVehicle.shape.body) },
     responses: {
-      201: { description: 'Created vehicle, with relations loaded' },
+      201: {
+        description:
+          'Created vehicle, with relations loaded and the fitted `tyres` created from the `tyres` block (empty if none was sent)',
+      },
       400: { description: 'Validation failed', ...errorContent },
       409: { description: 'Registration number already in use', ...errorContent },
     },
