@@ -4,6 +4,8 @@
  * services can never drift apart.
  */
 
+import type { MessageKey } from '../../../shared/i18n/translate';
+
 export const REQUISITION_STATUSES = ['open', 'fully_dispatched', 'closed'] as const;
 export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
 
@@ -147,19 +149,19 @@ export const MARKET_LIFECYCLE_STATUSES: readonly LoadStatus[] = [
  *  equivalent (R-17: "Own-fleet movements carry no freight, advance or balance"). */
 export const PAYMENTS_STAGE = 'payments' as const;
 
-/** Doc-exact wording (Plan Dispatch v2.0 §11) for the stage a load is currently "at". Rows for
+/** Catalog keys for the doc-exact wording (Plan Dispatch v2.0 §11, English text in catalog/en.ts) for the stage a load is currently "at". Rows for
  *  loading_confirmed/at_plant/closed intentionally repeat their collapsed target's label — see
  *  utils/trip-view.ts's resolveLifecycleStage, the only place that does the collapsing. */
-export const LIFECYCLE_STAGE_LABELS: Record<LoadStatus | typeof PAYMENTS_STAGE, string> = {
-  created: 'Load created',
-  assigned: 'Truck assigned',
-  loading_confirmed: 'Truck assigned',
-  at_plant: 'Truck assigned',
-  in_transit: 'In-transit',
-  reached_delivery_point: 'Reached unloading point',
-  delivered: 'Delivered',
-  closed: 'Delivered',
-  payments: 'Payments',
+export const LIFECYCLE_STAGE_LABEL_KEYS: Record<LoadStatus | typeof PAYMENTS_STAGE, MessageKey> = {
+  created: 'loads.stage.created',
+  assigned: 'loads.stage.assigned',
+  loading_confirmed: 'loads.stage.assigned',
+  at_plant: 'loads.stage.assigned',
+  in_transit: 'loads.stage.inTransit',
+  reached_delivery_point: 'loads.stage.reachedDelivery',
+  delivered: 'loads.stage.delivered',
+  closed: 'loads.stage.delivered',
+  payments: 'loads.stage.payments',
 };
 
 /** The subset of LOAD_STATUSES settable via PATCH /loads/:id/status (manual tracking —

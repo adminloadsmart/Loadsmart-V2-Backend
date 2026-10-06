@@ -63,6 +63,7 @@ export function createLoadsModule(
 
   const loadService = new LoadService(
     loadRepository,
+    deps.authService,
     loadPaymentRepository,
     loadIssueRepository,
     deps.transporterService,

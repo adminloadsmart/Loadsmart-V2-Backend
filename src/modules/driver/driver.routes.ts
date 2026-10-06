@@ -58,15 +58,6 @@ export function createDriverRoutes(controller: DriverController): Router {
     asyncHandler(controller.listDrivers),
   );
 
-  // Fleet-owner-initiated invite by phone — the driver accepts/rejects via
-  // POST /v1/driver-relations/:relationId/accept|reject (see driver-relations.routes.ts).
-  // Declared before '/drivers/:driverId' so it isn't shadowed by that param route.
-  router.post(
-    '/drivers/invite',
-    canWrite,
-    validate(driverValidators.inviteDriver),
-    asyncHandler(controller.inviteDriver),
-  );
   // Driver-initiated join requests awaiting this tenant's approval — approve/reject reuse the
   // /drivers/:driverId/approve|reject endpoints below.
   router.get(

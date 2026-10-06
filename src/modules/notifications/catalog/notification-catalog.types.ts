@@ -1,3 +1,4 @@
+import type { Locale } from '../../../shared/i18n/locales';
 import { NotificationChannelName } from '../notifications.types';
 
 /**
@@ -27,7 +28,11 @@ export interface NotificationTypeDefinition<TContext> {
    *  mockup's shown toggle states per row. "Reset to Default" (notification-preferences.service.ts)
    *  puts a tenant back to exactly this. */
   defaultChannels: NotificationChannelName[];
-  buildContent(context: TContext): {
+  /** `locale` is the recipient-facing language; omitted means English. */
+  buildContent(
+    context: TContext,
+    locale?: Locale,
+  ): {
     title: string;
     body: string;
     /** Structured variables forwarded as-is to MSG91-templated channels (e.g. whatsapp) — the

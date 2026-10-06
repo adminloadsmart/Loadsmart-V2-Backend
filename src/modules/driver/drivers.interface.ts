@@ -291,14 +291,6 @@ export interface OnboardDriverInput extends CreateDriverInput {
   operationalStatus?: SetDriverOperationalStatusInput;
 }
 
-export interface InviteDriverInput {
-  phoneNumber: string;
-  fullName?: string;
-  dateOfJoining?: string;
-  salaryType?: DriverSalaryType;
-  salaryAmount?: number;
-}
-
 /* Route parameter shapes, used to type `Request<P>` in the controller. */
 
 export type DriverParams = { driverId: string };

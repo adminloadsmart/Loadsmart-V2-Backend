@@ -30,7 +30,6 @@ import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
   CreateDriverInput,
-  InviteDriverInput,
   ListDriversInput,
   OnboardDriverInput,
   RecordDriverTripMetricsInput,
@@ -229,9 +228,10 @@ export class DriverService {
 
   /**
    * Only called internally, by onboardDriver — there is no standalone create-driver route.
-   * org_admin's own driver lands `active` immediately; dispatch's (the only other role
-   * masters.routes.ts's canWrite gate admits) lands `pending_staff_review` until an org_admin
-   * reviews it via approveDriver/rejectDriver.
+   * org_admin's driver goes straight to the driver as a join request (`pending_driver_review`);
+   * dispatch's (the only other role the canWrite gate admits) lands `pending_staff_review` until an
+   * org_admin approves it via approveDriver, which is what sends the request to the driver.
+   * Neither path makes the driver `active` — only the driver's own accept does.
    */
   private async createDriver(
     tenantId: string,
@@ -253,18 +253,18 @@ export class DriverService {
           throw new ConflictError('A driver with this phone number already exists');
         }
 
-        const autoApproved = actorRole === ORG_ADMIN_ROLE;
+        const isAdmin = actorRole === ORG_ADMIN_ROLE;
         const relation = await this.driverTenantRelationRepository.create(
           {
             tenantId,
             driverId: driver.id,
-            status: autoApproved ? 'active' : 'pending_staff_review',
-            initiatedBy: 'staff',
+            status: isAdmin ? 'pending_driver_review' : 'pending_staff_review',
+            initiatedBy: isAdmin ? 'fleet_owner' : 'staff',
             initiatedByUserId: actorId,
             driverRespondedAt: null,
             fleetOwnerRespondedAt: new Date(),
-            approvedBy: autoApproved ? actorId : null,
-            approvedAt: autoApproved ? new Date() : null,
+            approvedBy: null,
+            approvedAt: null,
             createdBy: actorId,
           },
           txManager,
@@ -765,14 +765,16 @@ export class DriverService {
           )
         : null;
 
+      let invited = false;
       const driverId = await this.dataSource.transaction(async (manager) => {
-        const { driver } = await this.createDriver(
+        const { driver, relation } = await this.createDriver(
           tenantId,
           actorId,
           actorRole,
           driverInput,
           manager,
         );
+        invited = relation.status === 'pending_driver_review';
 
         if (verification) {
           await this.recordVerification(tenantId, actorId, driver.id, verification, manager);
@@ -826,104 +828,22 @@ export class DriverService {
         return driver.id;
       });
 
+      if (invited) {
+        const organization = await this.organizationService.getOrganizationStatus(tenantId);
+        await this.driverPushNotifier.notifyInvited(
+          tenantId,
+          driverId,
+          organization.name ?? 'A fleet owner',
+        );
+      }
+
       return await this.getDriver(tenantId, driverId);
     } catch (error) {
       rethrow(error, 'Failed to onboard driver');
     }
   }
 
-  /**
-   * Fleet-owner-initiated invite: a staff member invites a driver by phone. If the phone has no
-   * global profile yet, a minimal shell profile is created (an invite can predate registration) —
-   * the driver fills in their own details when they self-register/accept.
-   */
-  async inviteDriverByPhone(
-    tenantId: string,
-    actorId: string,
-    input: InviteDriverInput,
-  ): Promise<DriverWithRelation> {
-    try {
-      const result = await this.dataSource.transaction(async (manager) => {
-        let driver = await this.driverRepository.findByPhoneNumber(input.phoneNumber);
-        if (!driver) {
-          driver = await this.driverRepository.create(
-            {
-              fullName: input.fullName ?? 'Pending driver',
-              phoneNumber: input.phoneNumber,
-              licenseNumber: null,
-              licenseExpiry: null,
-              dateOfJoining: input.dateOfJoining ?? null,
-              salaryType: input.salaryType ?? null,
-              salaryAmount: input.salaryAmount === undefined ? null : String(input.salaryAmount),
-              dateOfBirth: null,
-              bloodGroup: null,
-              addressLine1: null,
-              addressLine2: null,
-              city: null,
-              pinCode: null,
-              emergencyContactName: null,
-              emergencyContactPhone: null,
-              emergencyContactRelation: null,
-              hasLifeInsurance: false,
-              hasHealthInsurance: false,
-              registrationSource: 'staff_created',
-              createdBy: actorId,
-            },
-            manager,
-          );
-        }
-
-        const existingRelation = await this.driverTenantRelationRepository.findByTenantAndDriver(
-          tenantId,
-          driver.id,
-          manager,
-        );
-        if (existingRelation) {
-          throw new ConflictError('A driver with this phone number already exists');
-        }
-
-        const relation = await this.driverTenantRelationRepository.create(
-          {
-            tenantId,
-            driverId: driver.id,
-            status: 'pending_driver_review',
-            initiatedBy: 'fleet_owner',
-            initiatedByUserId: actorId,
-            driverRespondedAt: null,
-            fleetOwnerRespondedAt: new Date(),
-            approvedBy: null,
-            approvedAt: null,
-            createdBy: actorId,
-          },
-          manager,
-        );
-
-        await this.auditService.log({
-          tenantId,
-          userId: actorId,
-          action: 'DRIVER_INVITED',
-          resourceType: 'driver',
-          oldData: null,
-          newData: { driverId: driver.id, phoneNumber: input.phoneNumber },
-        });
-
-        return flattenRelation({ ...relation, driver });
-      });
-
-      const organization = await this.organizationService.getOrganizationStatus(tenantId);
-      await this.driverPushNotifier.notifyInvited(
-        tenantId,
-        result.id,
-        organization.name ?? 'A fleet owner',
-      );
-
-      return result;
-    } catch (error) {
-      rethrow(error, 'Failed to invite driver');
-    }
-  }
-
-  /** Relations awaiting staff review, from either origin (dispatch onboarding or a driver join-request). */
+  /** Relations awaiting admin review, from either origin (dispatch-added driver or a driver join-request). */
   async listPendingStaffReview(tenantId: string): Promise<DriverWithRelation[]> {
     try {
       const relations = await this.driverTenantRelationRepository.listPendingStaffReview(tenantId);
@@ -968,7 +888,11 @@ export class DriverService {
     }
   }
 
-  /** Approves a `pending_staff_review` relation — dispatch's own onboarding, or a driver's join request. */
+  /**
+   * Approves a `pending_staff_review` relation. A dispatch-added driver (initiatedBy: 'staff') is
+   * only now sent the join request (`pending_driver_review`); a driver's own join request
+   * (initiatedBy: 'driver') becomes `active`.
+   */
   async approveDriver(
     tenantId: string,
     actorId: string,
@@ -980,10 +904,13 @@ export class DriverService {
         throw new ConflictError('Only a pending driver can be approved');
       }
 
+      const sendToDriver = existing.initiatedBy !== 'driver';
+      const nextStatus = sendToDriver ? 'pending_driver_review' : 'active';
       const relation = await this.driverTenantRelationRepository.approve(
         tenantId,
         existing.id,
         actorId,
+        nextStatus,
       );
       if (!relation) throw new ConflictError('Driver approval failed');
 
@@ -993,13 +920,17 @@ export class DriverService {
         action: 'DRIVER_APPROVED',
         resourceType: 'driver',
         oldData: { id: driverId, status: 'pending_staff_review' },
-        newData: { id: driverId, status: 'active', approvedBy: actorId },
+        newData: { id: driverId, status: nextStatus, approvedBy: actorId },
       });
 
-      // Driver-initiated join requests are the only case where the driver is waiting on this
-      // decision — a dispatch-added driver (initiatedBy: 'staff') has no session to notify yet.
-      if (existing.initiatedBy === 'driver') {
-        const organization = await this.organizationService.getOrganizationStatus(tenantId);
+      const organization = await this.organizationService.getOrganizationStatus(tenantId);
+      if (sendToDriver) {
+        await this.driverPushNotifier.notifyInvited(
+          tenantId,
+          driverId,
+          organization.name ?? 'A fleet owner',
+        );
+      } else {
         await this.driverPushNotifier.notifyJoinRequestApproved(
           tenantId,
           driverId,
