@@ -43,7 +43,16 @@ import {
   SetServicePolicyInput,
   UpdateJobInput,
 } from './maintenance.interface';
-import { resolveJobCosts, toBreakdownView, toJobView, toVehicleSummary } from './maintenance.views';
+import {
+  breakdownWhatItNeeds,
+  papersWhatItNeeds,
+  resolveJobCosts,
+  serviceWhatItNeeds,
+  toBreakdownView,
+  toJobView,
+  toVehicleSummary,
+  toWorkshopIntake,
+} from './maintenance.views';
 import { isUniqueViolation } from './utils/unique-violation';
 
 /** How a finished visit treats the service clock: a ServiceType moves it only if it is one of
@@ -144,6 +153,7 @@ export class MaintenanceService {
         .sort((a, b) => b.due.overdueRatio - a.due.overdueRatio)
         .map(({ vehicle, usage, intervalKm, intervalMonths, due }) => ({
           vehicle: toVehicleSummary(vehicle),
+          whatItNeeds: serviceWhatItNeeds(due),
           trigger: due.trigger,
           overdueKm: due.overdueKm,
           overdueDays: due.overdueDays,
@@ -408,6 +418,7 @@ export class MaintenanceService {
       const now = new Date();
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
+        workshopIntake: toWorkshopIntake(job, now),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
       return {
@@ -433,19 +444,20 @@ export class MaintenanceService {
         .filter((vehicle) => state.dispatchEffect(vehicle.id) === 'warns_on_assign')
         .map((vehicle) => {
           const expired = state.expiredByVehicle.get(vehicle.id) ?? [];
+          const expiredDocuments = expired.map((document) => ({
+            ...document,
+            daysExpired: Math.max(
+              0,
+              Math.round(
+                (startOfIstDate(today).getTime() - startOfIstDate(document.expiryDate).getTime()) /
+                  86_400_000,
+              ),
+            ),
+          }));
           return {
             vehicle: toVehicleSummary(vehicle),
-            expiredDocuments: expired.map((document) => ({
-              ...document,
-              daysExpired: Math.max(
-                0,
-                Math.round(
-                  (startOfIstDate(today).getTime() -
-                    startOfIstDate(document.expiryDate).getTime()) /
-                    86_400_000,
-                ),
-              ),
-            })),
+            whatItNeeds: papersWhatItNeeds(expiredDocuments),
+            expiredDocuments,
             dispatchEffect: 'warns_on_assign' as DispatchEffect,
           };
         })
@@ -577,6 +589,7 @@ export class MaintenanceService {
       const now = new Date();
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
+        whatItNeeds: breakdownWhatItNeeds(job),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
       return {
