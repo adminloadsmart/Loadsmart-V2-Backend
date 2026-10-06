@@ -20,7 +20,16 @@ export type CreateTyreData = Omit<
 export type UpdateTyreData = Partial<
   Pick<
     TyreEntity,
-    'status' | 'removedAt' | 'removedOdometerKm' | 'removedReason' | 'casingCondition' | 'updatedBy'
+    | 'status'
+    | 'removedAt'
+    | 'removedOdometerKm'
+    | 'removedReason'
+    | 'casingCondition'
+    | 'brand'
+    | 'fittedAt'
+    | 'serialNumber'
+    | 'sizeCode'
+    | 'updatedBy'
   >
 >;
 export type CreateTyreReadingData = Omit<
@@ -74,8 +83,13 @@ export class TyreRepository {
   }
 
   /** Every tyre fitted to one truck right now — the axle diagram. */
-  listFittedForVehicle(tenantId: string, vehicleId: string): Promise<TyreEntity[]> {
-    return this.tyres.find({
+  listFittedForVehicle(
+    tenantId: string,
+    vehicleId: string,
+    manager?: EntityManager,
+  ): Promise<TyreEntity[]> {
+    const repo = manager?.getRepository(TyreEntity) ?? this.tyres;
+    return repo.find({
       where: { tenantId, vehicleId, status: 'fitted' },
       order: { position: 'ASC' },
     });
@@ -140,6 +154,20 @@ export class TyreRepository {
   }
 
   /** Latest gauge reading per tyre (DISTINCT ON), keyed by tyre id. */
+  /** The first reading on record for a tyre — a corrected fitted date can't be later than this. */
+  async earliestReadingDate(
+    tenantId: string,
+    tyreId: string,
+    manager?: EntityManager,
+  ): Promise<string | null> {
+    const repo = manager?.getRepository(TyreReadingEntity) ?? this.readings;
+    const first = await repo.findOne({
+      where: { tenantId, tyreId },
+      order: { readingDate: 'ASC' },
+    });
+    return first?.readingDate ?? null;
+  }
+
   async latestReadings(
     tenantId: string,
     tyreIds: string[],

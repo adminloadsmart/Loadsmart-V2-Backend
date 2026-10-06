@@ -113,6 +113,12 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
     validate(v.recordTyreReading),
     asyncHandler(controller.recordTyreReading),
   );
+  router.patch(
+    '/tyres/:tyreId',
+    canManage,
+    validate(v.updateTyre),
+    asyncHandler(controller.updateTyre),
+  );
   router.post(
     '/tyres/:tyreId/remove',
     canManage,

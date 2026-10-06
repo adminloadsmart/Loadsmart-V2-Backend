@@ -155,6 +155,16 @@ export interface RecordTyreReadingInput {
   odometerKm?: number;
 }
 
+/** One fitted tyre's corrections. A depth is appended as a new reading; the rest edit the tyre. */
+export interface UpdateTyreInput {
+  treadMm?: number;
+  readingDate?: string;
+  fittedAt?: string;
+  brand?: string;
+  serialNumber?: string;
+  sizeCode?: string;
+}
+
 export interface RemoveTyreInput {
   reason: TyreRemovalReason;
   removedAt?: string;

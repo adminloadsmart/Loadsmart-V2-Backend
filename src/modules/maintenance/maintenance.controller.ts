@@ -251,6 +251,16 @@ export class MaintenanceController {
     respond(res, reading, 201);
   };
 
+  updateTyre = async (req: Request<TyreParams>, res: Response) => {
+    const tyre = await this.tyreService.updateTyre(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.tyreId,
+      req.body,
+    );
+    respond(res, tyre);
+  };
+
   removeTyre = async (req: Request<TyreParams>, res: Response) => {
     const tyre = await this.tyreService.removeTyre(
       requireTenantId(req),
