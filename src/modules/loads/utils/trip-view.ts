@@ -1,8 +1,11 @@
 import { computeShareAmount } from '../load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
+import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
+import { t } from '../../../shared/i18n/translate';
+import { EwayBillExpiry } from './load.interface';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
-  LIFECYCLE_STAGE_LABELS,
+  LIFECYCLE_STAGE_LABEL_KEYS,
   LOAD_STATUSES,
   LoadSourceType,
   LoadStatus,
@@ -121,12 +124,7 @@ export interface TripNextAction {
   balance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
 }
 
-function humanizeStatus(status: LoadStatus): string {
-  const words = status.split('_');
-  return `${words[0].charAt(0).toUpperCase()}${words[0].slice(1)} ${words.slice(1).join(' ')}`.trim();
-}
-
-export function toTripListRow(load: LoadEntity): TripListRow {
+export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripListRow {
   const req = load.requisition;
 
   // Own-fleet loads snapshot the vehicle's driver at Dispatch Planning time (see
@@ -170,10 +168,14 @@ export function toTripListRow(load: LoadEntity): TripListRow {
         : null,
     source:
       load.sourceType === 'own_fleet'
-        ? { type: 'own_fleet', label: 'Own fleet' }
+        ? { type: 'own_fleet', label: t(locale, 'loads.source.ownFleet') }
         : {
             type: 'market',
-            label: load.transporter ? `Market · ${load.transporter.name}` : 'Market',
+            label: load.transporter
+              ? t(locale, 'loads.source.marketWithTransporter', {
+                  transporter: load.transporter.name,
+                })
+              : t(locale, 'loads.source.market'),
           },
     plannedCapacityTonnes: load.plannedCapacityTonnes,
     freightValue: load.freightValue,
@@ -305,9 +307,82 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
   };
 }
 
+export const LOAD_PAPER_TYPES = ['eway_bill', 'lr', 'invoice'] as const;
+export type LoadPaperType = (typeof LOAD_PAPER_TYPES)[number];
+
+export interface LoadPaper {
+  type: LoadPaperType;
+  /** True when a number or a file is on record — false means the driver hasn't uploaded it yet. */
+  available: boolean;
+  number: string | null;
+  /** Short-lived signed download URL; null when no file is on record or it isn't confirmed. */
+  fileUrl: string | null;
+  /** E-way bill only. */
+  validTill?: string | null;
+  expired?: boolean;
+}
+
+/** Driver-app "Show papers" screen — the load's E-way bill / LR / Invoice, always all three in
+ *  that order (the screen's tabs), with unuploaded ones empty rather than omitted. See
+ *  load.service.ts's getMyDocuments. */
+export interface LoadPapers {
+  loadId: string;
+  loadCode: string;
+  status: LoadStatus;
+  vehicleNumber: string | null;
+  route: {
+    from: { title: string; city: string };
+    to: { location: string; city: string | null };
+  } | null;
+  documents: LoadPaper[];
+}
+
+export function toLoadPapers(
+  load: LoadEntity,
+  fileUrls: Record<LoadPaperType, string | null>,
+  ewayBillExpiry: EwayBillExpiry,
+): LoadPapers {
+  const req = load.requisition;
+  const paper = (
+    type: LoadPaperType,
+    number: string | null,
+    fileKey: string | null,
+  ): LoadPaper => ({
+    type,
+    available: Boolean(number || fileKey),
+    number,
+    fileUrl: fileUrls[type],
+  });
+
+  return {
+    loadId: load.id,
+    loadCode: load.code,
+    status: load.status,
+    vehicleNumber: load.vehicleNumber,
+    route: req
+      ? {
+          from: { title: req.loadingPoint.title, city: req.loadingPoint.city },
+          to: {
+            location: req.customerDeliveryPoint.location,
+            city: req.customerDeliveryPoint.city ?? null,
+          },
+        }
+      : null,
+    documents: [
+      {
+        ...paper('eway_bill', load.ewayBillNumber, load.ewayBillFileKey),
+        validTill: ewayBillExpiry.expiresAt,
+        expired: ewayBillExpiry.expired,
+      },
+      paper('lr', load.elrNumber, load.elrFileKey),
+      paper('invoice', load.invoiceNumber, load.invoiceFileKey),
+    ],
+  };
+}
+
 /** Walks LOAD_STATUSES by index — the same indexing LoadService.updateStatus uses — to build
  *  the trip-detail screen's 8-step progress stepper. */
-export function buildStepper(load: LoadEntity): TripStepperStep[] {
+export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripStepperStep[] {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const timestampByStatus: Partial<Record<LoadStatus, Date | null>> = {
     loading_confirmed: load.loadingConfirmedAt,
@@ -319,7 +394,7 @@ export function buildStepper(load: LoadEntity): TripStepperStep[] {
   };
   return LOAD_STATUSES.map((status, index) => ({
     key: status,
-    label: humanizeStatus(status),
+    label: t(locale, `loads.status.${status}`),
     completed: index < currentIndex,
     current: index === currentIndex,
     at: timestampByStatus[status]?.toISOString() ?? null,
@@ -348,7 +423,7 @@ function resolveLifecycleStage(load: LoadEntity): LoadStatus | typeof PAYMENTS_S
 /** Next-action panel — what stage comes next, tracking/advance-due info. Advance/balance
  *  applicability and paid-state mirror the exact gating LoadPaymentService.recordAdvance/
  *  recordBalance already enforce (market-only, gated by loadingConfirmedAt/deliveredAt). */
-export function buildNextAction(load: LoadEntity): TripNextAction {
+export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripNextAction {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
 
@@ -371,7 +446,7 @@ export function buildNextAction(load: LoadEntity): TripNextAction {
     nextStatus,
     stepNumber,
     totalSteps,
-    currentStageLabel: LIFECYCLE_STAGE_LABELS[currentStage],
+    currentStageLabel: t(locale, LIFECYCLE_STAGE_LABEL_KEYS[currentStage]),
     lastUpdate: { status: load.status, at: load.updatedAt?.toISOString() ?? null },
     advance: {
       applicable: isMarket,

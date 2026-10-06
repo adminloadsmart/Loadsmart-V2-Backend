@@ -21,9 +21,11 @@ export const ORGANIZATION_DOCUMENT_TYPES = [
 ] as const;
 export type OrganizationDocumentType = (typeof ORGANIZATION_DOCUMENT_TYPES)[number];
 
-// Same value set as the old GstinVerificationStatus it replaces — nothing in this codebase sets
-// it to 'verified'/'invalid' automatically yet (no gov-API integration wired up), only the admin
-// PATCH /admin/organizations/:organizationId/documents/:documentId endpoint does.
+// Same value set as the old GstinVerificationStatus it replaces. GST/Udyam/CIN documents are
+// flipped to 'verified' automatically when IDfy confirms the number (see
+// OrganizationDocumentVerificationService); the admin PATCH
+// /admin/organizations/:organizationId/documents/:documentId endpoint remains the manual path
+// (and the only one that can set 'invalid').
 export type DocumentVerificationStatus = 'pending' | 'verified' | 'invalid';
 
 // Shape accepted by AuthService.createOrganization / OrganizationDocumentService / Repository —
@@ -121,7 +123,7 @@ export class OrganizationDocumentEntity {
   @Column({ name: 'pin_code', type: 'varchar', nullable: true })
   pinCode!: string | null;
 
-  // Hooks for a future automated gov-API verification call (not built yet) — mirrors
+  // IDfy request_id and raw task output from the automated verification — mirrors
   // driver-verification.entity.ts's sourceReference/rawResponse.
   @Column({ name: 'source_reference', type: 'varchar', length: 100, nullable: true })
   sourceReference!: string | null;

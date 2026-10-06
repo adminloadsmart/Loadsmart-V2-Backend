@@ -6,6 +6,7 @@ import { Container } from './composition-root';
 import { env } from './config/env';
 import { API_VERSION_PREFIX } from './shared/constants/api';
 import { errorHandler } from './shared/middleware/error-handler.middleware';
+import { localeMiddleware } from './shared/middleware/locale.middleware';
 import { requestId } from './shared/middleware/request-id.middleware';
 import { createTenantScope } from './shared/middleware/tenant-scope.middleware';
 import { createDocsRouter } from './shared/openapi/docs';
@@ -42,6 +43,8 @@ export function createApp({
   app.use(express.json());
 
   app.use(requestId);
+  // Right after requestId so every route below, including the public auth/OTP ones, has req.locale.
+  app.use(localeMiddleware);
 
   // Ahead of auth: health checks must stay reachable without a token.
   app.get('/health', (_req, res) => {

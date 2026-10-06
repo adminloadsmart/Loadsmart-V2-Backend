@@ -119,27 +119,6 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
   // driver-auth.openapi.ts.
 
   registry.registerPath({
-    method: 'post',
-    path: `${BASE}/drivers/invite`,
-    tags: [TAGS.MASTERS],
-    operationId: 'masters.inviteDriver',
-    ...write(
-      'Invite a driver to this tenant by phone number. If no global driver profile exists yet for ' +
-        'that phone, a minimal shell profile is created — the driver fills in their own details ' +
-        'when they self-register or accept. Creates a driver_tenant_relations row in ' +
-        '`pending_driver_review`; the driver accepts/rejects via ' +
-        'POST /v1/driver-auth/relations/{relationId}/accept|reject. Sends the driver a push ' +
-        'notification best-effort.',
-    ),
-    request: { body: json(driverValidators.inviteDriver.shape.body) },
-    responses: {
-      201: { description: 'Created driver (or shell profile) with the new pending relation' },
-      400: { description: 'Validation failed', ...errorContent },
-      409: { description: 'A relation with this phone number already exists', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
     method: 'get',
     path: `${BASE}/drivers/join-requests`,
     tags: [TAGS.MASTERS],

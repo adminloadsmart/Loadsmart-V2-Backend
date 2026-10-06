@@ -5,7 +5,6 @@ import {
   DriverBankDetailsParams,
   DriverDocumentParams,
   DriverParams,
-  InviteDriverInput,
   ListDriversInput,
 } from './drivers.interface';
 import { DriverService } from './driver.service';
@@ -210,15 +209,6 @@ export class DriverController {
       req.params.driverId,
     );
     respond(res, metrics);
-  };
-
-  inviteDriver = async (req: Request, res: Response) => {
-    const driver = await this.driverService.inviteDriverByPhone(
-      requireTenantId(req),
-      req.user!.id,
-      req.body as InviteDriverInput,
-    );
-    respond(res, driver, 201);
   };
 
   // Driver-initiated join requests only — dispatch-added drivers awaiting org_admin approval

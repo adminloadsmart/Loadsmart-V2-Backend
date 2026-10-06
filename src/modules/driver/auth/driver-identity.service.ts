@@ -12,6 +12,8 @@ import {
   rethrow,
   ValidationError,
 } from '../../../shared/errors';
+import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
+import { msg, t } from '../../../shared/i18n/translate';
 import { signToken } from '../../../shared/utils/token';
 import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
 import { OtpService } from '../../../shared/services/otp.service';
@@ -49,9 +51,9 @@ export interface DriverRelationSummary {
 /**
  * Everything a driver's own (tenant-independent) identity does: phone verification, completing
  * registration details, requesting to join a tenant, and accepting/rejecting a fleet-owner's
- * invite. The tenant-side half of the same workflow (staff inviting a driver, approving/rejecting
+ * invite. The tenant-side half of the same workflow (staff adding a driver, approving/rejecting
  * a join request) lives in DriverService — see its
- * inviteDriverByPhone/approveDriver/rejectDriver/listPendingStaffReview.
+ * onboardDriver/approveDriver/rejectDriver/listPendingStaffReview.
  */
 export class DriverIdentityService {
   constructor(
@@ -68,12 +70,12 @@ export class DriverIdentityService {
     private readonly idfyClient: IdfyClient,
   ) {}
 
-  async requestOtp(phoneNumber: string) {
+  async requestOtp(phoneNumber: string, locale?: Locale) {
     const normalized = this.normalizePhone(phoneNumber);
 
     const existing = await this.driverRepository.findByPhoneNumber(normalized);
     if (existing?.registrationSource === 'self') {
-      throw new ConflictError('A driver with this phone number is already registered');
+      throw new ConflictError(msg('errors.driver.phoneAlreadyRegistered'));
     }
 
     await this.otpService.requestOtpCode({
@@ -90,14 +92,14 @@ export class DriverIdentityService {
     return {
       otpToken,
       expiresIn: env.driverLoginOtpTtlSeconds,
-      message: `OTP sent to ${normalized}`,
+      message: t(locale ?? DEFAULT_LOCALE, 'errors.otp.sent', { phoneNumber: normalized }),
     };
   }
 
   /**
    * Verifies the phone and immediately creates a minimal shell driver profile (if one doesn't
-   * already exist — a fleet owner may have invited this phone first, see
-   * DriverService.inviteDriverByPhone) and issues a usable identity-scoped session. This is
+   * already exist — a fleet owner may have added this phone first, see
+   * DriverService.onboardDriver) and issues a usable identity-scoped session. This is
    * deliberately the point registration becomes "real": a driver who verifies their phone but
    * abandons before calling completeRegistration below still has a profile on file, so next time
    * they open the app they log in (not register again) and land right back on the same
@@ -115,8 +117,8 @@ export class DriverIdentityService {
         otp,
         purpose: 'driver-register',
         ttlSeconds: env.driverLoginOtpTtlSeconds,
-        invalidOtpMessage: 'Invalid OTP',
-        tooManyAttemptsMessage: 'Too many incorrect attempts, please request a new OTP',
+        invalidOtpMessage: msg('errors.otp.invalid'),
+        tooManyAttemptsMessage: msg('errors.otp.tooManyAttempts'),
       });
 
       let driver = await this.driverRepository.findByPhoneNumber(phoneNumber);
@@ -206,12 +208,12 @@ export class DriverIdentityService {
   ): Promise<CompleteRegistrationResult> {
     try {
       const existing = await this.driverRepository.findById(driverId);
-      if (!existing) throw new NotFoundError('Driver not found');
+      if (!existing) throw new NotFoundError(msg('errors.driver.notFound'));
 
       const licenseNumber = input.licenseNumber.toUpperCase();
       const licenseOwner = await this.driverRepository.findByLicenseNumber(licenseNumber);
       if (licenseOwner && licenseOwner.id !== driverId) {
-        throw new ConflictError('A driver with this license number already exists');
+        throw new ConflictError(msg('errors.driver.licenseExists'));
       }
 
       // Front and back DL photos are always required now, regardless of Sarathi's verification
@@ -326,7 +328,7 @@ export class DriverIdentityService {
           !cumulativeDocumentTypes.has('driving_license_front') ||
           !cumulativeDocumentTypes.has('driving_license_back')
         ) {
-          throw new ValidationError('Driving licence front and back photos are both required');
+          throw new ValidationError(msg('errors.driver.licenceImagesRequired'));
         }
 
         await this.driverRepository.createVerification(
@@ -392,7 +394,7 @@ export class DriverIdentityService {
       });
 
       const driver = await this.driverRepository.findByIdWithPersonRelations(driverId);
-      if (!driver) throw new NotFoundError('Driver not found');
+      if (!driver) throw new NotFoundError(msg('errors.driver.notFound'));
 
       return { driverId, licenseVerificationStatus, driver };
     } catch (error) {
@@ -434,11 +436,11 @@ export class DriverIdentityService {
         driverId,
       );
       if (existing) {
-        throw new ConflictError('A relation with this fleet owner already exists');
+        throw new ConflictError(msg('errors.driver.relationExists'));
       }
 
       const driver = await this.driverRepository.findById(driverId);
-      if (!driver) throw new NotFoundError('Driver not found');
+      if (!driver) throw new NotFoundError(msg('errors.driver.notFound'));
 
       const relation = await this.driverTenantRelationRepository.create({
         tenantId: input.tenantId,
@@ -476,7 +478,7 @@ export class DriverIdentityService {
             driverId,
             input.reason ?? null,
           );
-      if (!relation) throw new NotFoundError('Invite not found');
+      if (!relation) throw new NotFoundError(msg('errors.driver.inviteNotFound'));
 
       const driver = await this.driverRepository.findById(driverId);
 
@@ -507,7 +509,7 @@ export class DriverIdentityService {
   private normalizePhone(phoneNumber: string): string {
     const normalized = normalizePhoneNumber(phoneNumber);
     if (!normalized) {
-      throw new AuthenticationError('phoneNumber is invalid');
+      throw new AuthenticationError(msg('errors.driver.invalidPhone'));
     }
     return normalized;
   }

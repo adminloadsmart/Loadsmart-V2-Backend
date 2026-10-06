@@ -1,4 +1,6 @@
 import { NotFoundError, rethrow } from '../../../shared/errors';
+import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
+import { msg } from '../../../shared/i18n/translate';
 import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagination';
 import { DriverService, flattenRelation } from '../driver.service';
 import { DriverRepository } from '../driver.repository';
@@ -48,7 +50,7 @@ export class DriverPortalService {
   private async fetchGlobalProfile(driverId: string): Promise<DriverEntity> {
     try {
       const driver = await this.driverRepository.findByIdWithPersonRelations(driverId);
-      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
+      if (!driver) throw new NotFoundError(msg('errors.driver.notFoundById', { id: driverId }));
       return driver;
     } catch (error) {
       rethrow(error, 'Failed to fetch driver profile');
@@ -63,7 +65,7 @@ export class DriverPortalService {
           tenantId,
           driverId,
         );
-      if (!relation) throw new NotFoundError(`Driver ${driverId} not found`);
+      if (!relation) throw new NotFoundError(msg('errors.driver.notFoundById', { id: driverId }));
       const driver = flattenRelation(relation);
       const organization = await this.organizationService.getOrganizationStatus(tenantId);
 
@@ -199,9 +201,10 @@ export class DriverPortalService {
     driverId: string,
     tenantId: string | null,
     query: ListLoadsInput,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<Paginated<TripListRow> & { counts?: { active: number; completed: number } }> {
     if (!tenantId) return Promise.resolve(paginate([], 0, query));
-    return this.loadService.list(tenantId, { ...query, driverId });
+    return this.loadService.list(tenantId, { ...query, driverId }, locale);
   }
 
   /** Driver-app "Trips Done" screen — always completed-only. No tenant relation means no
@@ -210,6 +213,7 @@ export class DriverPortalService {
     driverId: string,
     tenantId: string | null,
     query: PaginationInput,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<TripsDoneResult> {
     if (!tenantId) {
       return Promise.resolve({
@@ -218,7 +222,7 @@ export class DriverPortalService {
         epodVerifiedPercentage: 0,
       });
     }
-    return this.loadService.getMyTripsDone(tenantId, driverId, query);
+    return this.loadService.getMyTripsDone(tenantId, driverId, query, locale);
   }
 
   /** Home screen — bundles driver name/vehicle, on-time %/trips-done/open-trips stats, the

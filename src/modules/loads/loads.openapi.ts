@@ -252,7 +252,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          '{ load (document fields are download URLs), documentKeys (the same document fields as raw ' +
+          '{ load (document fields are download URLs), ownerPhoneNumber, dispatchPhoneNumber, ' +
+          'documentKeys (the same document fields as raw ' +
           'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
           'TripStepperStep[], nextAction: TripNextAction }',
       },

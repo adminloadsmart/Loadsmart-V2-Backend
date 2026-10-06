@@ -2,11 +2,7 @@ import { Queue, JobsOptions } from 'bullmq';
 import { getQueueConnection } from './queue-connection';
 
 export interface JobQueue {
-  enqueue(
-    jobName: string,
-    payload: unknown,
-    options?: { delay?: number; jobId?: string },
-  ): Promise<void>;
+  enqueue(jobName: string, payload: unknown, options?: JobsOptions): Promise<void>;
   // Removes a still-delayed/waiting job by its jobId — a no-op if it's already run, already
   // removed, or was never scheduled. Lets a caller reschedule a one-time delayed job (e.g. vehicle
   // compliance alerts) by cancelling the stale one before enqueuing the new one.
@@ -40,11 +36,7 @@ export function createJobQueue(name: string): JobQueue {
   const resolvedQueue = queue;
 
   return {
-    async enqueue(
-      jobName: string,
-      payload: unknown,
-      options?: { delay?: number; jobId?: string },
-    ): Promise<void> {
+    async enqueue(jobName: string, payload: unknown, options?: JobsOptions): Promise<void> {
       await resolvedQueue.add(jobName, payload, options);
     },
     async cancel(jobId: string): Promise<void> {

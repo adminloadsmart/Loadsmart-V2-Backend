@@ -81,6 +81,8 @@ export const driverPortalValidators = {
 
   // Trip Done detail — params only, same convention as getMyLoad above.
   getMyTripDetail: z.object({ params: loadParams }),
+  // "Show papers" screen — params only, same convention as getMyLoad/getMyTripDetail above.
+  getMyDocuments: z.object({ params: loadParams }),
 
   // Same body shape as loads/load.validators.ts's staff-facing schemas — reused directly (not
   // duplicated) so the two can't drift apart. :loadId is present here (unlike the rest of this

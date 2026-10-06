@@ -6,6 +6,8 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../../shared/errors';
+import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
+import { msg, t } from '../../../shared/i18n/translate';
 import { signToken, hashToken } from '../../../shared/utils/token';
 import { blockToken } from '../../../shared/utils/token-blocklist';
 import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
@@ -49,7 +51,7 @@ export class DriverAuthService {
     private readonly otpService: OtpService,
   ) {}
 
-  async requestOtp(input: RequestDriverOtpInput) {
+  async requestOtp(input: RequestDriverOtpInput, locale?: Locale) {
     const phoneNumber = this.normalizePhone(input.phoneNumber);
 
     // Same non-enumeration-hiding posture as auth.service.ts's requestLoginOtp: a phone with no
@@ -57,7 +59,7 @@ export class DriverAuthService {
     // OTP sent.
     const driver = await this.driverRepository.findByPhoneNumber(phoneNumber);
     if (!driver) {
-      throw new AuthenticationError('Driver is not registered');
+      throw new AuthenticationError(msg('errors.driver.notRegistered'));
     }
 
     await this.otpService.requestOtpCode({
@@ -74,7 +76,7 @@ export class DriverAuthService {
     return {
       loginToken,
       expiresIn: env.driverLoginOtpTtlSeconds,
-      message: `OTP sent to ${phoneNumber}`,
+      message: t(locale ?? DEFAULT_LOCALE, 'errors.otp.sent', { phoneNumber }),
     };
   }
 
@@ -86,12 +88,12 @@ export class DriverAuthService {
       otp,
       purpose: 'driver-login',
       ttlSeconds: env.driverLoginOtpTtlSeconds,
-      invalidOtpMessage: 'Invalid OTP',
-      tooManyAttemptsMessage: 'Too many incorrect attempts, please request a new login OTP',
+      invalidOtpMessage: msg('errors.otp.invalid'),
+      tooManyAttemptsMessage: msg('errors.otp.tooManyAttemptsLogin'),
     });
 
     const driver = await this.driverRepository.findById(driverId);
-    if (!driver) throw new AuthenticationError('Driver is not registered');
+    if (!driver) throw new AuthenticationError(msg('errors.driver.notRegistered'));
 
     const activeRelations = await this.driverTenantRelationRepository.listActiveByDriver(driverId);
 
@@ -126,17 +128,17 @@ export class DriverAuthService {
   async selectTenant(input: SelectDriverTenantInput) {
     const match = input.candidates.find((candidate) => candidate.tenantId === input.tenantId);
     if (!match) {
-      throw new AuthenticationError('Invalid tenant selection');
+      throw new AuthenticationError(msg('errors.driver.invalidTenant'));
     }
     const driver = await this.driverRepository.findById(input.driverId);
-    if (!driver) throw new AuthenticationError('Driver is not registered');
+    if (!driver) throw new AuthenticationError(msg('errors.driver.notRegistered'));
 
     const relation = await this.driverTenantRelationRepository.findById(
       input.tenantId,
       match.driverTenantRelationId,
     );
     if (!relation || relation.status !== 'active') {
-      throw new AuthenticationError('Invalid tenant selection');
+      throw new AuthenticationError(msg('errors.driver.invalidTenant'));
     }
 
     return this.issueSessionForRelation(driver, relation, input);
@@ -146,14 +148,14 @@ export class DriverAuthService {
    * after accepting an invite — without repeating the OTP dance. */
   async selectRelation(input: SelectDriverRelationInput) {
     const driver = await this.driverRepository.findById(input.driverId);
-    if (!driver) throw new AuthenticationError('Driver is not registered');
+    if (!driver) throw new AuthenticationError(msg('errors.driver.notRegistered'));
 
     const relation = await this.driverTenantRelationRepository.findByIdForDriver(
       input.driverId,
       input.relationId,
     );
     if (!relation || relation.status !== 'active') {
-      throw new NotFoundError('Driver tenant relation not found');
+      throw new NotFoundError(msg('errors.driver.tenantRelationNotFound'));
     }
 
     return this.issueSessionForRelation(driver, relation, input.device);
@@ -163,12 +165,12 @@ export class DriverAuthService {
     const tokenHash = hashToken(input.refreshToken);
     const stored = await this.driverSessionRepository.claimRefreshToken(tokenHash);
     if (!stored) {
-      throw new AuthenticationError('Invalid or expired refresh token');
+      throw new AuthenticationError(msg('errors.session.invalidRefreshToken'));
     }
 
     const driver = await this.driverRepository.findById(stored.driverId);
     if (!driver) {
-      throw new AuthenticationError('Invalid or expired refresh token');
+      throw new AuthenticationError(msg('errors.session.invalidRefreshToken'));
     }
 
     let relation: DriverTenantRelationEntity | null = null;
@@ -178,7 +180,7 @@ export class DriverAuthService {
         driver.id,
       );
       if (!relation || relation.status !== 'active') {
-        throw new AuthenticationError('Invalid or expired refresh token');
+        throw new AuthenticationError(msg('errors.session.invalidRefreshToken'));
       }
       await this.assertOrganizationActiveForLogin(stored.tenantId);
     }
@@ -215,7 +217,7 @@ export class DriverAuthService {
       fcmToken,
       deviceType,
     });
-    if (!updated) throw new NotFoundError('No active session found');
+    if (!updated) throw new NotFoundError(msg('errors.session.noActiveSession'));
   }
 
   // Consumed by push-notification producers (e.g. dispatch-planning.service.ts when a load gets
@@ -276,7 +278,7 @@ export class DriverAuthService {
   private async assertOrganizationActiveForLogin(tenantId: string): Promise<void> {
     const organization = await this.organizationService.getOrganizationStatus(tenantId);
     if (!isTenantAccessible(organization.status)) {
-      throw new AuthorizationError('Organization access is not available');
+      throw new AuthorizationError(msg('errors.driver.orgAccessUnavailable'));
     }
   }
 
@@ -323,7 +325,7 @@ export class DriverAuthService {
   private normalizePhone(phoneNumber: string): string {
     const normalized = normalizePhoneNumber(phoneNumber);
     if (!normalized) {
-      throw new ValidationError('phoneNumber is invalid');
+      throw new ValidationError(msg('errors.driver.invalidPhone'));
     }
     return normalized;
   }

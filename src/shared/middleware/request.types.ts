@@ -1,4 +1,6 @@
 import { Role } from '../constants/roles';
+import type { Locale } from '../i18n/locales';
+import type { LocaleSource } from '../i18n/resolve-locale';
 import { LoginPortal } from '../../modules/auth/auth.types';
 import { DriverLoginCandidate } from '../../modules/driver/auth/driver-auth.types';
 
@@ -80,6 +82,10 @@ declare global {
   namespace Express {
     interface Request {
       id: string;
+      // Set by locale.middleware.ts, right after requestId. Not set for errors raised ahead of it
+      // (CORS, malformed JSON body), so error-handler.middleware.ts falls back to the default.
+      locale: Locale;
+      localeSource: LocaleSource;
       user?: AuthenticatedUser;
       signupPayload?: SignupPayload;
       loginPayload?: LoginPayload;

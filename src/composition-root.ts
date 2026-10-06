@@ -92,7 +92,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // schema. Built before auth: auth.service.ts orchestrates org onboarding on top of these
   // services directly (see modules/auth/index.ts), the same "read another module's service
   // directly, no gateway" pattern modules/admin/ already used for these when they lived in auth.
-  const organization = createOrganizationModule(dataSource);
+  const organization = createOrganizationModule(dataSource, { auditService: audit.service });
 
   // One Msg91Client/OtpService instance for the whole app — every OTP-based login flow (staff
   // signup/login here, driver login below) shares the same Redis-backed cooldown/attempt
@@ -106,6 +106,7 @@ export function buildContainer(dataSource: DataSource): Container {
     roleService: roles.service,
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
+    documentVerificationService: organization.documentVerificationService,
     organizationOnboardingService: organization.organizationOnboardingService,
     organizationJourneyStageService: organization.organizationJourneyStageService,
     referralCodeService: organization.referralCodeService,
@@ -195,6 +196,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const admin = createAdminModule({
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
+    documentVerificationService: organization.documentVerificationService,
     organizationJourneyStageService: organization.organizationJourneyStageService,
     authService: auth.service,
     referralCodeService: organization.referralCodeService,
@@ -300,6 +302,10 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/driver-auth', router: driverIdentity.authProtectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
-    backgroundWorkers: [notifications.worker, masters.vehicleComplianceAlertsWorker],
+    backgroundWorkers: [
+      notifications.worker,
+      organization.documentVerificationWorker,
+      masters.vehicleComplianceAlertsWorker,
+    ],
   };
 }

@@ -101,6 +101,7 @@ export class DriverPortalController {
       req.driver!.id,
       req.driver!.tenantId ?? null,
       req.validatedQuery as ListLoadsInput,
+      req.locale,
     );
     respond(res, loads);
   };
@@ -110,6 +111,7 @@ export class DriverPortalController {
       req.driver!.id,
       req.driver!.tenantId ?? null,
       req.validatedQuery as PaginationInput,
+      req.locale,
     );
     respond(res, trips);
   };
@@ -124,6 +126,7 @@ export class DriverPortalController {
       'driver',
       req.params.loadId,
       req.driver!.id,
+      req.locale,
     );
     respond(res, result);
   };
@@ -132,6 +135,17 @@ export class DriverPortalController {
   // from getMyLoad above. Same ownership-check-as-404 convention.
   getMyTripDetail = async (req: Request<LoadParams>, res: Response) => {
     const result = await this.loadService.getMyTripDetail(
+      req.driver!.tenantId!,
+      req.driver!.id,
+      req.params.loadId,
+    );
+    respond(res, result);
+  };
+
+  // Driver-app "Show papers" screen — E-way bill / LR / Invoice for a load assigned to the
+  // caller. Same ownership-check-as-404 convention as getMyTripDetail above.
+  getLoadDocuments = async (req: Request<LoadParams>, res: Response) => {
+    const result = await this.loadService.getLoadDocuments(
       req.driver!.tenantId!,
       req.driver!.id,
       req.params.loadId,

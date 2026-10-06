@@ -116,6 +116,13 @@ export function createDriverPortalRoutes(
     validate(driverPortalValidators.confirmMyLoading),
     asyncHandler(controller.confirmMyLoading),
   );
+  // "Show papers" — the read counterpart of the PATCH below: E-way bill / LR / Invoice with
+  // signed download URLs, for showing at a checkpoint.
+  router.get(
+    '/loads/:loadId/documents',
+    validate(driverPortalValidators.getMyDocuments),
+    asyncHandler(controller.getLoadDocuments),
+  );
   // Plain document attach/replace, decoupled from confirm-loading's status transition — usable
   // any time before the load is closed, e.g. to correct a document after loading was confirmed.
   router.patch(

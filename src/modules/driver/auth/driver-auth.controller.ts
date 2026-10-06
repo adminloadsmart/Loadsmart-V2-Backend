@@ -25,7 +25,7 @@ export class DriverAuthController {
   // --- Login ---
 
   requestOtp = async (req: Request, res: Response) => {
-    const result = await this.driverAuthService.requestOtp(req.body);
+    const result = await this.driverAuthService.requestOtp(req.body, req.locale);
     respond(res, result, 200);
   };
 
@@ -103,7 +103,7 @@ export class DriverAuthController {
   // rather than login's "this phone must already be registered". See driver-identity.service.ts.
 
   requestRegisterOtp = async (req: Request, res: Response) => {
-    const result = await this.driverIdentityService.requestOtp(req.body.phoneNumber);
+    const result = await this.driverIdentityService.requestOtp(req.body.phoneNumber, req.locale);
     respond(res, result, 200);
   };
 
