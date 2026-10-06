@@ -7,7 +7,7 @@
 /** Only these hold a workshop record with us. `attached` trucks are operated for the shipper by
  *  somebody else and hired (market) trucks never exist in masters.vehicles at all, so neither can
  *  appear anywhere on the maintenance screen (FMS-MNT-000 acceptance criterion 5). */
-export const OWN_FLEET_OWNERSHIP_TYPES = ['owned', 'leased'] as const;
+export const OWN_FLEET_OWNERSHIP_TYPES = ['owned', 'financed', 'leased'] as const;
 
 /** Vehicle lifecycle states that still count as part of the running fleet — pending/rejected
  *  were never onboarded and inactive has been retired. */

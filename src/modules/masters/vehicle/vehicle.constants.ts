@@ -17,4 +17,5 @@ export const DOCUMENT_TYPE_LABELS: Record<VehicleDocumentTypeWithExpiry, string>
   permit: 'Permit',
   puc: 'PUC',
   fitness: 'Fitness Certificate',
+  road_tax: 'Road Tax',
 };

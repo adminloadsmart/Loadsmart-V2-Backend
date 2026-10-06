@@ -10,17 +10,22 @@ export class TruckTypeRepository {
     this.truckTypes = dataSource.getRepository(TruckTypeEntity);
   }
 
-  async create(data: CreateTruckTypeData): Promise<TruckTypeEntity> {
-    const truckType = this.truckTypes.create({ ...data, deletedAt: null });
-    return this.truckTypes.save(truckType);
+  async create(data: CreateTruckTypeData, manager?: EntityManager): Promise<TruckTypeEntity> {
+    const repo = manager?.getRepository(TruckTypeEntity) ?? this.truckTypes;
+    return repo.save(repo.create({ ...data, deletedAt: null }));
   }
 
   findById(tenantId: string, id: string): Promise<TruckTypeEntity | null> {
     return this.truckTypes.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
-  findByName(tenantId: string, name: string): Promise<TruckTypeEntity | null> {
-    return this.truckTypes.findOneBy({ tenantId, name, deletedAt: IsNull() });
+  findByName(
+    tenantId: string,
+    name: string,
+    manager?: EntityManager,
+  ): Promise<TruckTypeEntity | null> {
+    const repo = manager?.getRepository(TruckTypeEntity) ?? this.truckTypes;
+    return repo.findOneBy({ tenantId, name, deletedAt: IsNull() });
   }
 
   /** This tenant's existing row for an exact body/wheel/capacity combination, if one was already

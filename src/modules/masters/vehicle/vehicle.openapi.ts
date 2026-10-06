@@ -35,6 +35,21 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/vehicles/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportVehicles',
+    ...authenticated(
+      'Download the fleet as an Excel file (.xlsx), optionally filtered like the list. ' +
+        'Columns match the vehicle import, so the file can be edited and re-uploaded. Up to 5000 vehicles.',
+    ),
+    request: { query: vehicleValidators.exportVehicles.shape.query },
+    responses: {
+      200: { description: 'Excel file (.xlsx) attachment' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/vehicles/{vehicleId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',
@@ -180,6 +195,43 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  // --- Vehicle bulk import ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importVehiclesExcel',
+    ...write(
+      'Bulk upload vehicles from an Excel file, one row per truck with the same fields as onboardVehicle. ' +
+        'Each row is onboarded on its own, so a bad row never blocks the others.',
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB and 1000 rows.',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Import completed with a row-level result report' },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      403: { description: 'Not permitted to write masters', ...errorContent },
+    },
+  });
+
   // --- Vehicle onboarding ---
 
   registry.registerPath({
@@ -188,9 +240,15 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.onboardVehicle',
     ...write(
-      'Create a vehicle and every section of the "Add a vehicle" form in one transaction: ' +
-        'VAHAN verification (which folds registry expiry dates into the document rows), documents, ' +
-        'telemetry, service usage, operational status, and an optional driver link. When ' +
+      'Create a vehicle and every section of the "Add a truck" drawer in one transaction. Only ' +
+        'registrationNumber and a truck type are required: `truckType` from the picker (body → ' +
+        'wheelCount or axleType → capacityTons → bodyLengthFt; finds or creates the matching ' +
+        'tenant truck type) or an existing `truckTypeId`. Optional blocks: VAHAN verification ' +
+        '(folds registry expiry dates, incl. road tax and the insurer, into the document rows), ' +
+        '`cost` (EMI/months left/premium for owned or financed; lease rent, lease end and who pays ' +
+        'fuel/tolls for attached), `gps`, service usage, `tyres` (whole-set preset plus ' +
+        'per-position overrides — not for attached trucks), documents, operational status, and ' +
+        'an optional driver link. `telemetry` is deprecated in favour of `cost` and `gps`. When ' +
         'driverLink is given it is applied in the same transaction, so the vehicle and its driver ' +
         'link succeed or fail together; the link can also be made or changed later via ' +
         'POST /vehicles/{vehicleId}/drivers. Only org_admin and dispatch may call this at all — ' +

@@ -18,6 +18,7 @@ import { registerNotificationsOpenApi } from '../../modules/notifications/notifi
 import { registerDriverAuthOpenApi } from '../../modules/driver/auth/driver-auth.openapi';
 import { registerDriverPortalOpenApi } from '../../modules/driver/portal/driver-portal.openapi';
 import { registerMaintenanceOpenApi } from '../../modules/maintenance/maintenance.openapi';
+import { registerPlacesOpenApi } from '../../modules/places/places.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -57,6 +58,7 @@ function getOpenApiDocument() {
     registerDriverAuthOpenApi(registry);
     registerDriverPortalOpenApi(registry);
     registerMaintenanceOpenApi(registry);
+    registerPlacesOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -116,6 +118,11 @@ function getOpenApiDocument() {
           name: TAGS.MAINTENANCE,
           description:
             'Own-fleet workshop (FMS-MNT-000): headlines, service due, breakdowns (take a truck out of / back into dispatch), tyres, EV batteries and job history.',
+        },
+        {
+          name: TAGS.PLACES,
+          description:
+            'Place lookup backed by Google Places: search any place by text, then fetch its full details (address, coordinates, city/state/pin) by placeId',
         },
       ],
     });

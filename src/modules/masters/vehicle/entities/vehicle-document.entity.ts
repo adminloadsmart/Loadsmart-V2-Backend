@@ -50,6 +50,10 @@ export class VehicleDocumentEntity {
   @Column({ name: 'expiry_date', type: 'date', nullable: true })
   expiryDate!: string | null;
 
+  /** Who issued it — the insurer on an insurance document. */
+  @Column({ name: 'provider_name', type: 'varchar', length: 150, nullable: true })
+  providerName!: string | null;
+
   @Column({ name: 'file_url', type: 'text', nullable: true })
   fileUrl!: string | null;
 

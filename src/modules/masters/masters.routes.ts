@@ -13,6 +13,7 @@ import { TransporterController } from './transporter/transporter.controller';
 import { TransporterImportController } from './transporter/transporter-import.controller';
 import { createVehicleRoutes } from './vehicle/vehicle.routes';
 import { VehicleController } from './vehicle/vehicle.controller';
+import { VehicleImportController } from './vehicle/vehicle-import.controller';
 import { createDriverRoutes } from '../driver/driver.routes';
 import { DriverController } from '../driver/driver.controller';
 import { createFleetDriverLinkRoutes } from './fleet-driver-link/fleet-driver-link.routes';
@@ -27,6 +28,7 @@ export function createMastersProtectedRoutes(
   transporterController: TransporterController,
   transporterImportController: TransporterImportController,
   vehicleController: VehicleController,
+  vehicleImportController: VehicleImportController,
   driverController: DriverController,
   fleetDriverLinkController: FleetDriverLinkController,
 ): Router {
@@ -40,7 +42,7 @@ export function createMastersProtectedRoutes(
   router.use(createProductRoutes(productController, productImportController));
   router.use(createLoadingPointRoutes(loadingPointController, loadingPointImportController));
   router.use(createTransporterRoutes(transporterController, transporterImportController));
-  router.use(createVehicleRoutes(vehicleController));
+  router.use(createVehicleRoutes(vehicleController, vehicleImportController));
   router.use(createDriverRoutes(driverController));
   router.use(createFleetDriverLinkRoutes(fleetDriverLinkController));
 
