@@ -1,4 +1,6 @@
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
+import { UserEntity } from '../../auth/entities/user.entity';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import {
   BankAccountVerificationResult,
   IdfyClient,
@@ -26,6 +28,7 @@ import {
   DlVerificationClient,
   SarathiDrivingLicenceResult,
 } from '../../../adapters/sarathi.client';
+import { DriverInsuranceAnswer } from '../drivers.types';
 import { DriverRepository } from '../driver.repository';
 import { DriverTenantRelationRepository } from '../driver-tenant-relation.repository';
 import { DriverAuthService } from './driver-auth.service';
@@ -39,6 +42,11 @@ import {
 } from './driver-identity.interface';
 import { DriverDeviceCaptureInput } from './driver-auth.types';
 
+export interface DriverInsuranceFlags {
+  hasHealthInsurance: DriverInsuranceAnswer;
+  hasLifeInsurance: DriverInsuranceAnswer;
+}
+
 export interface DriverRelationSummary {
   linkId: string;
   tenantId: string;
@@ -46,6 +54,11 @@ export interface DriverRelationSummary {
   status: DriverTenantRelationEntity['status'];
   initiatedBy: DriverTenantRelationEntity['initiatedBy'];
   createdAt: Date;
+  // Fleet-owner-initiated invites carry the inviter + org snapshot the driver app's "Invite for
+  // you" card renders; null for relations the driver started themselves (no inviter to show).
+  invitedBy: { name: string | null; phoneNumber: string; role: string } | null;
+  fleetSize: number;
+  hub: string | null;
 }
 
 /**
@@ -140,8 +153,8 @@ export class DriverIdentityService {
           emergencyContactName: null,
           emergencyContactPhone: null,
           emergencyContactRelation: null,
-          hasLifeInsurance: false,
-          hasHealthInsurance: false,
+          hasLifeInsurance: 'no',
+          hasHealthInsurance: 'no',
           registrationSource: 'self',
           createdBy: null,
         });
@@ -262,8 +275,8 @@ export class DriverIdentityService {
             emergencyContactName: input.emergencyContactName ?? null,
             emergencyContactPhone: input.emergencyContactPhone ?? null,
             emergencyContactRelation: input.emergencyContactRelation ?? null,
-            hasLifeInsurance: input.hasLifeInsurance ?? false,
-            hasHealthInsurance: input.hasHealthInsurance ?? false,
+            hasLifeInsurance: input.hasLifeInsurance ?? 'no',
+            hasHealthInsurance: input.hasHealthInsurance ?? 'no',
             // No `?? null` here, unlike the fields above — undefined must stay undefined so
             // TypeORM skips this column when the client omits it, preserving whatever step was
             // recorded on a prior call. Coercing to null would overwrite that bookmark on every
@@ -402,14 +415,28 @@ export class DriverIdentityService {
     }
   }
 
-  async listMyRelations(driverId: string): Promise<DriverRelationSummary[]> {
+  async listMyRelations(
+    driverId: string,
+    status?: DriverRelationSummary['status'],
+  ): Promise<DriverRelationSummary[]> {
     try {
-      const relations = await this.driverTenantRelationRepository.listByDriver(driverId);
+      const relations = await this.driverTenantRelationRepository.listByDriver(driverId, status);
+      const users = this.dataSource.getRepository(UserEntity);
+      const vehicles = this.dataSource.getRepository(VehicleEntity);
       return await Promise.all(
         relations.map(async (relation) => {
           const organization = await this.organizationService.getOrganizationStatus(
             relation.tenantId,
           );
+          const inviter = relation.initiatedByUserId
+            ? await users.findOne({
+                where: { id: relation.initiatedByUserId },
+                relations: { role: true },
+              })
+            : null;
+          const fleetSize = await vehicles.count({
+            where: { tenantId: relation.tenantId, deletedAt: IsNull() },
+          });
           return {
             linkId: relation.id,
             tenantId: relation.tenantId,
@@ -417,11 +444,56 @@ export class DriverIdentityService {
             status: relation.status,
             initiatedBy: relation.initiatedBy,
             createdAt: relation.createdAt,
+            invitedBy: inviter
+              ? {
+                  name: inviter.fullName,
+                  phoneNumber: inviter.phoneNumber,
+                  role: inviter.role?.name ?? '',
+                }
+              : null,
+            fleetSize,
+            hub:
+              [organization.city, organization.state].filter(Boolean).join(', ') ||
+              organization.operationalCity,
           };
         }),
       );
     } catch (error) {
       rethrow(error, 'Failed to list driver relations');
+    }
+  }
+
+  async getMyInsurance(driverId: string): Promise<DriverInsuranceFlags> {
+    try {
+      const driver = await this.driverRepository.findById(driverId);
+      if (!driver) throw new NotFoundError(msg('errors.driver.notFound'));
+      return {
+        hasHealthInsurance: driver.hasHealthInsurance,
+        hasLifeInsurance: driver.hasLifeInsurance,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to get insurance answers');
+    }
+  }
+
+  /** Saves the Insurance-screen answers onto the driver's own profile flags. */
+  async saveMyInsurance(
+    driverId: string,
+    input: DriverInsuranceFlags,
+  ): Promise<DriverInsuranceFlags> {
+    try {
+      const driver = await this.driverRepository.update(driverId, {
+        hasHealthInsurance: input.hasHealthInsurance,
+        hasLifeInsurance: input.hasLifeInsurance,
+        updatedBy: null,
+      });
+      if (!driver) throw new NotFoundError(msg('errors.driver.notFound'));
+      return {
+        hasHealthInsurance: driver.hasHealthInsurance,
+        hasLifeInsurance: driver.hasLifeInsurance,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to save insurance answers');
     }
   }
 

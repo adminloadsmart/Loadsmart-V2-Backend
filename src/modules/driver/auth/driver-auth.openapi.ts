@@ -183,7 +183,7 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
         'upload flow with purpose `masters/driver`, confirmed, then referenced by their storage ' +
         'key in `documents`. `bankDetails` is idempotent — resending the same account on a later ' +
         'call (e.g. adding it after skipping it at first) never creates a duplicate. ' +
-        '`hasHealthInsurance`/`hasLifeInsurance` are plain boolean toggles — no provider/policy/' +
+        '`hasHealthInsurance`/`hasLifeInsurance` are yes | no | dont_know answers — no provider/policy/' +
         'expiry detail fields are captured. `onboardingStep` is a resume-position bookmark the ' +
         'client reports for its own 3-screen wizard UI — not validated for ordering.',
     ),
@@ -285,12 +285,44 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/insurance`,
+    tags: [TAGS.DRIVER_AUTH],
+    operationId: 'driverAuth.getInsuranceResponse',
+    ...authenticated(
+      'The caller’s Insurance-screen answers — { hasHealthInsurance, hasLifeInsurance } each yes | no | dont_know (default no).',
+    ),
+    responses: { 200: { description: 'Current flags' } },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/insurance`,
+    tags: [TAGS.DRIVER_AUTH],
+    operationId: 'driverAuth.saveInsuranceResponse',
+    ...authenticated(
+      'Save the answers to “Do you have health insurance?” and “Do you have life insurance?” onto the driver profile’s hasHealthInsurance/hasLifeInsurance. Each is yes | no | dont_know. Resubmitting overwrites.',
+    ),
+    request: { body: json(driverAuthValidators.saveInsuranceResponse.shape.body) },
+    responses: {
+      200: { description: 'Saved answers' },
+      400: { description: 'Validation error', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/relations`,
     tags: [TAGS.DRIVER_AUTH],
     operationId: 'driverAuth.listMyRelations',
     ...authenticated(
-      'List the caller’s own driver_tenant_relations across every tenant, with each tenant’s name.',
+      'List the caller’s own driver_tenant_relations across every tenant, newest first. Pass ' +
+        '?status=pending_driver_review for the "Invite for you" screen (pending fleet-owner ' +
+        'invites; the count is the array length). Each item: linkId, tenantId, tenantName, ' +
+        'status, initiatedBy, createdAt (the "Received … ago" time), invitedBy ' +
+        '{ name, phoneNumber, role } (null for driver-initiated requests), fleetSize (active ' +
+        'vehicles) and hub ("City, State"). Accept/decline via POST /relations/{relationId}/accept|reject.',
     ),
+    request: { query: driverAuthValidators.listMyRelations.shape.query },
     responses: {
       200: { description: 'The caller’s relations' },
     },

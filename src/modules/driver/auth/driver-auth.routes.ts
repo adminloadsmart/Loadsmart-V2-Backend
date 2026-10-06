@@ -166,7 +166,19 @@ export function createDriverAuthProtectedRoutes(
     asyncHandler(controller.selectRelation),
   );
 
-  router.get('/relations', asyncHandler(controller.listMyRelations));
+  // Insurance screen answers — per driver, Loadsmart-only (never surfaced to a fleet owner).
+  router.get('/insurance', asyncHandler(controller.getInsuranceResponse));
+  router.put(
+    '/insurance',
+    validate(driverAuthValidators.saveInsuranceResponse),
+    asyncHandler(controller.saveInsuranceResponse),
+  );
+
+  router.get(
+    '/relations',
+    validate(driverAuthValidators.listMyRelations),
+    asyncHandler(controller.listMyRelations),
+  );
   router.post(
     '/relations/join-requests',
     validate(driverAuthValidators.requestJoin),

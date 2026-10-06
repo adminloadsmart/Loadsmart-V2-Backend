@@ -11,6 +11,7 @@ import {
   DriverTenantRelationStatus,
   DriverVerificationStatus,
   DriverVerificationType,
+  DriverInsuranceAnswer,
 } from './drivers.types';
 import { PaginationInput } from '../../shared/utils/pagination';
 
@@ -117,8 +118,8 @@ export interface CreateDriverProfileData {
   emergencyContactName: string | null;
   emergencyContactPhone: string | null;
   emergencyContactRelation: string | null;
-  hasLifeInsurance: boolean;
-  hasHealthInsurance: boolean;
+  hasLifeInsurance: DriverInsuranceAnswer;
+  hasHealthInsurance: DriverInsuranceAnswer;
   onboardingStep?: DriverOnboardingStep | null;
   registrationSource: DriverRegistrationSource;
   createdBy: string | null;
@@ -142,8 +143,8 @@ export interface UpdateDriverProfileData {
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
   emergencyContactRelation?: string | null;
-  hasLifeInsurance?: boolean;
-  hasHealthInsurance?: boolean;
+  hasLifeInsurance?: DriverInsuranceAnswer;
+  hasHealthInsurance?: DriverInsuranceAnswer;
   onboardingStep?: DriverOnboardingStep | null;
   registrationSource?: DriverRegistrationSource;
   updatedBy?: string | null;

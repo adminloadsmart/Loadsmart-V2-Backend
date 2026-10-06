@@ -217,8 +217,8 @@ export class DriverService {
         // Emergency-contact relation and insurance are driver-self-registration-only concepts
         // (see driver-identity.service.ts) — staff onboarding doesn't collect them.
         emergencyContactRelation: null,
-        hasLifeInsurance: false,
-        hasHealthInsurance: false,
+        hasLifeInsurance: 'no',
+        hasHealthInsurance: 'no',
         registrationSource: 'staff_created',
         createdBy: actorId,
       },

@@ -5,6 +5,7 @@ import { DriverIdentityService } from './driver-identity.service';
 import { OrganizationService } from '../../organization/organization.service';
 import { StorageService } from '../../storage/storage.service';
 import { GenerateUploadUrlInput, FileParams } from '../../storage/storage.types';
+import { DriverTenantRelationStatus } from '../drivers.types';
 import { DriverRelationParams } from '../drivers.interface';
 
 // Mirrors modules/auth/auth.controller.ts's shape — see docs/driver-auth.md for why this is a
@@ -177,8 +178,20 @@ export class DriverAuthController {
   // one tenant — see createDriverAuth's requireTenant: false wiring in index.ts.
 
   listMyRelations = async (req: Request, res: Response) => {
-    const relations = await this.driverIdentityService.listMyRelations(req.driver!.id);
+    const relations = await this.driverIdentityService.listMyRelations(
+      req.driver!.id,
+      req.query.status as DriverTenantRelationStatus | undefined,
+    );
     respond(res, relations);
+  };
+
+  getInsuranceResponse = async (req: Request, res: Response) => {
+    respond(res, await this.driverIdentityService.getMyInsurance(req.driver!.id));
+  };
+
+  saveInsuranceResponse = async (req: Request, res: Response) => {
+    const result = await this.driverIdentityService.saveMyInsurance(req.driver!.id, req.body);
+    respond(res, result);
   };
 
   requestJoin = async (req: Request, res: Response) => {

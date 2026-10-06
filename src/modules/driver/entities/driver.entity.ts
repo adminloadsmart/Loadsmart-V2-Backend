@@ -20,6 +20,8 @@ import {
   DriverOnboardingStep,
   DriverRegistrationSource,
   DriverSalaryType,
+  DRIVER_INSURANCE_ANSWERS,
+  DriverInsuranceAnswer,
 } from '../drivers.types';
 
 // A driver profile is global (one row per person), not tenant-scoped — a driver links to many
@@ -92,11 +94,21 @@ export class DriverEntity {
   @Column({ name: 'emergency_contact_relation', type: 'varchar', length: 50, nullable: true })
   emergencyContactRelation!: string | null;
 
-  @Column({ name: 'has_health_insurance', type: 'boolean', default: false })
-  hasHealthInsurance!: boolean;
+  @Column({
+    name: 'has_health_insurance',
+    type: 'enum',
+    enum: [...DRIVER_INSURANCE_ANSWERS],
+    default: 'no',
+  })
+  hasHealthInsurance!: DriverInsuranceAnswer;
 
-  @Column({ name: 'has_life_insurance', type: 'boolean', default: false })
-  hasLifeInsurance!: boolean;
+  @Column({
+    name: 'has_life_insurance',
+    type: 'enum',
+    enum: [...DRIVER_INSURANCE_ANSWERS],
+    default: 'no',
+  })
+  hasLifeInsurance!: DriverInsuranceAnswer;
 
   @Column({
     name: 'registration_source',

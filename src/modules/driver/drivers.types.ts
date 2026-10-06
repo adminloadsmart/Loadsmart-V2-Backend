@@ -98,3 +98,7 @@ export const DRIVER_ONBOARDING_STEPS = [
   'completed',
 ] as const;
 export type DriverOnboardingStep = (typeof DRIVER_ONBOARDING_STEPS)[number];
+
+/** Answers on the driver app's Insurance screen — "Do you have health/life insurance?". */
+export const DRIVER_INSURANCE_ANSWERS = ['yes', 'no', 'dont_know'] as const;
+export type DriverInsuranceAnswer = (typeof DRIVER_INSURANCE_ANSWERS)[number];

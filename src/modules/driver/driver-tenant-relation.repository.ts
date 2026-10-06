@@ -121,9 +121,12 @@ export class DriverTenantRelationRepository {
   }
 
   /** Every relation a driver (identified globally) holds, across all tenants. */
-  listByDriver(driverId: string): Promise<DriverTenantRelationEntity[]> {
+  listByDriver(
+    driverId: string,
+    status?: DriverTenantRelationEntity['status'],
+  ): Promise<DriverTenantRelationEntity[]> {
     return this.relations.find({
-      where: { driverId, deletedAt: IsNull() },
+      where: { driverId, deletedAt: IsNull(), ...(status && { status }) },
       order: { createdAt: 'DESC' },
     });
   }
