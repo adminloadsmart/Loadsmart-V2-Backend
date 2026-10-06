@@ -4,6 +4,7 @@ import { dailyFixedCost, elapsedDays, jobDays, money } from './calculations/down
 import { elapsedDaysHours } from './calculations/dates';
 import { ServiceDueResult } from './calculations/service-due';
 import { JobCostInput } from './maintenance.interface';
+import { ServiceType, TyreWorkAction } from './maintenance.types';
 
 const toNumber = (value: string | null): number | null => (value === null ? null : Number(value));
 
@@ -54,6 +55,41 @@ export function papersWhatItNeeds(documents: { documentType: string; daysExpired
   return { need: 'papers' as const, detail: `${names} expired ${ago}` };
 }
 
+const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
+  preventive_service: 'Preventive service',
+  oil_change: 'Oil change',
+  spare_parts: 'Spare parts',
+  repair: 'Repair',
+  other: 'Other',
+};
+
+const TYRE_ACTION_LABELS: Record<TyreWorkAction, string> = {
+  new_fitment: 'New tyre fitment',
+  cold_retread: 'Cold retread',
+};
+
+/** The "What was done" column on job history — the work as a label, with the reason or the
+ *  tyre positions underneath. */
+export function whatWasDone(job: MaintenanceJobEntity): { label: string; detail: string | null } {
+  if (job.jobType === 'tyre') {
+    const positions = job.tyres?.map((tyre) => tyre.position).join(', ');
+    return {
+      label: job.tyreAction ? TYRE_ACTION_LABELS[job.tyreAction] : 'Tyre work',
+      detail: positions || job.description,
+    };
+  }
+  if (job.jobType === 'breakdown') {
+    return {
+      label: job.includesService ? 'Breakdown repair + service' : 'Breakdown repair',
+      detail: job.description,
+    };
+  }
+  return {
+    label: job.serviceType ? SERVICE_TYPE_LABELS[job.serviceType] : 'Service',
+    detail: job.description,
+  };
+}
+
 /** The "Workshop intake" column on the in-workshop queue — when it went in and for how long. */
 export function toWorkshopIntake(job: MaintenanceJobEntity, now = new Date()) {
   return { since: job.openedAt, ...elapsedDaysHours(job.openedAt, now) };
@@ -84,6 +120,7 @@ export function toJobView(job: MaintenanceJobEntity, canSeeCosts: boolean, now =
     towed: job.towed,
     description: job.description,
     includesService: job.includesService,
+    whatWasDone: whatWasDone(job),
     sourceIssueReportId: job.sourceIssueReportId,
   };
 

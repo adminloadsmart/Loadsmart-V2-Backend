@@ -181,6 +181,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
       'One truck’s full maintenance history — every service, breakdown and tyre job it ever ' +
         'had (no period), newest first, optionally one jobType. Works for inactive/retired ' +
         'trucks too; 409 for an attached vehicle. ' +
+        'Each row: garage (workshopName), odometerKm, totalCost, daysTaken and whatWasDone ' +
+        '{ label, detail } (e.g. "Preventive service"). ' +
         COSTS_NOTE,
     ),
     request: {
@@ -203,6 +205,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Job history — every service, breakdown and tyre job opened in the period, newest first. ' +
         'Tyre jobs carry tyreAction (new_fitment | cold_retread) and tyrePositions. ' +
+        'Each row: garage (workshopName), odometerKm, totalCost, daysTaken and whatWasDone ' +
+        '{ label, detail } (e.g. "Preventive service"). ' +
         COSTS_NOTE,
     ),
     request: { query: v.listJobs.shape.query },
