@@ -1,89 +1,145 @@
 import {
-  Between,
   DataSource,
   FindOptionsWhere,
+  In,
   IsNull,
   LessThanOrEqual,
-  MoreThan,
   MoreThanOrEqual,
+  Repository,
 } from 'typeorm';
-import {
-  FleetAnalyticsDateRange,
-  FleetEmiSummary,
-  FleetSourceMix,
-} from './utils/fleet-analytics.interface';
-import { LoadEntity } from '../../loads/entities/load.entity';
-import { VehicleTelemetryMetaEntity } from '../../masters/vehicle/entities/vehicle-telemetry-meta.entity';
+import { FleetAnalyticsFilters } from './utils/fleet-analytics.interface';
+import { HELD_AS_OWNERSHIP } from './utils/fleet-analytics.constants';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
+import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
+import { CustomerEntity } from '../../customers/entities/customer.entity';
+import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
+import { TyreEntity } from '../../maintenance/entities/tyre.entity';
+import { TyreReadingEntity } from '../../maintenance/entities/tyre-reading.entity';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import { MAINTAINED_VEHICLE_STATUSES } from '../../maintenance/maintenance.types';
 
-/** createdAt window for getSourceMix — `to` is a plain date (e.g. "2026-08-31"), extended to
- *  end-of-day so that whole day's loads are included, not just an exact-midnight match. */
-function toCreatedAtWhere(
-  range: FleetAnalyticsDateRange,
-): Pick<FindOptionsWhere<LoadEntity>, 'createdAt'> {
-  const from = range.from ? new Date(`${range.from}T00:00:00.000Z`) : undefined;
-  const to = range.to ? new Date(`${range.to}T23:59:59.999Z`) : undefined;
-  if (from && to) return { createdAt: Between(from, to) };
-  if (from) return { createdAt: MoreThanOrEqual(from) };
-  if (to) return { createdAt: LessThanOrEqual(to) };
-  return {};
-}
-
-// Reads LoadEntity/VehicleTelemetryMetaEntity directly via the DataSource, same as
-// AnalyticsRepository (shipper analytics) — a reporting concern spanning masters/loads, not a
+// Reads masters/maintenance/driver entities directly via the DataSource, same as
+// AnalyticsRepository (shipper analytics) — a reporting concern spanning several modules, not a
 // business-logic dependency, so it doesn't go through those modules' own repositories/services.
 // Plain Repository.find() + in-JS aggregation throughout (no createQueryBuilder/raw SQL
 // expressions) — see prefer-typeorm-no-raw-sql: TypeORM's Repository API has no SUM/GROUP BY,
 // so aggregation happens in application code instead of in the query.
 export class FleetAnalyticsRepository {
-  private readonly loads;
-  private readonly vehicleTelemetryMeta;
+  private readonly vehicles: Repository<VehicleEntity>;
+  private readonly truckTypes: Repository<TruckTypeEntity>;
+  private readonly customers: Repository<CustomerEntity>;
+  private readonly jobs: Repository<MaintenanceJobEntity>;
+  private readonly tyres: Repository<TyreEntity>;
+  private readonly tyreReadings: Repository<TyreReadingEntity>;
+  private readonly driverRelations: Repository<DriverTenantRelationEntity>;
 
   constructor(dataSource: DataSource) {
-    this.loads = dataSource.getRepository(LoadEntity);
-    this.vehicleTelemetryMeta = dataSource.getRepository(VehicleTelemetryMetaEntity);
+    this.vehicles = dataSource.getRepository(VehicleEntity);
+    this.truckTypes = dataSource.getRepository(TruckTypeEntity);
+    this.customers = dataSource.getRepository(CustomerEntity);
+    this.jobs = dataSource.getRepository(MaintenanceJobEntity);
+    this.tyres = dataSource.getRepository(TyreEntity);
+    this.tyreReadings = dataSource.getRepository(TyreReadingEntity);
+    this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
   }
 
-  /** "EMI outgo" tile — sums emiAmount across vehicles currently on finance (amount set, and
-   *  emiEndDate either unset or not yet passed), for still-active vehicles only. */
-  async getEmiSummary(tenantId: string): Promise<FleetEmiSummary> {
-    const today = new Date().toISOString().slice(0, 10);
-    const base = {
-      tenantId,
-      deletedAt: IsNull(),
-      emiAmount: MoreThan('0'),
-      vehicle: { deletedAt: IsNull() },
-    } satisfies FindOptionsWhere<VehicleTelemetryMetaEntity>;
-
-    const rows = await this.vehicleTelemetryMeta.find({
-      where: [
-        { ...base, emiEndDate: IsNull() },
-        { ...base, emiEndDate: MoreThanOrEqual(today) },
-      ],
-      relations: { vehicle: true },
-      select: { id: true, emiAmount: true, vehicle: { id: true } },
-    });
-
-    return {
-      totalEmiAmount: rows.reduce((sum, row) => sum + Number(row.emiAmount ?? 0), 0),
-      vehiclesOnFinance: rows.length,
-    };
-  }
-
-  /** "Own vs market mix" donut — counts by sourceType, optionally windowed to createdAt
-   *  between from/to (either or both may be omitted for all-time counts). */
-  async getSourceMix(tenantId: string, range: FleetAnalyticsDateRange): Promise<FleetSourceMix> {
-    const rows = await this.loads.find({
-      where: { tenantId, ...toCreatedAtWhere(range) },
-      select: { id: true, sourceType: true },
-    });
-
-    return rows.reduce(
-      (acc, row) => {
-        if (row.sourceType === 'own_fleet') acc.ownFleet += 1;
-        else acc.market += 1;
-        return acc;
+  /** The running fleet the filter bar selects — onboarded, not retired, narrowed by "Held as"
+   *  and "Truck class". Carries everything the tabs read off a vehicle: class, fixed costs,
+   *  odometer, papers and the VAHAN registration date (for age). */
+  listScopedVehicles(tenantId: string, filters: FleetAnalyticsFilters): Promise<VehicleEntity[]> {
+    return this.vehicles.find({
+      where: {
+        tenantId,
+        deletedAt: IsNull(),
+        status: In([...MAINTAINED_VEHICLE_STATUSES]),
+        ownershipType: In(HELD_AS_OWNERSHIP[filters.heldAs]),
+        ...(filters.truckTypeId ? { truckTypeId: filters.truckTypeId } : {}),
       },
-      { ownFleet: 0, market: 0 },
-    );
+      relations: {
+        truckType: true,
+        telemetryMeta: true,
+        serviceUsage: true,
+        documents: true,
+        verificationSnapshots: true,
+      },
+      order: { registrationNumber: 'ASC' },
+    });
+  }
+
+  /** Every job on these vehicles whose [openedAt, closedAt ?? now] overlaps the window — both
+   *  downtime (overlap) and spend (opened inside the window) are derived from this one read. */
+  listJobsOverlapping(
+    tenantId: string,
+    vehicleIds: string[],
+    range: { from: Date; to: Date },
+  ): Promise<MaintenanceJobEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    const base: FindOptionsWhere<MaintenanceJobEntity> = {
+      tenantId,
+      vehicleId: In(vehicleIds),
+      openedAt: LessThanOrEqual(range.to),
+    };
+    return this.jobs.find({
+      where: [
+        { ...base, closedAt: IsNull() },
+        { ...base, closedAt: MoreThanOrEqual(range.from) },
+      ],
+      order: { openedAt: 'ASC' },
+    });
+  }
+
+  /** Trucks in the workshop right now — current state, independent of the period. */
+  listOpenJobs(tenantId: string, vehicleIds: string[]): Promise<MaintenanceJobEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    return this.jobs.find({
+      where: { tenantId, vehicleId: In(vehicleIds), status: 'open' },
+    });
+  }
+
+  /** Tyres fitted to these vehicles now, with each one's latest gauge reading (or null). */
+  async listFittedTyres(
+    tenantId: string,
+    vehicleIds: string[],
+  ): Promise<{ tyre: TyreEntity; reading: TyreReadingEntity | null }[]> {
+    if (vehicleIds.length === 0) return [];
+    const tyres = await this.tyres.find({
+      where: { tenantId, vehicleId: In(vehicleIds), status: 'fitted' },
+    });
+    if (tyres.length === 0) return [];
+
+    const readings = await this.tyreReadings.find({
+      where: { tenantId, tyreId: In(tyres.map((tyre) => tyre.id)) },
+      order: { readingDate: 'DESC', createdAt: 'DESC' },
+    });
+    const latest = new Map<string, TyreReadingEntity>();
+    for (const reading of readings) {
+      if (!latest.has(reading.tyreId)) latest.set(reading.tyreId, reading);
+    }
+
+    return tyres.map((tyre) => ({ tyre, reading: latest.get(tyre.id) ?? null }));
+  }
+
+  /** Drivers on the tenant's roll, with their DL verifications (for licence class). */
+  listActiveDrivers(tenantId: string): Promise<DriverTenantRelationEntity[]> {
+    return this.driverRelations.find({
+      where: { tenantId, status: 'active', deletedAt: IsNull(), driver: { deletedAt: IsNull() } },
+      relations: { driver: { verifications: true } },
+    });
+  }
+
+  listTruckTypes(tenantId: string): Promise<TruckTypeEntity[]> {
+    return this.truckTypes.find({
+      where: { tenantId, deletedAt: IsNull() },
+      select: { id: true, name: true },
+      order: { name: 'ASC' },
+    });
+  }
+
+  listCustomers(tenantId: string): Promise<CustomerEntity[]> {
+    return this.customers.find({
+      where: { tenantId, deletedAt: IsNull() },
+      select: { id: true, name: true },
+      order: { name: 'ASC' },
+    });
   }
 }
