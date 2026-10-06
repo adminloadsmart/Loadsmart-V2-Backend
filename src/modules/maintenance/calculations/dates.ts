@@ -57,3 +57,9 @@ export function round(value: number, places = 1): number {
   const factor = 10 ** places;
   return Math.round(value * factor) / factor;
 }
+
+/** Time from `from` to `now` as whole days plus leftover hours — the "(1d 2h)" label. */
+export function elapsedDaysHours(from: Date, now: Date): { days: number; hours: number } {
+  const totalHours = Math.max(0, Math.floor((now.getTime() - from.getTime()) / (60 * 60 * 1000)));
+  return { days: Math.floor(totalHours / 24), hours: totalHours % 24 };
+}
