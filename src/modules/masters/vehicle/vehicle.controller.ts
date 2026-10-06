@@ -14,7 +14,7 @@ export class VehicleController {
   constructor(private readonly vehicleService: VehicleService) {}
 
   listVehicles = async (req: Request, res: Response) => {
-    const vehicles = await this.vehicleService.listVehicles(
+    const vehicles = await this.vehicleService.listVehiclesWithTyres(
       requireTenantId(req),
       req.validatedQuery as ListVehiclesInput,
     );
@@ -38,7 +38,7 @@ export class VehicleController {
   };
 
   getVehicle = async (req: Request<VehicleParams>, res: Response) => {
-    const vehicle = await this.vehicleService.getVehicle(
+    const vehicle = await this.vehicleService.getVehicleWithTyres(
       requireTenantId(req),
       req.params.vehicleId,
     );
