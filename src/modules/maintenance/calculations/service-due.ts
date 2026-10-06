@@ -7,9 +7,15 @@ export interface ServiceDueInput {
   lastServiceOdometerKm: number | null;
   intervalKm: number;
   intervalMonths: number;
+  /** IST date the truck was added — the time clock's start when it has no service history. */
+  onboardedOn?: string | null;
   /** IST calendar date. */
   today: string;
 }
+
+/** What the clocks were counted from: a recorded service, or (with no history) the day the truck
+ *  was added. */
+export type ServiceDueBaseline = 'last_service' | 'onboarded';
 
 export interface ServiceDueResult {
   isDue: boolean;
@@ -23,6 +29,7 @@ export interface ServiceDueResult {
   /** How far past policy, as a fraction of the interval (the larger of the two clocks) — the
    *  queue's sort key. Infinity for `no_record`, which sorts first. */
   overdueRatio: number;
+  baseline: ServiceDueBaseline | null;
 }
 
 /**
@@ -32,14 +39,17 @@ export interface ServiceDueResult {
  *   dueAtKm = lastServiceOdometerKm + intervalKm       → over when odometerKm ≥ dueAtKm
  *   dueOn   = lastServiceDate + intervalMonths          → over when today ≥ dueOn
  *
- * With no service record at all, neither clock can be read and the truck is reported as
- * `no_record` rather than silently left out.
+ * With no service record, the time clock starts the day the truck was added (Add Truck rarely
+ * carries a service history, and calling every new truck overdue on day one buries the real
+ * ones); the distance clock stays unread — there's no km to count from. Only with neither a
+ * record nor an onboarding date is the truck reported as `no_record`, rather than left out.
  */
 export function computeServiceDue(input: ServiceDueInput): ServiceDueResult {
-  const { odometerKm, lastServiceDate, lastServiceOdometerKm, intervalKm, intervalMonths, today } =
+  const { odometerKm, lastServiceOdometerKm, intervalKm, intervalMonths, onboardedOn, today } =
     input;
 
-  if (!lastServiceDate && lastServiceOdometerKm === null) {
+  const hasHistory = Boolean(input.lastServiceDate) || lastServiceOdometerKm !== null;
+  if (!hasHistory && !onboardedOn) {
     return {
       isDue: true,
       trigger: 'no_record',
@@ -48,8 +58,11 @@ export function computeServiceDue(input: ServiceDueInput): ServiceDueResult {
       overdueKm: null,
       overdueDays: null,
       overdueRatio: Number.POSITIVE_INFINITY,
+      baseline: null,
     };
   }
+
+  const lastServiceDate = hasHistory ? input.lastServiceDate : onboardedOn!;
 
   const dueAtKm = lastServiceOdometerKm === null ? null : lastServiceOdometerKm + intervalKm;
   const dueOn = lastServiceDate ? addMonths(lastServiceDate, intervalMonths) : null;
@@ -74,5 +87,6 @@ export function computeServiceDue(input: ServiceDueInput): ServiceDueResult {
     overdueKm: distanceDue ? kmOver : null,
     overdueDays: timeDue ? daysOver : null,
     overdueRatio: Math.max(kmRatio, dayRatio),
+    baseline: hasHistory ? 'last_service' : 'onboarded',
   };
 }

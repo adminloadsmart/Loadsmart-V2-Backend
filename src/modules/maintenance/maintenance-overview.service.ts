@@ -41,7 +41,10 @@ export class MaintenanceOverviewService {
         byDistance: serviceDue.items.filter((i) => i.trigger === 'distance' || i.trigger === 'both')
           .length,
         byTime: serviceDue.items.filter((i) => i.trigger === 'time' || i.trigger === 'both').length,
-        noRecord: serviceDue.items.filter((i) => i.trigger === 'no_record').length,
+        // Never serviced with us — due on the clock that started the day the truck was added.
+        noRecord: serviceDue.items.filter(
+          (i) => i.trigger === 'no_record' || i.baseline === 'onboarded',
+        ).length,
       };
 
       const positionsAtLegalLimit = {

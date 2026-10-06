@@ -56,8 +56,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks past their service interval by distance or months, whichever came first. `trigger` ' +
         'says which clock ran out (distance | time | both | no_record); only the triggered ' +
-        'overdueKm/overdueDays is set; `whatItNeeds` is the ready-made "What it needs" text. ' +
-        '`vehicle.truckTypeName` is the Class column. Current state — not filtered by period. ' +
+        'overdueKm/overdueDays is set. With no service history the time clock counts from the ' +
+        'day the truck was added (`baseline: onboarded`), so new trucks are not due on day one. ' +
+        '`whatItNeeds` is the ready-made "What it needs" text; `vehicle.truckTypeName` is the ' +
+        'Class column. Current state — not filtered by period. ' +
         OWN_FLEET_NOTE,
     ),
     request: { query: v.listQueue.shape.query },
@@ -404,9 +406,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         'comes off as replaced and a new one goes on. cold_retread: the fitted casing is ' +
         'remoulded (same serial, retreadCount + 1) — 409 if damaged or out of retreads; with no ' +
         'tyre on record at the position, the retreaded tyre is registered (retreadCount 1). All ' +
-        'positions or none; dispatch is untouched. positions are the modal’s own codes for ' +
-        'whatever it drew (e.g. FL, R1LO, R2RI) — stored as sent (upper-cased), one tyre each, ' +
-        'not checked against a fixed axle layout. action is kept on the job as tyreAction.',
+        'positions or none; dispatch is untouched. positions must be on the truck’s layout ' +
+        '(FL, FR, R1L, R1R, … from its wheel count — the `positions` of ' +
+        'GET /vehicles/{vehicleId}/tyres, same codes as the Add Truck tyre set); 400 otherwise. ' +
+        'action is kept on the job as tyreAction.',
     ),
     request: { body: json(v.recordTyreWork.shape.body) },
     responses: {
@@ -422,7 +425,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/tyres`,
     tags: [TAGS.MAINTENANCE],
     operationId: 'maintenance.fitTyre',
-    ...permissionGated([MAINTENANCE_MANAGE], 'Fit a tyre at a wheel position.'),
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Fit a tyre at a wheel position — one of the truck’s layout positions (FL, FR, R1L, …); 400 otherwise.',
+    ),
     request: { body: json(v.fitTyre.shape.body) },
     responses: { 201: { description: 'Tyre' }, 400: validationFailed, 409: conflict },
   });

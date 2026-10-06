@@ -27,7 +27,9 @@ export function serviceWhatItNeeds(due: ServiceDueResult) {
   let detail: string;
   if (due.trigger === 'no_record') detail = 'no service record';
   else if (due.overdueKm) detail = pastInterval(due.overdueKm, 'km');
-  else detail = pastInterval(due.overdueDays ?? 0, 'days');
+  else if (due.baseline === 'onboarded') {
+    detail = `no service logged since added — ${pastInterval(due.overdueDays ?? 0, 'days')}`;
+  } else detail = pastInterval(due.overdueDays ?? 0, 'days');
 
   return { need: 'service' as const, detail };
 }
@@ -83,6 +85,9 @@ export function whatWasDone(job: MaintenanceJobEntity): { label: string; detail:
       label: job.includesService ? 'Breakdown repair + service' : 'Breakdown repair',
       detail: job.description,
     };
+  }
+  if (!job.serviceType && job.status === 'closed') {
+    return { label: 'Workshop visit — released', detail: job.description };
   }
   return {
     label: job.serviceType ? SERVICE_TYPE_LABELS[job.serviceType] : 'Service',

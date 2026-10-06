@@ -91,6 +91,33 @@ export class TyreRepository {
     });
   }
 
+  /**
+   * A truck's first odometer reading becomes the start point for the tyres fitted before it had
+   * one (onboarding stores those at 0 km with readings at no km) — without this, every km on the
+   * clock would count as worn since fitment. Returns how many tyres were rebased.
+   */
+  async rebaseUnmeteredTyres(
+    tenantId: string,
+    vehicleId: string,
+    odometerKm: number,
+    manager: EntityManager,
+  ): Promise<number> {
+    const tyres = await manager.getRepository(TyreEntity).find({
+      select: { id: true },
+      where: { tenantId, vehicleId, status: 'fitted', fittedOdometerKm: 0 },
+    });
+    if (tyres.length === 0) return 0;
+
+    const tyreIds = tyres.map((tyre) => tyre.id);
+    await manager
+      .getRepository(TyreEntity)
+      .update({ tenantId, id: In(tyreIds) }, { fittedOdometerKm: odometerKm });
+    await manager
+      .getRepository(TyreReadingEntity)
+      .update({ tenantId, tyreId: In(tyreIds), odometerKm: IsNull() }, { odometerKm });
+    return tyreIds.length;
+  }
+
   createReading(data: CreateTyreReadingData, manager?: EntityManager): Promise<TyreReadingEntity> {
     const repo = manager?.getRepository(TyreReadingEntity) ?? this.readings;
     return repo.save(repo.create(data));

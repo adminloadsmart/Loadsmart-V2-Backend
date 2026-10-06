@@ -5,7 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { TyreEntity } from './entities/tyre.entity';
 import { TyreRepository } from './repositories/tyre.repository';
 import { MaintenanceJobRepository } from './repositories/maintenance-job.repository';
-import { tyrePositions } from './calculations/tyre-layout';
+import { assertLayoutPositions, tyrePositions } from './calculations/tyre-layout';
 import { TyreReadingEntity } from './entities/tyre-reading.entity';
 import { computeTyreWear } from './calculations/tyre-wear';
 import {
@@ -226,12 +226,12 @@ export class TyreService {
       await this.maintenanceService.assertInvoice(tenantId, actor, input);
       const at = this.maintenanceService.resolveDate(input.invoiceDate, 'invoiceDate');
 
-      // The modal draws the axles itself (single/dual, inner/outer), so the codes it sends are
-      // stored as selected — not checked against tyrePositions()'s default layout.
+      // Same codes as the Add Truck tyre set, so the work replaces the tyres fitted there.
       const positions = input.positions.map((position) => position.trim().toUpperCase());
       if (new Set(positions).size !== positions.length) {
         throw new ValidationError('Each position can be selected only once');
       }
+      assertLayoutPositions(vehicle.wheelCount, positions);
 
       const job = await this.dataSource.transaction(async (manager) => {
         const created = await this.jobRepository.create(
@@ -385,6 +385,7 @@ export class TyreService {
       }
 
       const position = input.position.trim().toUpperCase();
+      assertLayoutPositions(vehicle.wheelCount, [position]);
       const occupied = await this.tyreRepository.findFittedAt(tenantId, vehicle.id, position);
       if (occupied) {
         throw new ConflictError(
@@ -493,12 +494,7 @@ export class TyreService {
         (input.positions ?? []).map((override) => [override.position.toUpperCase(), override]),
       );
 
-      const unknown = [...overrides.keys()].filter((position) => !positions.includes(position));
-      if (unknown.length > 0) {
-        throw new ValidationError(
-          `Not a position on this truck: ${unknown.join(', ')} (expected ${positions.join(', ')})`,
-        );
-      }
+      assertLayoutPositions(vehicle.wheelCount, [...overrides.keys()]);
 
       const today = toIstDateString(new Date());
       const presetMm = TYRE_CONDITION_PRESETS[input.preset];

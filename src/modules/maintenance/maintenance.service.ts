@@ -9,6 +9,7 @@ import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { MaintenanceJobEntity } from './entities/maintenance-job.entity';
 import { MaintenanceJobRepository } from './repositories/maintenance-job.repository';
 import { MaintenanceFleetRepository } from './repositories/fleet.repository';
+import { TyreRepository } from './repositories/tyre.repository';
 import { FleetGateway } from './gateways/fleet.gateway';
 import { NotificationsGateway } from './gateways/notifications.gateway';
 import { StorageGateway } from './gateways/storage.gateway';
@@ -76,6 +77,7 @@ export class MaintenanceService {
     private readonly storageGateway: StorageGateway,
     private readonly auditService: AuditService,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly tyreRepository: TyreRepository,
   ) {}
 
   /* ------------------------------------------------------------------ fleet state */
@@ -146,6 +148,7 @@ export class MaintenanceService {
             lastServiceOdometerKm: usage?.lastServiceOdometerKm ?? null,
             intervalKm,
             intervalMonths,
+            onboardedOn: toIstDateString(vehicle.createdAt),
             today,
           });
           return { vehicle, usage, intervalKm, intervalMonths, due };
@@ -156,6 +159,7 @@ export class MaintenanceService {
           vehicle: toVehicleSummary(vehicle),
           whatItNeeds: serviceWhatItNeeds(due),
           trigger: due.trigger,
+          baseline: due.baseline,
           overdueKm: due.overdueKm,
           overdueDays: due.overdueDays,
           dueAtKm: due.dueAtKm,
@@ -884,7 +888,8 @@ export class MaintenanceService {
     odometerKm: number,
   ) {
     const vehicle = await this.fleetRepository.findVehicle(tenantId, vehicleId, manager);
-    if (odometerKm > (vehicle?.serviceUsage?.odometerKm ?? 0)) {
+    const previousKm = vehicle?.serviceUsage?.odometerKm ?? null;
+    if (odometerKm > (previousKm ?? 0)) {
       await this.fleetGateway.updateServiceUsage(
         tenantId,
         actorId,
@@ -893,6 +898,20 @@ export class MaintenanceService {
         manager,
       );
     }
+    await this.baselineTyresOnFirstReading(manager, tenantId, vehicleId, previousKm, odometerKm);
+  }
+
+  /** The first odometer a truck ever gets is where its already-fitted tyres start counting from
+   *  (see TyreRepository.rebaseUnmeteredTyres) — trucks added without an odometer. */
+  private async baselineTyresOnFirstReading(
+    manager: EntityManager,
+    tenantId: string,
+    vehicleId: string,
+    previousKm: number | null,
+    odometerKm: number,
+  ) {
+    if (previousKm !== null) return;
+    await this.tyreRepository.rebaseUnmeteredTyres(tenantId, vehicleId, odometerKm, manager);
   }
 
   /**
@@ -931,6 +950,9 @@ export class MaintenanceService {
         status: 'closed',
         closedAt: details.closedAt,
         ...(serviced ? { serviceType: outcome.serviceType } : {}),
+        // Released without a service: drop the check-in's "in for" type so history doesn't claim
+        // a service was done — a closed service job with no serviceType means released.
+        ...(!serviced && job.jobType === 'service' ? { serviceType: null } : {}),
         ...(serviced && job.jobType === 'breakdown' ? { includesService: true } : {}),
         ...(details.odometerKm !== undefined ? { odometerKm: details.odometerKm } : {}),
         ...(details.workshopName !== undefined ? { workshopName: details.workshopName } : {}),
@@ -1018,6 +1040,13 @@ export class MaintenanceService {
         ? { lastServiceDate: serviceDate, lastServiceOdometerKm: odometerKm, odometerKm: odometer }
         : { odometerKm: odometer },
       manager,
+    );
+    await this.baselineTyresOnFirstReading(
+      manager,
+      tenantId,
+      vehicleId,
+      usage?.odometerKm ?? null,
+      odometerKm,
     );
   }
 
