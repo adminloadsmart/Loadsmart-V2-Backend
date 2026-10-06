@@ -9,9 +9,49 @@ export function createFleetAnalyticsRoutes(controller: FleetAnalyticsController)
   const router = Router();
   router.use(requireTenant);
   router.get(
+    '/fleet/filters',
+    validate(fleetAnalyticsValidators.getFilters),
+    asyncHandler(controller.getFilters),
+  );
+  router.get(
+    '/fleet/summary',
+    validate(fleetAnalyticsValidators.getSummary),
+    asyncHandler(controller.getSummary),
+  );
+  router.get(
     '/fleet/overview',
     validate(fleetAnalyticsValidators.getOverview),
     asyncHandler(controller.getOverview),
+  );
+  router.get(
+    '/fleet/utilisation',
+    validate(fleetAnalyticsValidators.getUtilisation),
+    asyncHandler(controller.getUtilisation),
+  );
+  router.get(
+    '/fleet/cost',
+    validate(fleetAnalyticsValidators.getCost),
+    asyncHandler(controller.getCost),
+  );
+  router.get(
+    '/fleet/energy',
+    validate(fleetAnalyticsValidators.getEnergy),
+    asyncHandler(controller.getEnergy),
+  );
+  router.get(
+    '/fleet/maintenance',
+    validate(fleetAnalyticsValidators.getMaintenance),
+    asyncHandler(controller.getMaintenance),
+  );
+  router.get(
+    '/fleet/operations',
+    validate(fleetAnalyticsValidators.getOperations),
+    asyncHandler(controller.getOperations),
+  );
+  router.get(
+    '/fleet/compliance',
+    validate(fleetAnalyticsValidators.getCompliance),
+    asyncHandler(controller.getCompliance),
   );
   return router;
 }
