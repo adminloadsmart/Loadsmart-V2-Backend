@@ -37,6 +37,7 @@ import {
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
 import {
+  DISPATCH_ROLE,
   ORG_ADMIN_ROLE,
   STAFF_ASSIGNABLE_ROLES,
   ORG_ASSIGNABLE_ROLES,
@@ -514,6 +515,24 @@ export class AuthService {
   // getUserById above, batched variant — for the loads module's audit-trail actor names.
   async getUsersByIds(userIds: string[]) {
     return this.authRepository.findByIds(userIds);
+  }
+
+  /** Contact numbers used by the driver trip-detail call actions. */
+  async getOrganizationContactPhones(tenantId: string): Promise<{
+    ownerPhoneNumber: string | null;
+    dispatchPhoneNumber: string | null;
+  }> {
+    const users = await this.authRepository.listUsersByRole(tenantId, [
+      ORG_ADMIN_ROLE,
+      DISPATCH_ROLE,
+    ]);
+
+    return {
+      ownerPhoneNumber:
+        users.find((user) => user.role.name === ORG_ADMIN_ROLE)?.phoneNumber ?? null,
+      dispatchPhoneNumber:
+        users.find((user) => user.role.name === DISPATCH_ROLE)?.phoneNumber ?? null,
+    };
   }
 
   // Called any time the client's FCM token changes independent of login (Firebase's own

@@ -7,6 +7,74 @@ export type Catalog<T> = { [K in keyof T]: T[K] extends string ? string : Catalo
 export const hi = {
   errors: {
     internal: 'कुछ गलत हो गया',
+    otp: {
+      sent: '{phoneNumber} पर OTP भेज दिया गया है',
+      cooldown: 'दूसरा OTP मांगने से पहले कृपया प्रतीक्षा करें',
+      invalid: 'गलत OTP',
+      tooManyAttemptsLogin: 'बहुत ज़्यादा गलत प्रयास हुए, कृपया नया लॉगिन OTP मांगें',
+      tooManyAttempts: 'बहुत ज़्यादा गलत प्रयास हुए, कृपया नया OTP मांगें',
+    },
+    session: {
+      invalidRefreshToken: 'रिफ्रेश टोकन गलत है या समाप्त हो गया है',
+      noActiveSession: 'कोई सक्रिय सेशन नहीं मिला',
+    },
+    driver: {
+      notRegistered: 'ड्राइवर रजिस्टर्ड नहीं है',
+      notFound: 'ड्राइवर नहीं मिला',
+      notFoundById: 'ड्राइवर {id} नहीं मिला',
+      invalidTenant: 'गलत संगठन चुना गया है',
+      tenantRelationNotFound: 'ड्राइवर और संगठन का संबंध नहीं मिला',
+      orgAccessUnavailable: 'संगठन की पहुँच उपलब्ध नहीं है',
+      invalidPhone: 'फ़ोन नंबर सही नहीं है',
+      phoneAlreadyRegistered: 'इस फ़ोन नंबर वाला ड्राइवर पहले से रजिस्टर्ड है',
+      licenseExists: 'इस लाइसेंस नंबर वाला ड्राइवर पहले से मौजूद है',
+      licenceImagesRequired: 'ड्राइविंग लाइसेंस की आगे और पीछे दोनों फोटो ज़रूरी हैं',
+      relationExists: 'इस फ्लीट मालिक के साथ संबंध पहले से मौजूद है',
+      inviteNotFound: 'आमंत्रण नहीं मिला',
+    },
+  },
+  loads: {
+    stage: {
+      created: 'लोड बनाया गया',
+      assigned: 'ट्रक असाइन किया गया',
+      inTransit: 'रास्ते में',
+      reachedDelivery: 'अनलोडिंग पॉइंट पर पहुँचा',
+      delivered: 'डिलीवर हो गया',
+      payments: 'भुगतान',
+    },
+    status: {
+      created: 'बनाया गया',
+      assigned: 'असाइन किया गया',
+      at_plant: 'प्लांट पर',
+      loading_confirmed: 'लोडिंग की पुष्टि हुई',
+      in_transit: 'रास्ते में',
+      reached_delivery_point: 'डिलीवरी पॉइंट पर पहुँचा',
+      delivered: 'डिलीवर हो गया',
+      closed: 'बंद',
+    },
+    source: {
+      ownFleet: 'अपना फ्लीट',
+      market: 'मार्केट',
+      marketWithTransporter: 'मार्केट · {transporter}',
+    },
+  },
+  notifications: {
+    vehicleComplianceExpiringSoon: {
+      title: 'वाहन का अनुपालन दस्तावेज़ जल्द समाप्त होगा',
+      body: 'वाहन {vehicleNo} का {complianceType} 15 दिनों में {expiryDate} को समाप्त हो रहा है। कृपया समाप्ति तिथि से पहले इसका नवीनीकरण करें।',
+    },
+    vehicleComplianceExpired: {
+      title: 'वाहन का अनुपालन दस्तावेज़ समाप्त हो गया',
+      body: 'वाहन {vehicleNo} का {complianceType} {expiryDate} को समाप्त हो गया है। वैध दस्तावेज़ अपडेट होने तक वाहन को डिस्पैच से रोका जा सकता है।',
+    },
+    driverLinkRequested: {
+      title: 'ड्राइवर जुड़ने का अनुरोध',
+      body: '{driverName} ({phoneNumber}) ने आपके फ्लीट से जुड़ने का अनुरोध किया है। इसे सेटिंग्स → अप्रूवल में देखें।',
+    },
+    driverLinkAccepted: {
+      title: 'ड्राइवर ने आमंत्रण स्वीकार किया',
+      body: '{driverName} ({phoneNumber}) ने आपका आमंत्रण स्वीकार कर लिया है और अब आपके फ्लीट से जुड़ गया है।',
+    },
   },
   validation: {
     failed: 'जानकारी सही नहीं है',

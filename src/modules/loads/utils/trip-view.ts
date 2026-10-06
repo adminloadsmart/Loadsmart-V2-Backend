@@ -1,9 +1,11 @@
 import { computeShareAmount } from '../load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
+import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
+import { t } from '../../../shared/i18n/translate';
 import { EwayBillExpiry } from './load.interface';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
-  LIFECYCLE_STAGE_LABELS,
+  LIFECYCLE_STAGE_LABEL_KEYS,
   LOAD_STATUSES,
   LoadSourceType,
   LoadStatus,
@@ -122,12 +124,7 @@ export interface TripNextAction {
   balance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
 }
 
-function humanizeStatus(status: LoadStatus): string {
-  const words = status.split('_');
-  return `${words[0].charAt(0).toUpperCase()}${words[0].slice(1)} ${words.slice(1).join(' ')}`.trim();
-}
-
-export function toTripListRow(load: LoadEntity): TripListRow {
+export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripListRow {
   const req = load.requisition;
 
   // Own-fleet loads snapshot the vehicle's driver at Dispatch Planning time (see
@@ -171,10 +168,14 @@ export function toTripListRow(load: LoadEntity): TripListRow {
         : null,
     source:
       load.sourceType === 'own_fleet'
-        ? { type: 'own_fleet', label: 'Own fleet' }
+        ? { type: 'own_fleet', label: t(locale, 'loads.source.ownFleet') }
         : {
             type: 'market',
-            label: load.transporter ? `Market · ${load.transporter.name}` : 'Market',
+            label: load.transporter
+              ? t(locale, 'loads.source.marketWithTransporter', {
+                  transporter: load.transporter.name,
+                })
+              : t(locale, 'loads.source.market'),
           },
     plannedCapacityTonnes: load.plannedCapacityTonnes,
     freightValue: load.freightValue,
@@ -381,7 +382,7 @@ export function toLoadPapers(
 
 /** Walks LOAD_STATUSES by index — the same indexing LoadService.updateStatus uses — to build
  *  the trip-detail screen's 8-step progress stepper. */
-export function buildStepper(load: LoadEntity): TripStepperStep[] {
+export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripStepperStep[] {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const timestampByStatus: Partial<Record<LoadStatus, Date | null>> = {
     loading_confirmed: load.loadingConfirmedAt,
@@ -393,7 +394,7 @@ export function buildStepper(load: LoadEntity): TripStepperStep[] {
   };
   return LOAD_STATUSES.map((status, index) => ({
     key: status,
-    label: humanizeStatus(status),
+    label: t(locale, `loads.status.${status}`),
     completed: index < currentIndex,
     current: index === currentIndex,
     at: timestampByStatus[status]?.toISOString() ?? null,
@@ -422,7 +423,7 @@ function resolveLifecycleStage(load: LoadEntity): LoadStatus | typeof PAYMENTS_S
 /** Next-action panel — what stage comes next, tracking/advance-due info. Advance/balance
  *  applicability and paid-state mirror the exact gating LoadPaymentService.recordAdvance/
  *  recordBalance already enforce (market-only, gated by loadingConfirmedAt/deliveredAt). */
-export function buildNextAction(load: LoadEntity): TripNextAction {
+export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripNextAction {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
 
@@ -445,7 +446,7 @@ export function buildNextAction(load: LoadEntity): TripNextAction {
     nextStatus,
     stepNumber,
     totalSteps,
-    currentStageLabel: LIFECYCLE_STAGE_LABELS[currentStage],
+    currentStageLabel: t(locale, LIFECYCLE_STAGE_LABEL_KEYS[currentStage]),
     lastUpdate: { status: load.status, at: load.updatedAt?.toISOString() ?? null },
     advance: {
       applicable: isMarket,

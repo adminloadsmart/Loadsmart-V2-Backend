@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
@@ -40,6 +41,7 @@ import {
   TripNextAction,
   TripStepperStep,
 } from './utils/trip-view';
+import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 
 const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 
@@ -74,6 +76,8 @@ export interface LoadDocumentKeys {
 
 export interface LoadDetailView {
   load: LoadEntity;
+  ownerPhoneNumber: string | null;
+  dispatchPhoneNumber: string | null;
   documentKeys: LoadDocumentKeys;
   timeline: LoadActivityWithActor[];
   payments: LoadPaymentEntity[];
@@ -85,6 +89,7 @@ export interface LoadDetailView {
 export class LoadService {
   constructor(
     private readonly repository: LoadRepository,
+    private readonly authService: AuthService,
     private readonly loadPaymentRepository: LoadPaymentRepository,
     private readonly loadIssueRepository: LoadIssueRepository,
     private readonly transporterService: TransporterService,
@@ -462,11 +467,15 @@ export class LoadService {
           );
           await this.auditService.log({
             tenantId,
-            userId: actorId,
+            // A driver caller's id isn't in users, so audit_logs.user_id's FK would reject it —
+            // same convention as updateStatus: null the user and carry the driver in newData.
+            userId: driverOwnerId ? null : actorId,
             action: 'LOAD_LOADING_CONFIRMED',
             resourceType: 'load',
             oldData: { id: loadId, status: 'at_plant' },
-            newData: { id: loadId, status: 'loading_confirmed' },
+            newData: driverOwnerId
+              ? { id: loadId, status: 'loading_confirmed', driverId: actorId }
+              : { id: loadId, status: 'loading_confirmed' },
           });
 
           // Confirming loading means the truck is leaving the plant — advance straight to
@@ -491,11 +500,13 @@ export class LoadService {
             );
             await this.auditService.log({
               tenantId,
-              userId: actorId,
+              userId: driverOwnerId ? null : actorId,
               action: 'LOAD_STATUS_UPDATED',
               resourceType: 'load',
               oldData: { id: loadId, status: 'loading_confirmed' },
-              newData: { id: loadId, status: 'in_transit' },
+              newData: driverOwnerId
+                ? { id: loadId, status: 'in_transit', driverId: actorId }
+                : { id: loadId, status: 'in_transit' },
             });
           }
         } else {
@@ -922,20 +933,24 @@ export class LoadService {
     actorRole: string,
     loadId: string,
     driverOwnerId?: string,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<LoadDetailView> {
     try {
       const load = await this.assertDetailExists(tenantId, loadId);
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls] = await Promise.all([
+      const [timeline, payments, loadWithUrls, contactPhones] = await Promise.all([
         this.loadActivityService.listByLoad(tenantId, loadId),
         this.loadPaymentRepository.listByLoad(tenantId, loadId),
         this.withDocumentDownloadUrls(tenantId, actorRole, load),
+        this.authService.getOrganizationContactPhones(tenantId),
       ]);
 
       return {
         load: loadWithUrls,
+        ownerPhoneNumber: contactPhones.ownerPhoneNumber,
+        dispatchPhoneNumber: contactPhones.dispatchPhoneNumber,
         documentKeys: {
           invoiceFileKey: load.invoiceFileKey,
           ewayBillFileKey: load.ewayBillFileKey,
@@ -947,8 +962,8 @@ export class LoadService {
         timeline,
         payments,
         ewayBillExpiry: this.getEwayBillExpiry(load),
-        stepper: buildStepper(load),
-        nextAction: buildNextAction(load),
+        stepper: buildStepper(load, locale),
+        nextAction: buildNextAction(load, locale),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch load');
@@ -1000,7 +1015,11 @@ export class LoadService {
   /** Trips Home-page list — one row per load with its route/customer/vehicle-source resolved,
    *  plus tenant-wide Active/Completed tab counts (independent of which group, if any, was
    *  requested) so the UI can render both tab badges from a single call. */
-  async list(tenantId: string, input: ListLoadsInput): Promise<ListTripsResult> {
+  async list(
+    tenantId: string,
+    input: ListLoadsInput,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<ListTripsResult> {
     try {
       const { requisitionId, sourceType, transporterId, vehicleId, driverId, search } = input;
       const [[items, total], counts] = await Promise.all([
@@ -1014,7 +1033,14 @@ export class LoadService {
           search,
         }),
       ]);
-      return { ...paginate(items.map(toTripListRow), total, input), counts };
+      return {
+        ...paginate(
+          items.map((load) => toTripListRow(load, locale)),
+          total,
+          input,
+        ),
+        counts,
+      };
     } catch (error) {
       rethrow(error, 'Failed to list loads');
     }
@@ -1025,6 +1051,7 @@ export class LoadService {
     tenantId: string,
     driverId: string,
     input: PaginationInput,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<TripsDoneResult> {
     try {
       const [[items, total], stats] = await Promise.all([
@@ -1036,7 +1063,11 @@ export class LoadService {
           ? 0
           : Math.round((stats.podVerifiedCount / stats.totalCompleted) * 100);
       return {
-        ...paginate(items.map(toTripListRow), total, input),
+        ...paginate(
+          items.map((load) => toTripListRow(load, locale)),
+          total,
+          input,
+        ),
         totalTrips: stats.totalCompleted,
         epodVerifiedPercentage,
       };

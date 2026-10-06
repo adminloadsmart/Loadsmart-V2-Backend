@@ -4,6 +4,8 @@ import {
   DOCUMENTS_OPS_ROLE,
   FINANCE_ACCOUNTS_ROLE,
 } from '../../../shared/constants/roles';
+import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
+import { t } from '../../../shared/i18n/translate';
 import { NotificationTypeDefinition } from './notification-catalog.types';
 
 /**
@@ -56,9 +58,16 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push'],
-    buildContent: ({ complianceType, vehicleNo, expiryDate }: VehicleComplianceContext) => ({
-      title: 'Vehicle compliance expiring soon',
-      body: `${complianceType} for vehicle ${vehicleNo} expires in 15 days on ${expiryDate}. Please renew it before the expiry date.`,
+    buildContent: (
+      { complianceType, vehicleNo, expiryDate }: VehicleComplianceContext,
+      locale = DEFAULT_LOCALE,
+    ) => ({
+      title: t(locale, 'notifications.vehicleComplianceExpiringSoon.title'),
+      body: t(locale, 'notifications.vehicleComplianceExpiringSoon.body', {
+        complianceType,
+        vehicleNo,
+        expiryDate,
+      }),
     }),
   },
   'vehicle.compliance_expired': {
@@ -67,9 +76,16 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['email', 'whatsapp', 'push'],
-    buildContent: ({ complianceType, vehicleNo, expiryDate }: VehicleComplianceContext) => ({
-      title: 'Vehicle compliance expired',
-      body: `${complianceType} for vehicle ${vehicleNo} expired on ${expiryDate}. The vehicle may be blocked from dispatch until valid documents are updated.`,
+    buildContent: (
+      { complianceType, vehicleNo, expiryDate }: VehicleComplianceContext,
+      locale = DEFAULT_LOCALE,
+    ) => ({
+      title: t(locale, 'notifications.vehicleComplianceExpired.title'),
+      body: t(locale, 'notifications.vehicleComplianceExpired.body', {
+        complianceType,
+        vehicleNo,
+        expiryDate,
+      }),
       // Key order here IS the WhatsApp template's {{1}}/{{2}}/{{3}} placeholder order — see
       // channels/whatsapp.channel.ts. The MSG91-dashboard template must be authored to match:
       // {{1}} = compliance type, {{2}} = vehicle no, {{3}} = expiry date.
@@ -129,9 +145,9 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'email'],
-    buildContent: ({ driverName, phoneNumber }: DriverLinkContext) => ({
-      title: 'Driver join request',
-      body: `${driverName} (${phoneNumber}) has requested to join your fleet. Review it under Settings → Approvals.`,
+    buildContent: ({ driverName, phoneNumber }: DriverLinkContext, locale = DEFAULT_LOCALE) => ({
+      title: t(locale, 'notifications.driverLinkRequested.title'),
+      body: t(locale, 'notifications.driverLinkRequested.body', { driverName, phoneNumber }),
     }),
   },
   'driver.link_accepted': {
@@ -140,9 +156,9 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'email'],
-    buildContent: ({ driverName, phoneNumber }: DriverLinkContext) => ({
-      title: 'Driver invite accepted',
-      body: `${driverName} (${phoneNumber}) has accepted your invitation and is now linked to your fleet.`,
+    buildContent: ({ driverName, phoneNumber }: DriverLinkContext, locale = DEFAULT_LOCALE) => ({
+      title: t(locale, 'notifications.driverLinkAccepted.title'),
+      body: t(locale, 'notifications.driverLinkAccepted.body', { driverName, phoneNumber }),
     }),
   },
   'load.trip_delay_exception': {

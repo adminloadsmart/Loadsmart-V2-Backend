@@ -106,6 +106,7 @@ export class LoadsController {
     const loads = await this.loadService.list(
       requireTenantId(req),
       req.validatedQuery as ListLoadsInput,
+      req.locale,
     );
     respond(res, loads);
   };
@@ -115,6 +116,8 @@ export class LoadsController {
       requireTenantId(req),
       req.user!.role,
       req.params.loadId,
+      undefined,
+      req.locale,
     );
     respond(res, result);
   };

@@ -101,6 +101,7 @@ export class DriverPortalController {
       req.driver!.id,
       req.driver!.tenantId ?? null,
       req.validatedQuery as ListLoadsInput,
+      req.locale,
     );
     respond(res, loads);
   };
@@ -110,6 +111,7 @@ export class DriverPortalController {
       req.driver!.id,
       req.driver!.tenantId ?? null,
       req.validatedQuery as PaginationInput,
+      req.locale,
     );
     respond(res, trips);
   };
@@ -124,6 +126,7 @@ export class DriverPortalController {
       'driver',
       req.params.loadId,
       req.driver!.id,
+      req.locale,
     );
     respond(res, result);
   };
