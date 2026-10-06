@@ -1,6 +1,6 @@
 // External delivery channels a notification can request in addition to the in-app record itself
 // (the notification row is always visible via GET /notifications regardless of `channels`).
-export const NOTIFICATION_CHANNELS = ['email', 'sms', 'push'] as const;
+export const NOTIFICATION_CHANNELS = ['email', 'sms', 'push', 'whatsapp'] as const;
 export type NotificationChannelName = (typeof NOTIFICATION_CHANNELS)[number];
 
 // Overall status, derived from the notification's NotificationDeliveryEntity rows (see

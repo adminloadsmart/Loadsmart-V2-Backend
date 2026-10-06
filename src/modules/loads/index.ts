@@ -22,7 +22,7 @@ import { LoadActivityService } from './load-activity.service';
 import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
-import { DriverAuthService } from '../driver/driver-auth.service';
+import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 export function createLoadsModule(

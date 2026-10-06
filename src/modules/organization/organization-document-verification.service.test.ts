@@ -35,7 +35,7 @@ function build(task: unknown, doc: Record<string, unknown> = {}) {
     journey as never,
     audit as never,
     idfy as never,
-    { enqueue: vi.fn() },
+    { enqueue: vi.fn(), cancel: vi.fn() },
   );
   return { service, documentService, organizationService, idfy };
 }

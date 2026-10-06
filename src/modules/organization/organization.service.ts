@@ -34,6 +34,13 @@ export class OrganizationService {
     return organization;
   }
 
+  async searchActiveByNameOrPhone(
+    query: string,
+    limit = 10,
+  ): Promise<{ id: string; name: string }[]> {
+    return this.organizationRepository.searchActiveByNameOrPhone(query, limit);
+  }
+
   async listOrganizations(filters: {
     status?: OrganizationStatus;
     journeyStage?: OrganizationJourneyStage;

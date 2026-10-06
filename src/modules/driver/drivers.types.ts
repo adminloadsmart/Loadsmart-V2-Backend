@@ -59,3 +59,42 @@ export type DriverBankVerificationStatus = (typeof DRIVER_BANK_VERIFICATION_STAT
 /** What the driver is doing right now — the status dropdown on the My Drivers table. */
 export const DRIVER_OPERATIONAL_STATUSES = ['active', 'on_trip', 'on_leave', 'inactive'] as const;
 export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[number];
+
+/**
+ * Lifecycle of a driver's link to one tenant (masters.driver_tenant_relations). Replaces the old
+ * per-tenant DriverEntity.status now that a driver profile is global and can hold many of these.
+ * `pending_staff_review` covers both a dispatch-added driver awaiting org_admin approval AND a
+ * driver-initiated join request awaiting staff approval — `initiatedBy` disambiguates which,
+ * but the approve/reject action is identical for both. `pending_driver_review` is a fleet-owner-
+ * initiated invite awaiting the driver's acceptance.
+ */
+export const DRIVER_TENANT_RELATION_STATUSES = [
+  'pending_staff_review',
+  'pending_driver_review',
+  'active',
+  'rejected',
+] as const;
+export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES)[number];
+
+/** Who created the driver_tenant_relations row. */
+export const DRIVER_TENANT_RELATION_INITIATORS = ['staff', 'driver', 'fleet_owner'] as const;
+export type DriverTenantRelationInitiator = (typeof DRIVER_TENANT_RELATION_INITIATORS)[number];
+
+/** Whether the global driver profile came from the driver's own registration or staff onboarding. */
+export const DRIVER_REGISTRATION_SOURCES = ['self', 'staff_created'] as const;
+export type DriverRegistrationSource = (typeof DRIVER_REGISTRATION_SOURCES)[number];
+
+/**
+ * Self-registration's 3-screen wizard progress — a driver-app-only resume-position bookmark, not
+ * a computed business rule. Screens 2/3's own fields (emergency info, bank details) are all
+ * optional, so "has screen 2 been completed" can't be inferred from data presence alone (the
+ * driver could tap Continue with nothing filled in); the client reports its own progress on each
+ * POST /register call instead — see RegisterDriverInput.onboardingStep.
+ */
+export const DRIVER_ONBOARDING_STEPS = [
+  'identity_verification',
+  'emergency_information',
+  'bank_details',
+  'completed',
+] as const;
+export type DriverOnboardingStep = (typeof DRIVER_ONBOARDING_STEPS)[number];

@@ -1,5 +1,6 @@
 import { computeShareAmount } from '../load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
+import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
   LIFECYCLE_STAGE_LABELS,
   LOAD_STATUSES,
@@ -8,6 +9,9 @@ import {
   MARKET_LIFECYCLE_STATUSES,
   OWN_FLEET_LIFECYCLE_STATUSES,
   PAYMENTS_STAGE,
+  PodStatus,
+  SealStatus,
+  ShortageOrDamageStatus,
 } from './loads.types';
 
 /**
@@ -17,6 +21,36 @@ import {
  * actually reads/writes a load) to mirror this module's own precedent for pure computation living
  * in utils/ — see fit-engine.ts for dispatch-planning's equivalent.
  */
+
+/** Vehicle details for a trip/load row — own-fleet resolves these from the linked VehicleEntity;
+ *  market loads have no Vehicle master record (see load.entity.ts's own doc comments), so `type`
+ *  falls back to the load's own market-only truckType/feetWheels and every other field is null.
+ *  Null overall only when the load has no vehicleNumber, vehicle, or truckType at all yet (e.g.
+ *  not assigned). */
+export interface TripVehicleDetails {
+  registrationNumber: string | null;
+  type: string | null;
+  bodyType: VehicleBodyType | null;
+  fuelType: VehicleFuelType | null;
+  capacityTons: string | null;
+  wheelCount: number | null;
+  /** Market only — free-text feet/wheels configuration entered at Assignment; own-fleet loads
+   *  carry a real wheelCount on the vehicle instead. */
+  feetWheels: string | null;
+}
+
+function buildVehicleDetails(load: LoadEntity): TripVehicleDetails | null {
+  if (!load.vehicleNumber && !load.vehicle && !load.truckType) return null;
+  return {
+    registrationNumber: load.vehicleNumber,
+    type: load.vehicle?.truckType?.name ?? load.truckType?.name ?? null,
+    bodyType: load.vehicle?.bodyType ?? null,
+    fuelType: load.vehicle?.fuelType ?? null,
+    capacityTons: load.vehicle?.capacityTons ?? null,
+    wheelCount: load.vehicle?.wheelCount ?? null,
+    feetWheels: load.vehicle ? null : load.feetWheels,
+  };
+}
 
 /** One row of the Trips Home-page table — a flattened, display-ready projection of a Load plus
  *  its requisition's route/customer (neither of which the LoadEntity carries directly). */
@@ -37,6 +71,7 @@ export interface TripListRow {
   } | null;
   customer: { id: string; name: string } | null;
   vehicleNumber: string | null;
+  vehicle: TripVehicleDetails | null;
   /** Own-fleet: the Driver-master row backing this load's driver snapshot. Market: the free-text
    *  driverName entered at Assignment, with `id: null` since no Driver-master row backs it. */
   driver: { id: string | null; fullName: string } | null;
@@ -49,11 +84,17 @@ export interface TripListRow {
   /** Market only — the target/starting rate captured at planning (LoadEntity.expectedRate).
    *  Always null for own-fleet loads; the Freight column shows "Internal" for those instead. */
   expectedRate: string | null;
+  /** null until the first E-POD upload. 'pending'/'rejected' rows are what the driver app's Open
+   *  Trips tab surfaces — see LoadEntity's doc comment. */
+  podStatus: PodStatus | null;
+  /** Staff's reason when podStatus is 'rejected' — shown to the driver before they resubmit via
+   *  the same uploadPod endpoint. Always null otherwise. */
+  podRejectionReason: string | null;
   createdAt: string;
 }
 
 /** One entry of the trip-detail screen's 8-step progress stepper — walks LOAD_STATUSES in the
- *  true backend order (loading_confirmed before at_plant). */
+ *  true backend order (at_plant before loading_confirmed). */
 export interface TripStepperStep {
   key: LoadStatus;
   label: string;
@@ -121,6 +162,7 @@ export function toTripListRow(load: LoadEntity): TripListRow {
       : null,
     customer: req ? { id: req.customer.id, name: req.customer.name } : null,
     vehicleNumber: load.vehicleNumber,
+    vehicle: buildVehicleDetails(load),
     driver: driver
       ? { id: driver.id, fullName: driver.fullName }
       : load.driverName
@@ -153,7 +195,113 @@ export function toTripListRow(load: LoadEntity): TripListRow {
       tonnesPerTruck: item.tonnesPerTruck,
     })),
     expectedRate: load.sourceType === 'own_fleet' ? null : load.expectedRate,
+    podStatus: load.podStatus,
+    podRejectionReason: load.podRejectionReason,
     createdAt: load.createdAt.toISOString(),
+  };
+}
+
+/** Driver-app "Trip Done" detail screen — a single-pickup, single-drop summary of a completed
+ *  trip's receipt. Deliberately not the full LoadDetailView (payments/stepper/nextAction are
+ *  staff-oriented and meaningless once a trip is closed) — see load.service.ts's
+ *  getMyTripDetail. Today's data model is one requisition = one delivery point = one E-POD per
+ *  load, so there's exactly one `drop`, not the multiple stops a future multi-drop trip might
+ *  show; see load.service.ts's TripDoneDetail doc comment. */
+export interface TripDoneDetail {
+  id: string;
+  code: string;
+  status: LoadStatus;
+  isClosed: boolean;
+  vehicleNumber: string | null;
+  vehicle: TripVehicleDetails | null;
+  /** Joined product names — e.g. "Electronics, Hardware" — for the screen's payload-description
+   *  line. Empty string if no cargo items are loaded (shouldn't happen for a delivered trip). */
+  cargoSummary: string;
+  cargoItems: { productId: string; productDetails: string; tonnesPerTruck: string }[];
+  /** Tonnage planned/loaded at pickup — the screen's "Loaded X T Total". */
+  plannedCapacityTonnes: string;
+  /** Tonnage the receiver actually signed for — the screen's "Unloaded X T" and "CARGO NET"
+   *  tile. Null until uploadPod runs (always populated for a 'delivered'/'closed' load). */
+  podQuantityReceived: string | null;
+  pickup: {
+    title: string;
+    addressLine1: string;
+    addressLine2: string | null;
+    city: string;
+    state: string;
+    pinCode: string;
+    /** ISO timestamp — loadingConfirmedAt, when the truck was loaded and left the pickup point. */
+    at: string | null;
+  } | null;
+  drop: {
+    location: string;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    pinCode: string | null;
+    deliveredAt: string | null;
+    sealStatus: SealStatus | null;
+    shortageOrDamage: ShortageOrDamageStatus | null;
+    numberOfTonnesShort: string | null;
+    podRemarks: string | null;
+    /** Staff-review state of this trip's E-POD — see LoadEntity's doc comment. Also reachable
+     *  (deliberately) for a load that's 'delivered' but not yet 'closed', so a rejected trip's
+     *  driver can see why and re-upload via the same uploadPod endpoint. */
+    podStatus: PodStatus | null;
+    podRejectionReason: string | null;
+  } | null;
+  closedAt: string | null;
+}
+
+export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
+  const req = load.requisition;
+  const cargoItems = (load.cargoItems ?? []).map((item) => ({
+    productId: item.productId,
+    productDetails: item.product.productDetails,
+    tonnesPerTruck: item.tonnesPerTruck,
+  }));
+
+  return {
+    id: load.id,
+    code: load.code,
+    status: load.status,
+    isClosed: load.status === 'closed',
+    vehicleNumber: load.vehicleNumber,
+    vehicle: buildVehicleDetails(load),
+    cargoSummary: cargoItems.map((item) => item.productDetails).join(', '),
+    cargoItems,
+    plannedCapacityTonnes: load.plannedCapacityTonnes,
+    podQuantityReceived: load.podQuantityReceived,
+    pickup: req
+      ? {
+          title: req.loadingPoint.title,
+          addressLine1: req.loadingPoint.addressLine1,
+          addressLine2: req.loadingPoint.addressLine2,
+          city: req.loadingPoint.city,
+          state: req.loadingPoint.state,
+          pinCode: req.loadingPoint.pinCode,
+          at: load.loadingConfirmedAt?.toISOString() ?? null,
+        }
+      : null,
+    drop: req
+      ? {
+          location: req.customerDeliveryPoint.location,
+          addressLine1: req.customerDeliveryPoint.addressLine1,
+          addressLine2: req.customerDeliveryPoint.addressLine2,
+          city: req.customerDeliveryPoint.city,
+          state: req.customerDeliveryPoint.state,
+          pinCode: req.customerDeliveryPoint.pinCode,
+          deliveredAt: load.deliveredAt?.toISOString() ?? null,
+          sealStatus: load.sealStatus,
+          shortageOrDamage: load.shortageOrDamage,
+          numberOfTonnesShort: load.numberOfTonnesShort,
+          podRemarks: load.podRemarks,
+          podStatus: load.podStatus,
+          podRejectionReason: load.podRejectionReason,
+        }
+      : null,
+    closedAt: load.closedAt?.toISOString() ?? null,
   };
 }
 

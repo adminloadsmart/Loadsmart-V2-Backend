@@ -7,6 +7,7 @@ export interface NotificationDestinations {
   email?: string;
   phoneNumber?: string;
   pushToken?: string;
+  whatsappNumber?: string;
 }
 
 /**

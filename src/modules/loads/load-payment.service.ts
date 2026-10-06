@@ -95,7 +95,9 @@ export class LoadPaymentService {
   }
 
   /** Market loads only, once E-POD is received; due date derives from the
-   *  transporter's credit terms. Recording balance closes the load once advance is also paid. */
+   *  transporter's credit terms. Recording balance closes the load once advance is also paid AND
+   *  staff has already accepted the E-POD (load.service.ts's reviewPod) — if the E-POD is
+   *  accepted afterwards instead, reviewPod's own close check finishes the job then. */
   async recordBalance(
     tenantId: string,
     actorId: string,
@@ -164,8 +166,8 @@ export class LoadPaymentService {
         newData: { id: payment.id, loadId, paymentType: 'balance', amount, dueDate },
       });
 
-      // Closed requires Delivered + (for market) both advance and balance paid.
-      if (load.advancePaidAt) {
+      // Closed requires Delivered + E-POD accepted + (for market) both advance and balance paid.
+      if (load.advancePaidAt && load.podStatus === 'accepted') {
         const closed = await this.loadRepository.update(tenantId, loadId, {
           status: 'closed',
           closedAt: new Date(),

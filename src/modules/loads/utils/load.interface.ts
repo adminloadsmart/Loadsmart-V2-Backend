@@ -4,8 +4,11 @@ import {
   LoadSourceType,
   LoadStatus,
   LoadStatusGroup,
+  PodStatus,
   ManualTrackingStatus,
+  PodReviewDecision,
   SealStatus,
+  ShortageOrDamageStatus,
 } from './loads.types';
 
 /** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
@@ -33,10 +36,22 @@ export interface ConfirmLoadingInput {
   ewayBillFileKey?: string;
   elrNumber?: string;
   elrFileKey?: string;
+  /** Non-mandatory — up to 3 photos of the loaded truck (back + sides). Never gates the
+   *  at_plant -> loading_confirmed flip, unlike the mandatory documents above. */
+  loadingPhotoFileKeys?: string[];
+  /** Non-mandatory. */
+  weighingSlipFileKey?: string;
 }
 
 export interface UpdateLoadStatusInput {
   toStatus: ManualTrackingStatus;
+}
+
+/** Staff's decision on a pending E-POD — see LoadService.reviewPod. `reason` is required when
+ *  rejecting (see load.validators.ts's reviewPodBody), unused when accepting. */
+export interface ReviewPodInput {
+  decision: PodReviewDecision;
+  reason?: string;
 }
 
 /** The delivery receipt — photo of the signed/stamped POD, who took it, what came off the truck,
@@ -45,9 +60,12 @@ export interface UploadPodInput {
   podFileKey: string;
   podReceiverName: string;
   podReceiverMobile: string;
-  podReceiverDesignation: string;
+  podReceiverDesignation?: string;
   podQuantityReceived: number;
-  sealStatus: SealStatus;
+  sealStatus?: SealStatus;
+  shortageOrDamage?: ShortageOrDamageStatus;
+  numberOfTonnesShort?: number;
+  damagePhotoKey?: string;
   podRemarks?: string;
 }
 
@@ -60,6 +78,12 @@ export interface ListLoadsInput extends PaginationInput {
   transporterId?: string;
   vehicleId?: string;
   driverId?: string;
+  /** Driver-app POD Status filter. */
+  podStatus?: PodStatus;
+  /** Inclusive YYYY-MM-DD range (UTC). Applies to deliveredAt when group is 'completed',
+   *  otherwise to createdAt. */
+  fromDate?: string;
+  toDate?: string;
   /** Matches against the load's requisition's customer name (case-insensitive, partial). */
   search?: string;
 }

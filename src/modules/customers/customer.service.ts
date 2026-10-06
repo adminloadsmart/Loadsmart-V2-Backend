@@ -18,6 +18,7 @@ export class CustomerService {
   private assertRole(role: string, allowed: string[]) {
     if (!allowed.includes(role)) throw new AuthorizationError('Not authorized to manage customers');
   }
+
   async create(
     tenantId: string,
     actorId: string,

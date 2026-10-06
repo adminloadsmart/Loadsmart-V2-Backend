@@ -17,11 +17,13 @@ import { createRolesModule } from './modules/roles';
 import {
   createDriverModule,
   createDriverAuthModule,
+  createDriverIdentityModule,
   createDriverPortalModule,
 } from './modules/driver';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
+import { createNotifyByType } from './modules/notifications/notify-by-type';
 import { createPaymentsModule } from './modules/payments';
 import { createMaintenanceModule } from './modules/maintenance';
 import { createAuditModule } from './modules/audit';
@@ -117,6 +119,22 @@ export function buildContainer(dataSource: DataSource): Container {
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
 
+  // Producer, built here (right after auth) — no cross-module deps of its own beyond dataSource,
+  // and notifyByType below needs its service. Same build-order bucket as tracking/payments.
+  const notifications = createNotificationsModule(dataSource);
+
+  // The one dispatcher every notification trigger site below calls against a domain catalog (see
+  // modules/notifications/catalog/*) — currently just vehicle compliance (WhatsApp/push); the
+  // masters "approval requested" catalog entry is on hold until an email provider exists. Built
+  // once here so masters can take it as a plain constructor dependency, no gateway needed (same
+  // "consumer takes producer service directly" pattern used throughout this file).
+  const notifyByType = createNotifyByType({
+    notificationsService: notifications.service,
+    authRepository: auth.authRepository,
+    authService: auth.service,
+    notificationPreferencesRepository: notifications.notificationPreferencesRepository,
+  });
+
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
   // docs/driver-auth.md), and fleetDriverLinkService (inside masters) needs driverRepository to
   // validate a link's driverId. masters.routes.ts still composes driver's staff router into the
@@ -125,14 +143,18 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     storageService: storage.service,
     organizationService: organization.organizationService,
+    notificationsService: notifications.service,
   });
 
   // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see
   // docs/driver-auth.md), sharing driver's own driverRepository, organization's
   // organizationService (org-active login check, same as auth.service.ts's), and the same
-  // otpService staff signup/login already uses.
+  // otpService staff signup/login already uses. Only the service is built here — the
+  // controller/routers (which also serve self-registration) are built below by
+  // createDriverIdentityModule, once DriverIdentityService exists too.
   const driverAuth = createDriverAuthModule(dataSource, {
     driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     organizationService: organization.organizationService,
     otpService,
   });
@@ -141,13 +163,13 @@ export function buildContainer(dataSource: DataSource): Container {
   const masters = createMastersModule(dataSource, {
     auditService: audit.service,
     storageService: storage.service,
-    driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverController: driver.driverController,
+    notifyByType,
   });
 
-  // Producers first — no cross-module deps of their own.
+  // Producers with no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
-  const notifications = createNotificationsModule(dataSource);
   const payments = createPaymentsModule(dataSource);
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs. Maintenance
@@ -199,13 +221,33 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsService: notifications.service,
   });
 
+  // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant
+  // relation management. Built after driverAuth (registerSelf issues sessions through
+  // driverAuth.service.issueIdentitySession) and after notifyByType exists (requestJoin/
+  // respondToInvite notify fleet-owner staff on the tenant side of the same workflow).
+  const driverIdentity = createDriverIdentityModule(dataSource, {
+    driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
+    dlVerificationClient: driver.dlVerificationClient,
+    otpService,
+    storageService: storage.service,
+    organizationService: organization.organizationService,
+    driverAuthService: driverAuth.service,
+    auditService: audit.service,
+    idfyClient: driver.idfyClient,
+    notifyByType,
+  });
+
   // Driver-app self-service ("my loads") — built here, not alongside driverAuth above, since it
   // needs loads.loadService, which doesn't exist until this point. See docs/driver-auth.md.
   const driverPortal = createDriverPortalModule({
     driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverService: driver.driverService,
+    organizationService: organization.organizationService,
     loadService: loads.loadService,
     storageService: storage.service,
+    notificationsService: notifications.service,
   });
 
   // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity
@@ -245,10 +287,14 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/files', router: storage.router },
     ],
     driverRouters: [
-      { path: '/driver-auth', router: driverAuth.publicRouter },
-      { path: '/driver-auth', router: driverAuth.protectedRouter },
+      { path: '/driver-auth', router: driverIdentity.authPublicRouter },
+      { path: '/driver-auth', router: driverIdentity.authProtectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
-    backgroundWorkers: [notifications.worker, organization.documentVerificationWorker],
+    backgroundWorkers: [
+      notifications.worker,
+      organization.documentVerificationWorker,
+      masters.vehicleComplianceAlertsWorker,
+    ],
   };
 }
