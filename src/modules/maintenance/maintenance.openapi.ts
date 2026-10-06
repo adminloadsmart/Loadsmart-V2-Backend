@@ -60,7 +60,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         '`vehicle.truckTypeName` is the Class column. Current state — not filtered by period. ' +
         OWN_FLEET_NOTE,
     ),
-    responses: { 200: { description: 'Service-due queue — { items, total }' } },
+    request: { query: v.listQueue.shape.query },
+    responses: {
+      200: { description: 'Service-due queue — { items, page, limit, total, totalPages }' },
+    },
   });
 
   registry.registerPath({
@@ -76,7 +79,13 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         ' ' +
         OWN_FLEET_NOTE,
     ),
-    responses: { 200: { description: 'Breakdowns queue — { items, total, marketLoadsCovering }' } },
+    request: { query: v.listQueue.shape.query },
+    responses: {
+      200: {
+        description:
+          'Breakdowns queue — { items, page, limit, total, totalPages, marketLoadsCovering }',
+      },
+    },
   });
 
   registry.registerPath({
@@ -123,8 +132,12 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         ' ' +
         OWN_FLEET_NOTE,
     ),
+    request: { query: v.listQueue.shape.query },
     responses: {
-      200: { description: 'In the workshop — { items, total, brokenDown, inForService }' },
+      200: {
+        description:
+          'In the workshop — { items, page, limit, total, totalPages, brokenDown, inForService }',
+      },
     },
   });
 
@@ -140,7 +153,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         '`vehicle.truckTypeName` is the Class column. ' +
         OWN_FLEET_NOTE,
     ),
-    responses: { 200: { description: 'Blocked on papers — { items, total }' } },
+    request: { query: v.listQueue.shape.query },
+    responses: {
+      200: { description: 'Blocked on papers — { items, page, limit, total, totalPages }' },
+    },
   });
 
   registry.registerPath({

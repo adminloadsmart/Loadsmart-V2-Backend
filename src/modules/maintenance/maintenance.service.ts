@@ -39,6 +39,7 @@ import {
   LogServiceInput,
   OpenBreakdownInput,
   PeriodInput,
+  QueuePageInput,
   ReleaseFromWorkshopInput,
   SetServicePolicyInput,
   UpdateJobInput,
@@ -129,7 +130,7 @@ export class MaintenanceService {
    * Trucks past their service policy right now — current state, never filtered by the period
    * control (a truck last serviced outside the window is still over policy).
    */
-  async listServiceDue(tenantId: string) {
+  async listServiceDue(tenantId: string, pageInput?: QueuePageInput) {
     try {
       const today = toIstDateString(new Date());
       const state = await this.loadFleetState(tenantId);
@@ -174,7 +175,7 @@ export class MaintenanceService {
           inWorkshop: workshopVisit(state.openJobByVehicle.get(vehicle.id)),
         }));
 
-      return { items, total: items.length };
+      return pageOfQueue(items, pageInput);
     } catch (error) {
       rethrow(error, 'Failed to list service due');
     }
@@ -408,7 +409,7 @@ export class MaintenanceService {
   /* ---------------------------------------------------------------------- workshop */
 
   /** Every truck in the workshop right now — service check-ins and breakdowns together. */
-  async listInWorkshop(tenantId: string, canSeeCosts: boolean) {
+  async listInWorkshop(tenantId: string, canSeeCosts: boolean, pageInput: QueuePageInput) {
     try {
       const jobs = await this.jobRepository.listOpenJobs(tenantId);
       const covering = await this.fleetRepository.countOpenMarketLoadsCovering(
@@ -421,9 +422,9 @@ export class MaintenanceService {
         workshopIntake: toWorkshopIntake(job, now),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
+      // Headline counts cover the whole workshop, not just this page.
       return {
-        items,
-        total: items.length,
+        ...pageOfQueue(items, pageInput),
         brokenDown: items.filter((item) => item.jobType === 'breakdown').length,
         inForService: items.filter((item) => item.jobType === 'service').length,
       };
@@ -436,7 +437,7 @@ export class MaintenanceService {
    * Trucks with expired papers that aren't in the workshop — the "Blocked on papers" bucket and
    * tab (same exclusive rule as the availability bar). Dispatch only warns on these today.
    */
-  async listBlockedOnPapers(tenantId: string) {
+  async listBlockedOnPapers(tenantId: string, pageInput: QueuePageInput) {
     try {
       const today = toIstDateString(new Date());
       const state = await this.loadFleetState(tenantId);
@@ -464,7 +465,7 @@ export class MaintenanceService {
         .sort((a, b) =>
           a.expiredDocuments[0].expiryDate.localeCompare(b.expiredDocuments[0].expiryDate),
         );
-      return { items, total: items.length };
+      return pageOfQueue(items, pageInput);
     } catch (error) {
       rethrow(error, 'Failed to list trucks blocked on papers');
     }
@@ -579,7 +580,7 @@ export class MaintenanceService {
   /* ----------------------------------------------------------------- breakdowns */
 
   /** Trucks off the road with a breakdown right now, oldest first — current state, not the period. */
-  async listOpenBreakdowns(tenantId: string, canSeeCosts: boolean) {
+  async listOpenBreakdowns(tenantId: string, canSeeCosts: boolean, pageInput: QueuePageInput) {
     try {
       const jobs = await this.jobRepository.listOpenJobs(tenantId, 'breakdown');
       const covering = await this.fleetRepository.countOpenMarketLoadsCovering(
@@ -593,8 +594,7 @@ export class MaintenanceService {
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
       return {
-        items,
-        total: items.length,
+        ...pageOfQueue(items, pageInput),
         marketLoadsCovering: items.reduce((sum, item) => sum + item.marketLoadsCovering, 0),
       };
     } catch (error) {
@@ -1064,6 +1064,27 @@ function workshopVisit(job: MaintenanceJobEntity | undefined) {
         days: jobDays(job.openedAt, null, new Date()),
       }
     : null;
+}
+
+/**
+ * One page of an in-memory queue. The queues are computed (service-due clocks, expired papers)
+ * and sorted in code, so they're paged after sorting rather than in SQL. `search` matches the
+ * registration number. No input → the whole queue, unpaged (the overview's headline counts).
+ */
+function pageOfQueue<T extends { vehicle: object }>(items: T[], input?: QueuePageInput) {
+  if (!input) return { items, total: items.length };
+
+  const term = input.search?.replace(/\s+/g, '').toLowerCase();
+  const matched = term
+    ? items.filter((item) =>
+        (item.vehicle as { registrationNumber?: string }).registrationNumber
+          ?.replace(/\s+/g, '')
+          .toLowerCase()
+          .includes(term),
+      )
+    : items;
+  const start = (input.page - 1) * input.limit;
+  return paginate(matched.slice(start, start + input.limit), matched.length, input);
 }
 
 /** Column defaults shared by every job insert — callers spread their own fields over it. */

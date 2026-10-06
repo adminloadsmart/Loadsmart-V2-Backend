@@ -74,6 +74,8 @@ const locationFields = {
 
 export const maintenanceValidators = {
   getOverview: z.object({ query: z.object(periodFields).superRefine(checkPeriod) }),
+  // service-due / breakdowns / in-workshop / blocked-on-papers — search is the registration number.
+  listQueue: z.object({ query: pagination }),
   listJobs: z.object({
     query: pagination
       .extend({
