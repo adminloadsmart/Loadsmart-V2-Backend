@@ -179,6 +179,9 @@ export const env = {
   // LS_N_0056 service due soon / LS_N_0057 service overdue (SMS).
   msg91SmsTemplateServiceDue: process.env.MSG91_SMS_TEMPLATE_SERVICE_DUE || undefined,
   msg91SmsTemplateServiceOverdue: process.env.MSG91_SMS_TEMPLATE_SERVICE_OVERDUE || undefined,
+  // LS_N_0060 daily morning brief (WhatsApp + email).
+  msg91WhatsappTemplateDailyBrief: process.env.MSG91_WHATSAPP_TEMPLATE_DAILY_BRIEF || undefined,
+  msg91EmailTemplateDailyBrief: process.env.MSG91_EMAIL_TEMPLATE_DAILY_BRIEF || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

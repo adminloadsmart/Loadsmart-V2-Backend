@@ -55,7 +55,7 @@ export class NotificationEntity {
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
 
-  // P1/P2/P3 — see notifications.types.ts's NOTIFICATION_SEVERITIES.
+  // P1/P2/P3/P4 — see notifications.types.ts's NOTIFICATION_SEVERITIES.
   @Column({ type: 'enum', enum: NOTIFICATION_SEVERITIES, default: 'p3_info' })
   severity!: NotificationSeverity;
 

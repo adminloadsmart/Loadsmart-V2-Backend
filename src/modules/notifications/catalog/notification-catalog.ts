@@ -155,6 +155,47 @@ export interface ServiceOverdueContext {
 
 const km = (value: number) => value.toLocaleString('en-IN');
 
+export interface VehicleIdleWeeklyContext {
+  /** The longest-idle vehicle headlines the roll-up; the rest are counted. */
+  vehicleId: string;
+  vehicleNo: string;
+  idleDays: number;
+  lastTripDate: string;
+  /** Formatted; null when the vehicle has no fixed cost / EMI entered (cost sentence dropped). */
+  fixedCostPerDay: string | null;
+  idleCost: string | null;
+  otherIdleCount: number;
+  runDate: string;
+}
+
+/** LS_N_0060 — every count is already filtered to what this user can see; a count the user can't
+ *  see is left undefined and its phrase is dropped. */
+export interface DailyBriefContext {
+  userId: string;
+  orgName: string;
+  tripsRunning: number;
+  /** No GPS/ETA data yet — static placeholders, marked "(static)" (see DAILY_BRIEF_STATIC). */
+  arrivingToday: string;
+  delayed: string;
+  podsPending?: number;
+  approvalsPending?: number;
+  vehiclesBlocked?: number;
+  emptyVehicles?: number;
+  idleLocations?: string;
+  needsAction: number;
+  runDate: string;
+}
+
+/** LS_N_0060 tokens with no data source yet (no GPS, ETA or vehicle location). Each is marked
+ *  "(static)" in the text and listed in the notification's `static_tokens` metadata. */
+export const DAILY_BRIEF_STATIC = {
+  arrivingToday: '0 (static)',
+  delayed: '0 (static)',
+  idleLocations: 'location unavailable (static)',
+};
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
 export interface VehicleDocumentsRollupContext {
   /** Vehicle documents in the organisation expiring within the next 30 days. */
   docCount: number;
@@ -1083,6 +1124,118 @@ export const NOTIFICATION_CATALOG = {
           run_date: context.runDate,
           cta_label: 'Book service now',
           cta_path: `/maintenance?vehicleId=${context.vehicleId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0059 — weekly (Monday 9:00 IST) roll-up from digests.ts, never an individual alert:
+  // owned vehicles with no trip for more than IDLE_DAYS days, headlined by the longest idle.
+  // P4, in-app only, to dispatch.planning.manage holders and org admins.
+  'vehicle.idle_weekly': {
+    label: 'Vehicle idle too long',
+    description: 'Weekly roll-up of owned vehicles that have had no trip for a while.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    recipientPermission: () => ({ permission: DISPATCH_PLANNING_MANAGE }),
+    channels: [],
+    defaultChannels: [],
+    severity: 'p4_digest',
+    // Keys are global across tenants (notification-triggers.ts) — the headline vehicle makes it
+    // one per organisation per run.
+    dedupeKey: (context: VehicleIdleWeeklyContext) => `${context.vehicleId}-${context.runDate}`,
+    buildContent: (context: VehicleIdleWeeklyContext) => {
+      const cost =
+        context.fixedCostPerDay && context.idleCost
+          ? ` About ${context.fixedCostPerDay} a day in fixed cost is running against it, ${context.idleCost} so far.`
+          : '';
+      const others =
+        context.otherIdleCount > 0
+          ? ` ${plural(context.otherIdleCount, 'other vehicle is', 'other vehicles are')} also free.`
+          : '';
+      return {
+        title: `${context.vehicleNo} has been idle for ${context.idleDays} days`,
+        body: `No trip since ${context.lastTripDate}.${cost}${others}`,
+        metadata: {
+          vehicle_id: context.vehicleId,
+          vehicle_no: context.vehicleNo,
+          idle_days: String(context.idleDays),
+          last_trip_date: context.lastTripDate,
+          fixed_cost_per_day: context.fixedCostPerDay ?? '',
+          idle_cost: context.idleCost ?? '',
+          idle_vehicle_count: String(context.otherIdleCount),
+          run_date: context.runDate,
+          cta_label: 'See available loads',
+          cta_path: '/loads',
+        },
+      };
+    },
+  },
+
+  // LS_N_0060 — 07:30 IST Monday–Saturday from digests.ts, one per active org user, each count
+  // filtered to that user's permissions; skipped when every count they can see is zero. P4,
+  // in-app + WhatsApp (opted-in users only) + email.
+  'digest.daily_brief': {
+    label: 'Daily morning brief',
+    description: 'One morning summary of trips, approvals and vehicles that need you.',
+    recipientRoles: [],
+    recipientUserId: (context: DailyBriefContext) => context.userId,
+    channels: ['whatsapp', 'email'],
+    defaultChannels: ['whatsapp', 'email'],
+    severity: 'p4_digest',
+    requiresWhatsappOptIn: true,
+    dedupeKey: (context: DailyBriefContext) => `${context.userId}-${context.runDate}`,
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateDailyBrief,
+        variables: ['first_name', 'trips_running', 'delayed', 'needs_action'],
+      },
+      email: {
+        templateId: env.msg91EmailTemplateDailyBrief,
+        variables: {
+          first_name: 'first_name',
+          org_name: 'org_name',
+          needs_action: 'needs_action',
+          brief: 'brief',
+        },
+      },
+    },
+    buildContent: (context: DailyBriefContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      const tasks = [
+        context.podsPending !== undefined && `${context.podsPending} PODs pending`,
+        context.approvalsPending !== undefined && `${context.approvalsPending} approvals waiting`,
+        context.vehiclesBlocked !== undefined &&
+          `${context.vehiclesBlocked} vehicles blocked on compliance`,
+      ].filter(Boolean);
+      const body = [
+        `${firstName}, ${context.tripsRunning} trips on road and ${context.arrivingToday} arriving today, ${context.delayed} running late.`,
+        tasks.length ? `${tasks.join(', ')}.` : '',
+        context.emptyVehicles !== undefined
+          ? `${context.emptyVehicles} vehicles free at ${context.idleLocations}.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return {
+        title: `Your day: ${context.tripsRunning} running, ${context.needsAction} need you`,
+        body,
+        metadata: {
+          first_name: firstName,
+          org_name: context.orgName,
+          trips_running: String(context.tripsRunning),
+          arriving_today: context.arrivingToday,
+          delayed: context.delayed,
+          needs_action: String(context.needsAction),
+          pods_pending: context.podsPending?.toString() ?? '',
+          approvals_pending: context.approvalsPending?.toString() ?? '',
+          vehicles_blocked: context.vehiclesBlocked?.toString() ?? '',
+          empty_vehicles: context.emptyVehicles?.toString() ?? '',
+          idle_locations: context.idleLocations ?? '',
+          static_tokens: 'arriving_today,delayed,idle_locations',
+          brief: body,
+          run_date: context.runDate,
+          cta_label: 'Open my day',
+          cta_path: '/',
         },
       };
     },

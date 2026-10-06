@@ -141,6 +141,29 @@ const PENDING_COUNT_SQL: Record<MasterKind, string> = {
   customer: `SELECT count(*)::int AS n FROM customers.customers WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
 };
 
+/** Records still pending of the kinds a user with these permissions/role can approve — LS_N_0010's
+ *  "N waiting" and LS_N_0060's morning-brief approvals count. */
+export async function countPendingApprovals(
+  dataSource: DataSource,
+  tenantId: string,
+  permissions: string[],
+  role: string | null,
+): Promise<number> {
+  const kinds = (Object.keys(PENDING_COUNT_SQL) as MasterKind[]).filter((kind) => {
+    const approvers = masterApprovers(kind);
+    return (
+      permissions.includes(approvers.permission) && (!approvers.role || approvers.role === role)
+    );
+  });
+  const counts = await Promise.all(
+    kinds.map(async (kind) => {
+      const [row] = await dataSource.query(PENDING_COUNT_SQL[kind], [tenantId]);
+      return (row?.n as number) ?? 0;
+    }),
+  );
+  return counts.reduce((sum, n) => sum + n, 0);
+}
+
 export interface MasterApprovalResolverDeps {
   dataSource: DataSource;
   getUserFullName(userId: string): Promise<string | null>;
@@ -185,19 +208,12 @@ export function createMasterApprovalResolvers(deps: MasterApprovalResolverDeps) 
         deps.getEffectivePermissions(context.userId).catch(() => [] as string[]),
         deps.getUserRoleName(context.userId),
       ]);
-      const kinds = (Object.keys(PENDING_COUNT_SQL) as MasterKind[]).filter((kind) => {
-        const approvers = masterApprovers(kind);
-        return (
-          permissions.includes(approvers.permission) && (!approvers.role || approvers.role === role)
-        );
-      });
-      const counts = await Promise.all(
-        kinds.map(async (kind) => {
-          const [row] = await deps.dataSource.query(PENDING_COUNT_SQL[kind], [tenantId]);
-          return (row?.n as number) ?? 0;
-        }),
+      const waitingCount = await countPendingApprovals(
+        deps.dataSource,
+        tenantId,
+        permissions,
+        role,
       );
-      const waitingCount = counts.reduce((sum, n) => sum + n, 0);
       return waitingCount > 0 ? { ...context, waitingCount } : null;
     },
   };

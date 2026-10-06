@@ -316,6 +316,8 @@ export function createNotificationScheduleWorker(
   alerts: ReturnType<typeof createVehicleDocumentAlerts>,
   // LS_N_0056/0057 — the service-distance sweep shares the daily 9:00 tick.
   serviceAlerts?: { runDaily(today: string): Promise<Record<string, number>> },
+  // LS_N_0059/0060 — digest jobs on the same queue, by job name (see digests.ts).
+  otherJobs: Record<string, (today: string) => Promise<unknown>> = {},
 ): Worker {
   return new Worker<{ today?: string }>(
     NOTIFICATION_SCHEDULES_QUEUE,
@@ -325,7 +327,7 @@ export function createNotificationScheduleWorker(
         return { ...(await alerts.runDaily(today)), ...(await serviceAlerts?.runDaily(today)) };
       }
       if (job.name === WEEKLY_JOB) return alerts.runWeeklyRollup(today);
-      return undefined;
+      return otherJobs[job.name]?.(today);
     },
     { connection: getQueueConnection(), concurrency: 1 },
   );

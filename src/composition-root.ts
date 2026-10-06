@@ -40,6 +40,7 @@ import {
 } from './modules/notifications/breakdown-alerts';
 import { createBackInServiceResolver } from './modules/notifications/back-in-service';
 import { createServiceAlerts } from './modules/notifications/service-alerts';
+import { createDigests, digestJobs, scheduleDigests } from './modules/notifications/digests';
 import { createJobQueue } from './jobs/queue-registry';
 import {
   createMasterApprovalNotifier,
@@ -245,12 +246,18 @@ export function buildContainer(dataSource: DataSource): Container {
   const vehicleDocumentAlerts = createVehicleDocumentAlerts(dataSource, notifications.triggers);
   // LS_N_0056/0057 — service due soon / overdue, swept in the same daily 9:00 IST job.
   const serviceAlerts = createServiceAlerts(dataSource, notifications.triggers);
+  // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
+  const digests = createDigests(dataSource, notifications.triggers);
   const notificationScheduleWorker = createNotificationScheduleWorker(
     vehicleDocumentAlerts,
     serviceAlerts,
+    digestJobs(digests),
   );
   scheduleVehicleDocumentChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register vehicle document check schedules', error),
+  );
+  scheduleDigests(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
+    console.error('Failed to register digest schedules', error),
   );
 
   const notificationTriggerWorker = createNotificationTriggerWorker(
@@ -274,6 +281,9 @@ export function buildContainer(dataSource: DataSource): Container {
       // LS_N_0056/0057 — each due-soon stage once per service cycle; overdue once per run day.
       'vehicle.service_due_soon': serviceAlerts.dueSoonNotAlreadySent,
       'vehicle.service_overdue': serviceAlerts.overdueNotAlreadySentToday,
+      // LS_N_0059/0060 — a digest is never sent twice for the same run day.
+      'vehicle.idle_weekly': digests.idleWeeklyNotSent,
+      'digest.daily_brief': digests.dailyBriefNotSent,
       // LS_N_0005's 24h reminder only while the invitee still hasn't signed in.
       'organization.team_member_invited': async (_tenantId, context) =>
         !(await auth.authRepository.hasEverSignedIn(context.userId)),
