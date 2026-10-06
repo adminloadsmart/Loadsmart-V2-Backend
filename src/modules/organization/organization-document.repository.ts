@@ -53,6 +53,27 @@ export class OrganizationDocumentRepository {
         manager,
       );
       if (existing) {
+        // Re-saving an already-verified number with no new files (e.g. the user corrected the
+        // registry-fetched address, or attached the premises photo) is not a resubmission —
+        // keep the verification and only take the address changes.
+        const isSameVerifiedNumber =
+          existing.verificationStatus === 'verified' &&
+          documentUrls.length === 0 &&
+          (document.documentNumber === undefined ||
+            document.documentNumber === existing.documentNumber);
+        if (isSameVerifiedNumber) {
+          existing.addressLine1 =
+            document.registeredAddress?.addressLine1 ?? existing.addressLine1 ?? null;
+          existing.addressLine2 =
+            document.registeredAddress?.addressLine2 ?? existing.addressLine2 ?? null;
+          existing.city = document.registeredAddress?.city ?? existing.city ?? null;
+          existing.state = document.registeredAddress?.state ?? existing.state ?? null;
+          existing.pinCode = document.registeredAddress?.pinCode ?? existing.pinCode ?? null;
+          existing.updatedBy = actingUserId;
+          saved.push(await repo.save(existing));
+          continue;
+        }
+
         // A file-only re-upload may omit the document number. Keep the previously submitted
         // number instead of erasing it during replacement.
         existing.documentNumber = document.documentNumber ?? existing.documentNumber;

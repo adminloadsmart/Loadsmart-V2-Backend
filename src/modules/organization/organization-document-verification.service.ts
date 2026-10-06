@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { OrganizationDocumentService } from './organization-document.service';
 import { OrganizationJourneyStageService } from './organization-journey-stage.service';
 import { OrganizationService } from './organization.service';
+import { extractRegistryDetails } from './organization-document-registry-details';
 import {
   OrganizationDocumentEntity,
   OrganizationDocumentType,
@@ -19,9 +20,13 @@ const JOB_OPTIONS: JobsOptions = { attempts: 10, backoff: { type: 'fixed', delay
 
 interface IdfyDocumentConfig {
   taskType: string;
-  buildInput: (documentNumber: string) => Record<string, unknown>;
-  // Legal/registered name in the task's source_output, when IDfy returns one.
-  nameFields: string[];
+  // Returns null when a required input (e.g. the shop licence's state/name) is missing — the
+  // document then simply stays 'pending' for admin review.
+  buildInput: (context: {
+    documentNumber: string;
+    state: string | null;
+    organizationName: string | null;
+  }) => Record<string, unknown> | null;
 }
 
 // One entry per document type that can be verified by number. Task types / input keys follow
@@ -29,18 +34,22 @@ interface IdfyDocumentConfig {
 const IDFY_DOCUMENT_CONFIG: Partial<Record<OrganizationDocumentType, IdfyDocumentConfig>> = {
   gst_certificate: {
     taskType: 'ind_gst_certificate',
-    buildInput: (gstin) => ({ gstin }),
-    nameFields: ['legal_name', 'trade_name'],
+    buildInput: ({ documentNumber }) => ({ gstin: documentNumber }),
   },
   udyam: {
     taskType: 'udyam_aadhaar',
-    buildInput: (uamNumber) => ({ uam_number: uamNumber }),
-    nameFields: ['enterprise_name', 'name_of_enterprise', 'legal_name'],
+    buildInput: ({ documentNumber }) => ({ uam_number: documentNumber }),
   },
   cin: {
-    taskType: 'ind_cin',
-    buildInput: (cin) => ({ cin }),
-    nameFields: ['company_name', 'legal_name'],
+    taskType: 'ind_mca',
+    buildInput: ({ documentNumber }) => ({ cin: documentNumber }),
+  },
+  shop_establishment: {
+    taskType: 'ind_shop_license',
+    buildInput: ({ documentNumber, state, organizationName }) =>
+      state && organizationName
+        ? { certificate_number: documentNumber, state: state.toLowerCase(), name: organizationName }
+        : null,
   },
 };
 
@@ -72,7 +81,9 @@ export class OrganizationDocumentVerificationService {
 
   /** Fire-and-forget: a queue outage must never fail the onboarding request itself. */
   async enqueueVerification(documents: OrganizationDocumentEntity[]): Promise<void> {
-    for (const document of documents.filter(isAutoVerifiable)) {
+    for (const document of documents.filter(
+      (candidate) => candidate.verificationStatus === 'pending' && isAutoVerifiable(candidate),
+    )) {
       try {
         await this.jobQueue.enqueue(JOB_NAME, { documentId: document.id }, JOB_OPTIONS);
       } catch (error) {
@@ -94,10 +105,18 @@ export class OrganizationDocumentVerificationService {
 
     let requestId = document.sourceReference;
     if (!requestId) {
-      requestId = await this.idfyClient.submit(
-        config.taskType,
-        config.buildInput(document.documentNumber),
+      const organization = await this.organizationService.getOrganizationStatus(
+        document.organizationId,
       );
+      const input = config.buildInput({
+        documentNumber: document.documentNumber,
+        state: document.state,
+        organizationName: organization.companyLegalName ?? organization.registeredBusinessName,
+      });
+      if (!input) {
+        return;
+      }
+      requestId = await this.idfyClient.submit(config.taskType, input);
       await this.documentService.recordVerificationRequest(document.id, requestId);
     }
 
@@ -107,7 +126,11 @@ export class OrganizationDocumentVerificationService {
     }
 
     const output = task.result?.source_output;
-    if (task.status !== 'completed' || !output || output.status !== 'id_found') {
+    // Verified only when the registry found a record that is in good standing — e.g. a GSTIN
+    // that IDfy finds but reports as "Cancelled" stays pending for admin review (its details are
+    // still stored so the UI can say why).
+    const details = output ? extractRegistryDetails(document.documentType, output) : null;
+    if (task.status !== 'completed' || !output || !details?.active) {
       await this.documentService.recordAutoVerificationFailure(document.id, {
         idfyStatus: task.status,
         ...(output ?? {}),
@@ -127,13 +150,8 @@ export class OrganizationDocumentVerificationService {
       return;
     }
 
-    const registeredName =
-      config.nameFields
-        .map((field) => output[field])
-        .find((value): value is string => typeof value === 'string' && value.length > 0) ?? null;
-
     await this.documentService.applyAutoVerification(document.id, {
-      registeredName,
+      registeredName: details.legalName,
       rawResponse: output,
     });
     await this.auditService.log({

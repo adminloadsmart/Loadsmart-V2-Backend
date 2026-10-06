@@ -44,7 +44,9 @@ describe('OrganizationDocumentVerificationService.processDocument', () => {
   it('verifies the document and completes online KYC when IDfy finds it', async () => {
     const { service, documentService, organizationService, idfy } = build({
       status: 'completed',
-      result: { source_output: { status: 'id_found', legal_name: 'ACME LTD' } },
+      result: {
+        source_output: { status: 'id_found', legal_name: 'ACME LTD', gstin_status: 'Active' },
+      },
     });
     await service.processDocument('d1');
     expect(idfy.submit).toHaveBeenCalledWith('ind_gst_certificate', { gstin: '29ABCDE1234F1Z5' });
@@ -53,6 +55,18 @@ describe('OrganizationDocumentVerificationService.processDocument', () => {
       expect.objectContaining({ registeredName: 'ACME LTD' }),
     );
     expect(organizationService.updateOrganization).toHaveBeenCalled();
+  });
+
+  it('keeps a found-but-cancelled GSTIN pending', async () => {
+    const { service, documentService } = build({
+      status: 'completed',
+      result: {
+        source_output: { status: 'id_found', legal_name: 'ACME LTD', gstin_status: 'Cancelled' },
+      },
+    });
+    await service.processDocument('d1');
+    expect(documentService.applyAutoVerification).not.toHaveBeenCalled();
+    expect(documentService.recordAutoVerificationFailure).toHaveBeenCalled();
   });
 
   it('leaves the document pending when IDfy does not find it', async () => {

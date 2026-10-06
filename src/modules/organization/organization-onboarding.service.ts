@@ -1,5 +1,6 @@
 import { ValidationError } from '../../shared/errors';
 import { OrganizationService } from './organization.service';
+import { extractRegistryDetails, RegistryDetails } from './organization-document-registry-details';
 import { OrganizationDocumentService } from './organization-document.service';
 import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
 import { OrganizationDocumentEntity } from './entities/organization-document.entity';
@@ -15,6 +16,25 @@ import { OrganizationOnboardingProgress, OrganizationReviewData } from './organi
  *  Called by AuthService, which still owns the actual onboarding endpoints (getOrganization/
  *  createOrganization/saveBusinessDetails/submitOrganization) since those also mutate the
  *  caller's own session (tenantId + token pair) — auth-only concerns this module can't own. */
+// Org-facing document: the raw vendor response (contact details, directors, …) and the IDfy
+// request id stay server-side; the UI gets the normalised registry details instead.
+export type PublicOrganizationDocument = Omit<
+  OrganizationDocumentEntity,
+  'rawResponse' | 'sourceReference'
+> & {
+  registryChecked: boolean;
+  registryDetails: RegistryDetails | null;
+};
+
+function toPublicDocument(document: OrganizationDocumentEntity): PublicOrganizationDocument {
+  const { rawResponse, sourceReference: _sourceReference, ...rest } = document;
+  return {
+    ...rest,
+    registryChecked: rawResponse !== null,
+    registryDetails: extractRegistryDetails(document.documentType, rawResponse),
+  };
+}
+
 export class OrganizationOnboardingService {
   constructor(
     private readonly organizationService: OrganizationService,
@@ -92,16 +112,16 @@ export class OrganizationOnboardingService {
   buildOrganizationResponse(
     organization: OrganizationEntity,
     documents: OrganizationDocumentEntity[],
-  ): OrganizationOnboardingProgress & {
+  ): Omit<OrganizationOnboardingProgress, 'organization' | 'documents'> & {
     organization: Omit<OrganizationEntity, 'shopboardPremisesPhotoKey'>;
-    documents: OrganizationDocumentEntity[];
+    documents: PublicOrganizationDocument[];
     reviewData: OrganizationReviewData;
   } {
     const state = this.buildOnboardingState(organization, documents);
     return {
       ...state,
       organization: this.toPublicOrganization(organization),
-      documents,
+      documents: documents.map(toPublicDocument),
       reviewData: this.buildReviewData(organization, documents),
     };
   }

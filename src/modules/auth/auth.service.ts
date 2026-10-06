@@ -1013,7 +1013,18 @@ export class AuthService {
       throw new ValidationError('Only one PDF file can be uploaded for the document');
     }
 
+    // The Verify click saves just the document number (no files, no photo) so the registry check
+    // can start before the photo is uploaded. Every other save — the final "Continue", which
+    // attaches the document files — must carry the shop-board premises photo, and submission
+    // enforces it again (OrganizationOnboardingService.assertShopboardPremisesPhotoPresent).
+    const isNumberOnlyVerification =
+      Boolean(input.documentNo) &&
+      files.documentFront.length === 0 &&
+      (files.documentFrontKeys?.length ?? 0) === 0 &&
+      !files.shopPremisesPhoto &&
+      !files.shopPremisesPhotoKey;
     if (
+      !isNumberOnlyVerification &&
       !files.shopPremisesPhoto &&
       !files.shopPremisesPhotoKey &&
       !current.shopboardPremisesPhotoKey
