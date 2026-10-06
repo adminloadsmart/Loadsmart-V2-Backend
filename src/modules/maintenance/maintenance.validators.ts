@@ -13,8 +13,8 @@ import {
 
 const uuid = z.string().uuid();
 const isoDateTime = z.iso.datetime();
-const money = z.number().nonnegative().max(9999999999);
-const odometerKm = z.number().int().nonnegative().max(9999999);
+const money = z.number().nonnegative();
+const odometerKm = z.number().int().nonnegative();
 const optionalText = (max: number) => z.string().trim().min(1).max(max).optional();
 /** A wheel position code (FL, FR, R1L, R1R, …) — must be on the truck's layout, as returned by
  *  GET /vehicles/:vehicleId/tyres; checked in the service against the truck's wheel count. */
