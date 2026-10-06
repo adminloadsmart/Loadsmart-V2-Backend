@@ -116,6 +116,13 @@ export interface ListJobsInput extends PeriodInput {
   limit: number;
 }
 
+/** page/limit/search on the screen's queues — search matches the registration number. */
+export interface QueuePageInput {
+  page: number;
+  limit: number;
+  search?: string;
+}
+
 export interface ListVehicleJobsInput {
   jobType?: MaintenanceJobType;
   page: number;

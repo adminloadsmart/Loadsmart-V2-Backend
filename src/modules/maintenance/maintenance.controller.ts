@@ -12,6 +12,7 @@ import {
   ListJobsInput,
   ListVehicleJobsInput,
   PeriodInput,
+  QueuePageInput,
   TyreParams,
   VehicleParams,
 } from './maintenance.interface';
@@ -40,7 +41,13 @@ export class MaintenanceController {
   };
 
   listServiceDue = async (req: Request, res: Response) => {
-    respond(res, await this.maintenanceService.listServiceDue(requireTenantId(req)));
+    respond(
+      res,
+      await this.maintenanceService.listServiceDue(
+        requireTenantId(req),
+        req.validatedQuery as QueuePageInput,
+      ),
+    );
   };
 
   listBreakdowns = async (req: Request, res: Response) => {
@@ -49,6 +56,7 @@ export class MaintenanceController {
       await this.maintenanceService.listOpenBreakdowns(
         requireTenantId(req),
         canSeeMaintenanceCosts(req),
+        req.validatedQuery as QueuePageInput,
       ),
     );
   };
@@ -59,12 +67,19 @@ export class MaintenanceController {
       await this.maintenanceService.listInWorkshop(
         requireTenantId(req),
         canSeeMaintenanceCosts(req),
+        req.validatedQuery as QueuePageInput,
       ),
     );
   };
 
   listBlockedOnPapers = async (req: Request, res: Response) => {
-    respond(res, await this.maintenanceService.listBlockedOnPapers(requireTenantId(req)));
+    respond(
+      res,
+      await this.maintenanceService.listBlockedOnPapers(
+        requireTenantId(req),
+        req.validatedQuery as QueuePageInput,
+      ),
+    );
   };
 
   listTyres = async (req: Request, res: Response) => {
