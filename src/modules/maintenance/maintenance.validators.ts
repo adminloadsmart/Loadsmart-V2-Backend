@@ -102,6 +102,8 @@ export const maintenanceValidators = {
         odometerKm,
         workshopName: optionalText(150),
         description: optionalText(2000),
+        /** When the work started — with serviceDate as the end, the job spans the two. */
+        startDate: isoDate.optional(),
         serviceDate: isoDate.optional(),
         ...costFields,
       })

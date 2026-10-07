@@ -109,6 +109,16 @@ export function openVisitOdometer(job: MaintenanceJobEntity) {
     : { odometerKm: null, odometerSource: null };
 }
 
+/** The truck's last periodic service (preventive service / oil change) on an open-visit row —
+ *  from its service record, so null until one is entered or logged. */
+export function lastServiceOf(job: MaintenanceJobEntity) {
+  const usage = job.vehicle?.serviceUsage;
+  return {
+    date: usage?.lastServiceDate ?? null,
+    odometerKm: usage?.lastServiceOdometerKm ?? null,
+  };
+}
+
 /** The "Workshop intake" column on the in-workshop queue — when it went in and for how long. */
 export function toWorkshopIntake(job: MaintenanceJobEntity, now = new Date()) {
   return { since: job.openedAt, ...elapsedDaysHours(job.openedAt, now) };

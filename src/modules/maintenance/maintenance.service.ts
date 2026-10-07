@@ -47,6 +47,7 @@ import {
 } from './maintenance.interface';
 import {
   breakdownWhatItNeeds,
+  lastServiceOf,
   openVisitOdometer,
   papersWhatItNeeds,
   resolveJobCosts,
@@ -225,6 +226,13 @@ export class MaintenanceService {
       const vehicle = await this.assertOwnFleetVehicle(tenantId, input.vehicleId);
       await this.assertInvoice(tenantId, actor, input);
       const loggedAt = this.resolveDate(input.serviceDate, 'serviceDate');
+      // Start of the work — midnight IST of startDate, or the end itself when it's the same day.
+      const endDate = input.serviceDate ?? toIstDateString(loggedAt);
+      if (input.startDate && input.startDate > endDate) {
+        throw new ValidationError('startDate must be on or before serviceDate');
+      }
+      const startedAt =
+        input.startDate && input.startDate < endDate ? startOfIstDate(input.startDate) : loggedAt;
 
       const job = await this.dataSource.transaction(async (manager) => {
         const open = await this.jobRepository.findOpenJob(tenantId, vehicle.id, manager);
@@ -260,7 +268,7 @@ export class MaintenanceService {
             jobType: 'service',
             status: 'closed',
             serviceType: input.serviceType,
-            openedAt: loggedAt,
+            openedAt: startedAt,
             closedAt: loggedAt,
             odometerKm: input.odometerKm,
             workshopName: input.workshopName ?? null,
@@ -425,6 +433,7 @@ export class MaintenanceService {
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
         ...openVisitOdometer(job),
+        lastService: lastServiceOf(job),
         workshopIntake: toWorkshopIntake(job, now),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
@@ -597,6 +606,7 @@ export class MaintenanceService {
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
         ...openVisitOdometer(job),
+        lastService: lastServiceOf(job),
         whatItNeeds: breakdownWhatItNeeds(job),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));

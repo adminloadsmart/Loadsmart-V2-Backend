@@ -76,7 +76,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks currently off the road (open breakdowns), oldest first, with where/when/towed, ' +
         'days down and market loads covering each. ' +
-        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle). `whatItNeeds.detail` is the reported problem; ' +
+        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle); lastService = { date, odometerKm } of the truck’s last ' +
+        'preventive service / oil change. `whatItNeeds.detail` is the reported problem; ' +
         '`vehicle.truckTypeName` is the Class column. ' +
         COSTS_NOTE +
         ' ' +
@@ -129,7 +130,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Every truck in the workshop right now — service check-ins and breakdowns together, ' +
         'oldest first, with days in and market loads covering each. ' +
-        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle). `workshopIntake` = ' +
+        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle); lastService = { date, odometerKm } of the truck’s last ' +
+        'preventive service / oil change. `workshopIntake` = ' +
         '{ since, days, hours } for "In workshop since … (1d 2h)"; `vehicle.truckTypeName` is ' +
         'the Class column. ' +
         COSTS_NOTE +
@@ -224,10 +226,13 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.logService',
     ...permissionGated(
       [MAINTENANCE_MANAGE],
-      'Log a service — a finished service, dated today unless serviceDate is given. If the ' +
+      'Log a service — a finished service. serviceDate is when it finished (defaults to today) ' +
+        'and becomes the last service date for preventive_service / oil_change; optional ' +
+        'startDate (≤ serviceDate) is when the work started, so daysTaken shows the span. If the ' +
         'truck is in the workshop (checked in for service, or broken down), this finishes that ' +
         'visit: the job closes with these details and the truck returns to dispatch in the same ' +
-        'transaction (a breakdown closed this way is marked includesService). Otherwise a closed ' +
+        'transaction — its start is when it went in, so startDate is ignored (a breakdown closed ' +
+        'this way is marked includesService). Otherwise a closed ' +
         'service job is recorded and dispatch is untouched. Only preventive_service and ' +
         'oil_change move the service clock. `cost` is the single invoiced total; invoiceFileKey ' +
         'is a confirmed upload with purpose maintenance/invoice.',
