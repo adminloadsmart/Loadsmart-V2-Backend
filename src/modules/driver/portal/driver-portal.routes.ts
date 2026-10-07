@@ -151,6 +151,16 @@ export function createDriverPortalRoutes(
     validate(driverPortalValidators.sendMyPodReceiverCode),
     asyncHandler(controller.sendMyPodReceiverCode),
   );
+  router.post(
+    '/loads/:loadId/receiver-code/verify',
+    createIpRateLimit({
+      keyPrefix: 'driver-portal-pod-receiver-verify',
+      limit: env.podReceiverOtpRequestRateLimitMax,
+      windowSeconds: env.podReceiverOtpRequestRateLimitWindowSeconds,
+    }),
+    validate(driverPortalValidators.verifyMyPodReceiverCode),
+    asyncHandler(controller.verifyMyPodReceiverCode),
+  );
   router.patch(
     '/loads/:loadId/pod',
     validate(driverPortalValidators.uploadMyPod),

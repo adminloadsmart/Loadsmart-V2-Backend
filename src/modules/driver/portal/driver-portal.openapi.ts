@@ -428,7 +428,7 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'driverPortal.sendMyPodReceiverCode',
     ...authenticated(
       'Delivery step 1 — validates the receiver\u2019s mobile. TEMPORARY: no SMS is sent yet — the code is the fixed value 1234. The code is checked ' +
-        'when the driver submits PATCH /loads/{loadId}/pod with podReceiverCode. Skip this ' +
+        'via POST /loads/{loadId}/receiver-code/verify. Skip this ' +
         'entirely when the receiver has no phone.',
     ),
     request: {
@@ -444,6 +444,28 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/receiver-code/verify`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.verifyMyPodReceiverCode',
+    ...authenticated(
+      'Delivery step 1b — verifies the 4-digit code the receiver read out. TEMPORARY: the ' +
+        'accepted code is the fixed value 1234. A pass is remembered for 30 minutes so ' +
+        'PATCH /loads/{loadId}/pod can accept the same mobile; failed guesses are capped.',
+    ),
+    request: {
+      params: driverPortalValidators.verifyMyPodReceiverCode.shape.params,
+      body: json(driverPortalValidators.verifyMyPodReceiverCode.shape.body),
+    },
+    responses: {
+      200: { description: '{ data: { verified: true } }' },
+      401: { description: 'Wrong code, or too many incorrect attempts', ...errorContent },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: { description: 'Loading has not been confirmed yet', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/loads/{loadId}/pod`,
     tags: [TAGS.DRIVER_PORTAL],
@@ -451,9 +473,9 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Record proof of delivery for a load assigned to the caller — delivery receipt photo, ' +
         'receiver name, and quantity received are required. Receiver verification is optional: ' +
-        'send podReceiverMobile + the 4-digit podReceiverCode (from POST ' +
-        '/loads/{loadId}/receiver-code) to verify the receiver; omit both when the receiver has ' +
-        'no phone, and the POD photo alone is the proof. For drivers numberOfTonnesShort is ' +
+        'send podReceiverMobile only after it passed POST /loads/{loadId}/receiver-code/verify ' +
+        '(else 400); omit it when the receiver has no phone, and the POD photo alone is the ' +
+        'proof. For drivers numberOfTonnesShort is ' +
         'computed server-side (planned minus podQuantityReceived) and shortageOrDamage is raised ' +
         'to `shortage` when tonnes are short. shortageOrDamage ' +
         '(none/shortage/damage/wet/both) captures cargo condition on arrival, and ' +

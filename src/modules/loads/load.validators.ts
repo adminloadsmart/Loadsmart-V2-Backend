@@ -71,21 +71,30 @@ export const sendPodReceiverCodeBody = z
   })
   .strict();
 
+export const verifyPodReceiverCodeBody = z
+  .object({
+    mobile: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+    code: z
+      .string()
+      .trim()
+      .regex(/^\d{4}$/, 'Must be the 4-digit code sent to the receiver'),
+  })
+  .strict();
+
 export const uploadPodBody = z
   .object({
     podFileKey: z.string().trim().min(1),
     podReceiverName: z.string().trim().min(1).max(150),
     // Optional: a receiver without a phone skips code verification and the POD photo alone is the
-    // proof. When a driver sends it, podReceiverCode is required — see LoadService.uploadPod.
+    // proof. When a driver sends it, it must already be verified via the receiver-code/verify
+    // step — see LoadService.uploadPod.
     podReceiverMobile: z
       .string()
       .trim()
       .regex(/^\d{10}$/, 'Must be a 10-digit mobile number')
-      .optional(),
-    podReceiverCode: z
-      .string()
-      .trim()
-      .regex(/^\d{4}$/, 'Must be the 4-digit code sent to the receiver')
       .optional(),
     // Optional as of the driver-app ePOD screen redesign — that screen doesn't collect either of
     // these, but a staff-side or older caller may still send them.
@@ -113,13 +122,6 @@ export const uploadPodBody = z
         code: 'custom',
         path: ['damagePhotoKey'],
         message: 'damagePhotoKey is required when shortageOrDamage is damage, wet or both',
-      });
-    }
-    if (data.podReceiverCode && !data.podReceiverMobile) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['podReceiverMobile'],
-        message: 'podReceiverMobile is required when podReceiverCode is sent',
       });
     }
   });

@@ -4,6 +4,7 @@ import {
   confirmLoadingBody,
   dateOnly,
   sendPodReceiverCodeBody,
+  verifyPodReceiverCodeBody,
   updateStatusBody,
   uploadPodBody,
 } from '../../loads/load.validators';
@@ -92,6 +93,7 @@ export const driverPortalValidators = {
   updateMyLoadStatus: z.object({ params: loadParams, body: updateStatusBody }),
   uploadMyPod: z.object({ params: loadParams, body: uploadPodBody }),
   sendMyPodReceiverCode: z.object({ params: loadParams, body: sendPodReceiverCodeBody }),
+  verifyMyPodReceiverCode: z.object({ params: loadParams, body: verifyPodReceiverCodeBody }),
 
   // Loading Confirmation — reuses loads/load.validators.ts's exact body shape, same convention as
   // updateMyLoadStatus/uploadMyPod above. Any of the mandatory documents already on the load (set

@@ -12,6 +12,8 @@ import { TransporterService } from '../masters/transporter/transporter.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
 import { msg } from '../../shared/i18n/translate';
+import { redisManager } from '../../db/redis';
+import { MAX_OTP_ATTEMPTS } from '../auth/auth.constants';
 import { paginate, Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
@@ -96,6 +98,12 @@ export interface LoadDetailView {
 // TEMPORARY: the receiver code is a fixed value until a real SMS template/provider is wired in —
 // no SMS is sent. Replace sendPodReceiverCode's no-op and the check in uploadPod together.
 const POD_RECEIVER_STATIC_OTP = '1234';
+/** How long a verified receiver number stays valid for the final E-POD submit. */
+const POD_RECEIVER_VERIFIED_TTL_SECONDS = 30 * 60;
+const podReceiverVerifiedKey = (loadId: string, mobile: string) =>
+  `pod-receiver-verified:${loadId}:${mobile}`;
+const podReceiverAttemptsKey = (loadId: string, mobile: string) =>
+  `pod-receiver-attempts:${loadId}:${mobile}`;
 
 export class LoadService {
   constructor(
@@ -630,9 +638,51 @@ export class LoadService {
       if (!this.canRecordPod(load)) {
         throw new ConflictError('E-POD can only be recorded once loading is confirmed');
       }
-      // Static code for now — nothing to send; see POD_RECEIVER_STATIC_OTP.
+      // Static code for now — nothing to send; see POD_RECEIVER_STATIC_OTP. A fresh send always
+      // gets a fresh guess budget and invalidates any earlier verification of this number.
+      await redisManager.delete(podReceiverAttemptsKey(loadId, mobile));
+      await redisManager.delete(podReceiverVerifiedKey(loadId, mobile));
     } catch (error) {
       rethrow(error, 'Failed to send receiver code');
+    }
+  }
+
+  /** Step 1b of the driver-app delivery flow: checks the code the receiver read out. On success
+   *  the number is marked verified (Redis, short TTL) for this load, and uploadPod then requires
+   *  that mark whenever a receiver mobile is submitted. */
+  async verifyPodReceiverCode(
+    tenantId: string,
+    loadId: string,
+    mobile: string,
+    code: string,
+    driverOwnerId: string,
+  ): Promise<void> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      if (!this.canRecordPod(load)) {
+        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+      }
+      const attempts = await redisManager.incr(
+        podReceiverAttemptsKey(loadId, mobile),
+        POD_RECEIVER_VERIFIED_TTL_SECONDS,
+      );
+      if (attempts > MAX_OTP_ATTEMPTS) {
+        throw new AuthenticationError(msg('errors.otp.tooManyAttempts'));
+      }
+      if (code !== POD_RECEIVER_STATIC_OTP) {
+        throw new AuthenticationError(msg('errors.otp.invalid'));
+      }
+      await redisManager.delete(podReceiverAttemptsKey(loadId, mobile));
+      await redisManager.set(
+        podReceiverVerifiedKey(loadId, mobile),
+        '1',
+        POD_RECEIVER_VERIFIED_TTL_SECONDS,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to verify receiver code');
     }
   }
 
@@ -684,7 +734,7 @@ export class LoadService {
         throw new ConflictError('E-POD can only be recorded once loading is confirmed');
       }
 
-      // Driver-only receiver verification: a receiver mobile means the 4-digit code is required;
+      // Driver-only receiver verification: a receiver mobile must have been verified via verifyPodReceiverCode;
       // no mobile means the receiver has no phone and the POD photo alone is the proof. A
       // resubmission with the same, already-verified mobile doesn't need a fresh code.
       let podReceiverVerifiedAt: Date | null = null;
@@ -696,12 +746,13 @@ export class LoadService {
         if (alreadyVerified) {
           podReceiverVerifiedAt = load.podReceiverVerifiedAt;
         } else {
-          if (!input.podReceiverCode) {
-            throw new ValidationError('podReceiverCode is required when podReceiverMobile is sent');
+          const verifiedKey = podReceiverVerifiedKey(loadId, input.podReceiverMobile);
+          if (!(await redisManager.get(verifiedKey))) {
+            throw new ValidationError(
+              'Receiver mobile must be verified (receiver-code/verify) before submitting E-POD',
+            );
           }
-          if (input.podReceiverCode !== POD_RECEIVER_STATIC_OTP) {
-            throw new AuthenticationError(msg('errors.otp.invalid'));
-          }
+          await redisManager.delete(verifiedKey);
           podReceiverVerifiedAt = new Date();
         }
       }
