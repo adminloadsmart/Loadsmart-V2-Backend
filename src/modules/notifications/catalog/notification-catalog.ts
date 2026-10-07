@@ -62,6 +62,9 @@ export interface VehicleDocumentExpiredContext {
 }
 
 export interface DriverLicenceExpiringContext {
+  /** A driver can belong to several organisations, and trigger dedupe keys are global — so the
+   *  key carries the organisation too. */
+  tenantId: string;
   driverId: string;
   driverName: string;
   dlNo: string | null;
@@ -73,6 +76,7 @@ export interface DriverLicenceExpiringContext {
 }
 
 export interface DriverLicenceExpiredContext {
+  tenantId: string;
   driverId: string;
   driverName: string;
   dlNo: string | null;
@@ -197,6 +201,23 @@ export const DAILY_BRIEF_STATIC = {
 };
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+export interface TyreAttentionContext {
+  vehicleId: string;
+  vehicleNo: string;
+  /** Every tyre on the vehicle in the maintenance tyres queue, by position. */
+  tyres: {
+    tyreId: string;
+    position: string;
+    km: number;
+    /** 'retread' / 'replacement' / 'scrapping'. */
+    action: string;
+    /** Formatted cost per km; null when no cost is recorded for this tyre. */
+    cpk: string | null;
+  }[];
+  fleetCpk: string | null;
+  runDate: string;
+}
 
 export interface VehicleDocumentsRollupContext {
   /** Vehicle documents in the organisation expiring within the next 30 days. */
@@ -901,7 +922,8 @@ export const NOTIFICATION_CATALOG = {
     channels: ['push'],
     defaultChannels: ['push'],
     severity: 'p2_action',
-    dedupeKey: (context: DriverLicenceExpiringContext) => `${context.driverId}-${context.runDate}`,
+    dedupeKey: (context: DriverLicenceExpiringContext) =>
+      `${context.tenantId}-${context.driverId}-${context.runDate}`,
     buildContent: (context: DriverLicenceExpiringContext) => ({
       title: `${context.driverName}'s licence expires in ${context.daysLeft} days`,
       body: `${licenceRef(context.dlNo)} expires on ${context.expiryDate} and ${context.driverName} is rostered on ${context.tripCount} upcoming trips. Get it renewed or plan another driver.`,
@@ -935,7 +957,7 @@ export const NOTIFICATION_CATALOG = {
     defaultChannels: ['push', 'sms'],
     severity: 'p1_critical',
     dedupeKey: (context: DriverLicenceExpiredContext) =>
-      `${context.driverId}-${context.runDate}-${context.stage}`,
+      `${context.tenantId}-${context.driverId}-${context.runDate}-${context.stage}`,
     reminderAfterMs: 2 * 60 * 60 * 1000,
     shouldRemind: (context: DriverLicenceExpiredContext) => context.stage === 'initial',
     templates: {
@@ -1243,6 +1265,69 @@ export const NOTIFICATION_CATALOG = {
           run_date: context.runDate,
           cta_label: 'Open my day',
           cta_path: '/',
+        },
+      };
+    },
+  },
+
+  // LS_N_0058 — from the daily 9:00 IST check (tyre-alerts.ts): one message per vehicle rolling
+  // up all its tyres in the maintenance tyres queue, when one of them is newly there. P3,
+  // in-app + SMS to maintenance.manage holders.
+  'vehicle.tyre_attention': {
+    label: 'Tyre needs attention',
+    description: 'Tyres that have reached their wear threshold, rolled up per vehicle.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: MAINTENANCE_MANAGE }),
+    channels: ['sms'],
+    defaultChannels: ['sms'],
+    severity: 'p3_info',
+    dedupeKey: (context: TyreAttentionContext) => `${context.vehicleId}-${context.runDate}`,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateTyreAttention,
+        variables: { var1: 'vehicle_no', var2: 'action_type' },
+      },
+    },
+    buildContent: (context: TyreAttentionContext) => {
+      const positions = context.tyres.map((tyre) => tyre.position);
+      const actions = [...new Set(context.tyres.map((tyre) => tyre.action))];
+      const fleet = context.fleetCpk ? ` against a fleet average of ${context.fleetCpk}` : '';
+      let body: string;
+      if (context.tyres.length === 1) {
+        const [tyre] = context.tyres;
+        body = `It has run ${km(tyre.km)} km and is due for ${tyre.action}.${
+          tyre.cpk ? ` Cost per km on this tyre is ${tyre.cpk}${fleet}.` : ''
+        }`;
+      } else {
+        body = `${context.tyres
+          .map(
+            (tyre) =>
+              `${tyre.position} has run ${km(tyre.km)} km and is due for ${tyre.action}${
+                tyre.cpk ? ` (cost per km ${tyre.cpk})` : ''
+              }.`,
+          )
+          .join(
+            ' ',
+          )}${context.fleetCpk ? ` Fleet average cost per km is ${context.fleetCpk}.` : ''}`;
+      }
+      return {
+        title:
+          context.tyres.length === 1
+            ? `Tyre ${positions[0]} on ${context.vehicleNo} needs attention`
+            : `Tyres ${positions.join(', ')} on ${context.vehicleNo} need attention`,
+        body,
+        metadata: {
+          vehicle_id: context.vehicleId,
+          vehicle_no: context.vehicleNo,
+          tyre_position: positions.join(', '),
+          tyre_km: context.tyres.map((tyre) => String(tyre.km)).join(','),
+          action_type: actions.join(' and '),
+          tyre_cpk: context.tyres.map((tyre) => tyre.cpk ?? '').join(','),
+          fleet_tyre_cpk: context.fleetCpk ?? '',
+          tyre_ids: context.tyres.map((tyre) => tyre.tyreId).join(','),
+          run_date: context.runDate,
+          cta_label: 'Plan replacement',
+          cta_path: `/maintenance?vehicleId=${context.vehicleId}`,
         },
       };
     },

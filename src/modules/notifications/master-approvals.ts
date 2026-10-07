@@ -135,7 +135,9 @@ export function createVahanStillUnverifiedCheck(dataSource: DataSource) {
  *  approval_status; the rest use status). Raw counts so no other module's code is touched. */
 const PENDING_COUNT_SQL: Record<MasterKind, string> = {
   vehicle: `SELECT count(*)::int AS n FROM masters.vehicles WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
-  driver: `SELECT count(*)::int AS n FROM masters.drivers WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
+  // Drivers are a global profile; "pending" is the organisation's relation awaiting staff review
+  // (driver-tenant-relation.repository.ts's pending list).
+  driver: `SELECT count(*)::int AS n FROM masters.driver_tenant_relations WHERE tenant_id = $1 AND status = 'pending_staff_review' AND deleted_at IS NULL`,
   loading_point: `SELECT count(*)::int AS n FROM masters.loading_points WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
   product: `SELECT count(*)::int AS n FROM masters.products WHERE tenant_id = $1 AND approval_status = 'pending_approval' AND deleted_at IS NULL`,
   customer: `SELECT count(*)::int AS n FROM customers.customers WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,

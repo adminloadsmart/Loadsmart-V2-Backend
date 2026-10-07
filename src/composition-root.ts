@@ -43,6 +43,7 @@ import {
 } from './modules/notifications/breakdown-alerts';
 import { createBackInServiceResolver } from './modules/notifications/back-in-service';
 import { createServiceAlerts } from './modules/notifications/service-alerts';
+import { createTyreAlerts } from './modules/notifications/tyre-alerts';
 import { createDigests, digestJobs, scheduleDigests } from './modules/notifications/digests';
 import { createJobQueue } from './jobs/queue-registry';
 import {
@@ -263,11 +264,22 @@ export function buildContainer(dataSource: DataSource): Container {
   const vehicleDocumentAlerts = createVehicleDocumentAlerts(dataSource, notifications.triggers);
   // LS_N_0056/0057 — service due soon / overdue, swept in the same daily 9:00 IST job.
   const serviceAlerts = createServiceAlerts(dataSource, notifications.triggers);
+  // LS_N_0058 — tyres in the maintenance tyres queue, rolled up per vehicle, same daily tick.
+  const tyreAlerts = createTyreAlerts({
+    dataSource,
+    triggers: notifications.triggers,
+    listTyreQueue: (tenantId) => maintenance.tyreService.listQueue(tenantId),
+  });
   // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
   const digests = createDigests(dataSource, notifications.triggers);
   const notificationScheduleWorker = createNotificationScheduleWorker(
     vehicleDocumentAlerts,
-    serviceAlerts,
+    {
+      runDaily: async (today) => ({
+        ...(await serviceAlerts.runDaily(today)),
+        ...(await tyreAlerts.runDaily(today)),
+      }),
+    },
     digestJobs(digests),
   );
   scheduleVehicleDocumentChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
@@ -300,6 +312,8 @@ export function buildContainer(dataSource: DataSource): Container {
       'vehicle.service_overdue': serviceAlerts.overdueNotAlreadySentToday,
       // LS_N_0059/0060 — a digest is never sent twice for the same run day.
       'vehicle.idle_weekly': digests.idleWeeklyNotSent,
+      // LS_N_0058 — at most one tyre roll-up per vehicle per day.
+      'vehicle.tyre_attention': tyreAlerts.notAlreadySentToday,
       'digest.daily_brief': digests.dailyBriefNotSent,
       // LS_N_0005's 24h reminder only while the invitee still hasn't signed in.
       'organization.team_member_invited': async (_tenantId, context) =>

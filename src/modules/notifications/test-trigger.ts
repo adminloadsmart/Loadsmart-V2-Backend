@@ -56,6 +56,7 @@ const SHEET_IDS: Partial<Record<NotificationTypeKey, string>> = {
   'vehicle.back_in_service': 'LS_N_0055',
   'vehicle.service_due_soon': 'LS_N_0056',
   'vehicle.service_overdue': 'LS_N_0057',
+  'vehicle.tyre_attention': 'LS_N_0058',
   'vehicle.idle_weekly': 'LS_N_0059',
   'digest.daily_brief': 'LS_N_0060',
 };
@@ -147,6 +148,7 @@ function sampleContexts(callerId: string, today: string): SampleContexts {
       runDate: today,
     },
     'driver.licence_expiry': {
+      tenantId: SAMPLE_ID,
       driverId: SAMPLE_ID,
       driverName: 'Ramesh Yadav',
       dlNo: 'MH1220110012345',
@@ -156,6 +158,7 @@ function sampleContexts(callerId: string, today: string): SampleContexts {
       runDate: today,
     },
     'driver.licence_expired': {
+      tenantId: SAMPLE_ID,
       driverId: SAMPLE_ID,
       driverName: 'Ramesh Yadav',
       dlNo: 'MH1220110012345',
@@ -210,6 +213,16 @@ function sampleContexts(callerId: string, today: string): SampleContexts {
       serviceCost: '₹8,000',
       breakdownCost: '₹45,000',
       escalated: false,
+      runDate: today,
+    },
+    'vehicle.tyre_attention': {
+      vehicleId: SAMPLE_ID,
+      vehicleNo: 'MH12AB1234',
+      tyres: [
+        { tyreId: SAMPLE_ID, position: 'FL', km: 48000, action: 'retread', cpk: '₹0.42' },
+        { tyreId: SAMPLE_ID, position: 'R1L', km: 61000, action: 'replacement', cpk: null },
+      ],
+      fleetCpk: '₹0.38',
       runDate: today,
     },
     'vehicle.idle_weekly': {

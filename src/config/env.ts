@@ -196,6 +196,8 @@ export const env = {
   // LS_N_0060 daily morning brief (WhatsApp + email).
   msg91WhatsappTemplateDailyBrief: process.env.MSG91_WHATSAPP_TEMPLATE_DAILY_BRIEF || undefined,
   msg91EmailTemplateDailyBrief: process.env.MSG91_EMAIL_TEMPLATE_DAILY_BRIEF || undefined,
+  // LS_N_0058 tyre needs attention (SMS).
+  msg91SmsTemplateTyreAttention: process.env.MSG91_SMS_TEMPLATE_TYRE_ATTENTION || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

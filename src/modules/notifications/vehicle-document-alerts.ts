@@ -88,7 +88,9 @@ export function createVehicleDocumentAlerts(
     return row?.n ?? 0;
   };
 
-  /** Drivers whose licence is exactly `daysLeft` days from `today` (0 = expires today). */
+  /** Drivers whose licence is exactly `daysLeft` days from `today` (0 = expires today) — one row
+   *  per organisation they belong to (drivers are a global profile; membership is
+   *  driver_tenant_relations, rejected relations excluded). */
   const drivers = (
     today: string,
     daysLeft: number[],
@@ -103,12 +105,12 @@ export function createVehicleDocumentAlerts(
     }[]
   > =>
     dataSource.query(
-      `SELECT id, tenant_id, full_name, license_number, license_expiry::text AS expiry_date,
-              (license_expiry - $1::date) AS days_left
-         FROM masters.drivers
-        WHERE deleted_at IS NULL AND license_expiry IS NOT NULL
-          AND status NOT IN ('inactive', 'rejected')
-          AND (license_expiry - $1::date) = ANY($2)`,
+      `SELECT d.id, r.tenant_id, d.full_name, d.license_number, d.license_expiry::text AS expiry_date,
+              (d.license_expiry - $1::date) AS days_left
+         FROM masters.driver_tenant_relations r
+         JOIN masters.drivers d ON d.id = r.driver_id AND d.deleted_at IS NULL
+        WHERE r.deleted_at IS NULL AND r.status <> 'rejected' AND d.license_expiry IS NOT NULL
+          AND (d.license_expiry - $1::date) = ANY($2)`,
       [today, daysLeft],
     );
 
@@ -142,6 +144,7 @@ export function createVehicleDocumentAlerts(
     const expiring = await drivers(today, DRIVER_LADDER_DAYS);
     for (const driver of expiring) {
       await triggers.enqueue('driver.licence_expiry', driver.tenant_id, {
+        tenantId: driver.tenant_id,
         driverId: driver.id,
         driverName: driver.full_name,
         dlNo: driver.license_number,
@@ -156,6 +159,7 @@ export function createVehicleDocumentAlerts(
       const trips = await driverTrips(driver.tenant_id, driver.id, today);
       const includeOrgAdmins = trips.pickupToday || !(await hasComplianceHolders(driver.tenant_id));
       const context = {
+        tenantId: driver.tenant_id,
         driverId: driver.id,
         driverName: driver.full_name,
         dlNo: driver.license_number,
@@ -293,8 +297,11 @@ export function createVehicleDocumentAlerts(
       context: { driverId: string; runDate: string; stage: string; isReminder?: boolean },
     ) => {
       const [driver] = await dataSource.query(
-        `SELECT 1 FROM masters.drivers WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-            AND license_expiry IS NOT NULL AND license_expiry <= $3::date`,
+        `SELECT 1 FROM masters.drivers d
+           JOIN masters.driver_tenant_relations r ON r.driver_id = d.id AND r.tenant_id = $2
+                AND r.deleted_at IS NULL AND r.status <> 'rejected'
+          WHERE d.id = $1 AND d.deleted_at IS NULL
+            AND d.license_expiry IS NOT NULL AND d.license_expiry <= $3::date`,
         [context.driverId, tenantId, context.runDate],
       );
       if (!driver) return false;
