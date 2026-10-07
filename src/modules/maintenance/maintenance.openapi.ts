@@ -75,7 +75,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.listBreakdowns',
     ...authenticated(
       'Trucks currently off the road (open breakdowns), oldest first, with where/when/towed, ' +
-        'days down and market loads covering each. `whatItNeeds.detail` is the reported problem; ' +
+        'days down and market loads covering each. ' +
+        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle). `whatItNeeds.detail` is the reported problem; ' +
         '`vehicle.truckTypeName` is the Class column. ' +
         COSTS_NOTE +
         ' ' +
@@ -127,7 +128,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.listInWorkshop',
     ...authenticated(
       'Every truck in the workshop right now — service check-ins and breakdowns together, ' +
-        'oldest first, with days in and market loads covering each. `workshopIntake` = ' +
+        'oldest first, with days in and market loads covering each. ' +
+        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle). `workshopIntake` = ' +
         '{ since, days, hours } for "In workshop since … (1d 2h)"; `vehicle.truckTypeName` is ' +
         'the Class column. ' +
         COSTS_NOTE +

@@ -47,6 +47,7 @@ import {
 } from './maintenance.interface';
 import {
   breakdownWhatItNeeds,
+  openVisitOdometer,
   papersWhatItNeeds,
   resolveJobCosts,
   serviceWhatItNeeds,
@@ -423,6 +424,7 @@ export class MaintenanceService {
       const now = new Date();
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
+        ...openVisitOdometer(job),
         workshopIntake: toWorkshopIntake(job, now),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
@@ -594,6 +596,7 @@ export class MaintenanceService {
       const now = new Date();
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
+        ...openVisitOdometer(job),
         whatItNeeds: breakdownWhatItNeeds(job),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));

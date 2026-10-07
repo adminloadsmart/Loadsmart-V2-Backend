@@ -95,6 +95,20 @@ export function whatWasDone(job: MaintenanceJobEntity): { label: string; detail:
   };
 }
 
+/**
+ * Odometer on an open-visit row: the reading entered on this visit, else the truck's last known
+ * odometer (check-in and the workshop toggle rarely carry one). Open visits only — job history
+ * keeps the reading taken at that visit.
+ */
+export function openVisitOdometer(job: MaintenanceJobEntity) {
+  if (job.odometerKm !== null)
+    return { odometerKm: job.odometerKm, odometerSource: 'job' as const };
+  const vehicleKm = job.vehicle?.serviceUsage?.odometerKm ?? null;
+  return vehicleKm !== null
+    ? { odometerKm: vehicleKm, odometerSource: 'vehicle' as const }
+    : { odometerKm: null, odometerSource: null };
+}
+
 /** The "Workshop intake" column on the in-workshop queue — when it went in and for how long. */
 export function toWorkshopIntake(job: MaintenanceJobEntity, now = new Date()) {
   return { since: job.openedAt, ...elapsedDaysHours(job.openedAt, now) };
