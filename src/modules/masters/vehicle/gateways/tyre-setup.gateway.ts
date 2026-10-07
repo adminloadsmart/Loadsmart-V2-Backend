@@ -1,5 +1,5 @@
 import { EntityManager } from 'typeorm';
-import { InitialTyreSetInput, VehicleTyreSummary } from '../vehicle.interface';
+import { InitialTyreSetInput, UpdateTyreSetInput, VehicleTyreSummary } from '../vehicle.interface';
 
 /**
  * What onboarding needs from maintenance to switch on "Tyre life": fit a tyre at every position of
@@ -13,6 +13,16 @@ export interface TyreSetupGateway {
     actorId: string,
     vehicle: { id: string; wheelCount: number | null; odometerKm: number | null },
     input: InitialTyreSetInput,
+    manager: EntityManager,
+  ): Promise<void>;
+
+  /** PATCH vehicle's `tyres` block — re-set or correct the fitted tyres, filling any empty
+   *  position. Runs inside the vehicle update's transaction. */
+  updateTyreSet(
+    tenantId: string,
+    actorId: string,
+    vehicle: { id: string; wheelCount: number | null; odometerKm: number | null },
+    input: UpdateTyreSetInput,
     manager: EntityManager,
   ): Promise<void>;
 

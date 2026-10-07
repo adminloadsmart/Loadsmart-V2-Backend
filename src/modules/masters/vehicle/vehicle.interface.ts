@@ -52,6 +52,8 @@ export interface UpdateVehicleInput {
   status?: VehicleStatus;
   /** Re-links this driver as the vehicle's primary driver — see FleetDriverLinkService.setPrimaryDriver. */
   driverId?: string;
+  /** Re-set or correct the fitted tyres — see TyreService.updateTyreSet. */
+  tyres?: UpdateTyreSetInput;
 }
 
 export interface ListVehiclesInput extends PaginationInput {
@@ -401,6 +403,20 @@ export interface VehicleTyreSummary {
 
 /** A vehicle row/detail with its fitted tyres attached. */
 export type VehicleWithTyres = VehicleEntity & { tyres: VehicleTyreSummary[] };
+
+/** A later fix to one position — any of depth, fitted date, brand. */
+export interface TyrePositionUpdateInput {
+  position: string;
+  treadMm?: number;
+  fittedAt?: string;
+  brand?: string;
+}
+
+/** PATCH vehicle's `tyres`: an optional whole-set preset, then per-position fixes. */
+export interface UpdateTyreSetInput {
+  preset?: TyreConditionPreset;
+  positions?: TyrePositionUpdateInput[];
+}
 
 /** "Tyre life": every position starts at the preset's depth, then `positions` override some. */
 export interface InitialTyreSetInput {

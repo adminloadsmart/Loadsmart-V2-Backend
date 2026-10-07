@@ -273,6 +273,27 @@ export const maintenanceValidators = {
       .strict(),
   }),
 
+  // The Add Truck drawer's "Save position": correct one fitted tyre. A depth is appended as a new
+  // reading; brand / serial / size / fitted date edit the tyre itself.
+  updateTyre: z.object({
+    params: z.object({ tyreId: uuid }),
+    body: z
+      .object({
+        treadMm: z.number().min(0).max(40).optional(),
+        readingDate: isoDate.optional(),
+        fittedAt: isoDate.optional(),
+        brand: optionalText(100),
+        serialNumber: optionalText(50),
+        sizeCode: optionalText(50),
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required')
+      .refine((data) => data.readingDate === undefined || data.treadMm !== undefined, {
+        path: ['readingDate'],
+        message: 'readingDate needs a treadMm',
+      }),
+  }),
+
   removeTyre: z.object({
     params: z.object({ tyreId: uuid }),
     body: z
