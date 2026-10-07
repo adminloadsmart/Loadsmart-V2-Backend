@@ -27,7 +27,9 @@ export function serviceWhatItNeeds(due: ServiceDueResult) {
   let detail: string;
   if (due.trigger === 'no_record') detail = 'no service record';
   else if (due.overdueKm) detail = pastInterval(due.overdueKm, 'km');
-  else detail = pastInterval(due.overdueDays ?? 0, 'days');
+  else if (due.baseline === 'onboarded') {
+    detail = `no service logged since added — ${pastInterval(due.overdueDays ?? 0, 'days')}`;
+  } else detail = pastInterval(due.overdueDays ?? 0, 'days');
 
   return { need: 'service' as const, detail };
 }
@@ -84,9 +86,36 @@ export function whatWasDone(job: MaintenanceJobEntity): { label: string; detail:
       detail: job.description,
     };
   }
+  if (!job.serviceType && job.status === 'closed') {
+    return { label: 'Workshop visit — released', detail: job.description };
+  }
   return {
     label: job.serviceType ? SERVICE_TYPE_LABELS[job.serviceType] : 'Service',
     detail: job.description,
+  };
+}
+
+/**
+ * Odometer on an open-visit row: the reading entered on this visit, else the truck's last known
+ * odometer (check-in and the workshop toggle rarely carry one). Open visits only — job history
+ * keeps the reading taken at that visit.
+ */
+export function openVisitOdometer(job: MaintenanceJobEntity) {
+  if (job.odometerKm !== null)
+    return { odometerKm: job.odometerKm, odometerSource: 'job' as const };
+  const vehicleKm = job.vehicle?.serviceUsage?.odometerKm ?? null;
+  return vehicleKm !== null
+    ? { odometerKm: vehicleKm, odometerSource: 'vehicle' as const }
+    : { odometerKm: null, odometerSource: null };
+}
+
+/** The truck's last periodic service (preventive service / oil change) on an open-visit row —
+ *  from its service record, so null until one is entered or logged. */
+export function lastServiceOf(job: MaintenanceJobEntity) {
+  const usage = job.vehicle?.serviceUsage;
+  return {
+    date: usage?.lastServiceDate ?? null,
+    odometerKm: usage?.lastServiceOdometerKm ?? null,
   };
 }
 

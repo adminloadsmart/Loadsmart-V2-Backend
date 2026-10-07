@@ -48,7 +48,11 @@ export interface LogServiceInput extends JobCostInput {
   /** The Garage field. */
   workshopName?: string;
   description?: string;
-  /** YYYY-MM-DD, not in the future; defaults to today (IST). */
+  /** When the work started, YYYY-MM-DD — on or before serviceDate. Ignored when the truck is
+   *  already in the workshop (the visit started when it went in). */
+  startDate?: string;
+  /** When it finished (the end date), YYYY-MM-DD, not in the future; defaults to today (IST).
+   *  Becomes the last service date for a preventive service / oil change. */
   serviceDate?: string;
 }
 
@@ -153,6 +157,16 @@ export interface RecordTyreReadingInput {
   treadMm: number;
   readingDate?: string;
   odometerKm?: number;
+}
+
+/** One fitted tyre's corrections. A depth is appended as a new reading; the rest edit the tyre. */
+export interface UpdateTyreInput {
+  treadMm?: number;
+  readingDate?: string;
+  fittedAt?: string;
+  brand?: string;
+  serialNumber?: string;
+  sizeCode?: string;
 }
 
 export interface RemoveTyreInput {

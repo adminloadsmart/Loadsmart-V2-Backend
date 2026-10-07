@@ -13,10 +13,11 @@ import {
 
 const uuid = z.string().uuid();
 const isoDateTime = z.iso.datetime();
-const money = z.number().nonnegative().max(9999999999);
-const odometerKm = z.number().int().nonnegative().max(9999999);
+const money = z.number().nonnegative();
+const odometerKm = z.number().int().nonnegative();
 const optionalText = (max: number) => z.string().trim().min(1).max(max).optional();
-/** A wheel position code as the modal sends it (FL, R1LO, R2RI, …) — fits tyres.position. */
+/** A wheel position code (FL, FR, R1L, R1R, …) — must be on the truck's layout, as returned by
+ *  GET /vehicles/:vehicleId/tyres; checked in the service against the truck's wheel count. */
 const positionCode = z
   .string()
   .trim()
@@ -101,6 +102,8 @@ export const maintenanceValidators = {
         odometerKm,
         workshopName: optionalText(150),
         description: optionalText(2000),
+        /** When the work started — with serviceDate as the end, the job spans the two. */
+        startDate: isoDate.optional(),
         serviceDate: isoDate.optional(),
         ...costFields,
       })
@@ -270,6 +273,27 @@ export const maintenanceValidators = {
         odometerKm: odometerKm.optional(),
       })
       .strict(),
+  }),
+
+  // The Add Truck drawer's "Save position": correct one fitted tyre. A depth is appended as a new
+  // reading; brand / serial / size / fitted date edit the tyre itself.
+  updateTyre: z.object({
+    params: z.object({ tyreId: uuid }),
+    body: z
+      .object({
+        treadMm: z.number().min(0).max(40).optional(),
+        readingDate: isoDate.optional(),
+        fittedAt: isoDate.optional(),
+        brand: optionalText(100),
+        serialNumber: optionalText(50),
+        sizeCode: optionalText(50),
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, 'At least one field is required')
+      .refine((data) => data.readingDate === undefined || data.treadMm !== undefined, {
+        path: ['readingDate'],
+        message: 'readingDate needs a treadMm',
+      }),
   }),
 
   removeTyre: z.object({

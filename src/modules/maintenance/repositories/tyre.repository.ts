@@ -20,7 +20,16 @@ export type CreateTyreData = Omit<
 export type UpdateTyreData = Partial<
   Pick<
     TyreEntity,
-    'status' | 'removedAt' | 'removedOdometerKm' | 'removedReason' | 'casingCondition' | 'updatedBy'
+    | 'status'
+    | 'removedAt'
+    | 'removedOdometerKm'
+    | 'removedReason'
+    | 'casingCondition'
+    | 'brand'
+    | 'fittedAt'
+    | 'serialNumber'
+    | 'sizeCode'
+    | 'updatedBy'
   >
 >;
 export type CreateTyreReadingData = Omit<
@@ -74,8 +83,13 @@ export class TyreRepository {
   }
 
   /** Every tyre fitted to one truck right now — the axle diagram. */
-  listFittedForVehicle(tenantId: string, vehicleId: string): Promise<TyreEntity[]> {
-    return this.tyres.find({
+  listFittedForVehicle(
+    tenantId: string,
+    vehicleId: string,
+    manager?: EntityManager,
+  ): Promise<TyreEntity[]> {
+    const repo = manager?.getRepository(TyreEntity) ?? this.tyres;
+    return repo.find({
       where: { tenantId, vehicleId, status: 'fitted' },
       order: { position: 'ASC' },
     });
@@ -89,6 +103,33 @@ export class TyreRepository {
       relations: { vehicle: { serviceUsage: true } },
       order: { position: 'ASC' },
     });
+  }
+
+  /**
+   * A truck's first odometer reading becomes the start point for the tyres fitted before it had
+   * one (onboarding stores those at 0 km with readings at no km) — without this, every km on the
+   * clock would count as worn since fitment. Returns how many tyres were rebased.
+   */
+  async rebaseUnmeteredTyres(
+    tenantId: string,
+    vehicleId: string,
+    odometerKm: number,
+    manager: EntityManager,
+  ): Promise<number> {
+    const tyres = await manager.getRepository(TyreEntity).find({
+      select: { id: true },
+      where: { tenantId, vehicleId, status: 'fitted', fittedOdometerKm: 0 },
+    });
+    if (tyres.length === 0) return 0;
+
+    const tyreIds = tyres.map((tyre) => tyre.id);
+    await manager
+      .getRepository(TyreEntity)
+      .update({ tenantId, id: In(tyreIds) }, { fittedOdometerKm: odometerKm });
+    await manager
+      .getRepository(TyreReadingEntity)
+      .update({ tenantId, tyreId: In(tyreIds), odometerKm: IsNull() }, { odometerKm });
+    return tyreIds.length;
   }
 
   createReading(data: CreateTyreReadingData, manager?: EntityManager): Promise<TyreReadingEntity> {
@@ -113,6 +154,20 @@ export class TyreRepository {
   }
 
   /** Latest gauge reading per tyre (DISTINCT ON), keyed by tyre id. */
+  /** The first reading on record for a tyre — a corrected fitted date can't be later than this. */
+  async earliestReadingDate(
+    tenantId: string,
+    tyreId: string,
+    manager?: EntityManager,
+  ): Promise<string | null> {
+    const repo = manager?.getRepository(TyreReadingEntity) ?? this.readings;
+    const first = await repo.findOne({
+      where: { tenantId, tyreId },
+      order: { readingDate: 'ASC' },
+    });
+    return first?.readingDate ?? null;
+  }
+
   async latestReadings(
     tenantId: string,
     tyreIds: string[],

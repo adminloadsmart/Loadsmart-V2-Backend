@@ -5,7 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { TyreEntity } from './entities/tyre.entity';
 import { TyreRepository } from './repositories/tyre.repository';
 import { MaintenanceJobRepository } from './repositories/maintenance-job.repository';
-import { tyrePositions } from './calculations/tyre-layout';
+import { assertLayoutPositions, tyrePositions } from './calculations/tyre-layout';
 import { TyreReadingEntity } from './entities/tyre-reading.entity';
 import { computeTyreWear } from './calculations/tyre-wear';
 import {
@@ -21,11 +21,16 @@ import {
   RecordTyreReadingInput,
   RecordTyreWorkInput,
   RemoveTyreInput,
+  UpdateTyreInput,
 } from './maintenance.interface';
 import { blankJob, MaintenanceService } from './maintenance.service';
 import { toJobView, toVehicleSummary } from './maintenance.views';
 import { isUniqueViolation } from './utils/unique-violation';
-import { InitialTyreSetInput, VehicleTyreSummary } from '../masters/vehicle/vehicle.interface';
+import {
+  InitialTyreSetInput,
+  UpdateTyreSetInput,
+  VehicleTyreSummary,
+} from '../masters/vehicle/vehicle.interface';
 import { TYRE_CONDITION_PRESETS } from '../masters/vehicle/vehicle.type';
 
 function toTyreView(tyre: TyreEntity) {
@@ -146,6 +151,7 @@ export class TyreService {
             tyre: {
               ...toTyreView(tyre),
               lastReadingDate: reading?.readingDate ?? null,
+              treadEstimated: reading ? reading.isEstimated : true,
               ...wearOf(tyre, reading, odometerKm, today),
             },
           };
@@ -186,7 +192,9 @@ export class TyreService {
           casingCondition: tyre.casingCondition,
           originalTreadMm: Number(tyre.originalTreadMm),
           currentTreadMm: wear.currentTreadMm,
-          treadEstimated: wear.estimated,
+          // The reading's own flag (a whole-set preset, not a gauge) — wear.estimated only says
+          // whether the wear *rate* had to be assumed. No reading at all is an estimate too.
+          treadEstimated: reading ? reading.isEstimated : true,
           usableTreadLeftPct: wear.usableTreadLeftPct,
           nearLimit: wear.nearLimit,
           atLegalLimit: wear.atLegalLimit,
@@ -226,12 +234,12 @@ export class TyreService {
       await this.maintenanceService.assertInvoice(tenantId, actor, input);
       const at = this.maintenanceService.resolveDate(input.invoiceDate, 'invoiceDate');
 
-      // The modal draws the axles itself (single/dual, inner/outer), so the codes it sends are
-      // stored as selected — not checked against tyrePositions()'s default layout.
+      // Same codes as the Add Truck tyre set, so the work replaces the tyres fitted there.
       const positions = input.positions.map((position) => position.trim().toUpperCase());
       if (new Set(positions).size !== positions.length) {
         throw new ValidationError('Each position can be selected only once');
       }
+      assertLayoutPositions(vehicle.wheelCount, positions);
 
       const job = await this.dataSource.transaction(async (manager) => {
         const created = await this.jobRepository.create(
@@ -385,6 +393,7 @@ export class TyreService {
       }
 
       const position = input.position.trim().toUpperCase();
+      assertLayoutPositions(vehicle.wheelCount, [position]);
       const occupied = await this.tyreRepository.findFittedAt(tenantId, vehicle.id, position);
       if (occupied) {
         throw new ConflictError(
@@ -493,56 +502,25 @@ export class TyreService {
         (input.positions ?? []).map((override) => [override.position.toUpperCase(), override]),
       );
 
-      const unknown = [...overrides.keys()].filter((position) => !positions.includes(position));
-      if (unknown.length > 0) {
-        throw new ValidationError(
-          `Not a position on this truck: ${unknown.join(', ')} (expected ${positions.join(', ')})`,
-        );
-      }
+      assertLayoutPositions(vehicle.wheelCount, [...overrides.keys()]);
 
       const today = toIstDateString(new Date());
       const presetMm = TYRE_CONDITION_PRESETS[input.preset];
 
       for (const position of positions) {
         const override = overrides.get(position);
-        const treadMm = override?.treadMm ?? presetMm;
-        const fittedAt = override?.fittedAt ?? today;
-        if (fittedAt > today) {
-          throw new ValidationError(`Position ${position}: fittedAt cannot be in the future`);
-        }
-
-        const tyre = await this.tyreRepository.create(
+        await this.fitPosition(
+          tenantId,
+          actorId,
+          vehicle,
+          position,
           {
-            tenantId,
-            vehicleId: vehicle.id,
-            position,
-            serialNumber: null,
-            brand: override?.brand ?? null,
-            sizeCode: null,
-            maintenanceJobId: null,
-            // We don't know what these went on at — assume a new tyre, or the measured depth if
-            // somebody's reading is deeper than that.
-            originalTreadMm: String(Math.max(DEFAULT_NEW_TYRE_TREAD_MM, treadMm)),
-            fittedAt,
-            fittedOdometerKm: vehicle.odometerKm ?? 0,
-            retreadCount: 0,
-            maxRetreads: DEFAULT_MAX_RETREADS,
-            casingCondition: 'ok',
-            createdBy: actorId,
-          },
-          manager,
-        );
-
-        await this.tyreRepository.createReading(
-          {
-            tenantId,
-            tyreId: tyre.id,
-            treadMm: String(treadMm),
-            readingDate: today,
-            odometerKm: vehicle.odometerKm,
+            treadMm: override?.treadMm ?? presetMm,
             isEstimated: !override,
-            createdBy: actorId,
+            fittedAt: override?.fittedAt,
+            brand: override?.brand,
           },
+          today,
           manager,
         );
       }
@@ -552,6 +530,254 @@ export class TyreService {
       }
       rethrow(error, 'Failed to fit the initial tyre set');
     }
+  }
+
+  /**
+   * PATCH /masters/vehicles/:id's `tyres` block — "fix any one later", or re-set the whole set.
+   * A preset touches every layout position; `positions` override it for their own. A fitted tyre
+   * gets its brand / fitted date edited and, when a depth is given, a new reading (history is
+   * kept); an empty position — a truck added without tyres — gets a tyre fitted, as onboarding
+   * would. Runs in the vehicle update's transaction, through masters' TyreSetupGateway.
+   */
+  async updateTyreSet(
+    tenantId: string,
+    actorId: string,
+    vehicle: { id: string; wheelCount: number | null; odometerKm: number | null },
+    input: UpdateTyreSetInput,
+    manager: EntityManager,
+  ): Promise<void> {
+    try {
+      const overrides = new Map(
+        (input.positions ?? []).map((override) => [override.position.toUpperCase(), override]),
+      );
+      assertLayoutPositions(vehicle.wheelCount, [...overrides.keys()]);
+
+      const fitted = await this.tyreRepository.listFittedForVehicle(tenantId, vehicle.id, manager);
+      const byPosition = new Map(fitted.map((tyre) => [tyre.position, tyre]));
+      const targets = input.preset ? tyrePositions(vehicle.wheelCount) : [...overrides.keys()];
+      const presetMm = input.preset ? TYRE_CONDITION_PRESETS[input.preset] : undefined;
+      const today = toIstDateString(new Date());
+
+      for (const position of targets) {
+        const override = overrides.get(position);
+        const treadMm = override?.treadMm ?? presetMm;
+        const isEstimated = override?.treadMm === undefined;
+        const tyre = byPosition.get(position);
+
+        if (tyre) {
+          // A preset is a rough guess — cap it at what this tyre (e.g. a retread) started with,
+          // rather than refusing; a measured depth deeper than that is still an error.
+          const estimate =
+            isEstimated && treadMm !== undefined
+              ? Math.min(treadMm, Number(tyre.originalTreadMm))
+              : treadMm;
+          await this.applyTyreUpdate(
+            tenantId,
+            actorId,
+            tyre,
+            {
+              treadMm: estimate,
+              isEstimated,
+              fittedAt: override?.fittedAt,
+              brand: override?.brand,
+            },
+            vehicle.odometerKm,
+            today,
+            manager,
+          );
+          continue;
+        }
+
+        if (treadMm === undefined) {
+          throw new ValidationError(
+            `Position ${position} has no tyre yet — send its treadMm, or a preset, to fit one`,
+          );
+        }
+        await this.fitPosition(
+          tenantId,
+          actorId,
+          vehicle,
+          position,
+          { treadMm, isEstimated, fittedAt: override?.fittedAt, brand: override?.brand },
+          today,
+          manager,
+        );
+      }
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictError('A tyre was fitted at that position meanwhile — try again');
+      }
+      rethrow(error, 'Failed to update the tyre set');
+    }
+  }
+
+  /** PATCH /maintenance/tyres/:tyreId — the drawer's "Save position" for one fitted tyre. */
+  async updateTyre(tenantId: string, actorId: string, tyreId: string, input: UpdateTyreInput) {
+    try {
+      const tyre = await this.assertFittedTyre(tenantId, tyreId);
+      const today = toIstDateString(new Date());
+
+      await this.dataSource.transaction((manager) =>
+        this.applyTyreUpdate(
+          tenantId,
+          actorId,
+          tyre,
+          { ...input, isEstimated: false },
+          null,
+          today,
+          manager,
+        ),
+      );
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'TYRE_UPDATED',
+        resourceType: 'tyre',
+        newData: { id: tyreId, ...input },
+      });
+
+      const updated = await this.tyreRepository.findById(tenantId, tyreId);
+      return toTyreView(updated!);
+    } catch (error) {
+      rethrow(error, 'Failed to update tyre');
+    }
+  }
+
+  /** One new tyre at an empty position, with its first reading. Shared by the onboarding set and
+   *  a later PATCH that fills positions a truck was added without. */
+  private async fitPosition(
+    tenantId: string,
+    actorId: string,
+    vehicle: { id: string; odometerKm: number | null },
+    position: string,
+    fit: { treadMm: number; isEstimated: boolean; fittedAt?: string; brand?: string },
+    today: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    const fittedAt = fit.fittedAt ?? today;
+    if (fittedAt > today) {
+      throw new ValidationError(`Position ${position}: fittedAt cannot be in the future`);
+    }
+
+    const tyre = await this.tyreRepository.create(
+      {
+        tenantId,
+        vehicleId: vehicle.id,
+        position,
+        serialNumber: null,
+        brand: fit.brand ?? null,
+        sizeCode: null,
+        maintenanceJobId: null,
+        // We don't know what these went on at — assume a new tyre, or the measured depth if
+        // somebody's reading is deeper than that.
+        originalTreadMm: String(Math.max(DEFAULT_NEW_TYRE_TREAD_MM, fit.treadMm)),
+        fittedAt,
+        fittedOdometerKm: vehicle.odometerKm ?? 0,
+        retreadCount: 0,
+        maxRetreads: DEFAULT_MAX_RETREADS,
+        casingCondition: 'ok',
+        createdBy: actorId,
+      },
+      manager,
+    );
+
+    await this.tyreRepository.createReading(
+      {
+        tenantId,
+        tyreId: tyre.id,
+        treadMm: String(fit.treadMm),
+        readingDate: today,
+        odometerKm: vehicle.odometerKm,
+        isEstimated: fit.isEstimated,
+        createdBy: actorId,
+      },
+      manager,
+    );
+  }
+
+  /**
+   * Corrects one fitted tyre: brand / serial / size / fitted date are edited on the row, a depth
+   * is appended as a new reading (never overwritten, so the wear history stays). Same tread and
+   * date rules as recordReading, and a fitted date can't move past the tyre's first reading.
+   */
+  private async applyTyreUpdate(
+    tenantId: string,
+    actorId: string,
+    tyre: TyreEntity,
+    update: {
+      treadMm?: number;
+      isEstimated: boolean;
+      readingDate?: string;
+      fittedAt?: string;
+      brand?: string;
+      serialNumber?: string;
+      sizeCode?: string;
+    },
+    odometerKm: number | null,
+    today: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    const label = `Position ${tyre.position}`;
+
+    if (update.fittedAt !== undefined) {
+      if (update.fittedAt > today) {
+        throw new ValidationError(`${label}: fittedAt cannot be in the future`);
+      }
+      const firstReading = await this.tyreRepository.earliestReadingDate(
+        tenantId,
+        tyre.id,
+        manager,
+      );
+      if (firstReading && update.fittedAt > firstReading) {
+        throw new ValidationError(
+          `${label}: fittedAt cannot be after its first reading (${firstReading})`,
+        );
+      }
+    }
+
+    const rowChanges = {
+      ...(update.brand !== undefined && { brand: update.brand }),
+      ...(update.fittedAt !== undefined && { fittedAt: update.fittedAt }),
+      ...(update.serialNumber !== undefined && { serialNumber: update.serialNumber }),
+      ...(update.sizeCode !== undefined && { sizeCode: update.sizeCode }),
+    };
+    if (Object.keys(rowChanges).length > 0) {
+      await this.tyreRepository.update(
+        tenantId,
+        tyre.id,
+        { ...rowChanges, updatedBy: actorId },
+        manager,
+      );
+    }
+
+    if (update.treadMm === undefined) return;
+
+    if (update.treadMm > Number(tyre.originalTreadMm)) {
+      throw new ValidationError(
+        `${label}: treadMm cannot exceed the tyre’s original tread (${Number(tyre.originalTreadMm)}mm) — a deeper tyre is a new fitment`,
+      );
+    }
+    const readingDate = update.readingDate ?? today;
+    if (readingDate > today) {
+      throw new ValidationError(`${label}: readingDate cannot be in the future`);
+    }
+    if (readingDate < (update.fittedAt ?? tyre.fittedAt)) {
+      throw new ValidationError(`${label}: readingDate cannot be before the tyre was fitted`);
+    }
+
+    await this.tyreRepository.createReading(
+      {
+        tenantId,
+        tyreId: tyre.id,
+        treadMm: String(update.treadMm),
+        readingDate,
+        odometerKm,
+        isEstimated: update.isEstimated,
+        createdBy: actorId,
+      },
+      manager,
+    );
   }
 
   /** Takes a tyre off its position — for retread, rotation or damage (`removed`) or scrap. */

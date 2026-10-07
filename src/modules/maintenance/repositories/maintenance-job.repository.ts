@@ -91,7 +91,7 @@ export class MaintenanceJobRepository {
         status: 'open',
         vehicle: { ...ownFleet, deletedAt: IsNull() },
       },
-      relations: { vehicle: { telemetryMeta: true, truckType: true } },
+      relations: { vehicle: { telemetryMeta: true, truckType: true, serviceUsage: true } },
       order: { openedAt: 'ASC' },
     });
   }

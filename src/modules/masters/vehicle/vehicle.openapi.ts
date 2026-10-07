@@ -73,16 +73,21 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     ...write(
       'Update one or more fields on a vehicle. Passing driverId re-links that driver as the ' +
         "vehicle's primary driver in the same request, ending whichever link previously held " +
-        'that slot.',
+        'that slot. `tyres` re-sets or corrects the fitted tyres in the same transaction: a ' +
+        '`preset` applies to every position, `positions` fix single ones (treadMm, fittedAt, ' +
+        'brand). A depth is appended as a new reading (estimated when it came from the preset); ' +
+        'an empty position gets a tyre fitted. Not allowed on an attached truck. The response ' +
+        'includes the fitted `tyres`.',
     ),
     request: {
       params: vehicleValidators.updateVehicle.shape.params,
       body: json(vehicleValidators.updateVehicle.shape.body),
     },
     responses: {
-      200: { description: 'Updated vehicle' },
+      200: { description: 'Updated vehicle, with its fitted tyres' },
       400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Vehicle not found', ...errorContent },
+      409: { description: 'Conflicting tyre change', ...errorContent },
     },
   });
 

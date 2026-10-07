@@ -38,6 +38,7 @@ export function createMaintenanceModule(
     storageGateway,
     auditService,
     notificationsGateway,
+    tyreRepository,
   );
   const tyreService = new TyreService(
     dataSource,
