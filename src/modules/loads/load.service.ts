@@ -1,10 +1,17 @@
-import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import {
+  AuthenticationError,
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+  rethrow,
+} from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
+import { msg } from '../../shared/i18n/translate';
 import { paginate, Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
@@ -85,6 +92,10 @@ export interface LoadDetailView {
   stepper: TripStepperStep[];
   nextAction: TripNextAction;
 }
+
+// TEMPORARY: the receiver code is a fixed value until a real SMS template/provider is wired in —
+// no SMS is sent. Replace sendPodReceiverCode's no-op and the check in uploadPod together.
+const POD_RECEIVER_STATIC_OTP = '1234';
 
 export class LoadService {
   constructor(
@@ -603,6 +614,43 @@ export class LoadService {
     }
   }
 
+  /** Step 1 of the driver-app delivery flow: sends a 4-digit code to the receiver's phone.
+   *  Ownership-checked like uploadPod; the code is verified there, at final submission. */
+  async sendPodReceiverCode(
+    tenantId: string,
+    loadId: string,
+    mobile: string,
+    driverOwnerId: string,
+  ): Promise<void> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      if (!this.canRecordPod(load)) {
+        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+      }
+      // Static code for now — nothing to send; see POD_RECEIVER_STATIC_OTP.
+    } catch (error) {
+      rethrow(error, 'Failed to send receiver code');
+    }
+  }
+
+  private canRecordPod(load: LoadEntity): boolean {
+    const validPriorStatuses = [
+      'loading_confirmed',
+      'at_plant',
+      'in_transit',
+      'reached_delivery_point',
+    ];
+    // A rejected E-POD can be resubmitted from 'delivered' — the truck already arrived, only
+    // the paperwork is being redone. See LoadEntity's podStatus doc comment.
+    return (
+      validPriorStatuses.includes(load.status) ||
+      (load.status === 'delivered' && load.podStatus === 'rejected')
+    );
+  }
+
   /** The delivery receipt — photo, receiver name/mobile, and quantity received are required;
    *  receiver designation and sealStatus are optional (kept for staff-side/older callers, but the
    *  driver-app ePOD screen doesn't collect either). Marks the load Delivered; own-fleet loads
@@ -631,18 +679,47 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const validPriorStatuses = [
-        'loading_confirmed',
-        'at_plant',
-        'in_transit',
-        'reached_delivery_point',
-      ];
-      // A rejected E-POD can be resubmitted from 'delivered' — the truck already arrived, only
-      // the paperwork is being redone, so this is the one case 'delivered' is itself a valid
-      // prior status. See LoadEntity's podStatus doc comment.
       const isResubmission = load.status === 'delivered' && load.podStatus === 'rejected';
-      if (!validPriorStatuses.includes(load.status) && !isResubmission) {
+      if (!this.canRecordPod(load)) {
         throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+      }
+
+      // Driver-only receiver verification: a receiver mobile means the 4-digit code is required;
+      // no mobile means the receiver has no phone and the POD photo alone is the proof. A
+      // resubmission with the same, already-verified mobile doesn't need a fresh code.
+      let podReceiverVerifiedAt: Date | null = null;
+      if (driverOwnerId && input.podReceiverMobile) {
+        const alreadyVerified =
+          isResubmission &&
+          load.podReceiverVerifiedAt &&
+          load.podReceiverMobile === input.podReceiverMobile;
+        if (alreadyVerified) {
+          podReceiverVerifiedAt = load.podReceiverVerifiedAt;
+        } else {
+          if (!input.podReceiverCode) {
+            throw new ValidationError('podReceiverCode is required when podReceiverMobile is sent');
+          }
+          if (input.podReceiverCode !== POD_RECEIVER_STATIC_OTP) {
+            throw new AuthenticationError(msg('errors.otp.invalid'));
+          }
+          podReceiverVerifiedAt = new Date();
+        }
+      }
+
+      // Driver-submitted shortage is worked out here, not trusted from the client: planned minus
+      // unloaded, never negative.
+      let numberOfTonnesShort = input.numberOfTonnesShort;
+      let shortageOrDamage = input.shortageOrDamage;
+      if (driverOwnerId) {
+        const short = Math.max(
+          0,
+          Math.round((Number(load.plannedCapacityTonnes) - input.podQuantityReceived) * 100) / 100,
+        );
+        numberOfTonnesShort = short;
+        if (short > 0) {
+          if (!shortageOrDamage || shortageOrDamage === 'none') shortageOrDamage = 'shortage';
+          else if (shortageOrDamage === 'damage') shortageOrDamage = 'both';
+        }
       }
 
       await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
@@ -657,13 +734,13 @@ export class LoadService {
         ...(isResubmission ? {} : { deliveredAt: new Date() }),
         podFileKey: input.podFileKey,
         podReceiverName: input.podReceiverName,
-        podReceiverMobile: input.podReceiverMobile,
+        podReceiverMobile: input.podReceiverMobile ?? null,
+        podReceiverVerifiedAt,
         podReceiverDesignation: input.podReceiverDesignation ?? null,
         podQuantityReceived: String(input.podQuantityReceived),
         sealStatus: input.sealStatus ?? null,
-        shortageOrDamage: input.shortageOrDamage ?? null,
-        numberOfTonnesShort:
-          input.numberOfTonnesShort === undefined ? null : String(input.numberOfTonnesShort),
+        shortageOrDamage: shortageOrDamage ?? null,
+        numberOfTonnesShort: numberOfTonnesShort === undefined ? null : String(numberOfTonnesShort),
         damagePhotoKey: input.damagePhotoKey ?? null,
         podRemarks: input.podRemarks ?? null,
         // Every upload (first or resubmission) restarts staff review from scratch.
@@ -683,7 +760,8 @@ export class LoadService {
         {
           pod: true,
           sealStatus: input.sealStatus,
-          shortageOrDamage: input.shortageOrDamage,
+          shortageOrDamage,
+          receiverVerified: Boolean(podReceiverVerifiedAt),
         },
       );
       await this.loadActivityService.record(
@@ -705,14 +783,15 @@ export class LoadService {
               id: loadId,
               status: 'delivered',
               sealStatus: input.sealStatus,
-              shortageOrDamage: input.shortageOrDamage,
+              shortageOrDamage,
+              receiverVerified: Boolean(podReceiverVerifiedAt),
               driverId: actorId,
             }
           : {
               id: loadId,
               status: 'delivered',
               sealStatus: input.sealStatus,
-              shortageOrDamage: input.shortageOrDamage,
+              shortageOrDamage,
             },
       });
 

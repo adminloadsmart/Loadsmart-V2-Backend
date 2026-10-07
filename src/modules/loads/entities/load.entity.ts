@@ -239,6 +239,11 @@ export class LoadEntity {
   @Column({ name: 'pod_receiver_mobile', type: 'varchar', length: 10, nullable: true })
   podReceiverMobile!: string | null;
 
+  /** When the receiver's 4-digit code was verified at E-POD submission. Null when the receiver
+   *  had no phone (the POD photo alone is the proof) or the POD was recorded by staff. */
+  @Column({ name: 'pod_receiver_verified_at', type: 'timestamptz', nullable: true })
+  podReceiverVerifiedAt!: Date | null;
+
   @Column({ name: 'pod_receiver_designation', type: 'varchar', length: 150, nullable: true })
   podReceiverDesignation!: string | null;
 

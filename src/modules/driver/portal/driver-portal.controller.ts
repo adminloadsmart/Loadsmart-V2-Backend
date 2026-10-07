@@ -214,6 +214,17 @@ export class DriverPortalController {
     respond(res, load);
   };
 
+  // Step 1 of the delivery flow — texts the receiver a 4-digit code; verified at uploadMyPod.
+  sendMyPodReceiverCode = async (req: Request<LoadParams>, res: Response) => {
+    await this.loadService.sendPodReceiverCode(
+      req.driver!.tenantId!,
+      req.params.loadId,
+      req.body.mobile,
+      req.driver!.id,
+    );
+    respond(res, { sent: true });
+  };
+
   // Driver-app "Report An Issue" — a problem flagged on a load this driver is carrying (see
   // load.service.ts's reportIssue for the ownership-check/audit-FK reasoning, identical to
   // updateMyLoadStatus/uploadMyPod above). actorRole is a literal, same reasoning as uploadMyPod.

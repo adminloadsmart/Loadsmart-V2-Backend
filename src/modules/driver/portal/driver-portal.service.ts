@@ -18,9 +18,50 @@ import { OrganizationService } from '../../organization/organization.service';
 import {
   DriverProfileView,
   DriverHomeView,
+  DriverHomeCurrentTrip,
+  DriverHomeNextTrip,
   DriverNotificationCategory,
   NOTIFICATION_TYPE_PREFIXES,
 } from './driver-portal.types';
+
+function toHomeCurrentTrip(
+  job: TripListRow,
+  organizationName: string | null,
+): DriverHomeCurrentTrip {
+  const destination = job.route
+    ? { location: job.route.deliveryPointLocation, city: job.route.deliveryPointCity }
+    : null;
+  return {
+    id: job.id,
+    code: job.code,
+    status: job.status,
+    organizationName,
+    origin: job.route
+      ? { title: job.route.loadingPointTitle, city: job.route.loadingPointCity }
+      : null,
+    destination,
+    distanceLeftKm: null,
+    etaAt: null,
+    directionsQuery: destination
+      ? [destination.location, destination.city].filter(Boolean).join(', ')
+      : null,
+  };
+}
+
+function toHomeNextTrip(job: TripListRow, organizationName: string | null): DriverHomeNextTrip {
+  return {
+    id: job.id,
+    code: job.code,
+    organizationName,
+    origin: job.route
+      ? { title: job.route.loadingPointTitle, city: job.route.loadingPointCity }
+      : null,
+    destination: job.route
+      ? { location: job.route.deliveryPointLocation, city: job.route.deliveryPointCity }
+      : null,
+    pickupDate: job.pickupDate,
+  };
+}
 
 /**
  * The service layer behind driver-portal.controller.ts — every "tenant or not" branch and every
@@ -250,6 +291,9 @@ export class DriverPortalService {
         stats: { tripsDone: 0, onTimePercentage: null, openTrips: 0 },
         currentJob: null,
         upcomingJobs: [],
+        currentTrip: null,
+        nextTrip: null,
+        money: { cashHeld: null, organizationName: null },
         unreadNotificationCount,
       };
     }
@@ -276,6 +320,13 @@ export class DriverPortalService {
       },
       currentJob: activeJobs.items[0] ?? null,
       upcomingJobs: upcomingJobs.items,
+      currentTrip: activeJobs.items[0]
+        ? toHomeCurrentTrip(activeJobs.items[0], profile.organizationName)
+        : null,
+      nextTrip: upcomingJobs.items[0]
+        ? toHomeNextTrip(upcomingJobs.items[0], profile.organizationName)
+        : null,
+      money: { cashHeld: null, organizationName: profile.organizationName },
       unreadNotificationCount,
     };
   }

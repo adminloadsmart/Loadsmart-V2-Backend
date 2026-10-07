@@ -3,6 +3,7 @@ import { paginationQuery as pagination } from '../../../shared/validators/pagina
 import {
   confirmLoadingBody,
   dateOnly,
+  sendPodReceiverCodeBody,
   updateStatusBody,
   uploadPodBody,
 } from '../../loads/load.validators';
@@ -90,6 +91,7 @@ export const driverPortalValidators = {
   // actually be assigned to req.driver!.id) is enforced in LoadService, not here.
   updateMyLoadStatus: z.object({ params: loadParams, body: updateStatusBody }),
   uploadMyPod: z.object({ params: loadParams, body: uploadPodBody }),
+  sendMyPodReceiverCode: z.object({ params: loadParams, body: sendPodReceiverCodeBody }),
 
   // Loading Confirmation — reuses loads/load.validators.ts's exact body shape, same convention as
   // updateMyLoadStatus/uploadMyPod above. Any of the mandatory documents already on the load (set

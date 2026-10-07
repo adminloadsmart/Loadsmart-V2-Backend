@@ -181,7 +181,10 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         'overlap with stats.tripsDone, which answers a different question (completed-only, ' +
         'always the "Trips Done" tab). Also reachable with an identity-access token (no active ' +
         'tenant relation required) — driver name and unreadNotificationCount still populate in ' +
-        'that case, but stats/currentJob/upcomingJobs come back zeroed/empty. Settlement Due, ' +
+        'that case, but stats/currentJob/upcomingJobs/currentTrip/nextTrip come back zeroed/empty. ' +
+        'currentTrip/nextTrip/money are display-ready projections for the card layout; ' +
+        'currentTrip.distanceLeftKm/etaAt and money.cashHeld are null until live tracking/ETA ' +
+        'and driver expense data exist. Settlement Due, ' +
         'per-trip Distance, and a driver Score/Rating are deliberately not included — no backing ' +
         'data exists for any of them yet.',
     ),
@@ -190,7 +193,10 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         description:
           '{ data: { driver: { fullName, vehicleNumber }, stats: { tripsDone, onTimePercentage, ' +
           'openTrips }, currentJob: TripListRow | null, upcomingJobs: TripListRow[], ' +
-          'unreadNotificationCount } }',
+          'currentTrip: { id, code, status, organizationName, origin, destination, ' +
+          'distanceLeftKm, etaAt, directionsQuery } | null, nextTrip: { id, code, ' +
+          'organizationName, origin, destination, pickupDate } | null, money: { cashHeld, ' +
+          'organizationName }, unreadNotificationCount } }',
       },
     },
   });
@@ -416,18 +422,42 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/receiver-code`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.sendMyPodReceiverCode',
+    ...authenticated(
+      'Delivery step 1 — validates the receiver\u2019s mobile. TEMPORARY: no SMS is sent yet — the code is the fixed value 1234. The code is checked ' +
+        'when the driver submits PATCH /loads/{loadId}/pod with podReceiverCode. Skip this ' +
+        'entirely when the receiver has no phone.',
+    ),
+    request: {
+      params: driverPortalValidators.sendMyPodReceiverCode.shape.params,
+      body: json(driverPortalValidators.sendMyPodReceiverCode.shape.body),
+    },
+    responses: {
+      200: { description: '{ data: { sent: true } }' },
+      404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
+      409: { description: 'Loading has not been confirmed yet', ...errorContent },
+      429: { description: 'Resend cooldown or rate limit hit', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/loads/{loadId}/pod`,
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.uploadMyPod',
     ...authenticated(
-      'Record proof of delivery for a load assigned to the caller — same fields and rules as ' +
-        'the staff PATCH /loads/{loadId}/pod: delivery receipt photo, receiver name/mobile, and ' +
-        'quantity received are required; receiver designation and sealStatus are optional (not ' +
-        'collected by the ePOD screen, kept for other callers). shortageOrDamage ' +
-        '(none/shortage/damage/both) captures cargo condition on arrival — numberOfTonnesShort ' +
-        'is accepted whenever shortageOrDamage is sent, and damagePhotoKey becomes required when ' +
-        'shortageOrDamage is `damage` or `both`. podFileKey and damagePhotoKey must both be ' +
+      'Record proof of delivery for a load assigned to the caller — delivery receipt photo, ' +
+        'receiver name, and quantity received are required. Receiver verification is optional: ' +
+        'send podReceiverMobile + the 4-digit podReceiverCode (from POST ' +
+        '/loads/{loadId}/receiver-code) to verify the receiver; omit both when the receiver has ' +
+        'no phone, and the POD photo alone is the proof. For drivers numberOfTonnesShort is ' +
+        'computed server-side (planned minus podQuantityReceived) and shortageOrDamage is raised ' +
+        'to `shortage` when tonnes are short. shortageOrDamage ' +
+        '(none/shortage/damage/wet/both) captures cargo condition on arrival, and ' +
+        'damagePhotoKey becomes required when it is `damage`, `wet` or `both`. podFileKey and damagePhotoKey must both be ' +
         'confirmed uploads from POST /driver-portal/files with purpose trips/pod. Marks the load ' +
         'Delivered; own-fleet loads (the only kind reachable here) close immediately.',
     ),

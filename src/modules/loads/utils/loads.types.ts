@@ -52,10 +52,10 @@ export const SEAL_STATUSES = ['intact', 'broken'] as const;
 export type SealStatus = (typeof SEAL_STATUSES)[number];
 
 /** E-POD's cargo-condition-on-arrival field — captured alongside the delivery receipt. A
- *  'damage'/'both' value requires a damagePhotoKey (see load.validators.ts's uploadPodBody);
+ *  'damage'/'wet'/'both' value requires a damagePhotoKey (see load.validators.ts's uploadPodBody);
  *  'shortage'/'both' pairs with the optional numberOfTonnesShort. Like sealStatus, never blocks
  *  uploadPod — recorded for visibility, no escalation workflow exists yet. */
-export const SHORTAGE_OR_DAMAGE_STATUSES = ['none', 'shortage', 'damage', 'both'] as const;
+export const SHORTAGE_OR_DAMAGE_STATUSES = ['none', 'shortage', 'damage', 'wet', 'both'] as const;
 export type ShortageOrDamageStatus = (typeof SHORTAGE_OR_DAMAGE_STATUSES)[number];
 
 /** E-POD's staff-review state — set to 'pending' by uploadPod, then decided by

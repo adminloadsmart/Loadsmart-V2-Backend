@@ -1,5 +1,6 @@
 import { DriverWithRelation } from '../driver.service';
 import { TripListRow } from '../../loads/utils/trip-view';
+import { LoadStatus } from '../../loads/utils/loads.types';
 
 /**
  * Driver-portal profile screen — everything getDriver/findByIdWithRelations already returns
@@ -51,6 +52,37 @@ export const NOTIFICATION_TYPE_PREFIXES = {
 } as const;
 export type DriverNotificationCategory = keyof typeof NOTIFICATION_TYPE_PREFIXES;
 
+/** Home-screen "current trip" card — a display-ready projection of `currentJob`, so the app
+ *  doesn't have to stitch route/organization/directions together from a TripListRow. */
+export interface DriverHomeCurrentTrip {
+  id: string;
+  /** Display code, e.g. `LOAD-0552`. */
+  code: string;
+  status: LoadStatus;
+  /** The fleet/organization the driver is working for — the card's top-left chip. */
+  organizationName: string | null;
+  origin: { title: string; city: string } | null;
+  destination: { location: string; city: string | null } | null;
+  /** Backs "142 km left · arriving by 3:10 PM". Always null for now — no live tracking/ETA
+   *  source or delivery-point coordinates exist yet; the app should hide the line when null. */
+  distanceLeftKm: number | null;
+  etaAt: string | null;
+  /** "Open directions" — destination address for a maps deep link until coordinates exist. */
+  directionsQuery: string | null;
+}
+
+/** Home-screen "next trip" row — the soonest upcoming assigned load. */
+export interface DriverHomeNextTrip {
+  id: string;
+  code: string;
+  organizationName: string | null;
+  origin: { title: string; city: string } | null;
+  destination: { location: string; city: string | null } | null;
+  /** ISO date (YYYY-MM-DD) of the requisition's pickup. Date-only — no pickup time-of-day is
+   *  stored, so "tomorrow 7 AM" can only render the day part. */
+  pickupDate: string | null;
+}
+
 export interface DriverHomeView {
   driver: { driverId: string; fullName: string; vehicleNumber: string | null; phoneNumber: string };
   stats: {
@@ -63,5 +95,9 @@ export interface DriverHomeView {
   };
   currentJob: TripListRow | null;
   upcomingJobs: TripListRow[];
+  currentTrip: DriverHomeCurrentTrip | null;
+  nextTrip: DriverHomeNextTrip | null;
+  /** "Money" card. `cashHeld` is null until driver expenses/cash-advance tracking exists. */
+  money: { cashHeld: string | null; organizationName: string | null };
   unreadNotificationCount: number;
 }

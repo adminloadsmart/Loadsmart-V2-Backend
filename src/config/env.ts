@@ -58,6 +58,12 @@ export const env = {
   // Short-lived — just long enough for the client to render a tenant picker and post the choice
   // back; see driver-auth.service.ts's requestOtp/verifyOtp/selectTenant.
   driverTenantSelectTtlSeconds: numberWithDefault('DRIVER_TENANT_SELECT_TTL_SECONDS', 5 * 60),
+  // Receiver-code endpoint at E-POD time — see LoadService.sendPodReceiverCode.
+  podReceiverOtpRequestRateLimitMax: numberWithDefault('POD_RECEIVER_OTP_RATE_LIMIT_MAX', 10),
+  podReceiverOtpRequestRateLimitWindowSeconds: numberWithDefault(
+    'POD_RECEIVER_OTP_RATE_LIMIT_WINDOW_SECONDS',
+    300,
+  ),
   driverLoginOtpRequestRateLimitMax: numberWithDefault(
     'DRIVER_LOGIN_OTP_REQUEST_RATE_LIMIT_MAX',
     20,

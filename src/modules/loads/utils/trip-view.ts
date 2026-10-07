@@ -66,6 +66,8 @@ export interface TripListRow {
   /** The parent requisition's own display code `REQ-nnnn` — null only if the requisition
    *  relation somehow wasn't loaded (never happens via LoadRepository.list). */
   requisitionCode: string | null;
+  /** The requisition's planned pickup date (YYYY-MM-DD) — null only if the relation wasn't loaded. */
+  pickupDate: string | null;
   route: {
     loadingPointTitle: string;
     loadingPointCity: string;
@@ -150,6 +152,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     status: load.status,
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,
+    pickupDate: req?.pickupDate ?? null,
     route: req
       ? {
           loadingPointTitle: req.loadingPoint.title,
@@ -247,6 +250,8 @@ export interface TripDoneDetail {
     shortageOrDamage: ShortageOrDamageStatus | null;
     numberOfTonnesShort: string | null;
     podRemarks: string | null;
+    /** ISO time the receiver's code was verified; null = no phone (photo-only) or staff-recorded. */
+    receiverVerifiedAt: string | null;
     /** Staff-review state of this trip's E-POD — see LoadEntity's doc comment. Also reachable
      *  (deliberately) for a load that's 'delivered' but not yet 'closed', so a rejected trip's
      *  driver can see why and re-upload via the same uploadPod endpoint. */
@@ -299,6 +304,7 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
           shortageOrDamage: load.shortageOrDamage,
           numberOfTonnesShort: load.numberOfTonnesShort,
           podRemarks: load.podRemarks,
+          receiverVerifiedAt: load.podReceiverVerifiedAt?.toISOString() ?? null,
           podStatus: load.podStatus,
           podRejectionReason: load.podRejectionReason,
         }
