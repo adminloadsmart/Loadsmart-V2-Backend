@@ -22,6 +22,8 @@ import {
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
+import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
+import { env } from './config/env';
 import { createNotifyByType } from './modules/notifications/notify-by-type';
 import { createNotificationTriggerWorker } from './modules/notifications/workers/notification-trigger.worker';
 import {
@@ -373,6 +375,19 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/roles', router: roles.router },
       { path: '/masters', router: masters.protectedRouter },
       { path: '/tracking', router: tracking.router },
+      // TEMPORARY QA endpoint — mounted ahead of the main router; non-production + flag only.
+      ...(env.notificationsTestEndpoint
+        ? [
+            {
+              path: '/notifications/test',
+              router: createNotificationsTestRoutes({
+                notificationsService: notifications.service,
+                authRepository: auth.authRepository,
+                authService: auth.service,
+              }),
+            },
+          ]
+        : []),
       { path: '/notifications', router: notifications.router },
       { path: '/payments', router: payments.router },
       { path: '/maintenance', router: maintenance.router },

@@ -153,6 +153,10 @@ export const env = {
   msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
   // LS_N_0008 login OTP — optional WhatsApp copy of the same code (Meta-approved template whose
   // {{1}} is the OTP). Unset = SMS only, exactly as before.
+  // TEMPORARY: mounts POST /v1/notifications/test/trigger-all (modules/notifications/test-trigger.ts)
+  // — only when this is 'true' AND NODE_ENV isn't production. Never set it in production.
+  notificationsTestEndpoint:
+    nodeEnv !== 'production' && process.env.NOTIFICATIONS_TEST_ENDPOINT === 'true',
   msg91WhatsappTemplateOtp: process.env.MSG91_WHATSAPP_TEMPLATE_OTP || undefined,
   // LS_N_0002 "signup received, under review" (SMS + email only).
   msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,
