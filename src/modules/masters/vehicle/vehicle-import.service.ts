@@ -4,10 +4,22 @@ import { VehicleService } from './vehicle.service';
 import { vehicleValidators } from './vehicle.validators';
 import { OnboardVehicleInput } from './vehicle.interface';
 import { parseVehicleExcel, ParsedVehicleExcel } from './vehicle-import.mapper';
+import {
+  columnKeyForPath,
+  describeIssue,
+  describeServiceError,
+  labelFor,
+  VehicleImportErrorCode,
+} from './vehicle-import.errors';
 
 export interface VehicleImportRowError {
   row: number;
+  /** The plate as typed in the sheet, so the row is identifiable without counting lines. */
+  registrationNumber?: string;
+  /** Sheet column header the problem is in, when it maps to one. */
+  column?: string;
   field?: string;
+  code: VehicleImportErrorCode;
   message: string;
 }
 
@@ -37,30 +49,49 @@ export class VehicleImportService {
     const parsed = await this.parse(buffer);
     const valid: { row: number; input: OnboardVehicleInput }[] = [];
     const errors: VehicleImportRowError[] = [];
-    const registrations = new Set<string>();
+    const registrations = new Map<string, number>();
+    const headerByKey = new Map(
+      Object.entries(parsed.mapping).map(([header, key]) => [key, header]),
+    );
 
     for (const item of parsed.rows) {
       const result = vehicleValidators.onboardVehicle.safeParse({ body: item.input });
+      const plate =
+        typeof item.input.registrationNumber === 'string'
+          ? item.input.registrationNumber
+          : undefined;
       if (!result.success) {
+        const documents = item.input.documents as { documentType?: string }[] | undefined;
         for (const issue of result.error.issues) {
+          const path = issue.path.slice(1); // drop the leading "body"
+          const key = columnKeyForPath(path, documents);
+          const column = key ? (headerByKey.get(key) ?? key) : undefined;
+          const { code, message } = describeIssue(issue, labelFor(key ?? path.join(' ')) || 'Row');
           errors.push({
             row: item.row,
-            field: issue.path.slice(1).join('.') || undefined,
-            message: issue.message,
+            registrationNumber: plate,
+            column,
+            field: path.join('.') || undefined,
+            code,
+            message,
           });
         }
         continue;
       }
       const input = result.data.body as OnboardVehicleInput;
-      if (registrations.has(input.registrationNumber)) {
+      const firstRow = registrations.get(input.registrationNumber);
+      if (firstRow !== undefined) {
         errors.push({
           row: item.row,
+          registrationNumber: input.registrationNumber,
+          column: headerByKey.get('registrationNumber'),
           field: 'registrationNumber',
-          message: 'Duplicate registration number in this file',
+          code: 'duplicate_in_file',
+          message: `Duplicate entry — ${input.registrationNumber} already appears on row ${firstRow}`,
         });
         continue;
       }
-      registrations.add(input.registrationNumber);
+      registrations.set(input.registrationNumber, item.row);
       valid.push({ row: item.row, input });
     }
 
@@ -83,8 +114,9 @@ export class VehicleImportService {
         report.failed += 1;
         report.errors.push({
           row: item.row,
+          registrationNumber: item.input.registrationNumber,
           field: 'registrationNumber',
-          message: error instanceof Error ? error.message : 'Failed to onboard vehicle',
+          ...describeServiceError(error),
         });
       }
     }
