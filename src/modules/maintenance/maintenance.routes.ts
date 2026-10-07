@@ -18,13 +18,17 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
   // Screen reads — no permission gate: a seat without money still sees both workshop headlines
   // and every queue. Cost fields are stripped per-seat in the service (see cost-visibility.ts).
   router.get('/overview', validate(v.getOverview), asyncHandler(controller.getOverview));
-  router.get('/service-due', asyncHandler(controller.listServiceDue));
-  router.get('/breakdowns', asyncHandler(controller.listBreakdowns));
+  router.get('/service-due', validate(v.listQueue), asyncHandler(controller.listServiceDue));
+  router.get('/breakdowns', validate(v.listQueue), asyncHandler(controller.listBreakdowns));
   router.get('/tyres', asyncHandler(controller.listTyres));
   router.get('/batteries', asyncHandler(controller.listBatteries));
   router.get('/jobs', validate(v.listJobs), asyncHandler(controller.listJobs));
-  router.get('/in-workshop', asyncHandler(controller.listInWorkshop));
-  router.get('/blocked-on-papers', asyncHandler(controller.listBlockedOnPapers));
+  router.get('/in-workshop', validate(v.listQueue), asyncHandler(controller.listInWorkshop));
+  router.get(
+    '/blocked-on-papers',
+    validate(v.listQueue),
+    asyncHandler(controller.listBlockedOnPapers),
+  );
   router.get(
     '/vehicles/:vehicleId/tyres',
     validate(v.vehicleTyres),
@@ -108,6 +112,12 @@ export function createMaintenanceRoutes(controller: MaintenanceController): Rout
     canManage,
     validate(v.recordTyreReading),
     asyncHandler(controller.recordTyreReading),
+  );
+  router.patch(
+    '/tyres/:tyreId',
+    canManage,
+    validate(v.updateTyre),
+    asyncHandler(controller.updateTyre),
   );
   router.post(
     '/tyres/:tyreId/remove',

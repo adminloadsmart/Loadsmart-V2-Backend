@@ -134,6 +134,46 @@ export class NotificationsService {
     }
   }
 
+  // --- Driver-facing (driver-portal.controller.ts) — no tenantId scope, unlike the staff-facing
+  // methods above. A driver's inbox spans every tenant relation they've ever had, not one at a
+  // time; see NotificationRepository.listByRecipientAcrossTenants' doc comment. ---
+
+  async listForDriver(driverId: string, input: ListNotificationsInput & { typePrefix?: string }) {
+    try {
+      const [items, total] = await this.repository.listByRecipientAcrossTenants(driverId, input);
+      return paginate(items, total, input);
+    } catch (error) {
+      rethrow(error, 'Failed to list notifications');
+    }
+  }
+
+  async markReadForDriver(driverId: string, id: string) {
+    try {
+      const notification = await this.repository.markReadAcrossTenants(driverId, id);
+      if (!notification) throw new NotFoundError(`Notification ${id} not found`);
+      return notification;
+    } catch (error) {
+      rethrow(error, 'Failed to mark notification read');
+    }
+  }
+
+  /** Returns how many previously-unread notifications were just marked read. */
+  async markAllReadForDriver(driverId: string): Promise<number> {
+    try {
+      return await this.repository.markAllReadAcrossTenants(driverId);
+    } catch (error) {
+      rethrow(error, 'Failed to mark all notifications read');
+    }
+  }
+
+  async countUnreadForDriver(driverId: string): Promise<number> {
+    try {
+      return await this.repository.countUnreadAcrossTenants(driverId);
+    } catch (error) {
+      rethrow(error, 'Failed to count unread notifications');
+    }
+  }
+
   // --- Worker-facing (workers/notification-dispatch.worker.ts) — not exposed over HTTP. ---
 
   /** Loads the notification plus the given channel's destination in one call. */

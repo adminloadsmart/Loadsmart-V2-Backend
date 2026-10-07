@@ -17,6 +17,7 @@ import { createRolesModule } from './modules/roles';
 import {
   createDriverModule,
   createDriverAuthModule,
+  createDriverIdentityModule,
   createDriverPortalModule,
 } from './modules/driver';
 import { createMastersModule } from './modules/masters';
@@ -57,6 +58,7 @@ import { createAdminModule } from './modules/admin';
 import { createDashboardsModule } from './modules/dashboards';
 import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
+import { createPlacesModule } from './modules/places';
 import { createLoadsModule } from './modules/loads';
 import { createAnalyticsModule } from './modules/analytics';
 import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
@@ -64,6 +66,7 @@ import { createDriverAnalyticsModule } from './modules/analytics/driver-analytic
 
 import { NotificationsGatewayLocal as MaintenanceNotificationsGatewayLocal } from './modules/maintenance/gateways/notifications.gateway.local';
 import { FleetGatewayLocal as MaintenanceFleetGatewayLocal } from './modules/maintenance/gateways/fleet.gateway.local';
+import { TyreSetupGatewayLocal } from './modules/maintenance/gateways/tyre-setup.gateway.local';
 import { StorageGatewayLocal as MaintenanceStorageGatewayLocal } from './modules/maintenance/gateways/storage.gateway.local';
 
 export interface Container {
@@ -126,7 +129,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // schema. Built before auth: auth.service.ts orchestrates org onboarding on top of these
   // services directly (see modules/auth/index.ts), the same "read another module's service
   // directly, no gateway" pattern modules/admin/ already used for these when they lived in auth.
-  const organization = createOrganizationModule(dataSource);
+  const organization = createOrganizationModule(dataSource, { auditService: audit.service });
 
   // One Msg91Client/OtpService instance for the whole app — every OTP-based login flow (staff
   // signup/login here, driver login below) shares the same Redis-backed cooldown/attempt
@@ -140,6 +143,7 @@ export function buildContainer(dataSource: DataSource): Container {
     roleService: roles.service,
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
+    documentVerificationService: organization.documentVerificationService,
     organizationOnboardingService: organization.organizationOnboardingService,
     organizationJourneyStageService: organization.organizationJourneyStageService,
     referralCodeService: organization.referralCodeService,
@@ -177,14 +181,18 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     organizationService: organization.organizationService,
     masterApprovalNotifier,
+    notificationsService: notifications.service,
   });
 
   // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see
   // docs/driver-auth.md), sharing driver's own driverRepository, organization's
   // organizationService (org-active login check, same as auth.service.ts's), and the same
-  // otpService staff signup/login already uses.
+  // otpService staff signup/login already uses. Only the service is built here — the
+  // controller/routers (which also serve self-registration) are built below by
+  // createDriverIdentityModule, once DriverIdentityService exists too.
   const driverAuth = createDriverAuthModule(dataSource, {
     driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     organizationService: organization.organizationService,
     otpService,
   });
@@ -193,7 +201,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const masters = createMastersModule(dataSource, {
     auditService: audit.service,
     storageService: storage.service,
-    driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverController: driver.driverController,
     masterApprovalNotifier,
   });
@@ -201,6 +209,9 @@ export function buildContainer(dataSource: DataSource): Container {
   // Producers with no cross-module deps of their own.
   const tracking = createTrackingModule(dataSource);
   const payments = createPaymentsModule(dataSource);
+  // Stateless Google Places proxy — no DB, no cross-module deps. Mounted in authenticatedRouters
+  // below (no tenant required).
+  const places = createPlacesModule();
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs. Maintenance
   // writes to vehicles through masters' vehicleService (the breakdown ⇄ dispatch hold) and reads
@@ -214,6 +225,9 @@ export function buildContainer(dataSource: DataSource): Container {
     storageGateway: new MaintenanceStorageGatewayLocal(storage.service),
     auditService: audit.service,
   });
+  // The Add Truck drawer's "Tyre life" block fits tyres at onboarding — masters can't depend on
+  // maintenance, so maintenance's tyre service is handed back to it here.
+  masters.vehicleService.setTyreSetupGateway(new TyreSetupGatewayLocal(maintenance.tyreService));
 
   // Reads organization's organizationService/organizationDocumentService/referralCodeService and
   // auth's authService directly — cross-tenant ops, not a producer/consumer integration, so no
@@ -221,6 +235,7 @@ export function buildContainer(dataSource: DataSource): Container {
   const admin = createAdminModule({
     organizationService: organization.organizationService,
     organizationDocumentService: organization.organizationDocumentService,
+    documentVerificationService: organization.documentVerificationService,
     organizationJourneyStageService: organization.organizationJourneyStageService,
     authService: auth.service,
     referralCodeService: organization.referralCodeService,
@@ -342,13 +357,33 @@ export function buildContainer(dataSource: DataSource): Container {
     onBreakdownReported: createBreakdownNotifier(notifications.triggers),
   });
 
+  // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant
+  // relation management. Built after driverAuth (registerSelf issues sessions through
+  // driverAuth.service.issueIdentitySession) and after notifyByType exists (requestJoin/
+  // respondToInvite notify fleet-owner staff on the tenant side of the same workflow).
+  const driverIdentity = createDriverIdentityModule(dataSource, {
+    driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
+    dlVerificationClient: driver.dlVerificationClient,
+    otpService,
+    storageService: storage.service,
+    organizationService: organization.organizationService,
+    driverAuthService: driverAuth.service,
+    auditService: audit.service,
+    idfyClient: driver.idfyClient,
+    notifyByType,
+  });
+
   // Driver-app self-service ("my loads") — built here, not alongside driverAuth above, since it
   // needs loads.loadService, which doesn't exist until this point. See docs/driver-auth.md.
   const driverPortal = createDriverPortalModule({
     driverRepository: driver.driverRepository,
+    driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverService: driver.driverService,
+    organizationService: organization.organizationService,
     loadService: loads.loadService,
     storageService: storage.service,
+    notificationsService: notifications.service,
   });
 
   // Last — reads other modules' services directly, and (via DashboardsRepository) LoadEntity
@@ -370,6 +405,9 @@ export function buildContainer(dataSource: DataSource): Container {
     authenticatedRouters: [
       { path: '/auth', router: auth.protectedRouter },
       { path: '/auth', router: organizationOnboarding.router },
+      // Not tenant-scoped: onboarding users (org_admin before an organization exists) need place
+      // lookup too, and it's reference data rather than a tenant-owned resource.
+      { path: '/places', router: places.router },
     ],
     routers: [
       { path: '/roles', router: roles.router },
@@ -401,14 +439,15 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/files', router: storage.router },
     ],
     driverRouters: [
-      { path: '/driver-auth', router: driverAuth.publicRouter },
-      { path: '/driver-auth', router: driverAuth.protectedRouter },
+      { path: '/driver-auth', router: driverIdentity.authPublicRouter },
+      { path: '/driver-auth', router: driverIdentity.authProtectedRouter },
       { path: '/driver-portal', router: driverPortal.router },
     ],
     backgroundWorkers: [
       notifications.worker,
       notificationTriggerWorker,
       notificationScheduleWorker,
+      organization.documentVerificationWorker,
     ],
   };
 }

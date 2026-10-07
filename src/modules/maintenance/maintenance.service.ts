@@ -9,6 +9,7 @@ import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { MaintenanceJobEntity } from './entities/maintenance-job.entity';
 import { MaintenanceJobRepository } from './repositories/maintenance-job.repository';
 import { MaintenanceFleetRepository } from './repositories/fleet.repository';
+import { TyreRepository } from './repositories/tyre.repository';
 import { FleetGateway } from './gateways/fleet.gateway';
 import { NotificationsGateway } from './gateways/notifications.gateway';
 import { StorageGateway } from './gateways/storage.gateway';
@@ -39,11 +40,23 @@ import {
   LogServiceInput,
   OpenBreakdownInput,
   PeriodInput,
+  QueuePageInput,
   ReleaseFromWorkshopInput,
   SetServicePolicyInput,
   UpdateJobInput,
 } from './maintenance.interface';
-import { resolveJobCosts, toBreakdownView, toJobView, toVehicleSummary } from './maintenance.views';
+import {
+  breakdownWhatItNeeds,
+  lastServiceOf,
+  openVisitOdometer,
+  papersWhatItNeeds,
+  resolveJobCosts,
+  serviceWhatItNeeds,
+  toBreakdownView,
+  toJobView,
+  toVehicleSummary,
+  toWorkshopIntake,
+} from './maintenance.views';
 import { isUniqueViolation } from './utils/unique-violation';
 
 /** How a finished visit treats the service clock: a ServiceType moves it only if it is one of
@@ -66,6 +79,7 @@ export class MaintenanceService {
     private readonly storageGateway: StorageGateway,
     private readonly auditService: AuditService,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly tyreRepository: TyreRepository,
   ) {}
 
   /* ------------------------------------------------------------------ fleet state */
@@ -120,7 +134,7 @@ export class MaintenanceService {
    * Trucks past their service policy right now — current state, never filtered by the period
    * control (a truck last serviced outside the window is still over policy).
    */
-  async listServiceDue(tenantId: string) {
+  async listServiceDue(tenantId: string, pageInput?: QueuePageInput) {
     try {
       const today = toIstDateString(new Date());
       const state = await this.loadFleetState(tenantId);
@@ -136,6 +150,7 @@ export class MaintenanceService {
             lastServiceOdometerKm: usage?.lastServiceOdometerKm ?? null,
             intervalKm,
             intervalMonths,
+            onboardedOn: toIstDateString(vehicle.createdAt),
             today,
           });
           return { vehicle, usage, intervalKm, intervalMonths, due };
@@ -144,7 +159,9 @@ export class MaintenanceService {
         .sort((a, b) => b.due.overdueRatio - a.due.overdueRatio)
         .map(({ vehicle, usage, intervalKm, intervalMonths, due }) => ({
           vehicle: toVehicleSummary(vehicle),
+          whatItNeeds: serviceWhatItNeeds(due),
           trigger: due.trigger,
+          baseline: due.baseline,
           overdueKm: due.overdueKm,
           overdueDays: due.overdueDays,
           dueAtKm: due.dueAtKm,
@@ -164,7 +181,7 @@ export class MaintenanceService {
           inWorkshop: workshopVisit(state.openJobByVehicle.get(vehicle.id)),
         }));
 
-      return { items, total: items.length };
+      return pageOfQueue(items, pageInput);
     } catch (error) {
       rethrow(error, 'Failed to list service due');
     }
@@ -209,6 +226,13 @@ export class MaintenanceService {
       const vehicle = await this.assertOwnFleetVehicle(tenantId, input.vehicleId);
       await this.assertInvoice(tenantId, actor, input);
       const loggedAt = this.resolveDate(input.serviceDate, 'serviceDate');
+      // Start of the work — midnight IST of startDate, or the end itself when it's the same day.
+      const endDate = input.serviceDate ?? toIstDateString(loggedAt);
+      if (input.startDate && input.startDate > endDate) {
+        throw new ValidationError('startDate must be on or before serviceDate');
+      }
+      const startedAt =
+        input.startDate && input.startDate < endDate ? startOfIstDate(input.startDate) : loggedAt;
 
       let finishedVisitId: string | null = null;
       const job = await this.dataSource.transaction(async (manager) => {
@@ -246,7 +270,7 @@ export class MaintenanceService {
             jobType: 'service',
             status: 'closed',
             serviceType: input.serviceType,
-            openedAt: loggedAt,
+            openedAt: startedAt,
             closedAt: loggedAt,
             odometerKm: input.odometerKm,
             workshopName: input.workshopName ?? null,
@@ -404,7 +428,7 @@ export class MaintenanceService {
   /* ---------------------------------------------------------------------- workshop */
 
   /** Every truck in the workshop right now — service check-ins and breakdowns together. */
-  async listInWorkshop(tenantId: string, canSeeCosts: boolean) {
+  async listInWorkshop(tenantId: string, canSeeCosts: boolean, pageInput: QueuePageInput) {
     try {
       const jobs = await this.jobRepository.listOpenJobs(tenantId);
       const covering = await this.fleetRepository.countOpenMarketLoadsCovering(
@@ -414,11 +438,14 @@ export class MaintenanceService {
       const now = new Date();
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
+        ...openVisitOdometer(job),
+        lastService: lastServiceOf(job),
+        workshopIntake: toWorkshopIntake(job, now),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
+      // Headline counts cover the whole workshop, not just this page.
       return {
-        items,
-        total: items.length,
+        ...pageOfQueue(items, pageInput),
         brokenDown: items.filter((item) => item.jobType === 'breakdown').length,
         inForService: items.filter((item) => item.jobType === 'service').length,
       };
@@ -431,7 +458,7 @@ export class MaintenanceService {
    * Trucks with expired papers that aren't in the workshop — the "Blocked on papers" bucket and
    * tab (same exclusive rule as the availability bar). Dispatch only warns on these today.
    */
-  async listBlockedOnPapers(tenantId: string) {
+  async listBlockedOnPapers(tenantId: string, pageInput: QueuePageInput) {
     try {
       const today = toIstDateString(new Date());
       const state = await this.loadFleetState(tenantId);
@@ -439,26 +466,27 @@ export class MaintenanceService {
         .filter((vehicle) => state.dispatchEffect(vehicle.id) === 'warns_on_assign')
         .map((vehicle) => {
           const expired = state.expiredByVehicle.get(vehicle.id) ?? [];
+          const expiredDocuments = expired.map((document) => ({
+            ...document,
+            daysExpired: Math.max(
+              0,
+              Math.round(
+                (startOfIstDate(today).getTime() - startOfIstDate(document.expiryDate).getTime()) /
+                  86_400_000,
+              ),
+            ),
+          }));
           return {
             vehicle: toVehicleSummary(vehicle),
-            expiredDocuments: expired.map((document) => ({
-              ...document,
-              daysExpired: Math.max(
-                0,
-                Math.round(
-                  (startOfIstDate(today).getTime() -
-                    startOfIstDate(document.expiryDate).getTime()) /
-                    86_400_000,
-                ),
-              ),
-            })),
+            whatItNeeds: papersWhatItNeeds(expiredDocuments),
+            expiredDocuments,
             dispatchEffect: 'warns_on_assign' as DispatchEffect,
           };
         })
         .sort((a, b) =>
           a.expiredDocuments[0].expiryDate.localeCompare(b.expiredDocuments[0].expiryDate),
         );
-      return { items, total: items.length };
+      return pageOfQueue(items, pageInput);
     } catch (error) {
       rethrow(error, 'Failed to list trucks blocked on papers');
     }
@@ -574,7 +602,7 @@ export class MaintenanceService {
   /* ----------------------------------------------------------------- breakdowns */
 
   /** Trucks off the road with a breakdown right now, oldest first — current state, not the period. */
-  async listOpenBreakdowns(tenantId: string, canSeeCosts: boolean) {
+  async listOpenBreakdowns(tenantId: string, canSeeCosts: boolean, pageInput: QueuePageInput) {
     try {
       const jobs = await this.jobRepository.listOpenJobs(tenantId, 'breakdown');
       const covering = await this.fleetRepository.countOpenMarketLoadsCovering(
@@ -584,11 +612,13 @@ export class MaintenanceService {
       const now = new Date();
       const items = jobs.map((job) => ({
         ...toBreakdownView(job, canSeeCosts, covering.get(job.vehicleId) ?? 0, now),
+        ...openVisitOdometer(job),
+        lastService: lastServiceOf(job),
+        whatItNeeds: breakdownWhatItNeeds(job),
         dispatchEffect: 'in_workshop' as DispatchEffect,
       }));
       return {
-        items,
-        total: items.length,
+        ...pageOfQueue(items, pageInput),
         marketLoadsCovering: items.reduce((sum, item) => sum + item.marketLoadsCovering, 0),
       };
     } catch (error) {
@@ -879,7 +909,8 @@ export class MaintenanceService {
     odometerKm: number,
   ) {
     const vehicle = await this.fleetRepository.findVehicle(tenantId, vehicleId, manager);
-    if (odometerKm > (vehicle?.serviceUsage?.odometerKm ?? 0)) {
+    const previousKm = vehicle?.serviceUsage?.odometerKm ?? null;
+    if (odometerKm > (previousKm ?? 0)) {
       await this.fleetGateway.updateServiceUsage(
         tenantId,
         actorId,
@@ -888,6 +919,20 @@ export class MaintenanceService {
         manager,
       );
     }
+    await this.baselineTyresOnFirstReading(manager, tenantId, vehicleId, previousKm, odometerKm);
+  }
+
+  /** The first odometer a truck ever gets is where its already-fitted tyres start counting from
+   *  (see TyreRepository.rebaseUnmeteredTyres) — trucks added without an odometer. */
+  private async baselineTyresOnFirstReading(
+    manager: EntityManager,
+    tenantId: string,
+    vehicleId: string,
+    previousKm: number | null,
+    odometerKm: number,
+  ) {
+    if (previousKm !== null) return;
+    await this.tyreRepository.rebaseUnmeteredTyres(tenantId, vehicleId, odometerKm, manager);
   }
 
   /**
@@ -926,6 +971,9 @@ export class MaintenanceService {
         status: 'closed',
         closedAt: details.closedAt,
         ...(serviced ? { serviceType: outcome.serviceType } : {}),
+        // Released without a service: drop the check-in's "in for" type so history doesn't claim
+        // a service was done — a closed service job with no serviceType means released.
+        ...(!serviced && job.jobType === 'service' ? { serviceType: null } : {}),
         ...(serviced && job.jobType === 'breakdown' ? { includesService: true } : {}),
         ...(details.odometerKm !== undefined ? { odometerKm: details.odometerKm } : {}),
         ...(details.workshopName !== undefined ? { workshopName: details.workshopName } : {}),
@@ -1014,6 +1062,13 @@ export class MaintenanceService {
         : { odometerKm: odometer },
       manager,
     );
+    await this.baselineTyresOnFirstReading(
+      manager,
+      tenantId,
+      vehicleId,
+      usage?.odometerKm ?? null,
+      odometerKm,
+    );
   }
 
   /** One open workshop visit per truck — whatever it is in for, it can't be checked in twice. */
@@ -1059,6 +1114,27 @@ function workshopVisit(job: MaintenanceJobEntity | undefined) {
         days: jobDays(job.openedAt, null, new Date()),
       }
     : null;
+}
+
+/**
+ * One page of an in-memory queue. The queues are computed (service-due clocks, expired papers)
+ * and sorted in code, so they're paged after sorting rather than in SQL. `search` matches the
+ * registration number. No input → the whole queue, unpaged (the overview's headline counts).
+ */
+function pageOfQueue<T extends { vehicle: object }>(items: T[], input?: QueuePageInput) {
+  if (!input) return { items, total: items.length };
+
+  const term = input.search?.replace(/\s+/g, '').toLowerCase();
+  const matched = term
+    ? items.filter((item) =>
+        (item.vehicle as { registrationNumber?: string }).registrationNumber
+          ?.replace(/\s+/g, '')
+          .toLowerCase()
+          .includes(term),
+      )
+    : items;
+  const start = (input.page - 1) * input.limit;
+  return paginate(matched.slice(start, start + input.limit), matched.length, input);
 }
 
 /** Column defaults shared by every job insert — callers spread their own fields over it. */

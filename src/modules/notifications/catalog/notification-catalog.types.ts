@@ -1,3 +1,4 @@
+import type { Locale } from '../../../shared/i18n/locales';
 import { NotificationChannelName, NotificationSeverity } from '../notifications.types';
 
 export interface NotificationRecipient {
@@ -122,6 +123,8 @@ export interface NotificationTypeDefinition<TContext> {
   buildContent(
     context: TContext,
     recipient: NotificationRecipient,
+    /** The recipient-facing language; omitted means English. */
+    locale?: Locale,
   ): {
     title: string;
     body: string;

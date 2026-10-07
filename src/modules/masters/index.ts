@@ -3,7 +3,9 @@ import { DataSource } from 'typeorm';
 import { VehicleRepository } from './vehicle/vehicle.repository';
 import { VehicleService } from './vehicle/vehicle.service';
 import { VehicleController } from './vehicle/vehicle.controller';
-import { DriverRepository } from '../driver/driver.repository';
+import { VehicleImportService } from './vehicle/vehicle-import.service';
+import { VehicleImportController } from './vehicle/vehicle-import.controller';
+import { DriverTenantRelationRepository } from '../driver/driver-tenant-relation.repository';
 import { DriverController } from '../driver/driver.controller';
 import { FleetDriverLinkRepository } from './fleet-driver-link/fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link/fleet-driver-link.service';
@@ -38,9 +40,10 @@ export function createMastersModule(
     auditService: AuditService;
     storageService: StorageService;
     // Driver is now built by its own module (src/modules/driver/) — masters only consumes the
-    // repository (fleetDriverLinkService validates a link's driverId against it) and the
-    // controller (still composed into this module's own protected router, unchanged URLs).
-    driverRepository: DriverRepository;
+    // tenant-relation repository (fleetDriverLinkService validates a link's driver-tenant relation
+    // against it) and the controller (still composed into this module's own protected router,
+    // unchanged URLs).
+    driverTenantRelationRepository: DriverTenantRelationRepository;
     driverController: DriverController;
     // LS_N_0009/0010 — optional; see modules/notifications/master-approvals.ts.
     masterApprovalNotifier?: MasterApprovalNotifier;
@@ -93,7 +96,7 @@ export function createMastersModule(
   const fleetDriverLinkService = new FleetDriverLinkService(
     fleetDriverLinkRepository,
     vehicleRepository,
-    deps.driverRepository,
+    deps.driverTenantRelationRepository,
     dataSource,
   );
   const fleetDriverLinkController = new FleetDriverLinkController(fleetDriverLinkService);
@@ -107,6 +110,8 @@ export function createMastersModule(
     deps.masterApprovalNotifier,
   );
   const vehicleController = new VehicleController(vehicleService);
+  const vehicleImportService = new VehicleImportService(vehicleService, deps.auditService);
+  const vehicleImportController = new VehicleImportController(vehicleImportService);
 
   const protectedRouter = createMastersProtectedRoutes(
     truckTypeController,
@@ -117,6 +122,7 @@ export function createMastersModule(
     transporterController,
     transporterImportController,
     vehicleController,
+    vehicleImportController,
     deps.driverController,
     fleetDriverLinkController,
   );

@@ -107,6 +107,16 @@ export const env = {
     'DRIVER_VERIFY_DL_RATE_LIMIT_WINDOW_SECONDS',
     60,
   ),
+  // Google Maps Places API (GooglePlacesClient) — powers the places search/details lookup. Optional:
+  // the lookup endpoints fail loudly per-request when the key is unset instead of crashing boot.
+  googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || undefined,
+  googleMapsBaseUrl: process.env.GOOGLE_MAPS_BASE_URL || 'https://maps.googleapis.com',
+  // Throttles GET /places/search and /places/:placeId — each call is a paid Google request.
+  locationLookupRateLimitMax: numberWithDefault('LOCATION_LOOKUP_RATE_LIMIT_MAX', 20),
+  locationLookupRateLimitWindowSeconds: numberWithDefault(
+    'LOCATION_LOOKUP_RATE_LIMIT_WINDOW_SECONDS',
+    300,
+  ),
   // IDfy's `verify_with_source` DL check (Sarathi registry). SarathiClient falls back to
   // manual_review whenever any of these is missing, so the app runs fine without them.
   idfyApiKey: process.env.IDFY_API_KEY || undefined,

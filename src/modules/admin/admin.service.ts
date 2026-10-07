@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import {
   OrganizationEntity,
@@ -49,6 +50,7 @@ export class AdminService {
   constructor(
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly documentVerificationService: OrganizationDocumentVerificationService,
     private readonly organizationJourneyStageService: OrganizationJourneyStageService,
     private readonly authService: AuthService,
     private readonly referralCodeService: ReferralCodeService,
@@ -287,30 +289,11 @@ export class AdminService {
       // checking when this call just set a document to 'verified' (the gate can't pass on
       // 'invalid'/'pending') and only once (onlineKycCompletedAt already set means a previous
       // document-verify call already completed it).
-      if (input.verificationStatus === 'verified' && !organization.onlineKycCompletedAt) {
-        const { allVerified } = await this.getDocumentVerificationState(organizationId);
-        if (allVerified) {
-          await this.organizationService.updateOrganization(organizationId, {
-            onlineKycCompletedAt: new Date(),
-          });
-
-          const updatedOrg = await this.organizationJourneyStageService.recordTransition(
-            organizationId,
-            'online_kyc_completed',
-            actingUser.id,
-          );
-
-          await this.auditService.log({
-            tenantId: organizationId,
-            userId: actingUser.id,
-            action: 'ORGANIZATION_ONLINE_KYC_COMPLETED',
-            resourceType: 'organization',
-            newData: {
-              onlineKycCompletedAt: updatedOrg.onlineKycCompletedAt,
-              journeyStage: updatedOrg.journeyStage,
-            },
-          });
-        }
+      if (input.verificationStatus === 'verified') {
+        await this.documentVerificationService.completeOnlineKycIfAllVerified(
+          organizationId,
+          actingUser.id,
+        );
       }
 
       return document;
@@ -339,7 +322,7 @@ export class AdminService {
         await this.assertUploadedFile(actingUser, input.backFileKey);
       }
 
-      return await this.dataSource.transaction(async (manager) => {
+      const uploaded = await this.dataSource.transaction(async (manager) => {
         // shopboard_premises_photo is also mirrored onto the organization's own column (stripped
         // from public responses by toPublicOrganization) — see AuthService.saveBusinessDetails,
         // which keeps both in sync the same way. Everything else lives only in the document row.
@@ -383,6 +366,8 @@ export class AdminService {
 
         return document;
       });
+      await this.documentVerificationService.enqueueVerification([uploaded]);
+      return uploaded;
     } catch (error) {
       rethrow(error, 'Failed to upload organization document');
     }

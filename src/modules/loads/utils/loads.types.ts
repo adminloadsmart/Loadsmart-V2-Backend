@@ -4,6 +4,8 @@
  * services can never drift apart.
  */
 
+import type { MessageKey } from '../../../shared/i18n/translate';
+
 export const REQUISITION_STATUSES = ['open', 'fully_dispatched', 'closed'] as const;
 export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
 
@@ -49,6 +51,25 @@ export type FitVerdict = (typeof FIT_VERDICTS)[number];
 export const SEAL_STATUSES = ['intact', 'broken'] as const;
 export type SealStatus = (typeof SEAL_STATUSES)[number];
 
+/** E-POD's cargo-condition-on-arrival field — captured alongside the delivery receipt. A
+ *  'damage'/'both' value requires a damagePhotoKey (see load.validators.ts's uploadPodBody);
+ *  'shortage'/'both' pairs with the optional numberOfTonnesShort. Like sealStatus, never blocks
+ *  uploadPod — recorded for visibility, no escalation workflow exists yet. */
+export const SHORTAGE_OR_DAMAGE_STATUSES = ['none', 'shortage', 'damage', 'both'] as const;
+export type ShortageOrDamageStatus = (typeof SHORTAGE_OR_DAMAGE_STATUSES)[number];
+
+/** E-POD's staff-review state — set to 'pending' by uploadPod, then decided by
+ *  LoadService.reviewPod. null before any E-POD has ever been uploaded. A load only reaches
+ *  'closed' once this is 'accepted' — see load.entity.ts's doc comment and LoadService.closeLoad/
+ *  reviewPod. 'rejected' lets the driver resubmit via the same uploadPod endpoint, which resets
+ *  this back to 'pending'. */
+export const POD_STATUSES = ['pending', 'accepted', 'rejected'] as const;
+export type PodStatus = (typeof POD_STATUSES)[number];
+
+/** The two outcomes a staff reviewer can pick on a pending E-POD — see LoadService.reviewPod. */
+export const POD_REVIEW_DECISIONS = ['accepted', 'rejected'] as const;
+export type PodReviewDecision = (typeof POD_REVIEW_DECISIONS)[number];
+
 /**
  * The load's single, unified movement status — Advance/Balance payment are tracked
  * separately (LoadEntity.advancePaidAt/balancePaidAt) since they run in
@@ -60,8 +81,8 @@ export type SealStatus = (typeof SEAL_STATUSES)[number];
 export const LOAD_STATUSES = [
   'created',
   'assigned',
-  'loading_confirmed',
   'at_plant',
+  'loading_confirmed',
   'in_transit',
   'reached_delivery_point',
   'delivered',
@@ -69,15 +90,33 @@ export const LOAD_STATUSES = [
 ] as const;
 export type LoadStatus = (typeof LOAD_STATUSES)[number];
 
-/** Trips Home-page tab boundary — a delivered-but-unsettled market load already reads as
- *  "no longer active" rather than "done", so 'delivered' groups with 'closed'. Both derive from
- *  LOAD_STATUSES by filtering, so they can't drift out of sync with the canonical order above. */
-export const COMPLETED_LOAD_STATUSES: readonly LoadStatus[] = ['delivered', 'closed'];
+/** Trips Home-page tab boundary — 'delivered' is deliberately NOT completed: a load only counts
+ *  as done once staff has accepted its E-POD (and, for market loads, both advance and balance are
+ *  paid) and LoadService.closeLoad has actually flipped it to 'closed' — see load.entity.ts's doc
+ *  comment. A delivered-but-not-yet-accepted load reads as active/open, same as a load still
+ *  in-transit, so it stays visible until someone actually reviews it. Derives from LOAD_STATUSES
+ *  by filtering, so it can't drift out of sync with the canonical order above. */
+export const COMPLETED_LOAD_STATUSES: readonly LoadStatus[] = ['closed'];
 export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
   (status) => !COMPLETED_LOAD_STATUSES.includes(status),
 );
-export const LOAD_STATUS_GROUPS = ['active', 'completed'] as const;
+/** Driver-app "Open Trips" tab — every status except 'closed', i.e. active loads plus a
+ *  'delivered' load still awaiting/failing E-POD review. Named separately from
+ *  ACTIVE_LOAD_STATUSES (even though the two sets are equal today) since they serve different
+ *  audiences — staff's Active tab vs. the driver's Open Trips tab — and may diverge later. */
+export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
+  (status) => status !== 'closed',
+);
+/** Driver-app "Upcoming" tab — assigned to the driver but not yet moving. */
+export const UPCOMING_LOAD_STATUSES: readonly LoadStatus[] = ['created', 'assigned'];
+export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
+export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
+  active: ACTIVE_LOAD_STATUSES,
+  completed: COMPLETED_LOAD_STATUSES,
+  open: OPEN_LOAD_STATUSES,
+  upcoming: UPCOMING_LOAD_STATUSES,
+};
 
 /**
  * Plan Dispatch v2.0 §11/R-38 — each sourcing strategy has its own customer/dispatcher-facing
@@ -110,19 +149,19 @@ export const MARKET_LIFECYCLE_STATUSES: readonly LoadStatus[] = [
  *  equivalent (R-17: "Own-fleet movements carry no freight, advance or balance"). */
 export const PAYMENTS_STAGE = 'payments' as const;
 
-/** Doc-exact wording (Plan Dispatch v2.0 §11) for the stage a load is currently "at". Rows for
+/** Catalog keys for the doc-exact wording (Plan Dispatch v2.0 §11, English text in catalog/en.ts) for the stage a load is currently "at". Rows for
  *  loading_confirmed/at_plant/closed intentionally repeat their collapsed target's label — see
  *  utils/trip-view.ts's resolveLifecycleStage, the only place that does the collapsing. */
-export const LIFECYCLE_STAGE_LABELS: Record<LoadStatus | typeof PAYMENTS_STAGE, string> = {
-  created: 'Load created',
-  assigned: 'Truck assigned',
-  loading_confirmed: 'Truck assigned',
-  at_plant: 'Truck assigned',
-  in_transit: 'In-transit',
-  reached_delivery_point: 'Reached unloading point',
-  delivered: 'Delivered',
-  closed: 'Delivered',
-  payments: 'Payments',
+export const LIFECYCLE_STAGE_LABEL_KEYS: Record<LoadStatus | typeof PAYMENTS_STAGE, MessageKey> = {
+  created: 'loads.stage.created',
+  assigned: 'loads.stage.assigned',
+  loading_confirmed: 'loads.stage.assigned',
+  at_plant: 'loads.stage.assigned',
+  in_transit: 'loads.stage.inTransit',
+  reached_delivery_point: 'loads.stage.reachedDelivery',
+  delivered: 'loads.stage.delivered',
+  closed: 'loads.stage.delivered',
+  payments: 'loads.stage.payments',
 };
 
 /** The subset of LOAD_STATUSES settable via PATCH /loads/:id/status (manual tracking —
@@ -141,6 +180,7 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'DOCUMENT_UPLOADED',
   'PAYMENT_RECORDED',
   'ISSUE_REPORTED',
+  'POD_REVIEWED',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
 

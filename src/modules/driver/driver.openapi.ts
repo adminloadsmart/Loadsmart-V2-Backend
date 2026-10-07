@@ -111,6 +111,29 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  // --- Driver account linking (multi-tenant) ---
+  // A driver profile is global (masters.drivers has no tenantId) and can be linked, with mutual
+  // approval, to more than one tenant at once — see driver-tenant-relation.entity.ts. These two
+  // endpoints are the tenant-side half of that workflow; the driver-side half (accept/reject an
+  // invite, request to join a tenant) lives under TAGS.DRIVER_AUTH's /relations/* — see
+  // driver-auth.openapi.ts.
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/join-requests`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listDriverJoinRequests',
+    ...authenticated(
+      'List driver-initiated join requests awaiting this tenant’s approval (status ' +
+        '`pending_staff_review`, initiatedBy `driver`) — distinct from dispatch-added drivers ' +
+        'awaiting approval, which surface via GET /drivers?status=pending_staff_review instead. ' +
+        'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above.',
+    ),
+    responses: {
+      200: { description: 'Pending join requests' },
+    },
+  });
+
   // --- Driver documents ---
 
   registry.registerPath({
@@ -267,6 +290,26 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     request: { body: json(driverValidators.verifyDriverDl.shape.body) },
     responses: {
       200: { description: 'verified (with registry fields when available)' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/verify-bank-account`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyDriverBankAccount',
+    ...write(
+      'Check a bank account number + IFSC against IDfy (penny-less first, then penny drop) ' +
+        'before the bank details exist. Submits an async IDfy task and polls for the result ' +
+        'before responding. Returns verificationStatus verified | rejected | pending (pending = ' +
+        'no verdict: IDfy unconfigured/out of credits/timed out). Nothing is saved — adding the ' +
+        'bank details (POST /drivers/onboard or /drivers/{driverId}/bank-details) re-runs the ' +
+        'check server-side and stores that result.',
+    ),
+    request: { body: json(driverValidators.verifyDriverBankAccount.shape.body) },
+    responses: {
+      200: { description: '{ verificationStatus, nameAtBank?, sourceReference?, rawResponse? }' },
       400: { description: 'Validation failed', ...errorContent },
     },
   });

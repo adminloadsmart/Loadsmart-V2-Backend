@@ -23,8 +23,11 @@ export class DriverDocumentEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string;
+  // Nullable — the "originating tenant" at upload time, not an authorization key (documents are
+  // person-level and visible to every tenant linked to this driver). Null for a document uploaded
+  // during self-registration, before any tenant relation exists.
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId!: string | null;
 
   @Column({ name: 'driver_id', type: 'uuid' })
   driverId!: string;

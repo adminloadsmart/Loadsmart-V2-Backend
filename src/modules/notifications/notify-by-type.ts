@@ -9,6 +9,7 @@ import { NotificationPreferencesRepository } from './notification-preferences.re
 import { rethrow } from '../../shared/errors';
 import { redisManager } from '../../db/redis';
 import { NotificationTriggers } from './notification-triggers';
+import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 
 export interface NotifyByTypeDeps {
   notificationsService: NotificationsService;
@@ -35,6 +36,7 @@ export interface NotifyByType {
     type: K,
     tenantId: string,
     context: C[K] extends NotificationTypeDefinition<infer TContext> ? TContext : never,
+    locale?: Locale,
   ): Promise<void>;
 }
 
@@ -68,6 +70,7 @@ async function notifyByTypeImpl(
   type: string,
   tenantId: string,
   context: unknown,
+  locale: Locale = DEFAULT_LOCALE,
 ): Promise<void> {
   const definition = catalog[type];
   try {
@@ -161,10 +164,11 @@ async function notifyByTypeImpl(
           } as never);
           return;
         }
-        const { title, body, metadata } = definition.buildContent(context, {
-          id: recipient.id,
-          fullName: recipient.fullName,
-        });
+        const { title, body, metadata } = definition.buildContent(
+          context,
+          { id: recipient.id, fullName: recipient.fullName },
+          locale,
+        );
         const channels: NotificationChannelName[] = [];
         const destinations: NotificationDestinations = {};
 
@@ -266,6 +270,7 @@ export function createNotifyByType(deps: NotifyByTypeDeps): NotifyByType {
     type: string,
     tenantId: string,
     context: unknown,
-  ): Promise<void> => notifyByTypeImpl(deps, catalog, type, tenantId, context);
+    locale?: Locale,
+  ): Promise<void> => notifyByTypeImpl(deps, catalog, type, tenantId, context, locale);
   return notifyByType as NotifyByType;
 }

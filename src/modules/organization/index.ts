@@ -11,6 +11,14 @@ import { ReferralCodeService } from './referral-code.service';
 import { OrganizationController } from './organization.controller';
 import { createOrganizationOnboardingRoutes as buildOnboardingRouter } from './organization.routes';
 import { AuthService } from '../auth/auth.service';
+import { AuditService } from '../audit/audit.service';
+import { IdfyClient } from '../../adapters/idfy.client';
+import { createJobQueue } from '../../jobs/queue-registry';
+import {
+  DOCUMENT_VERIFICATION_QUEUE,
+  OrganizationDocumentVerificationService,
+} from './organization-document-verification.service';
+import { createOrganizationDocumentVerificationWorker } from './workers/organization-document-verification.worker';
 
 // Owns the organization/organization-document/referral-code schema end to end: entities,
 // repositories, services, and (see createOrganizationOnboardingRoutes below) the onboarding HTTP
@@ -19,7 +27,10 @@ import { AuthService } from '../auth/auth.service';
 // from composition-root.ts once auth.service exists (the onboarding endpoints delegate their
 // orchestration to AuthService, since creating/submitting an org also mutates the caller's own
 // session — tenantId + token pair on first-time creation).
-export function createOrganizationModule(dataSource: DataSource) {
+export function createOrganizationModule(
+  dataSource: DataSource,
+  deps: { auditService: AuditService },
+) {
   const organizationRepository = new OrganizationRepository(dataSource);
   const organizationService = new OrganizationService(organizationRepository);
 
@@ -44,9 +55,24 @@ export function createOrganizationModule(dataSource: DataSource) {
   const referralCodeRepository = new ReferralCodeRepository(dataSource);
   const referralCodeService = new ReferralCodeService(referralCodeRepository);
 
+  // Auto-verifies GST/Udyam/CIN documents via IDfy in the background (BullMQ, in-process worker).
+  const documentVerificationService = new OrganizationDocumentVerificationService(
+    organizationDocumentService,
+    organizationService,
+    organizationJourneyStageService,
+    deps.auditService,
+    new IdfyClient(),
+    createJobQueue(DOCUMENT_VERIFICATION_QUEUE),
+  );
+  const documentVerificationWorker = createOrganizationDocumentVerificationWorker(
+    documentVerificationService,
+  );
+
   return {
     organizationService,
     organizationDocumentService,
+    documentVerificationService,
+    documentVerificationWorker,
     organizationOnboardingService,
     organizationJourneyStageService,
     referralCodeService,

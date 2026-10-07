@@ -18,8 +18,10 @@ export class DriverBankDetailsEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string;
+  // Nullable — see driver-document.entity.ts's tenantId comment; same "originating tenant, not an
+  // authorization key" treatment, null for bank details captured during self-registration.
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId!: string | null;
 
   @Column({ name: 'driver_id', type: 'uuid' })
   driverId!: string;
@@ -44,6 +46,9 @@ export class DriverBankDetailsEntity {
   })
   accountHolderName!: string | null;
 
+  @Column({ name: 'upi_id', type: 'varchar', length: 50, nullable: true })
+  upiId!: string | null;
+
   @Column({
     name: 'verification_status',
     type: 'enum',
@@ -54,6 +59,18 @@ export class DriverBankDetailsEntity {
 
   @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt!: Date | null;
+
+  // IDfy request_id of the in-flight/last bank-account check — lets the worker resume polling
+  // across retries instead of resubmitting (and re-paying for) the task.
+  @Column({ name: 'source_reference', type: 'varchar', length: 100, nullable: true })
+  sourceReference!: string | null;
+
+  // The account holder's name as the bank returned it — not the user-entered accountHolderName.
+  @Column({ name: 'name_at_bank', type: 'varchar', length: 150, nullable: true })
+  nameAtBank!: string | null;
+
+  @Column({ name: 'raw_response', type: 'jsonb', nullable: true })
+  rawResponse!: Record<string, unknown> | null;
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;

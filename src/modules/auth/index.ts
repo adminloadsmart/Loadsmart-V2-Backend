@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { RoleService } from '../roles/role.service';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -25,6 +26,7 @@ export function createAuthModule(
     // producer/consumer integration between independently-owned domains).
     organizationService: OrganizationService;
     organizationDocumentService: OrganizationDocumentService;
+    documentVerificationService: OrganizationDocumentVerificationService;
     organizationOnboardingService: OrganizationOnboardingService;
     organizationJourneyStageService: OrganizationJourneyStageService;
     referralCodeService: ReferralCodeService;
@@ -39,6 +41,7 @@ export function createAuthModule(
     repository,
     deps.organizationService,
     deps.organizationDocumentService,
+    deps.documentVerificationService,
     deps.organizationOnboardingService,
     deps.organizationJourneyStageService,
     deps.storageService,

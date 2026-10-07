@@ -5,22 +5,43 @@ import { humanizeStatus } from '../../../shared/utils/humanize';
 import { FleetDriverLinkEntity } from './entities/fleet-driver-link.entity';
 import { FleetDriverLinkRepository } from './fleet-driver-link.repository';
 import { VehicleRepository } from '../vehicle/vehicle.repository';
-import { DriverRepository } from '../../driver/driver.repository';
+import { DriverTenantRelationRepository } from '../../driver/driver-tenant-relation.repository';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { LinkDriverInput } from './fleet-driver-link.interface';
 
 /**
- * Depends on the vehicle/driver repositories rather than their services: VehicleService.onboardVehicle
- * calls into this service to link a driver inside the same transaction (see its `driverLink` handling),
- * so this can't depend back on VehicleService without a constructor cycle. The existence checks below
- * are the same ones VehicleService/DriverService would otherwise have done on our behalf.
+ * Depends on the vehicle/driver-relation repositories rather than their services:
+ * VehicleService.onboardVehicle calls into this service to link a driver inside the same
+ * transaction (see its `driverLink` handling), so this can't depend back on VehicleService without
+ * a constructor cycle. The existence checks below are the same ones VehicleService/DriverService
+ * would otherwise have done on our behalf. A vehicle assignment is scoped to one tenant's
+ * relationship with a driver, so it resolves the driver_tenant_relations row, not the global
+ * driver profile, and requires that relation to be `active`.
  */
 export class FleetDriverLinkService {
   constructor(
     private readonly linkRepository: FleetDriverLinkRepository,
     private readonly vehicleRepository: VehicleRepository,
-    private readonly driverRepository: DriverRepository,
+    private readonly driverTenantRelationRepository: DriverTenantRelationRepository,
     private readonly dataSource: DataSource,
   ) {}
+
+  private async assertActiveRelation(
+    tenantId: string,
+    driverId: string,
+  ): Promise<DriverTenantRelationEntity> {
+    const relation = await this.driverTenantRelationRepository.findByTenantAndDriver(
+      tenantId,
+      driverId,
+    );
+    if (!relation) throw new NotFoundError(`Driver ${driverId} not found`);
+    if (relation.status !== 'active') {
+      throw new ValidationError(
+        `Driver is ${humanizeStatus(relation.status)} for this tenant and cannot be assigned to a vehicle`,
+      );
+    }
+    return relation;
+  }
 
   /**
    * Pass `outerManager` to run inside a caller's transaction (e.g. vehicle onboarding), so the link
@@ -37,14 +58,7 @@ export class FleetDriverLinkService {
       const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, outerManager);
       if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
 
-      const driver = await this.driverRepository.findById(tenantId, input.driverId, outerManager);
-      if (!driver) throw new NotFoundError(`Driver ${input.driverId} not found`);
-
-      if (driver.status !== 'active') {
-        throw new ValidationError(
-          `Driver ${driver.fullName} is ${humanizeStatus(driver.status)} and cannot be assigned to a vehicle`,
-        );
-      }
+      const relation = await this.assertActiveRelation(tenantId, input.driverId);
 
       const existing = await this.linkRepository.findActiveLink(
         tenantId,
@@ -76,6 +90,7 @@ export class FleetDriverLinkService {
             tenantId,
             vehicleId,
             driverId: input.driverId,
+            driverTenantRelationId: relation.id,
             isPrimary,
             linkedFrom,
             createdBy: actorId,
@@ -108,14 +123,7 @@ export class FleetDriverLinkService {
       const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, outerManager);
       if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
 
-      const driver = await this.driverRepository.findById(tenantId, driverId, outerManager);
-      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
-
-      if (driver.status !== 'active') {
-        throw new ValidationError(
-          `Driver ${driver.fullName} is ${humanizeStatus(driver.status)} and cannot be assigned to a vehicle`,
-        );
-      }
+      const relation = await this.assertActiveRelation(tenantId, driverId);
 
       const run = async (manager: EntityManager) => {
         const currentPrimary = await this.linkRepository.findActivePrimaryLink(
@@ -165,6 +173,7 @@ export class FleetDriverLinkService {
             tenantId,
             vehicleId,
             driverId,
+            driverTenantRelationId: relation.id,
             isPrimary: true,
             linkedFrom: toDateString(new Date()),
             createdBy: actorId,
@@ -191,8 +200,11 @@ export class FleetDriverLinkService {
 
   async listDriverLinks(tenantId: string, driverId: string): Promise<FleetDriverLinkEntity[]> {
     try {
-      const driver = await this.driverRepository.findById(tenantId, driverId);
-      if (!driver) throw new NotFoundError(`Driver ${driverId} not found`);
+      const relation = await this.driverTenantRelationRepository.findByTenantAndDriver(
+        tenantId,
+        driverId,
+      );
+      if (!relation) throw new NotFoundError(`Driver ${driverId} not found`);
       return await this.linkRepository.listByDriver(tenantId, driverId);
     } catch (error) {
       rethrow(error, 'Failed to list driver links');

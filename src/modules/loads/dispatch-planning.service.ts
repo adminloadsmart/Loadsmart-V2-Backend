@@ -2,7 +2,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
-import { DriverAuthService } from '../driver/driver-auth.service';
+import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VehicleService, resolveDocumentStatus } from '../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/vehicle/vehicle.type';

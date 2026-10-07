@@ -180,6 +180,83 @@ export class NotificationRepository {
     });
   }
 
+  /**
+   * Driver-facing counterpart to listByRecipient — no tenantId filter. A driver's inbox spans
+   * every tenant relation they've ever had (active, pending, or rejected), not one tenant at a
+   * time the way staff's own inbox is scoped, so recipientUserId alone is the whole query scope
+   * (safe: a caller only ever fetches their own id, enforced by the controller reading it off
+   * their own token, never a client-supplied id). `typePrefix` backs the Jobs/Documents/
+   * Settlements filter tabs — a plain `type ILIKE 'driver.<category>.%'` convention, not a
+   * separate column, so no schema change was needed to add categories.
+   */
+  async listByRecipientAcrossTenants(
+    recipientUserId: string,
+    input: ListNotificationsInput & { typePrefix?: string },
+  ): Promise<[NotificationEntity[], number]> {
+    const qb = this.repo
+      .createQueryBuilder('notification')
+      .where('notification.recipient_user_id = :recipientUserId', { recipientUserId });
+
+    if (input.unreadOnly) {
+      qb.andWhere('notification.read_at IS NULL');
+    }
+    if (input.typePrefix) {
+      qb.andWhere('notification.type ILIKE :typePrefix', { typePrefix: `${input.typePrefix}%` });
+    }
+
+    return qb
+      .orderBy('notification.created_at', 'DESC')
+      .skip((input.page - 1) * input.limit)
+      .take(input.limit)
+      .getManyAndCount();
+  }
+
+  /** Driver-facing counterpart to findByIdForRecipient — no tenantId filter, same reasoning as
+   *  listByRecipientAcrossTenants above. */
+  findByIdForRecipientAcrossTenants(
+    recipientUserId: string,
+    id: string,
+  ): Promise<NotificationEntity | null> {
+    return this.repo.findOneBy({ id, recipientUserId });
+  }
+
+  /** Driver-facing counterpart to markRead — no tenantId filter. Idempotent, same as markRead. */
+  async markReadAcrossTenants(
+    recipientUserId: string,
+    id: string,
+  ): Promise<NotificationEntity | null> {
+    const notification = await this.findByIdForRecipientAcrossTenants(recipientUserId, id);
+    if (!notification) return null;
+    if (!notification.readAt) {
+      notification.readAt = new Date();
+      await this.repo.save(notification);
+    }
+    return notification;
+  }
+
+  /** Bulk mark-all-read — backs the Notifications screen's "Mark all read" action. Returns the
+   *  number of rows actually flipped (already-read rows are left untouched, not re-stamped). */
+  async markAllReadAcrossTenants(recipientUserId: string): Promise<number> {
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(NotificationEntity)
+      .set({ readAt: new Date() })
+      .where('recipient_user_id = :recipientUserId', { recipientUserId })
+      .andWhere('read_at IS NULL')
+      .execute();
+    return result.affected ?? 0;
+  }
+
+  /** Backs the Notifications screen's "Unread (N)" tab and the Home screen's bell badge — uses
+   *  the existing notifications_recipient_unread_idx partial index. */
+  countUnreadAcrossTenants(recipientUserId: string): Promise<number> {
+    return this.repo
+      .createQueryBuilder('notification')
+      .where('notification.recipient_user_id = :recipientUserId', { recipientUserId })
+      .andWhere('notification.read_at IS NULL')
+      .getCount();
+  }
+
   findDeliveriesByNotificationId(notificationId: string): Promise<NotificationDeliveryEntity[]> {
     return this.deliveryRepo.find({ where: { notificationId } });
   }

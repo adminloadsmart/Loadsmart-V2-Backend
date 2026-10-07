@@ -2,6 +2,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { toDateString } from '../../../shared/utils/date';
+import { toIstDateString } from '../../../shared/utils/ist-time';
 import { AuditService } from '../../audit/audit.service';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleServiceUsageEntity } from './entities/vehicle-service-usage.entity';
@@ -10,11 +11,14 @@ import { VehicleOperationalStatusEntity } from './entities/vehicle-operational-s
 import { VehicleTelemetryMetaEntity } from './entities/vehicle-telemetry-meta.entity';
 import { VehicleVerificationSnapshotEntity } from './entities/vehicle-verification-snapshot.entity';
 import {
+  AXLE_TYPE_WHEEL_COUNTS,
   VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY,
   VehicleDocumentStatus,
   VehicleDocumentType,
 } from './vehicle.type';
+import { TyreSetupGateway } from './gateways/tyre-setup.gateway';
 import { VehicleRepository } from './vehicle.repository';
+import { buildVehicleWorkbook, VEHICLE_EXPORT_MAX_ROWS } from './vehicle-export.mapper';
 import { TruckTypeService } from '../truck-type/truck-type.service';
 import { FleetDriverLinkService } from '../fleet-driver-link/fleet-driver-link.service';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
@@ -23,16 +27,22 @@ import { MasterApprovalNotifier } from '../../notifications/master-approvals';
 import {
   AddVehicleDocumentInput,
   CreateVehicleInput,
+  ExportVehiclesFilters,
   ListComplianceAlertsInput,
   ListVehiclesInput,
+  OnboardVehicleCostInput,
+  OnboardVehicleGpsInput,
   OnboardVehicleInput,
   RecordVehicleVerificationInput,
   SetVehicleOperationalStatusInput,
   SetVehicleServiceUsageInput,
   SetVehicleTelemetryMetaInput,
+  TruckTypePickInput,
   UpdateVehicleDocumentInput,
   UpdateVehicleInput,
+  VehicleTyreSummary,
   VehicleVerificationPapersInput,
+  VehicleWithTyres,
 } from './vehicle.interface';
 
 /** Derives the document's lifecycle state from its expiry date; undated documents stay `valid`. */
@@ -48,6 +58,58 @@ export function resolveDocumentStatus(expiryDate: string | null): VehicleDocumen
   return 'valid';
 }
 
+/** Adds whole months to a YYYY-MM-DD date, clamping to the target month's last day. */
+function addMonths(date: string, months: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return toDateString(target);
+}
+
+/**
+ * Folds the Add Truck drawer's "Truck cost" and "GPS" blocks (and the old form's `telemetry`
+ * block, still accepted) into the one telemetry-meta row. "Months left" on the loan becomes an
+ * EMI end date counted from today. Unless sent outright, the monthly fixed cost maintenance's
+ * downtime figure reads is derived: lease rent for an attached truck, else EMI + premium / 12.
+ */
+function buildTelemetryInput(
+  telemetry: SetVehicleTelemetryMetaInput | undefined,
+  cost: OnboardVehicleCostInput | undefined,
+  gps: OnboardVehicleGpsInput | undefined,
+): SetVehicleTelemetryMetaInput | null {
+  if (!telemetry && !cost && !gps) return null;
+
+  const merged: SetVehicleTelemetryMetaInput = { ...telemetry };
+
+  if (gps) {
+    merged.hasGps = gps.hasGps;
+    if (gps.provider !== undefined) merged.gpsProvider = gps.provider;
+    if (gps.deviceImei !== undefined) merged.gpsDeviceImei = gps.deviceImei;
+  }
+
+  if (cost) {
+    const { emiMonthsLeft, ...costFields } = cost;
+    Object.assign(merged, costFields);
+    if (emiMonthsLeft !== undefined) {
+      merged.emiEndDate = addMonths(toIstDateString(new Date()), emiMonthsLeft);
+    }
+
+    if (merged.fixedCostMonthly === undefined) {
+      if (cost.leaseRentMonthly !== undefined) {
+        merged.fixedCostMonthly = cost.leaseRentMonthly;
+      } else if (cost.emiAmount !== undefined || cost.insurancePremiumYearly !== undefined) {
+        merged.fixedCostMonthly =
+          Math.round(((cost.emiAmount ?? 0) + (cost.insurancePremiumYearly ?? 0) / 12) * 100) / 100;
+      }
+    }
+  }
+
+  return merged;
+}
+
 export class VehicleService {
   constructor(
     private readonly vehicleRepository: VehicleRepository,
@@ -60,6 +122,14 @@ export class VehicleService {
     private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
 
+  private tyreSetupGateway: TyreSetupGateway | null = null;
+
+  /** Maintenance is built after masters (it depends on this service), so its tyre gateway is
+   *  handed in afterwards by composition-root.ts rather than through the constructor. */
+  setTyreSetupGateway(gateway: TyreSetupGateway): void {
+    this.tyreSetupGateway = gateway;
+  }
+
   /**
    * Only called internally, by onboardVehicle — there is no standalone create-vehicle route.
    * org_admin's own vehicle lands `active` immediately; dispatch's (the only other role
@@ -70,11 +140,12 @@ export class VehicleService {
     tenantId: string,
     actorId: string,
     actorRole: string,
-    input: CreateVehicleInput,
+    input: CreateVehicleInput & { truckType?: TruckTypePickInput },
     manager?: EntityManager,
   ): Promise<VehicleEntity> {
     try {
       const registrationNumber = input.registrationNumber.toUpperCase();
+      const { truckType: pick, ...fields } = input;
 
       const existing = await this.vehicleRepository.findByRegistrationNumber(
         tenantId,
@@ -86,8 +157,28 @@ export class VehicleService {
         );
       }
 
-      if (input.truckTypeId) {
-        await this.truckTypeService.assertTruckTypeExists(tenantId, input.truckTypeId);
+      // The drawer's picker resolves to a tenant truck type (created on first use) and also sets
+      // the vehicle's own body/wheels/capacity/length, overriding any sent separately.
+      if (pick) {
+        const truckType = await this.truckTypeService.findOrCreateFromPicker(
+          tenantId,
+          actorId,
+          {
+            body: pick.body,
+            wheel: pick.wheelCount ?? pick.axleType!,
+            capacityTons: pick.capacityTons,
+            bodyLengthFt: pick.bodyLengthFt,
+          },
+          manager,
+        );
+        fields.truckTypeId = truckType.id;
+        fields.bodyType = pick.body;
+        fields.wheelCount = pick.wheelCount ?? AXLE_TYPE_WHEEL_COUNTS[pick.axleType!];
+        fields.axleType = pick.axleType;
+        fields.capacityTons = pick.capacityTons;
+        fields.bodyLengthFt = pick.bodyLengthFt;
+      } else if (fields.truckTypeId) {
+        await this.truckTypeService.assertTruckTypeExists(tenantId, fields.truckTypeId);
       }
 
       const autoApproved = actorRole === ORG_ADMIN_ROLE;
@@ -96,13 +187,20 @@ export class VehicleService {
         {
           tenantId,
           registrationNumber,
-          truckTypeId: input.truckTypeId ?? null,
-          fuelType: input.fuelType ?? null,
-          bodyType: input.bodyType ?? null,
-          makeModel: input.makeModel ?? null,
-          wheelCount: input.wheelCount ?? null,
-          capacityTons: input.capacityTons === undefined ? null : String(input.capacityTons),
-          ownershipType: input.ownershipType ?? 'owned',
+          truckTypeId: fields.truckTypeId ?? null,
+          fuelType: fields.fuelType ?? null,
+          bodyType: fields.bodyType ?? null,
+          makeModel: fields.makeModel ?? null,
+          wheelCount: fields.wheelCount ?? null,
+          capacityTons: fields.capacityTons === undefined ? null : String(fields.capacityTons),
+          ownershipType: fields.ownershipType ?? 'owned',
+          axleType: fields.axleType ?? null,
+          bodyLengthFt: fields.bodyLengthFt ?? null,
+          grossVehicleWeightKg: fields.grossVehicleWeightKg ?? null,
+          unladenWeightKg: fields.unladenWeightKg ?? null,
+          emissionNorm: fields.emissionNorm ?? null,
+          vahanBodyType: fields.vahanBodyType ?? null,
+          financierName: fields.financierName ?? null,
           status: autoApproved ? 'active' : 'pending',
           approvedBy: autoApproved ? actorId : null,
           approvedAt: autoApproved ? new Date() : null,
@@ -124,6 +222,20 @@ export class VehicleService {
       return paginate(items, total, input);
     } catch (error) {
       rethrow(error, 'Failed to list vehicles');
+    }
+  }
+
+  /** Every vehicle matching the fleet-list filters as an .xlsx, in the vehicle import's column layout. */
+  async exportVehicles(tenantId: string, filters: ExportVehiclesFilters): Promise<Buffer> {
+    try {
+      const vehicles = await this.vehicleRepository.listForExport(
+        tenantId,
+        filters,
+        VEHICLE_EXPORT_MAX_ROWS,
+      );
+      return await buildVehicleWorkbook(vehicles);
+    } catch (error) {
+      rethrow(error, 'Failed to export vehicles');
     }
   }
 
@@ -158,6 +270,44 @@ export class VehicleService {
     }
   }
 
+  /** `listVehicles` plus each row's fitted tyres — the fleet list's response. Kept separate from
+   *  listVehicles, which other modules (dispatch, dashboards) call and don't need tyres from. */
+  async listVehiclesWithTyres(
+    tenantId: string,
+    input: ListVehiclesInput,
+  ): Promise<Paginated<VehicleWithTyres>> {
+    try {
+      const page = await this.listVehicles(tenantId, input);
+      const tyres = await this.fetchTyres(tenantId, page.items);
+      return { ...page, items: page.items.map((v) => ({ ...v, tyres: tyres.get(v.id) ?? [] })) };
+    } catch (error) {
+      rethrow(error, 'Failed to list vehicles');
+    }
+  }
+
+  /** `getVehicle` plus the vehicle's fitted tyres — the detail and onboarding response. */
+  async getVehicleWithTyres(tenantId: string, vehicleId: string): Promise<VehicleWithTyres> {
+    try {
+      const vehicle = await this.getVehicle(tenantId, vehicleId);
+      const tyres = await this.fetchTyres(tenantId, [vehicle]);
+      return { ...vehicle, tyres: tyres.get(vehicle.id) ?? [] };
+    } catch (error) {
+      rethrow(error, 'Failed to fetch vehicle');
+    }
+  }
+
+  // Not wired (e.g. a test container without maintenance) degrades to "no tyres" rather than failing a read.
+  private async fetchTyres(
+    tenantId: string,
+    vehicles: VehicleEntity[],
+  ): Promise<Map<string, VehicleTyreSummary[]>> {
+    if (!this.tyreSetupGateway || vehicles.length === 0) return new Map();
+    return this.tyreSetupGateway.listFittedForVehicles(
+      tenantId,
+      vehicles.map((v) => v.id),
+    );
+  }
+
   async getVehicle(tenantId: string, vehicleId: string): Promise<VehicleEntity> {
     try {
       const vehicle = await this.vehicleRepository.findByIdWithRelations(tenantId, vehicleId);
@@ -173,16 +323,26 @@ export class VehicleService {
     actorId: string,
     vehicleId: string,
     input: UpdateVehicleInput,
-  ): Promise<VehicleEntity> {
+  ): Promise<VehicleWithTyres> {
     try {
-      const { driverId, ...fields } = input;
+      const { driverId, tyres, ...fields } = input;
+
+      if (tyres && !this.tyreSetupGateway) {
+        throw new Error('Tyre setup is not wired — see composition-root.ts');
+      }
 
       if (fields.truckTypeId) {
         await this.truckTypeService.assertTruckTypeExists(tenantId, fields.truckTypeId);
       }
 
-      return await this.dataSource.transaction(async (manager) => {
+      const vehicle = await this.dataSource.transaction(async (manager) => {
         const existing = await this.assertVehicleExists(tenantId, vehicleId, manager);
+
+        if (tyres && (fields.ownershipType ?? existing.ownershipType) === 'attached') {
+          throw new ValidationError(
+            'An attached truck has no tyre tracking — its owner handles tyres',
+          );
+        }
 
         // A truck in the workshop is released only by closing its breakdown, which puts it back
         // in front of dispatch in the same action — a manual status edit here would bypass that.
@@ -222,10 +382,31 @@ export class VehicleService {
           );
         }
 
-        const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
-        if (!vehicle) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
-        return vehicle;
+        const updated = await this.vehicleRepository.findById(tenantId, vehicleId, manager);
+        if (!updated) throw new NotFoundError(`Vehicle ${vehicleId} not found`);
+
+        // After the field changes, so a wheel-count / truck-type change in the same PATCH sets
+        // the layout the tyres are checked against.
+        if (tyres) {
+          const usage = await this.vehicleRepository.findServiceUsage(tenantId, vehicleId, manager);
+          await this.tyreSetupGateway!.updateTyreSet(
+            tenantId,
+            actorId,
+            {
+              id: vehicleId,
+              wheelCount: updated.wheelCount,
+              odometerKm: usage?.odometerKm ?? null,
+            },
+            tyres,
+            manager,
+          );
+        }
+
+        return updated;
       });
+
+      const fittedTyres = await this.fetchTyres(tenantId, [vehicle]);
+      return { ...vehicle, tyres: fittedTyres.get(vehicle.id) ?? [] };
     } catch (error) {
       rethrow(error, 'Failed to update vehicle');
     }
@@ -428,9 +609,12 @@ export class VehicleService {
     try {
       await this.assertVehicleExists(tenantId, vehicleId, manager);
 
-      const emiAmount = input.emiAmount === undefined ? undefined : String(input.emiAmount);
-      const fixedCostMonthly =
-        input.fixedCostMonthly === undefined ? undefined : String(input.fixedCostMonthly);
+      const money = (value: number | undefined) =>
+        value === undefined ? undefined : String(value);
+      const emiAmount = money(input.emiAmount);
+      const fixedCostMonthly = money(input.fixedCostMonthly);
+      const insurancePremiumYearly = money(input.insurancePremiumYearly);
+      const leaseRentMonthly = money(input.leaseRentMonthly);
       const existing = await this.vehicleRepository.findTelemetryMeta(tenantId, vehicleId, manager);
 
       if (!existing) {
@@ -440,8 +624,15 @@ export class VehicleService {
             vehicleId,
             gpsProvider: input.gpsProvider ?? null,
             gpsEnabled: input.gpsEnabled ?? false,
+            hasGps: input.hasGps ?? null,
+            gpsDeviceImei: input.gpsDeviceImei ?? null,
             emiAmount: emiAmount ?? null,
             emiEndDate: input.emiEndDate ?? null,
+            insurancePremiumYearly: insurancePremiumYearly ?? null,
+            leaseRentMonthly: leaseRentMonthly ?? null,
+            leaseEndDate: input.leaseEndDate ?? null,
+            fuelPaidBy: input.fuelPaidBy ?? null,
+            tollPaidBy: input.tollPaidBy ?? null,
             fixedCostMonthly: fixedCostMonthly ?? null,
             createdBy: actorId,
           },
@@ -452,7 +643,14 @@ export class VehicleService {
       const meta = await this.vehicleRepository.updateTelemetryMeta(
         tenantId,
         vehicleId,
-        { ...input, emiAmount, fixedCostMonthly, updatedBy: actorId },
+        {
+          ...input,
+          emiAmount,
+          fixedCostMonthly,
+          insurancePremiumYearly,
+          leaseRentMonthly,
+          updatedBy: actorId,
+        },
         manager,
       );
       if (!meta) throw new NotFoundError(`Vehicle ${vehicleId} has no telemetry metadata yet`);
@@ -541,6 +739,8 @@ export class VehicleService {
             registeredName: input.registeredName ?? null,
             registeredOn: input.registeredOn ?? null,
             vehicleClass: input.vehicleClass ?? null,
+            registeringAuthority: input.registeringAuthority ?? null,
+            financierName: input.financierName ?? null,
             addressLine1: input.addressLine1 ?? null,
             addressLine2: input.addressLine2 ?? null,
             city: input.city ?? null,
@@ -608,6 +808,7 @@ export class VehicleService {
       ['permit', papers.permitValidTo],
       ['puc', papers.pucValidTo],
       ['fitness', papers.fitnessValidTo],
+      ['road_tax', papers.roadTaxValidTo],
     ];
 
     for (const [documentType, expiryDate] of byType) {
@@ -620,13 +821,14 @@ export class VehicleService {
         manager,
       );
       const status = resolveDocumentStatus(expiryDate);
+      const providerName = documentType === 'insurance' ? papers.insuranceProvider : undefined;
 
       if (existing) {
         await this.vehicleRepository.updateDocument(
           tenantId,
           vehicleId,
           existing.id,
-          { expiryDate, status, updatedBy: actorId },
+          { expiryDate, ...(providerName && { providerName }), status, updatedBy: actorId },
           manager,
         );
         continue;
@@ -638,6 +840,7 @@ export class VehicleService {
           vehicleId,
           documentType,
           documentNumber: null,
+          providerName: providerName ?? null,
           issueDate: null,
           expiryDate,
           fileUrl: null,
@@ -659,10 +862,13 @@ export class VehicleService {
     actorId: string,
     actorRole: string,
     input: OnboardVehicleInput,
-  ): Promise<VehicleEntity> {
+  ): Promise<VehicleWithTyres> {
     try {
       const {
         verification,
+        cost,
+        gps,
+        tyres,
         telemetry,
         serviceUsage,
         documents,
@@ -670,6 +876,10 @@ export class VehicleService {
         driverLink,
         ...vehicleInput
       } = input;
+
+      if (tyres && !this.tyreSetupGateway) {
+        throw new Error('Tyre setup is not wired — see composition-root.ts');
+      }
 
       const vehicleId = await this.dataSource.transaction(async (manager) => {
         const vehicle = await this.createVehicle(
@@ -716,6 +926,7 @@ export class VehicleService {
               vehicleId: vehicle.id,
               documentType: document.documentType,
               documentNumber: document.documentNumber ?? null,
+              providerName: document.providerName ?? null,
               issueDate: document.issueDate ?? null,
               expiryDate,
               fileUrl: document.fileUrl ?? null,
@@ -726,12 +937,28 @@ export class VehicleService {
           );
         }
 
-        if (telemetry) {
-          await this.setTelemetryMeta(tenantId, actorId, vehicle.id, telemetry, manager);
+        const telemetryInput = buildTelemetryInput(telemetry, cost, gps);
+        if (telemetryInput) {
+          await this.setTelemetryMeta(tenantId, actorId, vehicle.id, telemetryInput, manager);
         }
 
+        // Missing intervals are left null — maintenance falls back to its class defaults.
         if (serviceUsage) {
           await this.setServiceUsage(tenantId, actorId, vehicle.id, serviceUsage, manager);
+        }
+
+        if (tyres) {
+          await this.tyreSetupGateway!.fitInitialSet(
+            tenantId,
+            actorId,
+            {
+              id: vehicle.id,
+              wheelCount: vehicle.wheelCount,
+              odometerKm: serviceUsage?.odometerKm ?? null,
+            },
+            tyres,
+            manager,
+          );
         }
 
         await this.setOperationalStatus(
@@ -761,7 +988,7 @@ export class VehicleService {
         return vehicle.id;
       });
 
-      const vehicle = await this.getVehicle(tenantId, vehicleId);
+      const vehicle = await this.getVehicleWithTyres(tenantId, vehicleId);
       await this.approvalNotifier?.requested({
         kind: 'vehicle',
         tenantId,

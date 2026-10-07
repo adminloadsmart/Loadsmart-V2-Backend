@@ -56,10 +56,16 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks past their service interval by distance or months, whichever came first. `trigger` ' +
         'says which clock ran out (distance | time | both | no_record); only the triggered ' +
-        'overdueKm/overdueDays is set. Current state — not filtered by period. ' +
+        'overdueKm/overdueDays is set. With no service history the time clock counts from the ' +
+        'day the truck was added (`baseline: onboarded`), so new trucks are not due on day one. ' +
+        '`whatItNeeds` is the ready-made "What it needs" text; `vehicle.truckTypeName` is the ' +
+        'Class column. Current state — not filtered by period. ' +
         OWN_FLEET_NOTE,
     ),
-    responses: { 200: { description: 'Service-due queue — { items, total }' } },
+    request: { query: v.listQueue.shape.query },
+    responses: {
+      200: { description: 'Service-due queue — { items, page, limit, total, totalPages }' },
+    },
   });
 
   registry.registerPath({
@@ -70,11 +76,20 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks currently off the road (open breakdowns), oldest first, with where/when/towed, ' +
         'days down and market loads covering each. ' +
+        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle); lastService = { date, odometerKm } of the truck’s last ' +
+        'preventive service / oil change. `whatItNeeds.detail` is the reported problem; ' +
+        '`vehicle.truckTypeName` is the Class column. ' +
         COSTS_NOTE +
         ' ' +
         OWN_FLEET_NOTE,
     ),
-    responses: { 200: { description: 'Breakdowns queue — { items, total, marketLoadsCovering }' } },
+    request: { query: v.listQueue.shape.query },
+    responses: {
+      200: {
+        description:
+          'Breakdowns queue — { items, page, limit, total, totalPages, marketLoadsCovering }',
+      },
+    },
   });
 
   registry.registerPath({
@@ -115,12 +130,20 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Every truck in the workshop right now — service check-ins and breakdowns together, ' +
         'oldest first, with days in and market loads covering each. ' +
+        'odometerKm is the visit’s reading, else the truck’s last known one (`odometerSource`: job | vehicle); lastService = { date, odometerKm } of the truck’s last ' +
+        'preventive service / oil change. `workshopIntake` = ' +
+        '{ since, days, hours } for "In workshop since … (1d 2h)"; `vehicle.truckTypeName` is ' +
+        'the Class column. ' +
         COSTS_NOTE +
         ' ' +
         OWN_FLEET_NOTE,
     ),
+    request: { query: v.listQueue.shape.query },
     responses: {
-      200: { description: 'In the workshop — { items, total, brokenDown, inForService }' },
+      200: {
+        description:
+          'In the workshop — { items, page, limit, total, totalPages, brokenDown, inForService }',
+      },
     },
   });
 
@@ -132,10 +155,14 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Trucks with an expired RC/insurance/permit/PUC/fitness that are not in the workshop — ' +
         'the availability bar’s "Blocked on papers" bucket. Dispatch only warns on these ' +
-        '(dispatchEffect: warns_on_assign). ' +
+        '(dispatchEffect: warns_on_assign). `whatItNeeds.detail` names the expired papers; ' +
+        '`vehicle.truckTypeName` is the Class column. ' +
         OWN_FLEET_NOTE,
     ),
-    responses: { 200: { description: 'Blocked on papers — { items, total }' } },
+    request: { query: v.listQueue.shape.query },
+    responses: {
+      200: { description: 'Blocked on papers — { items, page, limit, total, totalPages }' },
+    },
   });
 
   registry.registerPath({
@@ -160,6 +187,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
       'One truck’s full maintenance history — every service, breakdown and tyre job it ever ' +
         'had (no period), newest first, optionally one jobType. Works for inactive/retired ' +
         'trucks too; 409 for an attached vehicle. ' +
+        'Each row: garage (workshopName), odometerKm, totalCost, daysTaken and whatWasDone ' +
+        '{ label, detail } (e.g. "Preventive service"). ' +
         COSTS_NOTE,
     ),
     request: {
@@ -182,6 +211,8 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Job history — every service, breakdown and tyre job opened in the period, newest first. ' +
         'Tyre jobs carry tyreAction (new_fitment | cold_retread) and tyrePositions. ' +
+        'Each row: garage (workshopName), odometerKm, totalCost, daysTaken and whatWasDone ' +
+        '{ label, detail } (e.g. "Preventive service"). ' +
         COSTS_NOTE,
     ),
     request: { query: v.listJobs.shape.query },
@@ -195,10 +226,13 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'maintenance.logService',
     ...permissionGated(
       [MAINTENANCE_MANAGE],
-      'Log a service — a finished service, dated today unless serviceDate is given. If the ' +
+      'Log a service — a finished service. serviceDate is when it finished (defaults to today) ' +
+        'and becomes the last service date for preventive_service / oil_change; optional ' +
+        'startDate (≤ serviceDate) is when the work started, so daysTaken shows the span. If the ' +
         'truck is in the workshop (checked in for service, or broken down), this finishes that ' +
         'visit: the job closes with these details and the truck returns to dispatch in the same ' +
-        'transaction (a breakdown closed this way is marked includesService). Otherwise a closed ' +
+        'transaction — its start is when it went in, so startDate is ignored (a breakdown closed ' +
+        'this way is marked includesService). Otherwise a closed ' +
         'service job is recorded and dispatch is untouched. Only preventive_service and ' +
         'oil_change move the service clock. `cost` is the single invoiced total; invoiceFileKey ' +
         'is a confirmed upload with purpose maintenance/invoice.',
@@ -379,9 +413,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         'comes off as replaced and a new one goes on. cold_retread: the fitted casing is ' +
         'remoulded (same serial, retreadCount + 1) — 409 if damaged or out of retreads; with no ' +
         'tyre on record at the position, the retreaded tyre is registered (retreadCount 1). All ' +
-        'positions or none; dispatch is untouched. positions are the modal’s own codes for ' +
-        'whatever it drew (e.g. FL, R1LO, R2RI) — stored as sent (upper-cased), one tyre each, ' +
-        'not checked against a fixed axle layout. action is kept on the job as tyreAction.',
+        'positions or none; dispatch is untouched. positions must be on the truck’s layout ' +
+        '(FL, FR, R1L, R1R, … from its wheel count — the `positions` of ' +
+        'GET /vehicles/{vehicleId}/tyres, same codes as the Add Truck tyre set); 400 otherwise. ' +
+        'action is kept on the job as tyreAction.',
     ),
     request: { body: json(v.recordTyreWork.shape.body) },
     responses: {
@@ -397,7 +432,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/tyres`,
     tags: [TAGS.MAINTENANCE],
     operationId: 'maintenance.fitTyre',
-    ...permissionGated([MAINTENANCE_MANAGE], 'Fit a tyre at a wheel position.'),
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Fit a tyre at a wheel position — one of the truck’s layout positions (FL, FR, R1L, …); 400 otherwise.',
+    ),
     request: { body: json(v.fitTyre.shape.body) },
     responses: { 201: { description: 'Tyre' }, 400: validationFailed, 409: conflict },
   });
@@ -413,6 +451,27 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
       body: json(v.recordTyreReading.shape.body),
     },
     responses: { 201: { description: 'Reading' }, 400: validationFailed, 404: notFound },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/tyres/{tyreId}`,
+    tags: [TAGS.MAINTENANCE],
+    operationId: 'maintenance.updateTyre',
+    ...permissionGated(
+      [MAINTENANCE_MANAGE],
+      'Correct one fitted tyre ("Save position"). treadMm is appended as a new reading (history ' +
+        'is kept, not overwritten) and must not exceed the original tread; brand, serialNumber, ' +
+        "sizeCode and fittedAt edit the tyre. fittedAt can't be in the future or after the tyre's " +
+        'first reading.',
+    ),
+    request: { params: v.updateTyre.shape.params, body: json(v.updateTyre.shape.body) },
+    responses: {
+      200: { description: 'Tyre' },
+      400: validationFailed,
+      404: notFound,
+      409: conflict,
+    },
   });
 
   registry.registerPath({

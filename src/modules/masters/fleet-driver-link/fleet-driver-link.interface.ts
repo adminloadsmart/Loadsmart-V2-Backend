@@ -14,6 +14,7 @@ export interface CreateFleetDriverLinkData {
   tenantId: string;
   vehicleId: string;
   driverId: string;
+  driverTenantRelationId: string;
   isPrimary: boolean;
   linkedFrom: string;
   createdBy: string | null;

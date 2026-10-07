@@ -22,7 +22,7 @@ import { LoadActivityService } from './load-activity.service';
 import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
-import { DriverAuthService } from '../driver/driver-auth.service';
+import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -65,6 +65,7 @@ export function createLoadsModule(
 
   const loadService = new LoadService(
     loadRepository,
+    deps.authService,
     loadPaymentRepository,
     loadIssueRepository,
     deps.transporterService,

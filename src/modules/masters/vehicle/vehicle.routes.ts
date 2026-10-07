@@ -3,10 +3,15 @@ import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
 import { VehicleController } from './vehicle.controller';
+import { VehicleImportController } from './vehicle-import.controller';
 import { vehicleValidators } from './vehicle.validators';
 
-export function createVehicleRoutes(controller: VehicleController): Router {
+export function createVehicleRoutes(
+  controller: VehicleController,
+  vehicleImportController: VehicleImportController,
+): Router {
   const router = Router();
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle — org_admin only (see db/seed-roles.ts).
@@ -19,6 +24,20 @@ export function createVehicleRoutes(controller: VehicleController): Router {
     canWrite,
     validate(vehicleValidators.onboardVehicle),
     asyncHandler(controller.onboardVehicle),
+  );
+  // Bulk .xlsx upload — one row per truck, same fields as onboard. Declared before
+  // '/vehicles/:vehicleId' for the same reason as '/vehicles/onboard'.
+  router.post(
+    '/vehicles/import',
+    canWrite,
+    mastersExcelUpload.single('file'),
+    requireMastersExcelFile,
+    asyncHandler(vehicleImportController.import),
+  );
+  router.get(
+    '/vehicles/export',
+    validate(vehicleValidators.exportVehicles),
+    asyncHandler(controller.exportVehicles),
   );
   router.get(
     '/vehicles',

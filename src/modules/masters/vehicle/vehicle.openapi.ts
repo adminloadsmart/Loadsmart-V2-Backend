@@ -28,8 +28,25 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     request: { query: vehicleValidators.listVehicles.shape.query },
     responses: {
       200: {
-        description: 'Paginated vehicles — { data: { items, page, limit, total, totalPages } }',
+        description:
+          'Paginated vehicles — { data: { items, page, limit, total, totalPages } }. ' +
+          'Each vehicle carries `tyres` — the tyres currently fitted (position, brand, serial, size, fitted date, retreads, casing, current/original tread mm, usableTreadLeftPct, nearLimit/atLegalLimit, treadEstimated); empty for attached trucks or when none are on record.',
       },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/vehicles/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportVehicles',
+    ...authenticated(
+      'Download the fleet as an Excel file (.xlsx), optionally filtered like the list. ' +
+        'Columns match the vehicle import, so the file can be edited and re-uploaded. Up to 5000 vehicles.',
+    ),
+    request: { query: vehicleValidators.exportVehicles.shape.query },
+    responses: {
+      200: { description: 'Excel file (.xlsx) attachment' },
     },
   });
 
@@ -39,7 +56,7 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicle',
     ...authenticated(
-      'Get a single vehicle, including its documents, linked drivers, and telemetry (EMI + GPS).',
+      'Get a single vehicle, including its documents, linked drivers, telemetry (EMI + GPS) and fitted `tyres` with their wear.',
     ),
     request: { params: vehicleValidators.getVehicle.shape.params },
     responses: {
@@ -56,16 +73,21 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     ...write(
       'Update one or more fields on a vehicle. Passing driverId re-links that driver as the ' +
         "vehicle's primary driver in the same request, ending whichever link previously held " +
-        'that slot.',
+        'that slot. `tyres` re-sets or corrects the fitted tyres in the same transaction: a ' +
+        '`preset` applies to every position, `positions` fix single ones (treadMm, fittedAt, ' +
+        'brand). A depth is appended as a new reading (estimated when it came from the preset); ' +
+        'an empty position gets a tyre fitted. Not allowed on an attached truck. The response ' +
+        'includes the fitted `tyres`.',
     ),
     request: {
       params: vehicleValidators.updateVehicle.shape.params,
       body: json(vehicleValidators.updateVehicle.shape.body),
     },
     responses: {
-      200: { description: 'Updated vehicle' },
+      200: { description: 'Updated vehicle, with its fitted tyres' },
       400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Vehicle not found', ...errorContent },
+      409: { description: 'Conflicting tyre change', ...errorContent },
     },
   });
 
@@ -180,6 +202,43 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  // --- Vehicle bulk import ---
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importVehiclesExcel',
+    ...write(
+      'Bulk upload vehicles from an Excel file, one row per truck with the same fields as onboardVehicle. ' +
+        'Each row is onboarded on its own, so a bad row never blocks the others.',
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB and 1000 rows.',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Import completed with a row-level result report' },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      403: { description: 'Not permitted to write masters', ...errorContent },
+    },
+  });
+
   // --- Vehicle onboarding ---
 
   registry.registerPath({
@@ -188,9 +247,15 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.onboardVehicle',
     ...write(
-      'Create a vehicle and every section of the "Add a vehicle" form in one transaction: ' +
-        'VAHAN verification (which folds registry expiry dates into the document rows), documents, ' +
-        'telemetry, service usage, operational status, and an optional driver link. When ' +
+      'Create a vehicle and every section of the "Add a truck" drawer in one transaction. Only ' +
+        'registrationNumber and a truck type are required: `truckType` from the picker (body → ' +
+        'wheelCount or axleType → capacityTons → bodyLengthFt; finds or creates the matching ' +
+        'tenant truck type) or an existing `truckTypeId`. Optional blocks: VAHAN verification ' +
+        '(folds registry expiry dates, incl. road tax and the insurer, into the document rows), ' +
+        '`cost` (EMI/months left/premium for owned or financed; lease rent, lease end and who pays ' +
+        'fuel/tolls for attached), `gps`, service usage, `tyres` (whole-set preset plus ' +
+        'per-position overrides — not for attached trucks), documents, operational status, and ' +
+        'an optional driver link. `telemetry` is deprecated in favour of `cost` and `gps`. When ' +
         'driverLink is given it is applied in the same transaction, so the vehicle and its driver ' +
         'link succeed or fail together; the link can also be made or changed later via ' +
         'POST /vehicles/{vehicleId}/drivers. Only org_admin and dispatch may call this at all — ' +
@@ -199,7 +264,10 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { body: json(vehicleValidators.onboardVehicle.shape.body) },
     responses: {
-      201: { description: 'Created vehicle, with relations loaded' },
+      201: {
+        description:
+          'Created vehicle, with relations loaded and the fitted `tyres` created from the `tyres` block (empty if none was sent)',
+      },
       400: { description: 'Validation failed', ...errorContent },
       409: { description: 'Registration number already in use', ...errorContent },
     },

@@ -38,6 +38,7 @@ export function createMaintenanceModule(
     storageGateway,
     auditService,
     notificationsGateway,
+    tyreRepository,
   );
   const tyreService = new TyreService(
     dataSource,
@@ -56,5 +57,5 @@ export function createMaintenanceModule(
     batteryService,
   );
   const router = createMaintenanceRoutes(controller);
-  return { service, router };
+  return { service, tyreService, router };
 }

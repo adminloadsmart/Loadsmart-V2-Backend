@@ -18,6 +18,7 @@ import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
 import { OrganizationOnboardingService } from '../organization/organization-onboarding.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { StorageService } from '../storage/storage.service';
@@ -38,6 +39,7 @@ import {
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
 import {
+  DISPATCH_ROLE,
   ORG_ADMIN_ROLE,
   STAFF_ASSIGNABLE_ROLES,
   ORG_ASSIGNABLE_ROLES,
@@ -102,6 +104,7 @@ export class AuthService {
     private readonly authRepository: AuthRepository,
     private readonly organizationService: OrganizationService,
     private readonly organizationDocumentService: OrganizationDocumentService,
+    private readonly documentVerificationService: OrganizationDocumentVerificationService,
     private readonly organizationOnboardingService: OrganizationOnboardingService,
     private readonly organizationJourneyStageService: OrganizationJourneyStageService,
     private readonly storageService: StorageService,
@@ -574,6 +577,24 @@ export class AuthService {
   // getUserById above, batched variant — for the loads module's audit-trail actor names.
   async getUsersByIds(userIds: string[]) {
     return this.authRepository.findByIds(userIds);
+  }
+
+  /** Contact numbers used by the driver trip-detail call actions. */
+  async getOrganizationContactPhones(tenantId: string): Promise<{
+    ownerPhoneNumber: string | null;
+    dispatchPhoneNumber: string | null;
+  }> {
+    const users = await this.authRepository.listUsersByRole(tenantId, [
+      ORG_ADMIN_ROLE,
+      DISPATCH_ROLE,
+    ]);
+
+    return {
+      ownerPhoneNumber:
+        users.find((user) => user.role.name === ORG_ADMIN_ROLE)?.phoneNumber ?? null,
+      dispatchPhoneNumber:
+        users.find((user) => user.role.name === DISPATCH_ROLE)?.phoneNumber ?? null,
+    };
   }
 
   // Called any time the client's FCM token changes independent of login (Firebase's own
@@ -1052,7 +1073,18 @@ export class AuthService {
       throw new ValidationError('Only one PDF file can be uploaded for the document');
     }
 
+    // The Verify click saves just the document number (no files, no photo) so the registry check
+    // can start before the photo is uploaded. Every other save — the final "Continue", which
+    // attaches the document files — must carry the shop-board premises photo, and submission
+    // enforces it again (OrganizationOnboardingService.assertShopboardPremisesPhotoPresent).
+    const isNumberOnlyVerification =
+      Boolean(input.documentNo) &&
+      files.documentFront.length === 0 &&
+      (files.documentFrontKeys?.length ?? 0) === 0 &&
+      !files.shopPremisesPhoto &&
+      !files.shopPremisesPhotoKey;
     if (
+      !isNumberOnlyVerification &&
       !files.shopPremisesPhoto &&
       !files.shopPremisesPhotoKey &&
       !current.shopboardPremisesPhotoKey
@@ -1124,7 +1156,8 @@ export class AuthService {
     const documentUrls = [...documentFrontKeys, ...uploadedDocumentKeys];
     const shopPremisesKey = shopPremisesPhoto?.key ?? shopPremisesPhotoKey;
 
-    return this.dataSource.transaction(async (manager) => {
+    let savedDocuments: Awaited<ReturnType<OrganizationDocumentService['upsertDocuments']>> = [];
+    const response = await this.dataSource.transaction(async (manager) => {
       if (input.replaceDocumentType && input.replaceDocumentType !== input.documentType) {
         await this.organizationDocumentService.removeActiveDocumentType(
           tenantId,
@@ -1165,6 +1198,7 @@ export class AuthService {
         ],
         manager,
       );
+      savedDocuments = documents;
 
       await this.auditService.log(
         {
@@ -1185,6 +1219,11 @@ export class AuthService {
 
       return this.organizationOnboardingService.buildOrganizationResponse(organization, documents);
     });
+
+    // After commit so the worker can see the rows; GST/Udyam/CIN are verified via IDfy in the
+    // background and flip to 'verified' on their own.
+    await this.documentVerificationService.enqueueVerification(savedDocuments);
+    return response;
   }
 
   async submitOrganization(user: AuthenticatedUser, input: SubmitOrganizationInput) {

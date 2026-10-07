@@ -31,6 +31,20 @@ export function createDriverRoutes(controller: DriverController): Router {
     asyncHandler(controller.verifyDriverDl),
   );
 
+  // Bank-account preflight — same shape/throttling as verify-dl; fans out to IDfy's paid check.
+  const verifyDriverBankRateLimit = createIpRateLimit({
+    keyPrefix: 'verify-bank-account',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
+  router.post(
+    '/drivers/verify-bank-account',
+    verifyDriverBankRateLimit,
+    canWrite,
+    validate(driverValidators.verifyDriverBankAccount),
+    asyncHandler(controller.verifyDriverBankAccount),
+  );
+
   // Backs the single "Save driver" button — whole form, one transaction.
   router.post(
     '/drivers/onboard',
@@ -43,6 +57,15 @@ export function createDriverRoutes(controller: DriverController): Router {
     validate(driverValidators.listDrivers),
     asyncHandler(controller.listDrivers),
   );
+
+  // Driver-initiated join requests awaiting this tenant's approval — approve/reject reuse the
+  // /drivers/:driverId/approve|reject endpoints below.
+  router.get(
+    '/drivers/join-requests',
+    validate(driverValidators.listJoinRequests),
+    asyncHandler(controller.listJoinRequests),
+  );
+
   router.get(
     '/drivers/:driverId',
     validate(driverValidators.getDriver),
@@ -61,8 +84,9 @@ export function createDriverRoutes(controller: DriverController): Router {
     asyncHandler(controller.deleteDriver),
   );
 
-  // Settings → Approvals. Only a `pending` driver (added by dispatch) can be approved/rejected —
-  // org_admin's own onboardDriver calls land `active` immediately and never need this.
+  // Settings → Approvals. Only a `pending_staff_review` relation (dispatch onboarding, or a
+  // driver's own join request) can be approved/rejected — org_admin's own onboardDriver calls
+  // land `active` immediately and never need this.
   router.patch(
     '/drivers/:driverId/approve',
     canApprove,

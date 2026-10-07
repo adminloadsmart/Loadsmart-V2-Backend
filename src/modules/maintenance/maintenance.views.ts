@@ -1,7 +1,10 @@
 import { MaintenanceJobEntity, ReplacedPart } from './entities/maintenance-job.entity';
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { dailyFixedCost, elapsedDays, jobDays, money } from './calculations/downtime';
+import { elapsedDaysHours } from './calculations/dates';
+import { ServiceDueResult } from './calculations/service-due';
 import { JobCostInput } from './maintenance.interface';
+import { ServiceType, TyreWorkAction } from './maintenance.types';
 
 const toNumber = (value: string | null): number | null => (value === null ? null : Number(value));
 
@@ -14,6 +17,111 @@ export function toVehicleSummary(vehicle: VehicleEntity) {
     truckTypeName: vehicle.truckType?.name ?? null,
     status: vehicle.status,
   };
+}
+
+/** The "What it needs" column on a service-due row — which clock ran out and by how much. */
+export function serviceWhatItNeeds(due: ServiceDueResult) {
+  const pastInterval = (amount: number, unit: string) =>
+    amount > 0 ? `${amount.toLocaleString('en-IN')} ${unit} past the interval` : 'due now';
+
+  let detail: string;
+  if (due.trigger === 'no_record') detail = 'no service record';
+  else if (due.overdueKm) detail = pastInterval(due.overdueKm, 'km');
+  else if (due.baseline === 'onboarded') {
+    detail = `no service logged since added — ${pastInterval(due.overdueDays ?? 0, 'days')}`;
+  } else detail = pastInterval(due.overdueDays ?? 0, 'days');
+
+  return { need: 'service' as const, detail };
+}
+
+/** The "What it needs" column on a breakdown row — the reported problem. */
+export function breakdownWhatItNeeds(job: MaintenanceJobEntity) {
+  return { need: 'breakdown' as const, detail: job.description };
+}
+
+const PAPER_LABELS: Record<string, string> = {
+  rc: 'RC',
+  insurance: 'Insurance',
+  permit: 'Permit',
+  puc: 'PUC',
+  fitness: 'Fitness',
+  road_tax: 'Road tax',
+};
+
+/** The "What it needs" column on a blocked-on-papers row — which papers to renew, and how long
+ *  the oldest has been expired. `documents` is oldest-first (expiredDocuments sorts it). */
+export function papersWhatItNeeds(documents: { documentType: string; daysExpired: number }[]) {
+  const names = documents.map((d) => PAPER_LABELS[d.documentType] ?? d.documentType).join(', ');
+  const days = documents[0]?.daysExpired ?? 0;
+  const ago = days > 0 ? `${days} ${days === 1 ? 'day' : 'days'} ago` : 'today';
+  return { need: 'papers' as const, detail: `${names} expired ${ago}` };
+}
+
+const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
+  preventive_service: 'Preventive service',
+  oil_change: 'Oil change',
+  spare_parts: 'Spare parts',
+  repair: 'Repair',
+  other: 'Other',
+};
+
+const TYRE_ACTION_LABELS: Record<TyreWorkAction, string> = {
+  new_fitment: 'New tyre fitment',
+  cold_retread: 'Cold retread',
+};
+
+/** The "What was done" column on job history — the work as a label, with the reason or the
+ *  tyre positions underneath. */
+export function whatWasDone(job: MaintenanceJobEntity): { label: string; detail: string | null } {
+  if (job.jobType === 'tyre') {
+    const positions = job.tyres?.map((tyre) => tyre.position).join(', ');
+    return {
+      label: job.tyreAction ? TYRE_ACTION_LABELS[job.tyreAction] : 'Tyre work',
+      detail: positions || job.description,
+    };
+  }
+  if (job.jobType === 'breakdown') {
+    return {
+      label: job.includesService ? 'Breakdown repair + service' : 'Breakdown repair',
+      detail: job.description,
+    };
+  }
+  if (!job.serviceType && job.status === 'closed') {
+    return { label: 'Workshop visit — released', detail: job.description };
+  }
+  return {
+    label: job.serviceType ? SERVICE_TYPE_LABELS[job.serviceType] : 'Service',
+    detail: job.description,
+  };
+}
+
+/**
+ * Odometer on an open-visit row: the reading entered on this visit, else the truck's last known
+ * odometer (check-in and the workshop toggle rarely carry one). Open visits only — job history
+ * keeps the reading taken at that visit.
+ */
+export function openVisitOdometer(job: MaintenanceJobEntity) {
+  if (job.odometerKm !== null)
+    return { odometerKm: job.odometerKm, odometerSource: 'job' as const };
+  const vehicleKm = job.vehicle?.serviceUsage?.odometerKm ?? null;
+  return vehicleKm !== null
+    ? { odometerKm: vehicleKm, odometerSource: 'vehicle' as const }
+    : { odometerKm: null, odometerSource: null };
+}
+
+/** The truck's last periodic service (preventive service / oil change) on an open-visit row —
+ *  from its service record, so null until one is entered or logged. */
+export function lastServiceOf(job: MaintenanceJobEntity) {
+  const usage = job.vehicle?.serviceUsage;
+  return {
+    date: usage?.lastServiceDate ?? null,
+    odometerKm: usage?.lastServiceOdometerKm ?? null,
+  };
+}
+
+/** The "Workshop intake" column on the in-workshop queue — when it went in and for how long. */
+export function toWorkshopIntake(job: MaintenanceJobEntity, now = new Date()) {
+  return { since: job.openedAt, ...elapsedDaysHours(job.openedAt, now) };
 }
 
 /**
@@ -41,6 +149,7 @@ export function toJobView(job: MaintenanceJobEntity, canSeeCosts: boolean, now =
     towed: job.towed,
     description: job.description,
     includesService: job.includesService,
+    whatWasDone: whatWasDone(job),
     sourceIssueReportId: job.sourceIssueReportId,
   };
 

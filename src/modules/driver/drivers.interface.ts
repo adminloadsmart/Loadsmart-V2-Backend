@@ -1,10 +1,14 @@
 import {
+  DriverBankVerificationStatus,
   DriverBloodGroup,
   DriverDocumentType,
   DriverDocumentVerificationSource,
+  DriverOnboardingStep,
   DriverOperationalStatus,
+  DriverRegistrationSource,
   DriverSalaryType,
-  DriverStatus,
+  DriverTenantRelationInitiator,
+  DriverTenantRelationStatus,
   DriverVerificationStatus,
   DriverVerificationType,
 } from './drivers.types';
@@ -46,11 +50,10 @@ export interface UpdateDriverInput {
   emergencyContactPhone?: string;
   salaryType?: DriverSalaryType;
   salaryAmount?: number;
-  status?: DriverStatus;
 }
 
 export interface ListDriversInput extends PaginationInput {
-  status?: DriverStatus;
+  status?: DriverTenantRelationStatus;
   operationalStatus?: DriverOperationalStatus;
   search?: string;
 }
@@ -91,17 +94,20 @@ export interface AddBankDetailsInput {
   accountNumber: string;
   ifsc: string;
   accountHolderName?: string;
+  upiId?: string;
 }
 
 /* Repository-layer data — shapes written to the database. */
 
-export interface CreateDriverData {
-  tenantId: string;
+/** Fields on the global driver profile (masters.drivers) — person-level, not tenant-scoped. */
+export interface CreateDriverProfileData {
   fullName: string;
   phoneNumber: string;
   licenseNumber: string | null;
   licenseExpiry: string | null;
   dateOfJoining: string | null;
+  salaryType: DriverSalaryType | null;
+  salaryAmount: string | null;
   dateOfBirth: string | null;
   bloodGroup: DriverBloodGroup | null;
   addressLine1: string | null;
@@ -110,20 +116,23 @@ export interface CreateDriverData {
   pinCode: string | null;
   emergencyContactName: string | null;
   emergencyContactPhone: string | null;
-  salaryType: DriverSalaryType | null;
-  salaryAmount: string | null;
-  status: DriverStatus;
-  approvedBy: string | null;
-  approvedAt: Date | null;
+  emergencyContactRelation: string | null;
+  hasLifeInsurance: boolean;
+  hasHealthInsurance: boolean;
+  onboardingStep?: DriverOnboardingStep | null;
+  registrationSource: DriverRegistrationSource;
   createdBy: string | null;
 }
 
-export interface UpdateDriverData {
+export interface UpdateDriverProfileData {
   fullName?: string;
+  phoneNumber?: string;
   licenseNumber?: string | null;
   licenseVerified?: boolean;
   licenseExpiry?: string | null;
   dateOfJoining?: string | null;
+  salaryType?: DriverSalaryType | null;
+  salaryAmount?: string | null;
   dateOfBirth?: string | null;
   bloodGroup?: DriverBloodGroup | null;
   addressLine1?: string | null;
@@ -132,14 +141,41 @@ export interface UpdateDriverData {
   pinCode?: string | null;
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
-  salaryType?: DriverSalaryType | null;
-  salaryAmount?: string | null;
-  status?: DriverStatus;
+  emergencyContactRelation?: string | null;
+  hasLifeInsurance?: boolean;
+  hasHealthInsurance?: boolean;
+  onboardingStep?: DriverOnboardingStep | null;
+  registrationSource?: DriverRegistrationSource;
+  updatedBy?: string | null;
+}
+
+/** Fields on the tenant-scoped approval-workflow record (masters.driver_tenant_relations) — just
+ * the link's own state, not employment data (that's global, on the driver profile). */
+export interface CreateDriverTenantRelationData {
+  tenantId: string;
+  driverId: string;
+  status: DriverTenantRelationStatus;
+  initiatedBy: DriverTenantRelationInitiator;
+  initiatedByUserId: string | null;
+  driverRespondedAt: Date | null;
+  fleetOwnerRespondedAt: Date | null;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+  createdBy: string | null;
+}
+
+export interface UpdateDriverTenantRelationData {
+  status?: DriverTenantRelationStatus;
+  driverRespondedAt?: Date | null;
+  fleetOwnerRespondedAt?: Date | null;
+  approvedBy?: string | null;
+  approvedAt?: Date | null;
+  rejectionReason?: string | null;
   updatedBy?: string | null;
 }
 
 export interface ListDriversFilters {
-  status?: DriverStatus;
+  status?: DriverTenantRelationStatus;
   operationalStatus?: DriverOperationalStatus;
   search?: string;
   page: number;
@@ -147,7 +183,7 @@ export interface ListDriversFilters {
 }
 
 export interface CreateDriverDocumentData {
-  tenantId: string;
+  tenantId: string | null;
   driverId: string;
   documentType: DriverDocumentType;
   fileUrl: string;
@@ -158,7 +194,7 @@ export interface CreateDriverDocumentData {
 }
 
 export interface CreateDriverVerificationData {
-  tenantId: string;
+  tenantId: string | null;
   driverId: string;
   verificationType: DriverVerificationType;
   verificationStatus: DriverVerificationStatus;
@@ -178,15 +214,21 @@ export interface CreateDriverVerificationData {
 }
 
 export interface CreateDriverBankDetailsData {
-  tenantId: string;
+  tenantId: string | null;
   driverId: string;
   accountNumber: string;
   ifsc: string;
   accountHolderName: string | null;
+  upiId: string | null;
+  verificationStatus?: DriverBankVerificationStatus;
+  verifiedAt?: Date | null;
+  sourceReference?: string | null;
+  nameAtBank?: string | null;
+  rawResponse?: Record<string, unknown> | null;
   createdBy: string | null;
 }
 
-/* Operational status — one current row per driver. */
+/* Operational status — one current row per driver-tenant relation. */
 
 export interface SetDriverOperationalStatusInput {
   operationalStatus: DriverOperationalStatus;
@@ -196,7 +238,7 @@ export interface SetDriverOperationalStatusInput {
 
 export interface CreateDriverOperationalStatusData {
   tenantId: string;
-  driverId: string;
+  driverTenantRelationId: string;
   operationalStatus: DriverOperationalStatus;
   reason: string | null;
   effectiveAt: Date;
@@ -210,7 +252,7 @@ export interface UpdateDriverOperationalStatusData {
   updatedBy?: string | null;
 }
 
-/* Trip metrics — one row per driver per reporting period. */
+/* Trip metrics — one row per driver-tenant relation per reporting period. */
 
 export interface RecordDriverTripMetricsInput {
   periodStart: string;
@@ -221,7 +263,7 @@ export interface RecordDriverTripMetricsInput {
 
 export interface CreateDriverTripMetricsData {
   tenantId: string;
-  driverId: string;
+  driverTenantRelationId: string;
   periodStart: string;
   periodEnd: string;
   tripsCount: number;
@@ -254,3 +296,4 @@ export interface OnboardDriverInput extends CreateDriverInput {
 export type DriverParams = { driverId: string };
 export type DriverDocumentParams = { driverId: string; documentId: string };
 export type DriverBankDetailsParams = { driverId: string; bankDetailsId: string };
+export type DriverRelationParams = { relationId: string };

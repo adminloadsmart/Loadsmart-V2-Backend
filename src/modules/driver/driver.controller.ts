@@ -141,6 +141,11 @@ export class DriverController {
     respond(res, result);
   };
 
+  verifyDriverBankAccount = async (req: Request, res: Response) => {
+    const result = await this.driverService.checkBankAccount(req.body.accountNumber, req.body.ifsc);
+    respond(res, result);
+  };
+
   onboardDriver = async (req: Request, res: Response) => {
     const driver = await this.driverService.onboardDriver(
       requireTenantId(req),
@@ -204,5 +209,16 @@ export class DriverController {
       req.params.driverId,
     );
     respond(res, metrics);
+  };
+
+  // Driver-initiated join requests only — dispatch-added drivers awaiting org_admin approval
+  // (also `pending_staff_review`, but `initiatedBy: 'staff'`) surface via the regular
+  // GET /drivers?status=pending_staff_review list instead.
+  listJoinRequests = async (req: Request, res: Response) => {
+    const requests = await this.driverService.listPendingStaffReview(requireTenantId(req));
+    respond(
+      res,
+      requests.filter((relation) => relation.initiatedBy === 'driver'),
+    );
   };
 }

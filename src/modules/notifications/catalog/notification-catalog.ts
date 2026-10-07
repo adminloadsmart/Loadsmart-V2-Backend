@@ -13,6 +13,8 @@ import {
 } from '../../../shared/constants/roles';
 import { env } from '../../../config/env';
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
+import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
+import { t } from '../../../shared/i18n/translate';
 
 /**
  * Every notification type in the app, in one place — deliberately not split per domain: with a
@@ -347,6 +349,11 @@ export interface OrganizationDocumentPendingContext {
   documentId: string;
   /** Set by the trigger worker on the 48-hour reminder. */
   isReminder?: boolean;
+}
+
+export interface DriverLinkContext {
+  driverName: string;
+  phoneNumber: string;
 }
 
 type NoContext = Record<string, never>;
@@ -1268,6 +1275,38 @@ export const NOTIFICATION_CATALOG = {
     ),
   },
 
+  'driver.link_requested': {
+    label: 'Driver join request',
+    description: 'A driver has requested to join your fleet.',
+    recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    severity: 'p2_action',
+    buildContent: (
+      { driverName, phoneNumber }: DriverLinkContext,
+      _recipient,
+      locale = DEFAULT_LOCALE,
+    ) => ({
+      title: t(locale, 'notifications.driverLinkRequested.title'),
+      body: t(locale, 'notifications.driverLinkRequested.body', { driverName, phoneNumber }),
+    }),
+  },
+  'driver.link_accepted': {
+    label: 'Driver invite accepted',
+    description: 'A driver has accepted your invitation to join your fleet.',
+    recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    severity: 'p3_info',
+    buildContent: (
+      { driverName, phoneNumber }: DriverLinkContext,
+      _recipient,
+      locale = DEFAULT_LOCALE,
+    ) => ({
+      title: t(locale, 'notifications.driverLinkAccepted.title'),
+      body: t(locale, 'notifications.driverLinkAccepted.body', { driverName, phoneNumber }),
+    }),
+  },
   'load.trip_delay_exception': {
     label: 'Trip delay & Exception',
     description: 'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',

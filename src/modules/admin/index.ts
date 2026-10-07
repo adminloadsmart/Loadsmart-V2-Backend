@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
+import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
 import { OrganizationJourneyStageService } from '../organization/organization-journey-stage.service';
 import { AuthService } from '../auth/auth.service';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -14,6 +15,7 @@ import { createAdminRoutes } from './admin.routes';
 export function createAdminModule(deps: {
   organizationService: OrganizationService;
   organizationDocumentService: OrganizationDocumentService;
+  documentVerificationService: OrganizationDocumentVerificationService;
   organizationJourneyStageService: OrganizationJourneyStageService;
   authService: AuthService;
   referralCodeService: ReferralCodeService;
@@ -26,6 +28,7 @@ export function createAdminModule(deps: {
   const service = new AdminService(
     deps.organizationService,
     deps.organizationDocumentService,
+    deps.documentVerificationService,
     deps.organizationJourneyStageService,
     deps.authService,
     deps.referralCodeService,

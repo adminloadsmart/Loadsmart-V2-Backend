@@ -22,8 +22,10 @@ export class DriverVerificationEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string;
+  // Nullable — see driver-document.entity.ts's tenantId comment; same "originating tenant, not an
+  // authorization key" treatment, null for a self-registration-time verification.
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId!: string | null;
 
   @Column({ name: 'driver_id', type: 'uuid' })
   driverId!: string;
