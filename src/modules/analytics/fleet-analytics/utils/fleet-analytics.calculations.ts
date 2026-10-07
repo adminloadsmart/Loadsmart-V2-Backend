@@ -197,3 +197,128 @@ export function tyreCondition(treadLeftPct: number): TyreConditionLabel {
   if (treadLeftPct >= 30) return 'worn';
   return 'very_worn';
 }
+
+export interface OdometerPoint {
+  at: Date;
+  km: number;
+}
+
+/**
+ * Km run inside the window, read off the truck's dated odometer readings (loads carry no
+ * distance yet). The odometer at each edge of the window is the reading on that instant if there
+ * is one, else interpolated between the readings either side; before the first reading it is
+ * the first reading (the truck wasn't on our books), after the last it runs on at the truck's
+ * average km/day. A reading lower than an earlier one is a typo and is dropped.
+ *
+ * `estimated` is true whenever either edge was not an actual reading.
+ */
+export function kmInWindow(
+  points: OdometerPoint[],
+  window: TimeWindow,
+): { km: number; estimated: boolean } {
+  const sorted = [...points].sort((a, b) => a.at.getTime() - b.at.getTime() || a.km - b.km);
+  const clean: OdometerPoint[] = [];
+  for (const point of sorted) {
+    const last = clean.at(-1);
+    if (last && point.km < last.km) continue;
+    if (last && point.at.getTime() === last.at.getTime()) clean.pop();
+    clean.push(point);
+  }
+  if (clean.length < 2) return { km: 0, estimated: true };
+
+  const first = clean[0];
+  const last = clean[clean.length - 1];
+  const kmPerMs = (last.km - first.km) / (last.at.getTime() - first.at.getTime());
+
+  const odometerAt = (at: Date): { km: number; exact: boolean } => {
+    const t = at.getTime();
+    if (t <= first.at.getTime()) return { km: first.km, exact: t === first.at.getTime() };
+    if (t >= last.at.getTime()) {
+      return { km: last.km + kmPerMs * (t - last.at.getTime()), exact: t === last.at.getTime() };
+    }
+    const after = clean.findIndex((point) => point.at.getTime() >= t);
+    const next = clean[after];
+    if (next.at.getTime() === t) return { km: next.km, exact: true };
+    const prev = clean[after - 1];
+    const share = (t - prev.at.getTime()) / (next.at.getTime() - prev.at.getTime());
+    return { km: prev.km + share * (next.km - prev.km), exact: false };
+  };
+
+  const start = odometerAt(window.from);
+  const end = odometerAt(window.to);
+  return {
+    km: Math.max(0, Math.round(end.km - start.km)),
+    estimated: !start.exact || !end.exact,
+  };
+}
+
+export function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+export interface ReplacementInput<T> {
+  row: T;
+  truckTypeId: string | null;
+  ageYears: number | null;
+  perKm: number;
+}
+
+/**
+ * "How much more per km it costs than a new truck of the same class would." The new-truck
+ * figure is the median maintenance per km of the young trucks (age ≤ newMaxAge) in the class;
+ * a class with fewer than minBenchmark young trucks falls back to the fleet's young median.
+ * Young trucks are the benchmark, so they are never candidates themselves.
+ */
+export function replacementCandidates<T>(
+  inputs: ReplacementInput<T>[],
+  newMaxAge: number,
+  minBenchmark: number,
+): {
+  row: T;
+  perKm: number;
+  benchmarkPerKm: number;
+  benchmarkScope: 'class' | 'fleet';
+  extraPerKm: number;
+}[] {
+  const isYoung = (input: ReplacementInput<T>) =>
+    input.ageYears !== null && input.ageYears <= newMaxAge;
+  const young = inputs.filter(isYoung);
+  const fleetBenchmark = median(young.map((input) => input.perKm));
+
+  const classBenchmark = new Map<string | null, number | null>();
+  const benchmarkOf = (truckTypeId: string | null) => {
+    if (!classBenchmark.has(truckTypeId)) {
+      const inClass = young.filter((input) => input.truckTypeId === truckTypeId);
+      classBenchmark.set(
+        truckTypeId,
+        truckTypeId !== null && inClass.length >= minBenchmark
+          ? median(inClass.map((input) => input.perKm))
+          : null,
+      );
+    }
+    return classBenchmark.get(truckTypeId) ?? null;
+  };
+
+  return inputs
+    .filter((input) => !isYoung(input))
+    .flatMap((input) => {
+      const ofClass = benchmarkOf(input.truckTypeId);
+      const benchmark = ofClass ?? fleetBenchmark;
+      if (benchmark === null) return [];
+      const extraPerKm = input.perKm - benchmark;
+      if (extraPerKm <= 0) return [];
+      return [
+        {
+          row: input.row,
+          perKm: input.perKm,
+          benchmarkPerKm: benchmark,
+          benchmarkScope: ofClass !== null ? ('class' as const) : ('fleet' as const),
+          extraPerKm,
+        },
+      ];
+    })
+    .sort((a, b) => b.extraPerKm - a.extraPerKm);
+}

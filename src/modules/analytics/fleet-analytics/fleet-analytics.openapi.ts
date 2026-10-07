@@ -53,9 +53,12 @@ const TABS = [
     path: 'maintenance',
     key: 'getMaintenance',
     description:
-      'Maintenance tab: spend, preventive share, downtime, breakdowns, fleet age, lifetime ' +
-      'distance, tyres past 88% of life, planned vs unplanned by month, cost by vehicle and ' +
-      'tyre condition by vehicle.',
+      'Maintenance tab: spend and spend per km, preventive share, downtime, mean distance ' +
+      'between failures, fleet age, lifetime distance, tyres past 88% of life, planned vs ' +
+      'unplanned by month, maintenance per km by vehicle (worst first), replacement candidates ' +
+      'and tyre condition by vehicle. Km run come from odometer readings (job check-ins, tyre ' +
+      'and battery readings, current odometer). Money fields are omitted for a seat without ' +
+      'maintenance.costs.view, and planned vs unplanned then counts jobs instead.',
   },
   {
     path: 'operations',
