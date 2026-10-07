@@ -3,6 +3,7 @@ import { FleetAnalyticsService } from './fleet-analytics.service';
 import { FleetAnalyticsFilters } from './utils/fleet-analytics.interface';
 import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
 import { respond } from '../../../shared/responses/respond';
+import { canSeeMaintenanceCosts } from '../../maintenance/utils/cost-visibility';
 
 export class FleetAnalyticsController {
   constructor(private readonly fleetAnalyticsService: FleetAnalyticsService) {}
@@ -40,7 +41,11 @@ export class FleetAnalyticsController {
   getMaintenance = async (req: Request, res: Response) => {
     respond(
       res,
-      await this.fleetAnalyticsService.getMaintenance(requireTenantId(req), filtersOf(req)),
+      await this.fleetAnalyticsService.getMaintenance(
+        requireTenantId(req),
+        filtersOf(req),
+        canSeeMaintenanceCosts(req),
+      ),
     );
   };
 
