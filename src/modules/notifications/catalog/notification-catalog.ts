@@ -161,6 +161,17 @@ export const NOTIFICATION_CATALOG = {
       body: t(locale, 'notifications.driverLinkAccepted.body', { driverName, phoneNumber }),
     }),
   },
+  'driver.account_deleted': {
+    label: 'Driver account deleted',
+    description: 'A linked driver has deleted their account and been disconnected from your fleet.',
+    recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    buildContent: ({ driverName, phoneNumber }: DriverLinkContext, locale = DEFAULT_LOCALE) => ({
+      title: t(locale, 'notifications.driverAccountDeleted.title'),
+      body: t(locale, 'notifications.driverAccountDeleted.body', { driverName, phoneNumber }),
+    }),
+  },
   'load.trip_delay_exception': {
     label: 'Trip delay & Exception',
     description: 'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',

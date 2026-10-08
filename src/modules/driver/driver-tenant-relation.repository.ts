@@ -113,8 +113,14 @@ export class DriverTenantRelationRepository {
     return { items, total };
   }
 
-  async softDelete(tenantId: string, driverId: string, deletedBy: string | null): Promise<void> {
-    await this.relations.update(
+  async softDelete(
+    tenantId: string,
+    driverId: string,
+    deletedBy: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
+    await relations.update(
       { tenantId, driverId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );

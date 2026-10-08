@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { respond } from '../../../shared/responses/respond';
 import { DriverAuthService } from './driver-auth.service';
 import { DriverIdentityService } from './driver-identity.service';
+import { DriverAccountService } from './driver-account.service';
 import { OrganizationService } from '../../organization/organization.service';
 import { StorageService } from '../../storage/storage.service';
 import { GenerateUploadUrlInput, FileParams } from '../../storage/storage.types';
@@ -21,6 +22,7 @@ export class DriverAuthController {
     private readonly driverIdentityService: DriverIdentityService,
     private readonly organizationService: OrganizationService,
     private readonly storageService: StorageService,
+    private readonly driverAccountService: DriverAccountService,
   ) {}
 
   // --- Login ---
@@ -88,6 +90,17 @@ export class DriverAuthController {
       exp: req.driver!.exp,
     });
     respond(res, { success: true });
+  };
+
+  // Soft delete of the caller's own account — jti/exp come from the verified access token so the
+  // token that made the request is blocked immediately.
+  deleteAccount = async (req: Request, res: Response) => {
+    const result = await this.driverAccountService.deleteAccount(req.driver!.id, {
+      phoneNumber: req.body.phoneNumber,
+      jti: req.driver!.jti,
+      exp: req.driver!.exp,
+    });
+    respond(res, result);
   };
 
   updateDeviceToken = async (req: Request, res: Response) => {

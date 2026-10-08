@@ -276,7 +276,11 @@ export class DriverPortalService {
    *  zeroed/empty — same "empty, not an error" convention as every method above. Settlement Due,
    *  Distance, and Score/Rating are deliberately not here — no backing data exists for any of
    *  them yet. */
-  async getMyHome(driverId: string, tenantId: string | null): Promise<DriverHomeView> {
+  async getMyHome(
+    driverId: string,
+    tenantId: string | null,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<DriverHomeView> {
     const unreadNotificationCount = await this.notificationsService.countUnreadForDriver(driverId);
 
     if (!tenantId) {
@@ -300,10 +304,10 @@ export class DriverPortalService {
 
     const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
       this.fetchTenantProfile(tenantId, driverId),
-      this.loadService.getMyTripsDone(tenantId, driverId, { page: 1, limit: 1 }),
-      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'active' }),
-      this.loadService.list(tenantId, { page: 1, limit: 5, driverId, status: 'assigned' }),
-      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'open' }),
+      this.loadService.getMyTripsDone(tenantId, driverId, { page: 1, limit: 1 }, locale),
+      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'active' }, locale),
+      this.loadService.list(tenantId, { page: 1, limit: 5, driverId, status: 'assigned' }, locale),
+      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
 
     return {

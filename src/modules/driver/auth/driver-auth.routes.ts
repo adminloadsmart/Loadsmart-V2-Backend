@@ -158,6 +158,19 @@ export function createDriverAuthProtectedRoutes(
     validate(driverAuthValidators.updateDeviceToken),
     asyncHandler(controller.updateDeviceToken),
   );
+  // Soft-deletes the caller's own account — see driver-account.service.ts. Tight per-IP throttle
+  // since it is destructive; the typed phone number must match the registered one.
+  const deleteAccountRateLimit = createIpRateLimit({
+    keyPrefix: 'driver-auth-delete-account',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
+  router.post(
+    '/account/delete',
+    deleteAccountRateLimit,
+    validate(driverAuthValidators.deleteAccount),
+    asyncHandler(controller.deleteAccount),
+  );
   // Switches active tenant context mid-session — e.g. right after accepting an invite below.
   // See driver-auth.service.ts's selectRelation.
   router.post(

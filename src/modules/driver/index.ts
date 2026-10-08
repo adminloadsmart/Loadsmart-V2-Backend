@@ -22,6 +22,7 @@ import { DriverPortalController } from './portal/driver-portal.controller';
 import { DriverPortalService } from './portal/driver-portal.service';
 import { createDriverPortalRoutes } from './portal/driver-portal.routes';
 import { DriverIdentityService } from './auth/driver-identity.service';
+import { DriverAccountService } from './auth/driver-account.service';
 import { IdfyClient } from '../../adapters/idfy.client';
 import { NotifyByType } from '../notifications/notify-by-type';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -139,11 +140,21 @@ export function createDriverIdentityModule(
     deps.idfyClient,
   );
 
+  const accountService = new DriverAccountService(
+    deps.driverRepository,
+    deps.driverTenantRelationRepository,
+    new DriverSessionRepository(dataSource),
+    dataSource,
+    deps.auditService,
+    deps.notifyByType,
+  );
+
   const authController = new DriverAuthController(
     deps.driverAuthService,
     service,
     deps.organizationService,
     deps.storageService,
+    accountService,
   );
   const authPublicRouter = createDriverAuthPublicRoutes(authController);
   // requireTenant: false — logout/device-token/select-relation/relations/* must also work from an
