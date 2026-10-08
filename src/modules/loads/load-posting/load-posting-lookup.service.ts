@@ -2,8 +2,6 @@ import { DataSource } from 'typeorm';
 import { NotFoundError, rethrow } from '../../../shared/errors';
 import { CustomerService } from '../../customers/customer.service';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
-import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
-import { LoadEntity } from '../entities/load.entity';
 import { LoadRepository } from '../load.repository';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
@@ -30,23 +28,28 @@ export class LoadPostingLookupService {
     private readonly postingService: LoadPostingService,
   ) {}
 
-  /** PL-01 — the last N customers this tenant posted for, most recent first. */
+  /** PL-01 — the last N customers a load was raised for, most recent load first. A customer
+   *  appears once, at the position of their latest load (Post a load or requisition). */
   async recentCustomers(tenantId: string, limit: number) {
     try {
-      const postings = await this.repository.listRecentPostingsWithCustomer(
-        tenantId,
-        RECENT_SCAN_LIMIT,
-      );
-      const ids: string[] = [];
-      for (const posting of postings) {
-        if (posting.customerId && !ids.includes(posting.customerId)) ids.push(posting.customerId);
-        if (ids.length === limit) break;
+      const activity = await this.repository.listCustomerActivity(tenantId, RECENT_SCAN_LIMIT);
+      const lastLoadAt = new Map<string, Date>();
+      for (const row of activity) {
+        if (!lastLoadAt.has(row.customerId)) lastLoadAt.set(row.customerId, row.at);
       }
+      const ids = [...lastLoadAt.keys()];
       const customers = await this.repository.findCustomers(tenantId, ids);
+      // findCustomers drops deleted customers; keep the recency order for the rest.
       return ids
         .map((id) => customers.find((customer) => customer.id === id))
         .filter((customer): customer is NonNullable<typeof customer> => Boolean(customer))
-        .map((customer) => ({ id: customer.id, code: customer.code, name: customer.name }));
+        .slice(0, limit)
+        .map((customer) => ({
+          id: customer.id,
+          code: customer.code,
+          name: customer.name,
+          lastLoadAt: lastLoadAt.get(customer.id),
+        }));
     } catch (error) {
       rethrow(error, 'Failed to list recent customers');
     }
@@ -56,12 +59,12 @@ export class LoadPostingLookupService {
   async searchCustomers(tenantId: string, search: string | undefined, limit: number) {
     try {
       const customers = await this.repository.searchCustomers(tenantId, search, limit);
-      return customers.map((customer) => ({
+      return customers.map(({ customer, unloadingPointCount }) => ({
         id: customer.id,
         code: customer.code,
         name: customer.name,
         status: customer.status,
-        unloadingPointCount: customer.deliveryPoints?.length ?? 0,
+        unloadingPointCount,
       }));
     } catch (error) {
       rethrow(error, 'Failed to search customers');
@@ -168,23 +171,16 @@ export class LoadPostingLookupService {
           ? byTyres
           : byTyres.filter((t) => Number(t.capacityTons) === filters.capacityTons);
 
-      const lengthRows = matching.length
-        ? await this.dataSource
-            .getRepository(VehicleEntity)
-            .createQueryBuilder('vehicle')
-            .select('DISTINCT vehicle.body_length_ft', 'length')
-            .where('vehicle.tenant_id = :tenantId', { tenantId })
-            .andWhere('vehicle.deleted_at IS NULL')
-            .andWhere('vehicle.truck_type_id IN (:...ids)', { ids: matching.map((t) => t.id) })
-            .andWhere('vehicle.body_length_ft IS NOT NULL')
-            .getRawMany<{ length: string }>()
-        : [];
+      const lengthsFt = await this.repository.listBodyLengths(
+        tenantId,
+        matching.map((t) => t.id),
+      );
 
       return {
         bodyTypes: distinct(all.map((t) => t.bodyType)),
         wheelConfigurations: distinct(byBody.map((t) => t.wheelConfiguration)),
         capacities: distinct(byTyres.map((t) => (t.capacityTons ? Number(t.capacityTons) : null))),
-        lengthsFt: lengthRows.map((row) => row.length),
+        lengthsFt,
         truckTypes: matching.map((t) => ({
           id: t.id,
           name: t.name,
@@ -339,10 +335,7 @@ export class LoadPostingLookupService {
       if (!posting) throw new NotFoundError(`Posting ${postingId} not found`);
       const [recipients, loads] = await Promise.all([
         this.repository.listRecipients(tenantId, postingId),
-        this.dataSource.getRepository(LoadEntity).find({
-          where: { tenantId, postingId },
-          order: { code: 'ASC' },
-        }),
+        this.repository.listLoadsByPosting(tenantId, postingId),
       ]);
       return { posting, recipients, loads: loads.map((l) => ({ id: l.id, code: l.code })) };
     } catch (error) {

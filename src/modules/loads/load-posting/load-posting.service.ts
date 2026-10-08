@@ -770,10 +770,7 @@ export class LoadPostingService {
     tenantId: string,
     posting: LoadPostingEntity,
   ): Promise<PostLoadResult> {
-    const loads = await this.dataSource.getRepository(LoadEntity).find({
-      where: { tenantId, postingId: posting.id },
-      order: { code: 'ASC' },
-    });
+    const loads = await this.repository.listLoadsByPosting(tenantId, posting.id);
     const recipients = await this.repository.listRecipients(tenantId, posting.id);
     return {
       posting,

@@ -1,15 +1,24 @@
-import { Brackets, DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, ILike, In, IsNull, Not, Repository } from 'typeorm';
+import { LoadEntity } from '../entities/load.entity';
+import { RequisitionEntity } from '../entities/requisition.entity';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-delivery-point.entity';
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 import { ProductEntity } from '../../masters/product/entities/product.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
 import { LoadDraftEntity } from './entities/load-draft.entity';
 import { CustomerContractEntity } from './entities/customer-contract.entity';
 import { MessageStatus, RecipientType } from './utils/load-posting.types';
+
+/** ILIKE pattern with the user's own `%`, `_` and `\\` escaped so they match literally. */
+const escapeLike = (value: string) => value.replace(/[\\%_]/g, '\\$&');
+const contains = (value: string) => ILike(`%${escapeLike(value)}%`);
+/** Case-insensitive equality — ILIKE without wildcards. */
+const equalsIgnoreCase = (value: string) => ILike(escapeLike(value));
 
 export type CreatePostingData = Omit<LoadPostingEntity, 'id' | 'createdAt' | 'updatedAt'>;
 
@@ -30,6 +39,8 @@ export interface CreateRecipientData {
 export class LoadPostingRepository {
   private readonly postings: Repository<LoadPostingEntity>;
   private readonly recipients: Repository<LoadRecipientEntity>;
+  private readonly requisitions: Repository<RequisitionEntity>;
+  private readonly loads: Repository<LoadEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
   private readonly contracts: Repository<CustomerContractEntity>;
   private readonly customers: Repository<CustomerEntity>;
@@ -38,10 +49,13 @@ export class LoadPostingRepository {
   private readonly products: Repository<ProductEntity>;
   private readonly transporters: Repository<TransporterEntity>;
   private readonly truckTypes: Repository<TruckTypeEntity>;
+  private readonly vehicles: Repository<VehicleEntity>;
 
   constructor(dataSource: DataSource) {
     this.postings = dataSource.getRepository(LoadPostingEntity);
     this.recipients = dataSource.getRepository(LoadRecipientEntity);
+    this.requisitions = dataSource.getRepository(RequisitionEntity);
+    this.loads = dataSource.getRepository(LoadEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
     this.contracts = dataSource.getRepository(CustomerContractEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
@@ -50,6 +64,7 @@ export class LoadPostingRepository {
     this.products = dataSource.getRepository(ProductEntity);
     this.transporters = dataSource.getRepository(TransporterEntity);
     this.truckTypes = dataSource.getRepository(TruckTypeEntity);
+    this.vehicles = dataSource.getRepository(VehicleEntity);
   }
 
   // --- Postings ---
@@ -76,15 +91,35 @@ export class LoadPostingRepository {
     });
   }
 
-  /** Postings with a customer, newest first — recent-customers distinct-by-customer in JS. */
-  listRecentPostingsWithCustomer(tenantId: string, take: number) {
-    return this.postings
-      .createQueryBuilder('posting')
-      .where('posting.tenant_id = :tenantId', { tenantId })
-      .andWhere('posting.customer_id IS NOT NULL')
-      .orderBy('posting.created_at', 'DESC')
-      .take(take)
-      .getMany();
+  /** Every time a load was raised for a customer, newest first — from Post a load and from the
+   *  older requisition flow, so existing customers show up before their first posting. One row
+   *  per posting/requisition; callers keep the first row of each customer. */
+  async listCustomerActivity(
+    tenantId: string,
+    take: number,
+  ): Promise<{ customerId: string; at: Date }[]> {
+    const [postings, requisitions] = await Promise.all([
+      this.postings.find({
+        select: { customerId: true, createdAt: true },
+        where: { tenantId, customerId: Not(IsNull()) },
+        order: { createdAt: 'DESC' },
+        take,
+      }),
+      this.requisitions.find({
+        select: { customerId: true, createdAt: true },
+        where: { tenantId },
+        order: { createdAt: 'DESC' },
+        take,
+      }),
+    ]);
+    return [...postings, ...requisitions]
+      .map((row) => ({ customerId: row.customerId as string, at: row.createdAt }))
+      .sort((a, b) => b.at.getTime() - a.at.getTime());
+  }
+
+  /** The loads a posting spawned, one per truck. */
+  listLoadsByPosting(tenantId: string, postingId: string) {
+    return this.loads.find({ where: { tenantId, postingId }, order: { code: 'ASC' } });
   }
 
   // --- Recipients ---
@@ -122,54 +157,52 @@ export class LoadPostingRepository {
   }
 
   /** Search the Customer master by name or customer code, anywhere in the text, ignoring case
-   *  (PL-02). Rejected customers never show; each row carries its unloading-point count. */
+   *  (PL-02). Rejected customers never show; each row carries its live unloading-point count. */
   async searchCustomers(tenantId: string, search: string | undefined, limit: number) {
-    const query = this.customers
-      .createQueryBuilder('customer')
-      .leftJoinAndSelect('customer.deliveryPoints', 'point', 'point.deleted_at IS NULL')
-      .where('customer.tenant_id = :tenantId', { tenantId })
-      .andWhere('customer.deleted_at IS NULL')
-      .andWhere("customer.status IN ('active', 'pending')");
-    if (search) {
-      query.andWhere(
-        new Brackets((qb) =>
-          qb
-            .where('customer.name ILIKE :search', { search: `%${search}%` })
-            .orWhere('customer.code ILIKE :search', { search: `%${search}%` }),
-        ),
-      );
-    }
-    return query.orderBy('customer.name', 'ASC').take(limit).getMany();
+    const base = { tenantId, deletedAt: IsNull(), status: In(['active', 'pending'] as const) };
+    const customers = await this.customers.find({
+      where: search
+        ? [
+            { ...base, name: contains(search) },
+            { ...base, code: contains(search) },
+          ]
+        : base,
+      order: { name: 'ASC' },
+      take: limit,
+    });
+    const points = customers.length
+      ? await this.deliveryPoints.find({
+          select: { customerId: true },
+          where: { tenantId, customerId: In(customers.map((c) => c.id)), deletedAt: IsNull() },
+        })
+      : [];
+    return customers.map((customer) => ({
+      customer,
+      unloadingPointCount: points.filter((point) => point.customerId === customer.id).length,
+    }));
   }
 
   findCustomerByExactName(tenantId: string, name: string) {
-    return this.customers
-      .createQueryBuilder('customer')
-      .where('customer.tenant_id = :tenantId', { tenantId })
-      .andWhere('customer.deleted_at IS NULL')
-      .andWhere('LOWER(customer.name) = LOWER(:name)', { name })
-      .getOne();
+    return this.customers.findOne({
+      where: { tenantId, deletedAt: IsNull(), name: equalsIgnoreCase(name) },
+    });
   }
 
   // --- Addresses ---
 
   listUnloadingPoints(tenantId: string, customerId: string, search?: string) {
-    const query = this.deliveryPoints
-      .createQueryBuilder('point')
-      .where('point.tenant_id = :tenantId', { tenantId })
-      .andWhere('point.customer_id = :customerId', { customerId })
-      .andWhere('point.deleted_at IS NULL');
-    if (search) {
-      query.andWhere(
-        new Brackets((qb) =>
-          qb
-            .where('point.location ILIKE :search', { search: `%${search}%` })
-            .orWhere('point.address_line_1 ILIKE :search', { search: `%${search}%` })
-            .orWhere('point.pin_code ILIKE :search', { search: `%${search}%` }),
-        ),
-      );
-    }
-    return query.orderBy('point.location', 'ASC').take(25).getMany();
+    const base = { tenantId, customerId, deletedAt: IsNull() };
+    return this.deliveryPoints.find({
+      where: search
+        ? [
+            { ...base, location: contains(search) },
+            { ...base, addressLine1: contains(search) },
+            { ...base, pinCode: contains(search) },
+          ]
+        : base,
+      order: { location: 'ASC' },
+      take: 25,
+    });
   }
 
   findUnloadingPoint(tenantId: string, customerId: string, id: string) {
@@ -179,22 +212,18 @@ export class LoadPostingRepository {
   /** Loading point master — name, address or pincode (PL-09). Active and pending both show, a new
    *  pickup the shipper just added is pending until an org admin approves it. */
   searchLoadingPoints(tenantId: string, search?: string) {
-    const query = this.loadingPoints
-      .createQueryBuilder('point')
-      .where('point.tenant_id = :tenantId', { tenantId })
-      .andWhere('point.deleted_at IS NULL')
-      .andWhere("point.status IN ('active', 'pending')");
-    if (search) {
-      query.andWhere(
-        new Brackets((qb) =>
-          qb
-            .where('point.title ILIKE :search', { search: `%${search}%` })
-            .orWhere('point.address_line_1 ILIKE :search', { search: `%${search}%` })
-            .orWhere('point.pin_code ILIKE :search', { search: `%${search}%` }),
-        ),
-      );
-    }
-    return query.orderBy('point.title', 'ASC').take(25).getMany();
+    const base = { tenantId, deletedAt: IsNull(), status: In(['active', 'pending'] as const) };
+    return this.loadingPoints.find({
+      where: search
+        ? [
+            { ...base, title: contains(search) },
+            { ...base, addressLine1: contains(search) },
+            { ...base, pinCode: contains(search) },
+          ]
+        : base,
+      order: { title: 'ASC' },
+      take: 25,
+    });
   }
 
   findLoadingPoint(tenantId: string, id: string, manager?: EntityManager) {
@@ -208,24 +237,18 @@ export class LoadPostingRepository {
   // --- Commodity (Product master) ---
 
   searchCommodities(tenantId: string, search?: string) {
-    const query = this.products
-      .createQueryBuilder('product')
-      .where('product.tenant_id = :tenantId', { tenantId })
-      .andWhere('product.deleted_at IS NULL')
-      .andWhere("product.status = 'active'");
-    if (search) {
-      query.andWhere('product.product_details ILIKE :search', { search: `%${search}%` });
-    }
-    return query.orderBy('product.product_details', 'ASC').take(25).getMany();
+    const base = { tenantId, deletedAt: IsNull(), status: 'active' as const };
+    return this.products.find({
+      where: search ? { ...base, productDetails: contains(search) } : base,
+      order: { productDetails: 'ASC' },
+      take: 25,
+    });
   }
 
   findCommodityByExactName(tenantId: string, name: string, manager?: EntityManager) {
-    return (manager?.getRepository(ProductEntity) ?? this.products)
-      .createQueryBuilder('product')
-      .where('product.tenant_id = :tenantId', { tenantId })
-      .andWhere('product.deleted_at IS NULL')
-      .andWhere('LOWER(product.product_details) = LOWER(:name)', { name })
-      .getOne();
+    return (manager?.getRepository(ProductEntity) ?? this.products).findOne({
+      where: { tenantId, deletedAt: IsNull(), productDetails: equalsIgnoreCase(name) },
+    });
   }
 
   findCommodity(tenantId: string, id: string, manager?: EntityManager) {
@@ -239,15 +262,12 @@ export class LoadPostingRepository {
   // --- Transporters ---
 
   listActiveTransporters(tenantId: string, search?: string) {
-    const query = this.transporters
-      .createQueryBuilder('transporter')
-      .where('transporter.tenant_id = :tenantId', { tenantId })
-      .andWhere('transporter.deleted_at IS NULL')
-      .andWhere("transporter.status = 'active'");
-    if (search) {
-      query.andWhere('transporter.name ILIKE :search', { search: `%${search}%` });
-    }
-    return query.orderBy('transporter.name', 'ASC').take(100).getMany();
+    const base = { tenantId, deletedAt: IsNull(), status: 'active' as const };
+    return this.transporters.find({
+      where: search ? { ...base, name: contains(search) } : base,
+      order: { name: 'ASC' },
+      take: 100,
+    });
   }
 
   findActiveTransporters(tenantId: string, ids: string[]) {
@@ -264,6 +284,22 @@ export class LoadPostingRepository {
       where: { tenantId, deletedAt: IsNull() },
       order: { name: 'ASC' },
     });
+  }
+
+  /** Distinct body lengths (ft) among this tenant's vehicles of the given truck types — the
+   *  master has no length column, so the fleet is the only source. */
+  async listBodyLengths(tenantId: string, truckTypeIds: string[]): Promise<string[]> {
+    if (!truckTypeIds.length) return [];
+    const rows = await this.vehicles.find({
+      select: { bodyLengthFt: true },
+      where: {
+        tenantId,
+        truckTypeId: In(truckTypeIds),
+        bodyLengthFt: Not(IsNull()),
+        deletedAt: IsNull(),
+      },
+    });
+    return [...new Set(rows.map((row) => row.bodyLengthFt as string))];
   }
 
   findTruckTypes(tenantId: string, ids: string[]) {
