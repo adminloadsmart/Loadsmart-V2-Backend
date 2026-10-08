@@ -310,6 +310,7 @@ export class DriverPortalController {
     const home = await this.driverPortalService.getMyHome(
       req.driver!.id,
       req.driver!.tenantId ?? null,
+      req.locale,
     );
     respond(res, home);
   };

@@ -86,6 +86,15 @@ export const driverAuthValidators = {
       })
       .strict(),
   }),
+  // POST rather than DELETE — several mobile HTTP clients drop request bodies on DELETE.
+  deleteAccount: z.object({
+    body: z
+      .object({
+        phoneNumber: z.string().trim().min(10),
+        confirm: z.literal(true),
+      })
+      .strict(),
+  }),
   selectRelation: z.object({
     body: z
       .object({

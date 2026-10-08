@@ -41,6 +41,13 @@ export interface DriverRefreshInput {
   refreshToken: string;
 }
 
+export interface DeleteDriverAccountInput {
+  phoneNumber: string;
+  // From req.driver (verified JWT claims), like DriverLogoutInput — never the request body.
+  jti?: string;
+  exp?: number;
+}
+
 export interface DriverLogoutInput {
   // All three come from req.driver (a verified JWT claim), never the request body — same
   // convention as auth.types.ts's LogoutInput.

@@ -31,6 +31,8 @@ export const hi = {
       licenceImagesRequired: 'ड्राइविंग लाइसेंस की आगे और पीछे दोनों फोटो ज़रूरी हैं',
       relationExists: 'इस फ्लीट मालिक के साथ संबंध पहले से मौजूद है',
       inviteNotFound: 'आमंत्रण नहीं मिला',
+      phoneMismatch: 'यह मोबाइल नंबर आपके रजिस्टर्ड नंबर से मेल नहीं खाता',
+      deleteBlockedActiveLoad: 'आपकी एक ट्रिप चल रही है। अकाउंट हटाने से पहले उसे पूरा करें',
     },
   },
   loads: {
@@ -74,6 +76,10 @@ export const hi = {
     driverLinkAccepted: {
       title: 'ड्राइवर ने आमंत्रण स्वीकार किया',
       body: '{driverName} ({phoneNumber}) ने आपका आमंत्रण स्वीकार कर लिया है और अब आपके फ्लीट से जुड़ गया है।',
+    },
+    driverAccountDeleted: {
+      title: 'ड्राइवर का अकाउंट हटाया गया',
+      body: '{driverName} ({phoneNumber}) ने अपना अकाउंट हटा दिया है और अब आपके फ्लीट से जुड़ा नहीं है।',
     },
   },
   validation: {

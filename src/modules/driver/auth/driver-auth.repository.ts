@@ -1,4 +1,4 @@
-import { DataSource, IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { DriverSessionEntity } from '../entities/driver-session.entity';
 import { DriverDevicePlatform } from './driver-auth.types';
 
@@ -50,6 +50,14 @@ export class DriverSessionRepository {
 
   async revokeAllForDriver(driverId: string): Promise<void> {
     await this.sessions.update({ driverId, revokedAt: IsNull() }, { revokedAt: new Date() });
+  }
+
+  // Account deletion: revokes every live session and drops the push tokens on all of the driver's
+  // sessions, so nothing keeps pushing to a device after the account is gone.
+  async revokeAndClearDevicesForDriver(driverId: string, manager?: EntityManager): Promise<void> {
+    const sessions = manager ? manager.getRepository(DriverSessionEntity) : this.sessions;
+    await sessions.update({ driverId, revokedAt: IsNull() }, { revokedAt: new Date() });
+    await sessions.update({ driverId, fcmToken: Not(IsNull()) }, { fcmToken: null });
   }
 
   // A driver's active push targets — one row per currently-active session that has registered an

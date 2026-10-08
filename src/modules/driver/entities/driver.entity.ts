@@ -149,6 +149,11 @@ export class DriverEntity {
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
 
+  // Set alongside deletedAt when the driver deletes their own account — the retained personal data
+  // becomes eligible for scrubbing at this time. See DriverAuthService.deleteAccount.
+  @Column({ name: 'purge_after', type: 'timestamptz', nullable: true })
+  purgeAfter!: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

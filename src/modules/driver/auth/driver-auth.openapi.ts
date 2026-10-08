@@ -106,6 +106,25 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/account/delete`,
+    tags: [TAGS.DRIVER_AUTH],
+    operationId: 'driverAuth.deleteAccount',
+    ...authenticated(
+      'Soft-delete the caller’s own account. `phoneNumber` must match the registered number and ' +
+        '`confirm` must be true. Revokes all sessions, ends fleet links and vehicle assignments, ' +
+        'and notifies linked fleet owners. Trip history is retained for 90 days. Refused (409) ' +
+        'while a trip is in progress.',
+    ),
+    request: { body: json(driverAuthValidators.deleteAccount.shape.body) },
+    responses: {
+      200: { description: '{ referenceId, status: "decommissioned", retentionUntil }' },
+      400: { description: 'Phone number does not match', ...errorContent },
+      409: { description: 'A trip is in progress', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/select-relation`,
     tags: [TAGS.DRIVER_AUTH],
     operationId: 'driverAuth.selectRelation',
