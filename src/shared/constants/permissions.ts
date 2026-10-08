@@ -24,6 +24,7 @@ export const SALES_LEADS_MANAGE = 'sales.leads.manage';
 // Payments module that will eventually enforce them, so an invited teammate has a
 // meaningful starting bundle instead of an empty one.
 export const REQUISITIONS_MANAGE = 'requisitions.manage'; // sales_cs — Requisition stage
+export const LOADS_POST = 'loads.post'; // Post a load form — post, save drafts, manage indent contracts
 export const DISPATCH_PLANNING_MANAGE = 'dispatch.planning.manage'; // dispatch — Planning/Assignment
 export const LOADS_DOCUMENTS_MANAGE = 'loads.documents.manage'; // documents_ops — Loading/E-POD
 export const PAYMENTS_MANAGE = 'payments.manage'; // finance_accounts — Advance/Balance

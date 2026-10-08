@@ -32,6 +32,7 @@ import {
   LOADS_CONSOLE_ACCESS,
   SALES_LEADS_MANAGE,
   REQUISITIONS_MANAGE,
+  LOADS_POST,
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
   PAYMENTS_MANAGE,
@@ -116,6 +117,12 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       module: 'loads',
       scope: 'organization',
       description: 'Manage load requisitions',
+    },
+    {
+      key: LOADS_POST,
+      module: 'loads',
+      scope: 'organization',
+      description: 'Post loads to the market, a contracted transporter or own fleet',
     },
     {
       key: DISPATCH_PLANNING_MANAGE,
@@ -241,6 +248,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       // owner couldn't use their own organization's Load module once these gates went live —
       // sales_cs/dispatch/documents_ops/finance_accounts each get one of these individually below.
       REQUISITIONS_MANAGE,
+      LOADS_POST,
       DISPATCH_PLANNING_MANAGE,
       LOADS_DOCUMENTS_MANAGE,
       PAYMENTS_MANAGE,
@@ -259,13 +267,14 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: SALES_CS_ROLE,
     scope: 'organization',
-    permissionKeys: [REQUISITIONS_MANAGE, CUSTOMERS_READ, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [REQUISITIONS_MANAGE, LOADS_POST, CUSTOMERS_READ, FILES_READ, FILES_UPLOAD],
   },
   {
     name: DISPATCH_ROLE,
     scope: 'organization',
     permissionKeys: [
       DISPATCH_PLANNING_MANAGE,
+      LOADS_POST,
       CUSTOMERS_CREATE,
       MASTERS_WRITE,
       // Books the workshop jobs (a breakdown is a dispatch event) but doesn't see what they cost.

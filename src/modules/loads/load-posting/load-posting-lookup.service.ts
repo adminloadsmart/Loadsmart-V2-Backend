@@ -1,0 +1,356 @@
+import { DataSource } from 'typeorm';
+import { NotFoundError, rethrow } from '../../../shared/errors';
+import { CustomerService } from '../../customers/customer.service';
+import { VehicleService } from '../../masters/vehicle/vehicle.service';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
+import { LoadEntity } from '../entities/load.entity';
+import { LoadRepository } from '../load.repository';
+import { LoadPostingRepository } from './load-posting.repository';
+import { LoadPostingEntity } from './entities/load-posting.entity';
+import { LoadPostingService } from './load-posting.service';
+import { PostAddress } from './utils/load-posting.types';
+
+/** How many recent postings of a customer are folded into past-load cards. */
+const PAST_LOAD_SCAN_LIMIT = 200;
+/** Recent-customers scans this many postings to find the last four distinct customers. */
+const RECENT_SCAN_LIMIT = 100;
+const FLEET_PICKER_LIMIT = 50;
+
+/**
+ * Read-side of the Post a load form: everything the pickers need before the shipper taps Post.
+ * Masters are searched first (PL-09 note 1) — nothing here calls Google.
+ */
+export class LoadPostingLookupService {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly repository: LoadPostingRepository,
+    private readonly loadRepository: LoadRepository,
+    private readonly customerService: CustomerService,
+    private readonly vehicleService: VehicleService,
+    private readonly postingService: LoadPostingService,
+  ) {}
+
+  /** PL-01 — the last N customers this tenant posted for, most recent first. */
+  async recentCustomers(tenantId: string, limit: number) {
+    try {
+      const postings = await this.repository.listRecentPostingsWithCustomer(
+        tenantId,
+        RECENT_SCAN_LIMIT,
+      );
+      const ids: string[] = [];
+      for (const posting of postings) {
+        if (posting.customerId && !ids.includes(posting.customerId)) ids.push(posting.customerId);
+        if (ids.length === limit) break;
+      }
+      const customers = await this.repository.findCustomers(tenantId, ids);
+      return ids
+        .map((id) => customers.find((customer) => customer.id === id))
+        .filter((customer): customer is NonNullable<typeof customer> => Boolean(customer))
+        .map((customer) => ({ id: customer.id, code: customer.code, name: customer.name }));
+    } catch (error) {
+      rethrow(error, 'Failed to list recent customers');
+    }
+  }
+
+  /** PL-02 — name or customer code, matched anywhere, ignoring case. */
+  async searchCustomers(tenantId: string, search: string | undefined, limit: number) {
+    try {
+      const customers = await this.repository.searchCustomers(tenantId, search, limit);
+      return customers.map((customer) => ({
+        id: customer.id,
+        code: customer.code,
+        name: customer.name,
+        status: customer.status,
+        unloadingPointCount: customer.deliveryPoints?.length ?? 0,
+      }));
+    } catch (error) {
+      rethrow(error, 'Failed to search customers');
+    }
+  }
+
+  /** PL-03/04 — add by typed name; an exact (case-insensitive) existing name is reused. */
+  async quickAddCustomer(tenantId: string, actorId: string, role: string, name: string) {
+    try {
+      const existing = await this.repository.findCustomerByExactName(tenantId, name);
+      const customer =
+        existing ?? (await this.customerService.quickAdd(tenantId, actorId, role, name));
+      return { id: customer.id, code: customer.code, name: customer.name, status: customer.status };
+    } catch (error) {
+      rethrow(error, 'Failed to add customer');
+    }
+  }
+
+  /** PL-09/10 — this customer's saved unloading points. */
+  async unloadingPoints(tenantId: string, customerId: string, search?: string) {
+    try {
+      const points = await this.repository.listUnloadingPoints(tenantId, customerId, search);
+      return points.map((point) => ({
+        id: point.id,
+        label: point.location,
+        addressLine1: point.addressLine1,
+        city: point.city,
+        state: point.state,
+        pinCode: point.pinCode,
+      }));
+    } catch (error) {
+      rethrow(error, 'Failed to list unloading points');
+    }
+  }
+
+  /** Pickup list; also the drop list when there is no customer ("your own saved locations"). */
+  async loadingPoints(tenantId: string, search?: string) {
+    try {
+      const points = await this.repository.searchLoadingPoints(tenantId, search);
+      return points.map((point) => ({
+        id: point.id,
+        label: point.title,
+        addressLine1: point.addressLine1,
+        city: point.city,
+        state: point.state,
+        pinCode: point.pinCode,
+      }));
+    } catch (error) {
+      rethrow(error, 'Failed to list loading points');
+    }
+  }
+
+  async commodities(tenantId: string, search?: string) {
+    try {
+      const products = await this.repository.searchCommodities(tenantId, search);
+      return products.map((product) => ({
+        id: product.id,
+        name: product.productDetails,
+        packaging: product.packaging,
+      }));
+    } catch (error) {
+      rethrow(error, 'Failed to list commodities');
+    }
+  }
+
+  /** PL-01 "Who gets it" — Loadsmart first, always included, then the tenant's active transporters. */
+  async transporters(tenantId: string, search?: string) {
+    try {
+      const transporters = await this.repository.listActiveTransporters(tenantId, search);
+      return {
+        loadsmart: { alwaysIncluded: true, name: 'Loadsmart' },
+        transporters: transporters.map((transporter) => ({
+          id: transporter.id,
+          name: transporter.name,
+          phone: transporter.phone,
+          city: transporter.city,
+          state: transporter.state,
+        })),
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to list transporters');
+    }
+  }
+
+  /** Truck type steps in order — body, then tyres/axle, then tonnes — each step only offers what
+   *  is left after the previous picks (PL-09 note 3). Length comes from this fleet's vehicles. */
+  async truckOptions(
+    tenantId: string,
+    filters: { bodyType?: string; wheelConfiguration?: number; capacityTons?: number },
+  ) {
+    try {
+      const all = await this.repository.listTruckTypes(tenantId);
+      const distinct = <T>(values: (T | null)[]) => [
+        ...new Set(values.filter((v): v is T => v !== null)),
+      ];
+
+      const byBody = filters.bodyType ? all.filter((t) => t.bodyType === filters.bodyType) : all;
+      const byTyres =
+        filters.wheelConfiguration === undefined
+          ? byBody
+          : byBody.filter((t) => t.wheelConfiguration === filters.wheelConfiguration);
+      const matching =
+        filters.capacityTons === undefined
+          ? byTyres
+          : byTyres.filter((t) => Number(t.capacityTons) === filters.capacityTons);
+
+      const lengthRows = matching.length
+        ? await this.dataSource
+            .getRepository(VehicleEntity)
+            .createQueryBuilder('vehicle')
+            .select('DISTINCT vehicle.body_length_ft', 'length')
+            .where('vehicle.tenant_id = :tenantId', { tenantId })
+            .andWhere('vehicle.deleted_at IS NULL')
+            .andWhere('vehicle.truck_type_id IN (:...ids)', { ids: matching.map((t) => t.id) })
+            .andWhere('vehicle.body_length_ft IS NOT NULL')
+            .getRawMany<{ length: string }>()
+        : [];
+
+      return {
+        bodyTypes: distinct(all.map((t) => t.bodyType)),
+        wheelConfigurations: distinct(byBody.map((t) => t.wheelConfiguration)),
+        capacities: distinct(byTyres.map((t) => (t.capacityTons ? Number(t.capacityTons) : null))),
+        lengthsFt: lengthRows.map((row) => row.length),
+        truckTypes: matching.map((t) => ({
+          id: t.id,
+          name: t.name,
+          bodyType: t.bodyType,
+          wheelConfiguration: t.wheelConfiguration,
+          capacityTons: t.capacityTons,
+        })),
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to list truck options');
+    }
+  }
+
+  /** PL-22 — own trucks with a state: workshop / on a live load / inactive are disabled; paper
+   *  expiry only adds a warning. */
+  async fleetOptions(tenantId: string, search?: string) {
+    try {
+      const { items } = await this.vehicleService.listVehicles(tenantId, {
+        page: 1,
+        limit: FLEET_PICKER_LIMIT,
+        search,
+      });
+      const usable = items.filter((v) => v.status === 'active' || v.status === 'under_maintenance');
+      const active = usable.length
+        ? await this.loadRepository.findActiveByVehicles(
+            tenantId,
+            usable.map((vehicle) => vehicle.id),
+          )
+        : [];
+      const onLoad = new Set(active.map((load) => load.vehicleId));
+
+      return Promise.all(
+        usable.map(async (vehicle) => {
+          const detail = await this.vehicleService.getVehicle(tenantId, vehicle.id);
+          const warnings = this.postingService.paperWarnings(detail.documents ?? []);
+          const primary = (vehicle.driverLinks ?? []).find(
+            (link) => link.isPrimary && link.status === 'active',
+          );
+          const state =
+            vehicle.status === 'under_maintenance'
+              ? 'workshop'
+              : onLoad.has(vehicle.id) || vehicle.operationalStatus?.operationalStatus === 'on_trip'
+                ? 'on_trip'
+                : 'ready';
+          return {
+            id: vehicle.id,
+            registrationNumber: vehicle.registrationNumber,
+            truckType: vehicle.truckType?.name ?? null,
+            capacityTons: vehicle.capacityTons,
+            bodyLengthFt: vehicle.bodyLengthFt,
+            driverName: primary?.driver?.fullName ?? null,
+            state,
+            disabled: state !== 'ready',
+            warnings,
+          };
+        }),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to list own fleet');
+    }
+  }
+
+  /**
+   * PL-06 — the customer's past loads grouped by lane (same pickup, drop and truck), highest
+   * move count first. Each card carries what picking it fills; it never fills Deliver by or the
+   * price (an old date or rate must not be reposted), and indent/own-fleet transporter and truck
+   * are never carried over. `customerId` omitted = the "No customer" history.
+   */
+  async pastLoads(tenantId: string, customerId?: string) {
+    try {
+      if (customerId) {
+        const [customer] = await this.repository.findCustomers(tenantId, [customerId]);
+        if (!customer) throw new NotFoundError(`Customer ${customerId} not found`);
+      }
+      const postings = await this.repository.listRecentPostings(
+        tenantId,
+        customerId ?? null,
+        PAST_LOAD_SCAN_LIMIT,
+      );
+      const truckTypeIds = [
+        ...new Set(postings.map((p) => p.truckTypeId).filter(Boolean)),
+      ] as string[];
+      const truckTypes = await this.repository.findTruckTypes(tenantId, truckTypeIds);
+
+      const lanes = new Map<string, { latest: LoadPostingEntity; moves: number }>();
+      for (const posting of postings) {
+        const key = [
+          posting.pickupLoadingPointId ?? addressKey(posting.pickupAddress),
+          posting.dropCustomerDeliveryPointId ??
+            posting.dropLoadingPointId ??
+            addressKey(posting.dropAddress),
+          posting.truckTypeId ?? posting.vehicleId ?? 'none',
+        ].join('|');
+        const lane = lanes.get(key);
+        if (lane) lane.moves += 1;
+        else lanes.set(key, { latest: posting, moves: 1 }); // postings are newest first
+      }
+
+      const cards = await Promise.all(
+        [...lanes.entries()].map(async ([key, { latest, moves }]) => {
+          const recipients =
+            latest.mode === 'market_fleet'
+              ? await this.repository.listRecipients(tenantId, latest.id)
+              : [];
+          const truckType = truckTypes.find((type) => type.id === latest.truckTypeId);
+          return {
+            key,
+            pickup: latest.pickupAddress.label,
+            drop: latest.dropAddress.label,
+            truck: truckType?.name ?? null,
+            commodity: latest.commodityName,
+            moves,
+            fill: {
+              mode: latest.mode,
+              transporterIds:
+                latest.mode === 'market_fleet'
+                  ? recipients.map((r) => r.transporterId).filter(Boolean)
+                  : [],
+              pickup: latest.pickupLoadingPointId
+                ? { loadingPointId: latest.pickupLoadingPointId }
+                : null,
+              drop: latest.dropCustomerDeliveryPointId
+                ? { customerDeliveryPointId: latest.dropCustomerDeliveryPointId }
+                : latest.dropLoadingPointId
+                  ? { loadingPointId: latest.dropLoadingPointId }
+                  : null,
+              commodity: latest.commodityId
+                ? { productId: latest.commodityId }
+                : { name: latest.commodityName },
+              packaging: latest.packaging,
+              weightTonnes: latest.weightTonnes,
+              truckCount: latest.truckCount,
+              truckTypeId: latest.mode === 'own_fleet' ? null : latest.truckTypeId,
+              truckLengthFt: latest.truckLengthFt,
+              acceptedTruckTypeIds: latest.acceptedTruckTypeIds,
+              advancePercentage: latest.advancePercentage,
+              balancePaidBy: latest.balancePaidBy,
+              note: latest.note,
+            },
+          };
+        }),
+      );
+      return cards.sort((a, b) => b.moves - a.moves);
+    } catch (error) {
+      rethrow(error, 'Failed to list past loads');
+    }
+  }
+
+  async getPosting(tenantId: string, postingId: string) {
+    try {
+      const posting = await this.repository.findPostingById(tenantId, postingId);
+      if (!posting) throw new NotFoundError(`Posting ${postingId} not found`);
+      const [recipients, loads] = await Promise.all([
+        this.repository.listRecipients(tenantId, postingId),
+        this.dataSource.getRepository(LoadEntity).find({
+          where: { tenantId, postingId },
+          order: { code: 'ASC' },
+        }),
+      ]);
+      return { posting, recipients, loads: loads.map((l) => ({ id: l.id, code: l.code })) };
+    } catch (error) {
+      rethrow(error, 'Failed to fetch posting');
+    }
+  }
+}
+
+function addressKey(address: PostAddress): string {
+  return `${address.label}|${address.pinCode ?? ''}`.toLowerCase();
+}

@@ -23,7 +23,8 @@ export const REQUISITION_ITEM_UNITS = [
 ] as const;
 export type RequisitionItemUnit = (typeof REQUISITION_ITEM_UNITS)[number];
 
-export const LOAD_SOURCE_TYPES = ['own_fleet', 'market'] as const;
+/** `indent` — posted straight to one contracted transporter at the contract rate (Post a load). */
+export const LOAD_SOURCE_TYPES = ['own_fleet', 'market', 'indent'] as const;
 export type LoadSourceType = (typeof LOAD_SOURCE_TYPES)[number];
 
 export const FREIGHT_TYPES = ['per_ton', 'flat'] as const;

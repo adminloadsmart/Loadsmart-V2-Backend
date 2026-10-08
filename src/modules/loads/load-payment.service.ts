@@ -41,8 +41,8 @@ export class LoadPaymentService {
   ): Promise<LoadPaymentEntity> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
-      if (load.sourceType !== 'market') {
-        throw new ConflictError('Advance payment applies to market loads only');
+      if (load.sourceType === 'own_fleet') {
+        throw new ConflictError('Advance payment applies to market and indent loads only');
       }
       if (!load.loadingConfirmedAt) {
         throw new ConflictError('Advance can only be recorded after loading is confirmed');
@@ -106,8 +106,8 @@ export class LoadPaymentService {
   ): Promise<LoadPaymentEntity> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
-      if (load.sourceType !== 'market') {
-        throw new ConflictError('Balance payment applies to market loads only');
+      if (load.sourceType === 'own_fleet') {
+        throw new ConflictError('Balance payment applies to market and indent loads only');
       }
       if (!load.deliveredAt) {
         throw new ConflictError('Balance can only be recorded once the E-POD is received');

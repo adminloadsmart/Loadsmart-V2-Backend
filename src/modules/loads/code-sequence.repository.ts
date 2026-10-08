@@ -1,7 +1,7 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { CodeSequenceEntity } from './entities/code-sequence.entity';
 
-export type CodeSequenceEntityKind = 'requisition' | 'load';
+export type CodeSequenceEntityKind = 'requisition' | 'load' | 'customer';
 
 export class CodeSequenceRepository {
   private readonly sequences: Repository<CodeSequenceEntity>;

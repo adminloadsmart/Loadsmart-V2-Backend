@@ -65,12 +65,18 @@ export class LoadEntity {
   @Column({ type: 'varchar', length: 20 })
   code!: string;
 
-  @Column({ name: 'requisition_id', type: 'uuid' })
-  requisitionId!: string;
+  /** Null for loads created straight from the shipper's Post a load form (see postingId). */
+  @Column({ name: 'requisition_id', type: 'uuid', nullable: true })
+  requisitionId!: string | null;
 
-  @ManyToOne(() => RequisitionEntity, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => RequisitionEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'requisition_id' })
-  requisition!: RequisitionEntity;
+  requisition!: RequisitionEntity | null;
+
+  /** Set when the load came from Post a load (load-posting/) — links back to the posting that
+   *  holds the form answers and recipients. No FK: keeps loads independent of the posting table. */
+  @Column({ name: 'posting_id', type: 'uuid', nullable: true })
+  postingId!: string | null;
 
   @Column({ name: 'source_type', type: 'enum', enum: [...LOAD_SOURCE_TYPES] })
   sourceType!: LoadSourceType;
