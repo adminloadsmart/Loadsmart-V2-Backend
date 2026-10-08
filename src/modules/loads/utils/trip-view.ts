@@ -1,12 +1,15 @@
 import { computeShareAmount } from '../load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
+import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 import { EwayBillExpiry } from './load.interface';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
+  HALTING_ISSUE_CATEGORIES,
   LIFECYCLE_STAGE_LABEL_KEYS,
   LOAD_STATUSES,
+  LoadIssueCategory,
   LoadSourceType,
   LoadStatus,
   MARKET_LIFECYCLE_STATUSES,
@@ -108,6 +111,33 @@ export interface TripStepperStep {
   /** ISO timestamp from the matching *_At column; null for 'created'/'assigned', which have no
    *  dedicated timestamp column on LoadEntity. */
   at: string | null;
+  /** True for the steps still ahead of the current one while the load is halted by an unresolved
+   *  accident/breakdown — the driver app renders them as "ON HOLD". */
+  onHold: boolean;
+}
+
+/** The load's newest unresolved driver-reported issue, shown on the trip-detail screen as the
+ *  incident card. `halted` is true only for HALTING_ISSUE_CATEGORIES — other categories are info
+ *  only and don't stop the trip. */
+export interface TripIncident {
+  id: string;
+  category: LoadIssueCategory;
+  details: string | null;
+  locationLabel: string;
+  reportedAt: string;
+  halted: boolean;
+}
+
+export function buildIncident(issue: LoadIssueReportEntity | null): TripIncident | null {
+  if (!issue) return null;
+  return {
+    id: issue.id,
+    category: issue.category,
+    details: issue.details,
+    locationLabel: issue.locationLabel,
+    reportedAt: issue.createdAt.toISOString(),
+    halted: HALTING_ISSUE_CATEGORIES.includes(issue.category),
+  };
 }
 
 export interface TripNextAction {
@@ -388,7 +418,11 @@ export function toLoadPapers(
 
 /** Walks LOAD_STATUSES by index — the same indexing LoadService.updateStatus uses — to build
  *  the trip-detail screen's 8-step progress stepper. */
-export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripStepperStep[] {
+export function buildStepper(
+  load: LoadEntity,
+  locale: Locale = DEFAULT_LOCALE,
+  incident: TripIncident | null = null,
+): TripStepperStep[] {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const timestampByStatus: Partial<Record<LoadStatus, Date | null>> = {
     loading_confirmed: load.loadingConfirmedAt,
@@ -404,6 +438,7 @@ export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE):
     completed: index < currentIndex,
     current: index === currentIndex,
     at: timestampByStatus[status]?.toISOString() ?? null,
+    onHold: Boolean(incident?.halted) && index > currentIndex,
   }));
 }
 

@@ -1,4 +1,4 @@
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
 import { LoadIssueCategory } from './utils/loads.types';
 
@@ -33,6 +33,29 @@ export class LoadIssueRepository {
       photoFileKeys: data.photoFileKeys ?? null,
     });
     return repo.save(issue);
+  }
+
+  // The newest unresolved report on a load — drives the trip-detail incident card and the hold.
+  findLatestOpenByLoad(tenantId: string, loadId: string): Promise<LoadIssueReportEntity | null> {
+    return this.issues.findOne({
+      where: { tenantId, loadId, resolvedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  // Only flips a still-open report, so a double resolve is a no-op that returns null.
+  async resolve(
+    tenantId: string,
+    loadId: string,
+    issueId: string,
+    resolvedBy: string,
+  ): Promise<LoadIssueReportEntity | null> {
+    const result = await this.issues.update(
+      { id: issueId, tenantId, loadId, resolvedAt: IsNull() },
+      { resolvedAt: new Date(), resolvedBy },
+    );
+    if (!result.affected) return null;
+    return this.issues.findOneBy({ id: issueId, tenantId, loadId });
   }
 
   // Most recent first — read as a feed, unlike load-payment.repository.ts's listByLoad (one

@@ -275,7 +275,9 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
       200: {
         description:
           '{ load, timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
-          'TripStepperStep[], nextAction: TripNextAction }',
+          'TripStepperStep[] (steps ahead of a halted trip have onHold: true), nextAction: TripNextAction, ' +
+          'incident: TripIncident | null (newest unresolved reported issue; halted: true for ' +
+          'accident/breakdown — the trip cannot advance until staff resolve it) }',
       },
       404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
     },
