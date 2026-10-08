@@ -37,7 +37,8 @@ function toCreatedAtWhere(
 function isOnTime(load: LoadEntity): boolean {
   if (!load.deliveredAt) return false;
   const deliveredDate = load.deliveredAt.toISOString().slice(0, 10);
-  return deliveredDate <= load.requisition.expectedDeliveryDate;
+  // Loads posted without a requisition carry no committed date, so they never count as late.
+  return load.requisition ? deliveredDate <= load.requisition.expectedDeliveryDate : true;
 }
 
 // Reads DriverEntity/FleetDriverLinkEntity/LoadEntity directly via the DataSource, same as

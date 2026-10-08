@@ -3,6 +3,8 @@ import { AuditService } from '../audit/audit.service';
 import { ORG_ADMIN_ROLE, SALES_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { paginate } from '../admin/utils/admin.types';
 import { CustomerRepository } from './customer.repository';
+import { CodeSequenceRepository } from '../loads/code-sequence.repository';
+import { formatCustomerCode } from '../loads/utils/code.util';
 import { CreateCustomerInput, ListCustomersInput, UpdateCustomerInput } from './customer.types';
 
 // Anyone invited into the org (sales_cs/dispatch/documents_ops/finance_accounts) can request a
@@ -14,6 +16,7 @@ export class CustomerService {
     private readonly repository: CustomerRepository,
     private readonly dataSource: import('typeorm').DataSource,
     private readonly audit: AuditService,
+    private readonly codeSequences: CodeSequenceRepository,
   ) {}
   private assertRole(role: string, allowed: string[]) {
     if (!allowed.includes(role)) throw new AuthorizationError('Not authorized to manage customers');
@@ -28,11 +31,14 @@ export class CustomerService {
   ) {
     try {
       this.assertRole(role, CUSTOMER_CREATOR_ROLES);
-      if (await this.repository.findByMobile(tenantId, input.mobile))
+      if (input.mobile && (await this.repository.findByMobile(tenantId, input.mobile)))
         throw new ConflictError(`A customer with mobile "${input.mobile}" already exists`);
       const status = role === ORG_ADMIN_ROLE ? 'active' : 'pending';
       const customer = await this.dataSource.transaction(async (manager) => {
-        const value = await this.repository.create(tenantId, actorId, status, input, manager);
+        const code = formatCustomerCode(
+          await this.codeSequences.next('customer', tenantId, manager),
+        );
+        const value = await this.repository.create(tenantId, actorId, status, input, manager, code);
         await this.repository.addPoints(value.id, tenantId, input.deliveryPoints ?? [], manager);
         return this.repository.findById(tenantId, value.id, manager);
       });
@@ -53,6 +59,11 @@ export class CustomerService {
     } catch (error) {
       rethrow(error, 'Failed to create customer');
     }
+  }
+  /** Name-only add from Post a load — mobile, GSTIN and contacts are completed later in the
+   *  Customer master. Same role gate and approval split as `create`. */
+  quickAdd(tenantId: string, actorId: string, role: string, name: string) {
+    return this.create(tenantId, actorId, role, { name });
   }
   async list(tenantId: string, role: string, input: ListCustomersInput) {
     try {

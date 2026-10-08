@@ -62,7 +62,8 @@ export interface TripListRow {
   /** Display code `LOAD-nnnn` — see load.entity.ts's doc comment. */
   code: string;
   status: LoadStatus;
-  requisitionId: string;
+  /** Null for loads posted straight from Post a load (no requisition). */
+  requisitionId: string | null;
   /** The parent requisition's own display code `REQ-nnnn` — null only if the requisition
    *  relation somehow wasn't loaded (never happens via LoadRepository.list). */
   requisitionCode: string | null;
@@ -140,7 +141,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
 
   // Advance/balance amounts mirror buildNextAction's computation below — market-only, derived
   // from freightValue + plannedCapacityTonnes + the stored percentages via computeShareAmount.
-  const isMarket = load.sourceType === 'market';
+  const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
   const advanceAmount =
     isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
   const balanceAmount =
@@ -418,7 +419,7 @@ export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE):
  * `status` still reads 'delivered' or has since moved to 'closed'.
  */
 function resolveLifecycleStage(load: LoadEntity): LoadStatus | typeof PAYMENTS_STAGE {
-  if (load.sourceType === 'market' && load.advancePaidAt && load.balancePaidAt) {
+  if (load.sourceType !== 'own_fleet' && load.advancePaidAt && load.balancePaidAt) {
     return PAYMENTS_STAGE;
   }
   if (load.status === 'loading_confirmed' || load.status === 'at_plant') return 'assigned';
@@ -433,7 +434,7 @@ export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCAL
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
 
-  const isMarket = load.sourceType === 'market';
+  const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
   // Own Fleet's doc lifecycle is 4 stages; Market's is 6 (5 real statuses + the derived
   // "Payments" stage) — R-38, not one shared count across every load regardless of strategy.
   const lifecycleStatuses = isMarket ? MARKET_LIFECYCLE_STATUSES : OWN_FLEET_LIFECYCLE_STATUSES;

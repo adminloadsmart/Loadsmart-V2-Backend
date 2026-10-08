@@ -24,6 +24,7 @@ import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { createLoadPostingModule } from './load-posting';
 
 export function createLoadsModule(
   dataSource: DataSource,
@@ -103,12 +104,27 @@ export function createLoadsModule(
   );
   const protectedRouter = createLoadsProtectedRoutes(controller);
 
+  // Post a load (load-posting/) — mounted under /post (this router itself sits at /v1/loads, so the full path is /v1/loads/post)
+  // (the routes above are all /requisitions/* or /loads/*).
+  const loadPosting = createLoadPostingModule(dataSource, {
+    auditService: deps.auditService,
+    customerService: deps.customerService,
+    vehicleService: deps.vehicleService,
+    loadRepository,
+    codeSequenceRepository,
+    loadActivityService,
+    driverAuthService: deps.driverAuthService,
+    notificationsService: deps.notificationsService,
+  });
+  protectedRouter.use('/post', loadPosting.router);
+
   return {
     requisitionService,
     loadService,
     loadPaymentService,
     loadActivityService,
     dispatchPlanningService,
+    loadPosting,
     protectedRouter,
   };
 }
