@@ -24,4 +24,5 @@ export const reportLoadIssueBody = z
 export const loadIssueValidators = {
   report: z.object({ params, body: reportLoadIssueBody }),
   list: z.object({ params }),
+  resolve: z.object({ params: z.object({ loadId: uuid, issueId: uuid }) }),
 };

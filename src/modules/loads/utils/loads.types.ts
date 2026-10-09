@@ -202,3 +202,8 @@ export const LOAD_ISSUE_CATEGORIES = [
   'other',
 ] as const;
 export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];
+
+/** Categories that put the trip on hold until staff resolve the report — the driver can't move the
+ *  load forward and the trip-detail view shows it as halted. Every other category is shown as
+ *  incident info only. */
+export const HALTING_ISSUE_CATEGORIES: readonly LoadIssueCategory[] = ['accident', 'breakdown'];

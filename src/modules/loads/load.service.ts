@@ -49,6 +49,8 @@ import {
   TripListRow,
   TripNextAction,
   TripStepperStep,
+  TripIncident,
+  buildIncident,
 } from './utils/trip-view';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 
@@ -93,6 +95,8 @@ export interface LoadDetailView {
   ewayBillExpiry: EwayBillExpiry;
   stepper: TripStepperStep[];
   nextAction: TripNextAction;
+  /** Newest unresolved driver-reported issue, or null. `incident.halted` means the trip is on hold. */
+  incident: TripIncident | null;
 }
 
 // TEMPORARY: the receiver code is a fixed value until a real SMS template/provider is wired in —
@@ -572,6 +576,7 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
+      await this.assertNotHalted(tenantId, loadId);
       const manualTrackingStatuses: readonly string[] = MANUAL_TRACKING_STATUSES;
       const currentIndex = LOAD_STATUSES.indexOf(load.status);
       const nextStatus = LOAD_STATUSES[currentIndex + 1];
@@ -1030,6 +1035,42 @@ export class LoadService {
     }
   }
 
+  /** A trip with an unresolved accident/breakdown can't move forward until staff resolve it. */
+  private async assertNotHalted(tenantId: string, loadId: string): Promise<void> {
+    const open = buildIncident(
+      await this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
+    );
+    if (open?.halted) {
+      throw new ConflictError('This trip is on hold because of a reported incident');
+    }
+  }
+
+  /** Staff marks a driver-reported issue resolved — releases the hold if it was an accident or
+   *  breakdown. Idempotent-safe: resolving an already-resolved report is a 404, not a re-stamp. */
+  async resolveIssue(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    issueId: string,
+  ): Promise<LoadIssueReportEntity> {
+    try {
+      await this.assertExists(tenantId, loadId);
+      const issue = await this.loadIssueRepository.resolve(tenantId, loadId, issueId, actorId);
+      if (!issue) throw new NotFoundError(`Open issue ${issueId} not found on load ${loadId}`);
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_ISSUE_RESOLVED',
+        resourceType: 'load',
+        newData: { id: issue.id, loadId, category: issue.category },
+      });
+      return issue;
+    } catch (error) {
+      rethrow(error, 'Failed to resolve load issue');
+    }
+  }
+
   async listIssues(tenantId: string, loadId: string): Promise<LoadIssueReportEntity[]> {
     try {
       return await this.loadIssueRepository.listByLoad(tenantId, loadId);
@@ -1070,12 +1111,14 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, contactPhones] = await Promise.all([
+      const [timeline, payments, loadWithUrls, contactPhones, openIssue] = await Promise.all([
         this.loadActivityService.listByLoad(tenantId, loadId),
         this.loadPaymentRepository.listByLoad(tenantId, loadId),
         this.withDocumentDownloadUrls(tenantId, actorRole, load),
         this.authService.getOrganizationContactPhones(tenantId),
+        this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
       ]);
+      const incident = buildIncident(openIssue);
 
       return {
         load: loadWithUrls,
@@ -1092,8 +1135,9 @@ export class LoadService {
         timeline,
         payments,
         ewayBillExpiry: this.getEwayBillExpiry(load),
-        stepper: buildStepper(load, locale),
+        stepper: buildStepper(load, locale, incident),
         nextAction: buildNextAction(load, locale),
+        incident,
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch load');

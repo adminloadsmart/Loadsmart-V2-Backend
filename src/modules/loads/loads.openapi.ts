@@ -255,7 +255,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
           '{ load (document fields are download URLs), ownerPhoneNumber, dispatchPhoneNumber, ' +
           'documentKeys (the same document fields as raw ' +
           'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
-          'TripStepperStep[], nextAction: TripNextAction }',
+          'TripStepperStep[] (steps ahead of a halted trip have onHold: true), nextAction: TripNextAction, ' +
+          'incident: TripIncident | null (newest unresolved driver-reported issue; halted: true for ' +
+          'accident/breakdown) }',
       },
       404: { description: 'Load not found', ...errorContent },
     },
@@ -465,6 +467,21 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     request: { params: loadIssueValidators.list.shape.params },
     responses: {
       200: { description: 'LoadIssueReportEntity[], most recent first' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/issues/{issueId}/resolve`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.resolveLoadIssue',
+    ...authenticated(
+      'Mark a driver-reported issue resolved. Releases the hold if it was an accident or breakdown.',
+    ),
+    request: { params: loadIssueValidators.resolve.shape.params },
+    responses: {
+      200: { description: 'The resolved LoadIssueReportEntity' },
+      404: { description: 'Load or open issue not found', ...errorContent },
     },
   });
 
