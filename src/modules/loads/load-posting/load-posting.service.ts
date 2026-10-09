@@ -141,7 +141,7 @@ export class LoadPostingService {
       const result = await this.dataSource.transaction(async (manager) => {
         const pickupMasterId = await this.savePickup(tenantId, actorId, role, pickup, manager);
         const drop2 = await this.saveDrop(tenantId, actorId, customer, drop, manager);
-        const commodity = await this.resolveCommodity(tenantId, actorId, role, input, manager);
+        const commodity = await this.resolveCommodity(tenantId, actorId, input, manager);
 
         const loadCodes: string[] = [];
         for (let i = 0; i < input.truckCount; i += 1) {
@@ -662,7 +662,6 @@ export class LoadPostingService {
   private async resolveCommodity(
     tenantId: string,
     actorId: string,
-    role: string,
     input: PostLoadInput,
     manager: EntityManager,
   ): Promise<{ id: string | null; name: string }> {
@@ -678,18 +677,19 @@ export class LoadPostingService {
     const name = input.commodity.name!.trim();
     const existing = await this.repository.findCommodityByExactName(tenantId, name, manager);
     if (existing) return { id: existing.id, name: existing.productDetails };
-    const autoApproved = role === ORG_ADMIN_ROLE;
+    // A commodity typed on Post a load is usable immediately for every role (shipper's call, not
+    // the Product master's usual pending-approval step), so it shows up in the next search.
     const repo = manager.getRepository(ProductEntity);
     const saved = await repo.save(
       repo.create({
         tenantId,
         productDetails: name,
         packaging: input.packaging,
-        approvalStatus: autoApproved ? 'approved' : 'pending_approval',
-        status: autoApproved ? 'active' : 'inactive',
+        approvalStatus: 'approved',
+        status: 'active',
         createdBy: actorId,
-        approvedBy: autoApproved ? actorId : null,
-        approvedAt: autoApproved ? new Date() : null,
+        approvedBy: actorId,
+        approvedAt: new Date(),
         deletedAt: null,
       }),
     );
