@@ -1,5 +1,6 @@
 import { DataSource, EntityManager, ILike, In, IsNull, Not, Repository } from 'typeorm';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { LoadEntity } from '../entities/load.entity';
 import { RequisitionEntity } from '../entities/requisition.entity';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
@@ -42,6 +43,7 @@ export class LoadPostingRepository {
   private readonly recipients: Repository<LoadRecipientEntity>;
   private readonly requisitions: Repository<RequisitionEntity>;
   private readonly loads: Repository<LoadEntity>;
+  private readonly maintenanceJobs: Repository<MaintenanceJobEntity>;
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
   private readonly contracts: Repository<CustomerContractEntity>;
@@ -58,6 +60,7 @@ export class LoadPostingRepository {
     this.recipients = dataSource.getRepository(LoadRecipientEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
     this.loads = dataSource.getRepository(LoadEntity);
+    this.maintenanceJobs = dataSource.getRepository(MaintenanceJobEntity);
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
     this.contracts = dataSource.getRepository(CustomerContractEntity);
@@ -123,6 +126,19 @@ export class LoadPostingRepository {
   /** The loads a posting spawned, one per truck. */
   listLoadsByPosting(tenantId: string, postingId: string) {
     return this.loads.find({ where: { tenantId, postingId }, order: { code: 'ASC' } });
+  }
+
+  // --- Workshop ---
+
+  /** Trucks with an open maintenance visit (a service or breakdown) — the maintenance module's
+   *  own definition of "in the workshop", which also flips the vehicle to under_maintenance. */
+  async listVehicleIdsInWorkshop(tenantId: string, vehicleIds: string[]): Promise<Set<string>> {
+    if (!vehicleIds.length) return new Set();
+    const jobs = await this.maintenanceJobs.find({
+      select: { vehicleId: true },
+      where: { tenantId, vehicleId: In(vehicleIds), status: 'open' },
+    });
+    return new Set(jobs.map((job) => job.vehicleId));
   }
 
   // --- Drivers ---
