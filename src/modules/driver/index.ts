@@ -4,6 +4,7 @@ import { DriverRepository } from './driver.repository';
 import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
 import { DriverService } from './driver.service';
 import { DriverController } from './driver.controller';
+import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { SarathiClient, DlVerificationClient } from '../../adapters/sarathi.client';
@@ -60,6 +61,9 @@ export function createDriverModule(
     deps.organizationService,
     driverPushNotifier,
     idfyClient,
+    // Detail screen's trip stats + live active-load check — read straight off loads, since the
+    // loads module (and its LoadService) is built after this one in composition-root.ts.
+    new DriverAnalyticsRepository(dataSource),
   );
   const driverController = new DriverController(driverService);
 

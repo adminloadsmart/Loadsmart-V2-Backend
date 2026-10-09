@@ -36,6 +36,21 @@ export type DriverBloodGroup = (typeof DRIVER_BLOOD_GROUPS)[number];
 export const DRIVER_SALARY_TYPES = ['fixed', 'per_trip', 'per_km'] as const;
 export type DriverSalaryType = (typeof DRIVER_SALARY_TYPES)[number];
 
+/**
+ * How the driver is engaged — the "Engagement" choice on the Add-a-driver form (On-roll salaried /
+ * Per trip / Vendor's driver). Deliberately separate from DRIVER_SALARY_TYPES: that's how they're
+ * paid, this is how they're employed (a vendor's driver can still be paid per trip).
+ */
+export const DRIVER_ENGAGEMENT_TYPES = ['on_roll', 'per_trip', 'vendor'] as const;
+export type DriverEngagementType = (typeof DRIVER_ENGAGEMENT_TYPES)[number];
+
+/**
+ * Licence endorsements a driver can hold — stored as codes in drivers.license_endorsements
+ * (varchar[]), so adding one here needs no migration. Only Hazmat is on the screen so far.
+ */
+export const DRIVER_LICENSE_ENDORSEMENTS = ['hazmat'] as const;
+export type DriverLicenseEndorsement = (typeof DRIVER_LICENSE_ENDORSEMENTS)[number];
+
 /** Whether the document came from the registry or was uploaded by hand. */
 export const DRIVER_DOCUMENT_VERIFICATION_SOURCES = ['sarathi', 'manual'] as const;
 export type DriverDocumentVerificationSource =
@@ -56,8 +71,15 @@ export type DriverVerificationStatus = (typeof DRIVER_VERIFICATION_STATUSES)[num
 export const DRIVER_BANK_VERIFICATION_STATUSES = ['pending', 'verified', 'rejected'] as const;
 export type DriverBankVerificationStatus = (typeof DRIVER_BANK_VERIFICATION_STATUSES)[number];
 
-/** What the driver is doing right now — the status dropdown on the My Drivers table. */
-export const DRIVER_OPERATIONAL_STATUSES = ['active', 'on_trip', 'on_leave', 'inactive'] as const;
+/** What the driver is doing right now — the status dropdown on the My Drivers table.
+ * `on_leave`/`medically_unfit` = not available; `inactive` = left the company. */
+export const DRIVER_OPERATIONAL_STATUSES = [
+  'active',
+  'on_trip',
+  'on_leave',
+  'medically_unfit',
+  'inactive',
+] as const;
 export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[number];
 
 /**
@@ -75,6 +97,26 @@ export const DRIVER_TENANT_RELATION_STATUSES = [
   'rejected',
 ] as const;
 export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES)[number];
+
+/**
+ * "Active Roster" tab bar on My Drivers. Every segment except `left_company` excludes drivers
+ * whose company status is `inactive` (left), so `all` is the roster and the rest are slices of it
+ * that can overlap (an on-trip driver can also be licence-expired). `on_trip`/`available` use the
+ * live active-load check, not the stored operational status — load assignment never updates the
+ * latter. `not_available` = on_leave or medically_unfit; `hazmat_endorsed` = 'hazmat' in
+ * drivers.license_endorsements.
+ */
+export const DRIVER_ROSTER_SEGMENTS = [
+  'all',
+  'on_trip',
+  'available',
+  'not_available',
+  'left_company',
+  'licence_expired',
+  'hazmat_endorsed',
+  'not_verified',
+] as const;
+export type DriverRosterSegment = (typeof DRIVER_ROSTER_SEGMENTS)[number];
 
 /** How long a tenant's invite stays acceptable after it's sent (or re-sent). */
 export const DRIVER_INVITE_TTL_DAYS = 7;

@@ -2,11 +2,14 @@ import {
   Between,
   DataSource,
   FindOptionsWhere,
+  In,
   IsNull,
   LessThanOrEqual,
   MoreThanOrEqual,
+  Not,
 } from 'typeorm';
 import { LoadEntity } from '../../loads/entities/load.entity';
+import { ACTIVE_LOAD_STATUSES } from '../../loads/utils/loads.types';
 import { DriverEntity } from '../../driver/entities/driver.entity';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
@@ -39,6 +42,17 @@ function isOnTime(load: LoadEntity): boolean {
   const deliveredDate = load.deliveredAt.toISOString().slice(0, 10);
   // Loads posted without a requisition carry no committed date, so they never count as late.
   return load.requisition ? deliveredDate <= load.requisition.expectedDeliveryDate : true;
+}
+
+function toTripStats(loads: LoadEntity[]): DriverAnalyticsTripStats {
+  const delivered = loads.filter((load) => load.deliveredAt !== null);
+  const onTime = delivered.filter(isOnTime).length;
+  return {
+    total: loads.length,
+    onTime,
+    late: delivered.length - onTime,
+    onTimePercentage: delivered.length ? (onTime / delivered.length) * 100 : null,
+  };
 }
 
 // Reads DriverEntity/FleetDriverLinkEntity/LoadEntity directly via the DataSource, same as
@@ -102,15 +116,8 @@ export class DriverAnalyticsRepository {
       relations: { requisition: true },
     });
 
+    const stats = toTripStats(loads);
     const delivered = loads.filter((load) => load.deliveredAt !== null);
-    const onTimeLoads = delivered.filter(isOnTime);
-
-    const stats: DriverAnalyticsTripStats = {
-      total: loads.length,
-      onTime: onTimeLoads.length,
-      late: delivered.length - onTimeLoads.length,
-      onTimePercentage: delivered.length ? (onTimeLoads.length / delivered.length) * 100 : null,
-    };
 
     const byMonth = new Map<string, { tripsCount: number; onTime: number }>();
     for (const load of delivered) {
@@ -130,5 +137,42 @@ export class DriverAnalyticsRepository {
       }));
 
     return { stats, trend };
+  }
+
+  /** All-time trip stats for several drivers in one fetch — the My Drivers list's Trips · On time
+   *  column. Drivers with no loads are absent from the map. */
+  async getTripStatsForDrivers(
+    tenantId: string,
+    driverIds: string[],
+  ): Promise<Map<string, DriverAnalyticsTripStats>> {
+    if (!driverIds.length) return new Map();
+    const loads = await this.loads.find({
+      where: { tenantId, driverId: In(driverIds) },
+      relations: { requisition: true },
+    });
+    const byDriver = new Map<string, LoadEntity[]>();
+    for (const load of loads) {
+      byDriver.set(load.driverId!, [...(byDriver.get(load.driverId!) ?? []), load]);
+    }
+    return new Map([...byDriver].map(([driverId, rows]) => [driverId, toTripStats(rows)]));
+  }
+
+  /** Every non-closed own-fleet load in the tenant, newest first — the roster's live
+   *  on-trip/available split. Bounded by fleet size, so one fetch serves every row and tab count. */
+  findActiveDriverLoads(tenantId: string): Promise<LoadEntity[]> {
+    return this.loads.find({
+      where: { tenantId, driverId: Not(IsNull()), status: In([...ACTIVE_LOAD_STATUSES]) },
+      select: { id: true, code: true, status: true, driverId: true, createdAt: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** The driver's newest non-closed load — the live "is this driver on a load right now" check.
+   *  Load assignment never touches driver_operational_status, so that row alone can't answer it. */
+  findActiveLoadForDriver(tenantId: string, driverId: string): Promise<LoadEntity | null> {
+    return this.loads.findOne({
+      where: { tenantId, driverId, status: In([...ACTIVE_LOAD_STATUSES]) },
+      order: { createdAt: 'DESC' },
+    });
   }
 }

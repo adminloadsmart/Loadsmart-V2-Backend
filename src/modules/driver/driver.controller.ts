@@ -19,7 +19,7 @@ export class DriverController {
     // `validate` middleware (driver.routes.ts) has already coerced/defaulted this against
     // driverValidators.listDrivers before this runs — see req.validatedQuery's doc comment
     // (request.types.ts) for why it's not just req.query.
-    const drivers = await this.driverService.listDrivers(
+    const drivers = await this.driverService.listDriverRoster(
       requireTenantId(req),
       req.validatedQuery as ListDriversInput,
     );

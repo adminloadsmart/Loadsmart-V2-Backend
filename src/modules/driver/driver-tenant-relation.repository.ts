@@ -1,4 +1,5 @@
 import {
+  ArrayContains,
   Brackets,
   DataSource,
   EntityManager,
@@ -6,19 +7,27 @@ import {
   ILike,
   In,
   IsNull,
+  LessThan,
   MoreThan,
   Not,
   Repository,
 } from 'typeorm';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
+import { DriverEntity } from './entities/driver.entity';
 import {
   CreateDriverTenantRelationData,
+  DriverRosterCounts,
   InviteSendColumns,
   ListDriversFilters,
   ListInvitationsInput,
   UpdateDriverTenantRelationData,
 } from './drivers.interface';
-import { DRIVER_INVITE_TTL_DAYS } from './drivers.types';
+import {
+  DRIVER_INVITE_TTL_DAYS,
+  DRIVER_ROSTER_SEGMENTS,
+  DriverRosterSegment,
+} from './drivers.types';
 
 /** When an invite sent at `sentAt` stops being acceptable. */
 export function inviteExpiryFrom(sentAt: Date): Date {
@@ -68,11 +77,57 @@ function driverSearchPatterns(search: string): {
   };
 }
 
+/** Relation ids by stored company status — the only statuses a roster segment excludes on. */
+interface UnavailableRelationIds {
+  notAvailable: string[];
+  left: string[];
+}
+
+/**
+ * A roster segment as extra where-conditions on the relation, or null when it can't match any
+ * row (an empty In() list). Status-based segments match on
+ * relation ids rather than a nested `operationalStatus` condition, because a driver with no status
+ * row at all must still count as available/on the roster, and a nested condition drops them.
+ */
+function rosterSegmentWhere(
+  segment: DriverRosterSegment,
+  onLoadDriverIds: readonly string[],
+  { notAvailable, left }: UnavailableRelationIds,
+): FindOptionsWhere<DriverTenantRelationEntity> | null {
+  const notLeft = left.length ? { id: Not(In(left)) } : {};
+  const today = new Date().toISOString().slice(0, 10);
+  switch (segment) {
+    case 'all':
+      return notLeft;
+    case 'on_trip':
+      return onLoadDriverIds.length ? { ...notLeft, driverId: In([...onLoadDriverIds]) } : null;
+    case 'available': {
+      const unavailable = [...notAvailable, ...left];
+      return {
+        ...(unavailable.length ? { id: Not(In(unavailable)) } : {}),
+        ...(onLoadDriverIds.length ? { driverId: Not(In([...onLoadDriverIds])) } : {}),
+      };
+    }
+    case 'not_available':
+      return notAvailable.length ? { id: In(notAvailable) } : null;
+    case 'left_company':
+      return left.length ? { id: In(left) } : null;
+    case 'licence_expired':
+      return { ...notLeft, driver: { licenseExpiry: LessThan(today) } };
+    case 'not_verified':
+      return { ...notLeft, driver: { licenseVerified: false } };
+    case 'hazmat_endorsed':
+      return { ...notLeft, driver: { licenseEndorsements: ArrayContains(['hazmat']) } };
+  }
+}
+
 export class DriverTenantRelationRepository {
   private readonly relations: Repository<DriverTenantRelationEntity>;
+  private readonly operationalStatuses: Repository<DriverOperationalStatusEntity>;
 
   constructor(dataSource: DataSource) {
     this.relations = dataSource.getRepository(DriverTenantRelationEntity);
+    this.operationalStatuses = dataSource.getRepository(DriverOperationalStatusEntity);
   }
 
   async create(
@@ -120,7 +175,7 @@ export class DriverTenantRelationRepository {
         driver: { documents: true, verifications: true, bankDetails: true },
         operationalStatus: true,
         tripMetrics: true,
-        vehicleLinks: { vehicle: true },
+        vehicleLinks: { vehicle: { truckType: true } },
       },
     });
   }
@@ -141,37 +196,31 @@ export class DriverTenantRelationRepository {
     });
   }
 
+  /** `onLoadDriverIds` — drivers currently on an active load; only the on_trip/available
+   *  segments read it. */
   async list(
     tenantId: string,
     filters: ListDriversFilters,
+    onLoadDriverIds: readonly string[] = [],
   ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
-    const { status, initiatedBy, operationalStatus, search, page, limit } = filters;
-
-    const base: FindOptionsWhere<DriverTenantRelationEntity> = { tenantId, deletedAt: IsNull() };
-    if (status) base.status = status;
-    if (initiatedBy) base.initiatedBy = initiatedBy;
-    if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
-
-    // Search spans three columns on the driver profile (name / mobile / DL number), so it becomes
-    // up to three OR'd where-clauses — see driverSearchPatterns for the normalisation.
-    let where: FindOptionsWhere<DriverTenantRelationEntity>[] = [base];
-    if (search) {
-      const patterns = driverSearchPatterns(search);
-      where = [
-        { ...base, driver: { fullName: ILike(patterns.name) } },
-        { ...base, driver: { licenseNumber: ILike(patterns.license) } },
-      ];
-      if (patterns.phone) where.push({ ...base, driver: { phoneNumber: ILike(patterns.phone) } });
-    }
+    const { segment, page, limit } = filters;
+    const segmentWhere = segment
+      ? rosterSegmentWhere(
+          segment,
+          onLoadDriverIds,
+          await this.findUnavailableRelationIds(tenantId),
+        )
+      : {};
+    if (!segmentWhere) return { items: [], total: 0 };
 
     const [items, total] = await this.relations.findAndCount({
-      where,
+      where: this.listWhere(tenantId, filters, segmentWhere),
       relations: {
         // verifications only feed DriverService's licenseClass — stripped from the list response.
         driver: { verifications: true },
         operationalStatus: true,
         tripMetrics: true,
-        vehicleLinks: { vehicle: true },
+        vehicleLinks: { vehicle: { truckType: true } },
       },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
@@ -179,6 +228,84 @@ export class DriverTenantRelationRepository {
     });
 
     return { items, total };
+  }
+
+  /** Every roster tab's badge count, under the same status/initiatedBy/search filters as list(). */
+  async countRosterSegments(
+    tenantId: string,
+    filters: ListDriversFilters,
+    onLoadDriverIds: readonly string[],
+  ): Promise<DriverRosterCounts> {
+    const unavailable = await this.findUnavailableRelationIds(tenantId);
+    const countFor = (segmentWhere: FindOptionsWhere<DriverTenantRelationEntity> | null) =>
+      segmentWhere
+        ? this.relations.count({ where: this.listWhere(tenantId, filters, segmentWhere) })
+        : Promise.resolve(0);
+
+    const [total, ...segmentCounts] = await Promise.all([
+      countFor({}),
+      ...DRIVER_ROSTER_SEGMENTS.map((segment) =>
+        countFor(rosterSegmentWhere(segment, onLoadDriverIds, unavailable)),
+      ),
+    ]);
+
+    return {
+      total,
+      ...(Object.fromEntries(
+        DRIVER_ROSTER_SEGMENTS.map((segment, index) => [segment, segmentCounts[index]]),
+      ) as Record<DriverRosterSegment, number>),
+    };
+  }
+
+  private async findUnavailableRelationIds(tenantId: string): Promise<UnavailableRelationIds> {
+    const rows = await this.operationalStatuses.find({
+      where: {
+        tenantId,
+        operationalStatus: In(['on_leave', 'medically_unfit', 'inactive']),
+        deletedAt: IsNull(),
+      },
+      select: { driverTenantRelationId: true, operationalStatus: true },
+    });
+    return {
+      notAvailable: rows
+        .filter((row) => row.operationalStatus !== 'inactive')
+        .map((row) => row.driverTenantRelationId),
+      left: rows
+        .filter((row) => row.operationalStatus === 'inactive')
+        .map((row) => row.driverTenantRelationId),
+    };
+  }
+
+  private listWhere(
+    tenantId: string,
+    filters: ListDriversFilters,
+    segmentWhere: FindOptionsWhere<DriverTenantRelationEntity>,
+  ): FindOptionsWhere<DriverTenantRelationEntity>[] {
+    const { status, initiatedBy, operationalStatus, search } = filters;
+
+    const base: FindOptionsWhere<DriverTenantRelationEntity> = {
+      tenantId,
+      deletedAt: IsNull(),
+      ...segmentWhere,
+    };
+    if (status) base.status = status;
+    if (initiatedBy) base.initiatedBy = initiatedBy;
+    if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
+    if (!search) return [base];
+
+    // Search spans three columns on the driver profile (name / mobile / DL number), so it becomes
+    // up to three OR'd where-clauses — see driverSearchPatterns for the normalisation. Each keeps
+    // the segment's own driver conditions (e.g. licence expired) alongside the search column.
+    const segmentDriver = segmentWhere.driver as FindOptionsWhere<DriverEntity> | undefined;
+    const patterns = driverSearchPatterns(search);
+    const where: FindOptionsWhere<DriverTenantRelationEntity>[] = [
+      { ...base, driver: { ...segmentDriver, fullName: ILike(patterns.name) } },
+      { ...base, driver: { ...segmentDriver, licenseNumber: ILike(patterns.license) } },
+    ];
+    if (patterns.phone) {
+      where.push({ ...base, driver: { ...segmentDriver, phoneNumber: ILike(patterns.phone) } });
+    }
+    return where;
   }
 
   async softDelete(

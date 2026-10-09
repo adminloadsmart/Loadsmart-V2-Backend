@@ -24,13 +24,23 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDrivers',
     ...authenticated(
-      'List drivers for the tenant, paginated and optionally filtered. `search` matches name, ' +
-        'mobile or DL number; "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner.',
+      'My Drivers roster, paginated and optionally filtered. `search` matches name, mobile or DL ' +
+        'number; "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner. ' +
+        '`segment` picks an Active Roster tab (all, on_trip, available, not_available, ' +
+        'left_company, licence_expired, hazmat_endorsed, not_verified); every segment but ' +
+        'left_company excludes drivers who left, and on_trip/available use the live active-load ' +
+        'check. Each row adds `licence`, `contact`, `assignment`, `availability`, `performance` ' +
+        'and `behaviour`, shaped as on GET /drivers/{driverId} (driverScore and behaviour are ' +
+        'null until backed by data). not_available = on_leave or medically_unfit; ' +
+        "hazmat_endorsed = 'hazmat' in licenseEndorsements.",
     ),
     request: { query: driverValidators.listDrivers.shape.query },
     responses: {
       200: {
-        description: 'Paginated drivers — { data: { items, page, limit, total, totalPages } }',
+        description:
+          'Paginated drivers — { data: { items, page, limit, total, totalPages, counts } }, ' +
+          'counts = { total, all, on_trip, available, not_available, left_company, ' +
+          'licence_expired, hazmat_endorsed, not_verified } under the same filters minus segment.',
       },
     },
   });
@@ -41,7 +51,18 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.getDriver',
     ...authenticated(
-      'Get a single driver, including documents, verifications, bank details, and linked vehicles.',
+      'Driver detail screen in one call — the driver (documents, verifications, bank details, ' +
+        'linked vehicles) plus screen sections: `licence` { number, classOfVehicle, endorsements, ' +
+        'validTo, daysLeft, registry, eligibleToDrive }, `contact` { primaryMobile, bloodGroup, ' +
+        'emergencyContact, engagementType, dateOfJoining, tenureYears, advanceOutstanding, ' +
+        'compensation { salaryType, salaryAmount, bhattaPerDay } }, `assignment` { vehicle, ' +
+        'homeBase }, `availability` { operationalStatus, activeLoad, dispatchable }, ' +
+        '`performance` { totalTrips, onTimePercentage, driverScore }, `knownLanes`, `behaviour`, ' +
+        '`slaBreachTrips`. Not yet backed by data, so always null/[] for now: driverScore, ' +
+        'knownLanes ' +
+        '({ from, to, laneType, distanceKm }[]), behaviour ({ event, per1000Km, ' +
+        'fleetComparison }[]), slaBreachTrips ({ loadId, code, status, from, to, date, ' +
+        'progressPercentage }[]).',
     ),
     request: { params: driverValidators.getDriver.shape.params },
     responses: {
@@ -55,7 +76,13 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.updateDriver',
-    ...write('Update one or more fields on a driver.'),
+    ...write(
+      'Update one or more fields on a driver, including `emergencyContactRelation`, ' +
+        '`engagementType` (on_roll | per_trip | vendor — how they are employed, separate from ' +
+        '`salaryType`), `bhattaPerDay` (daily trip allowance), `advanceOutstanding` ' +
+        '(hand-entered balance), `homeBase` (yard, free text) and `licenseEndorsements` ' +
+        "(e.g. ['hazmat']; replaces the whole list).",
+    ),
     request: {
       params: driverValidators.updateDriver.shape.params,
       body: json(driverValidators.updateDriver.shape.body),
@@ -371,7 +398,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'polls for the result before responding. As of 2026-08 (IDfy credits exhausted), always ' +
         'falls back to verified (without registry fields) — whether IDFY_API_KEY/IDFY_ACCOUNT_ID/' +
         'IDFY_TASK_ID/IDFY_GROUP_ID are unset, the call fails, or IDfy completes the task but ' +
-        'reports no match. Revert to manual_review on those paths once IDfy credits are restored.',
+        'reports no match. Revert to manual_review on those paths once IDfy credits are restored. ' +
+        '`validUntil` is the transport validity when the licence has one, else the non-transport ' +
+        'validity.',
     ),
     request: { body: json(driverValidators.verifyDriverDl.shape.body) },
     responses: {
@@ -410,7 +439,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'verification, licence photos, bank details and operational status. The vehicle link stays ' +
         "a separate call. Only org_admin and dispatch may call this at all — org_admin's driver " +
         "is created `active` immediately; dispatch's is created `pending` until an org_admin " +
-        'approves or rejects it via PATCH .../approve|reject.',
+        'approves or rejects it via PATCH .../approve|reject. Also takes `emergencyContactRelation`, ' +
+        '`engagementType` (on_roll | per_trip | vendor), `bhattaPerDay`, `advanceOutstanding`, ' +
+        '`homeBase` and `licenseEndorsements`.',
     ),
     request: { body: json(driverValidators.onboardDriver.shape.body) },
     responses: {

@@ -7,8 +7,11 @@ import {
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
+  DRIVER_ENGAGEMENT_TYPES,
   DRIVER_INVITATION_STATUSES,
+  DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_OPERATIONAL_STATUSES,
+  DRIVER_ROSTER_SEGMENTS,
   DRIVER_SALARY_TYPES,
   DRIVER_TENANT_RELATION_INITIATORS,
   DRIVER_TENANT_RELATION_STATUSES,
@@ -70,6 +73,17 @@ const driverCoreFields = {
     .optional(),
   salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
   salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+  // "Brother", "Wife", ... — drivers.emergency_contact_relation is varchar(50).
+  emergencyContactRelation: z.string().trim().min(1).max(50).optional(),
+  engagementType: z.enum(DRIVER_ENGAGEMENT_TYPES).optional(),
+  bhattaPerDay: z.number().nonnegative().max(9999999999).optional(),
+  advanceOutstanding: z.number().nonnegative().max(9999999999).optional(),
+  // drivers.home_base is varchar(150).
+  homeBase: z.string().trim().min(1).max(150).optional(),
+  licenseEndorsements: z
+    .array(z.enum(DRIVER_LICENSE_ENDORSEMENTS))
+    .transform((codes) => [...new Set(codes)])
+    .optional(),
 };
 
 /** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
@@ -165,7 +179,8 @@ export const driverValidators = {
       status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
       // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
       initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),
-      operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
+      operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES).optional(),
+      segment: z.enum(DRIVER_ROSTER_SEGMENTS).optional(),
     }),
   }),
   getDriver: z.object({ params: driverParams }),
@@ -196,6 +211,12 @@ export const driverValidators = {
           .optional(),
         salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
         salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+        emergencyContactRelation: driverCoreFields.emergencyContactRelation,
+        engagementType: driverCoreFields.engagementType,
+        bhattaPerDay: driverCoreFields.bhattaPerDay,
+        advanceOutstanding: driverCoreFields.advanceOutstanding,
+        homeBase: driverCoreFields.homeBase,
+        licenseEndorsements: driverCoreFields.licenseEndorsements,
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),

@@ -10,6 +10,7 @@ import { DriverBankDetailsEntity } from './entities/driver-bank-details.entity';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import { LoadEntity } from '../loads/entities/load.entity';
 import {
   DriverBankVerificationStatus,
   DriverTenantRelationInitiator,
@@ -25,6 +26,7 @@ import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapter
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
+import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import {
   BankAccountVerificationResult,
   IdfyClient,
@@ -34,6 +36,8 @@ import {
   AddBankDetailsInput,
   AddDriverDocumentInput,
   CreateDriverInput,
+  DriverDetailSections,
+  DriverRosterCounts,
   ListDriversInput,
   ListJoinRequestsInput,
   ListInvitationsInput,
@@ -77,6 +81,24 @@ export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'
   vehicleLinks?: DriverTenantRelationEntity['vehicleLinks'];
 }
 
+/** GET /drivers/{id} — the flattened driver plus every section of the driver detail screen. */
+export type DriverDetailView = DriverWithRelation & DriverDetailSections;
+
+/** One My Drivers roster row — the list's driver plus the detail sections its columns read. */
+export type DriverRosterRow = DriverWithRelation &
+  Pick<
+    DriverDetailSections,
+    'licence' | 'contact' | 'assignment' | 'availability' | 'performance' | 'behaviour'
+  >;
+
+/** GET /drivers — the paginated roster plus every tab's badge count. */
+export interface DriverRosterPage extends Paginated<DriverRosterRow> {
+  counts: DriverRosterCounts;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MS_PER_YEAR = 365.25 * MS_PER_DAY;
+
 // Picks only the relation-specific fields, named explicitly — never a blind `...relation` spread.
 // DriverTenantRelationEntity carries its own `id`/`createdBy`/`updatedBy`/`deletedAt`/`createdAt`/
 // `updatedAt` audit columns (every TypeORM entity does), which would silently clobber the driver's
@@ -87,6 +109,21 @@ function latestLicenseClass(verifications: DriverVerificationEntity[] | undefine
     .filter((verification) => verification.licenseClass)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
   return latest?.licenseClass ?? null;
+}
+
+function latestSarathiCheck(
+  verifications: DriverVerificationEntity[] | undefined,
+): DriverDetailSections['licence']['registry'] {
+  const latest = (verifications ?? [])
+    .filter((verification) => verification.verificationType === 'sarathi_dl')
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  return latest
+    ? {
+        source: 'sarathi',
+        status: latest.verificationStatus,
+        checkedAt: latest.verifiedAt ?? latest.createdAt,
+      }
+    : null;
 }
 
 // Only ever called on rows listInvitations/resendInvite returned — tenant-initiated, invite sent —
@@ -124,10 +161,6 @@ function toInvitationDetailView(
   const view = toInvitationView(relation);
   const { driver } = relation;
 
-  const sarathiCheck = (driver.verifications ?? [])
-    .filter((verification) => verification.verificationType === 'sarathi_dl')
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-
   // Latest send only: sent → viewed → one final step derived from the existing status column.
   const timeline: DriverInvitationTimelineStep[] = [
     {
@@ -162,13 +195,7 @@ function toInvitationDetailView(
     credentials: {
       licenseNumber: driver.licenseNumber,
       licenseClass: latestLicenseClass(driver.verifications),
-      registry: sarathiCheck
-        ? {
-            source: 'sarathi',
-            status: sarathiCheck.verificationStatus,
-            checkedAt: sarathiCheck.verifiedAt ?? sarathiCheck.createdAt,
-          }
-        : null,
+      registry: latestSarathiCheck(driver.verifications),
     },
     timeline,
     deliveryChannels: [
@@ -210,6 +237,93 @@ export function flattenRelation(relation: DriverTenantRelationEntity): DriverWit
   } as DriverWithRelation;
 }
 
+/** Whole days from today (UTC) until a `YYYY-MM-DD` date; negative once it's passed. */
+function daysUntil(date: string | null): number | null {
+  if (!date) return null;
+  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  return Math.round((new Date(`${date}T00:00:00.000Z`).getTime() - today.getTime()) / MS_PER_DAY);
+}
+
+function toDriverDetailSections(
+  relation: DriverTenantRelationEntity,
+  tripStats: { total: number; onTimePercentage: number | null },
+  activeLoad: LoadEntity | null,
+): DriverDetailSections {
+  const { driver } = relation;
+  const daysLeft = daysUntil(driver.licenseExpiry);
+  const operationalStatus = relation.operationalStatus?.operationalStatus ?? null;
+  const primaryLink = (relation.vehicleLinks ?? []).find(
+    (link) => link.isPrimary && link.status === 'active' && !link.deletedAt,
+  );
+  const isActive = relation.status === 'active';
+
+  return {
+    licence: {
+      number: driver.licenseNumber,
+      classOfVehicle: latestLicenseClass(driver.verifications),
+      endorsements: driver.licenseEndorsements ?? [],
+      validTo: driver.licenseExpiry,
+      daysLeft,
+      registry: latestSarathiCheck(driver.verifications),
+      eligibleToDrive: isActive && driver.licenseVerified && daysLeft !== null && daysLeft > 0,
+    },
+    contact: {
+      primaryMobile: driver.phoneNumber,
+      bloodGroup: driver.bloodGroup,
+      emergencyContact: driver.emergencyContactPhone
+        ? {
+            name: driver.emergencyContactName,
+            phone: driver.emergencyContactPhone,
+            relation: driver.emergencyContactRelation,
+          }
+        : null,
+      engagementType: driver.engagementType,
+      dateOfJoining: driver.dateOfJoining,
+      tenureYears: driver.dateOfJoining
+        ? Math.floor((Date.now() - new Date(driver.dateOfJoining).getTime()) / MS_PER_YEAR)
+        : null,
+      advanceOutstanding: driver.advanceOutstanding,
+      compensation: {
+        salaryType: driver.salaryType,
+        salaryAmount: driver.salaryAmount,
+        bhattaPerDay: driver.bhattaPerDay,
+      },
+    },
+    assignment: {
+      vehicle: primaryLink
+        ? {
+            id: primaryLink.vehicle.id,
+            registrationNumber: primaryLink.vehicle.registrationNumber,
+            truckType: primaryLink.vehicle.truckType
+              ? { id: primaryLink.vehicle.truckType.id, name: primaryLink.vehicle.truckType.name }
+              : null,
+          }
+        : null,
+      homeBase: driver.homeBase,
+    },
+    availability: {
+      operationalStatus,
+      activeLoad: activeLoad
+        ? { id: activeLoad.id, code: activeLoad.code, status: activeLoad.status }
+        : null,
+      dispatchable:
+        isActive &&
+        !activeLoad &&
+        operationalStatus !== 'on_leave' &&
+        operationalStatus !== 'medically_unfit' &&
+        operationalStatus !== 'inactive',
+    },
+    performance: {
+      totalTrips: tripStats.total,
+      onTimePercentage: tripStats.onTimePercentage,
+      driverScore: null,
+    },
+    knownLanes: [],
+    behaviour: null,
+    slaBreachTrips: [],
+  };
+}
+
 export class DriverService {
   constructor(
     private readonly driverRepository: DriverRepository,
@@ -221,6 +335,7 @@ export class DriverService {
     private readonly organizationService: OrganizationService,
     private readonly driverPushNotifier: DriverPushNotifier,
     private readonly idfyClient: IdfyClient,
+    private readonly driverAnalyticsRepository: DriverAnalyticsRepository,
   ) {}
 
   /**
@@ -332,6 +447,12 @@ export class DriverService {
         dateOfJoining: input.dateOfJoining ?? null,
         salaryType: input.salaryType ?? null,
         salaryAmount: input.salaryAmount === undefined ? null : String(input.salaryAmount),
+        engagementType: input.engagementType ?? null,
+        bhattaPerDay: input.bhattaPerDay === undefined ? null : String(input.bhattaPerDay),
+        advanceOutstanding:
+          input.advanceOutstanding === undefined ? null : String(input.advanceOutstanding),
+        homeBase: input.homeBase ?? null,
+        licenseEndorsements: input.licenseEndorsements ?? [],
         dateOfBirth: input.dateOfBirth ?? null,
         bloodGroup: input.bloodGroup ?? null,
         addressLine1: input.addressLine1 ?? null,
@@ -340,9 +461,9 @@ export class DriverService {
         pinCode: input.pinCode ?? null,
         emergencyContactName: input.emergencyContactName ?? null,
         emergencyContactPhone: input.emergencyContactPhone ?? null,
-        // Emergency-contact relation and insurance are driver-self-registration-only concepts
-        // (see driver-identity.service.ts) — staff onboarding doesn't collect them.
-        emergencyContactRelation: null,
+        emergencyContactRelation: input.emergencyContactRelation ?? null,
+        // Insurance is a driver-self-registration-only concept (see driver-identity.service.ts) —
+        // staff onboarding doesn't collect it.
         hasLifeInsurance: 'no',
         hasHealthInsurance: 'no',
         registrationSource: 'staff_created',
@@ -425,18 +546,92 @@ export class DriverService {
     }
   }
 
-  async getDriver(tenantId: string, driverId: string): Promise<DriverWithRelation> {
+  /**
+   * My Drivers "Active Roster" — the list above narrowed by `segment`, each row carrying the
+   * same licence/pay/performance/availability sections as the detail screen (so the two never
+   * disagree), plus every tab's count. One tenant-wide active-load fetch feeds the on-trip/
+   * available split for both the rows and the counts.
+   */
+  async listDriverRoster(tenantId: string, input: ListDriversInput): Promise<DriverRosterPage> {
     try {
-      const relation =
-        await this.driverTenantRelationRepository.findByTenantAndDriverWithFullRelations(
-          tenantId,
-          driverId,
-        );
-      if (!relation) throw new NotFoundError(`Driver ${driverId} not found`);
-      return flattenRelation(relation);
+      const activeLoads = await this.driverAnalyticsRepository.findActiveDriverLoads(tenantId);
+      const activeLoadByDriver = new Map<string, LoadEntity>();
+      for (const load of activeLoads) {
+        // Newest first, so the first load seen per driver wins.
+        if (!activeLoadByDriver.has(load.driverId!)) activeLoadByDriver.set(load.driverId!, load);
+      }
+      const onLoadDriverIds = [...activeLoadByDriver.keys()];
+
+      const [{ items, total }, counts] = await Promise.all([
+        this.driverTenantRelationRepository.list(tenantId, input, onLoadDriverIds),
+        this.driverTenantRelationRepository.countRosterSegments(tenantId, input, onLoadDriverIds),
+      ]);
+      const tripStats = await this.driverAnalyticsRepository.getTripStatsForDrivers(
+        tenantId,
+        items.map((relation) => relation.driverId),
+      );
+
+      const rows = items.map((relation): DriverRosterRow => {
+        const { verifications: _verifications, ...driver } = flattenRelation(relation);
+        const { licence, contact, assignment, availability, performance, behaviour } =
+          toDriverDetailSections(
+            relation,
+            tripStats.get(relation.driverId) ?? { total: 0, onTimePercentage: null },
+            activeLoadByDriver.get(relation.driverId) ?? null,
+          );
+        return {
+          ...(driver as DriverWithRelation),
+          licence,
+          contact,
+          assignment,
+          availability,
+          performance,
+          behaviour,
+        };
+      });
+
+      return { ...paginate(rows, total, input), counts };
+    } catch (error) {
+      rethrow(error, 'Failed to list drivers');
+    }
+  }
+
+  /** Driver detail screen — the flattened driver plus every screen section in one call. */
+  async getDriver(tenantId: string, driverId: string): Promise<DriverDetailView> {
+    try {
+      const relation = await this.findRelationWithFullRelations(tenantId, driverId);
+      const [{ stats }, activeLoad] = await Promise.all([
+        this.driverAnalyticsRepository.getTripStatsAndTrend(tenantId, driverId, {}),
+        this.driverAnalyticsRepository.findActiveLoadForDriver(tenantId, driverId),
+      ]);
+      return {
+        ...flattenRelation(relation),
+        ...toDriverDetailSections(relation, stats, activeLoad),
+      };
     } catch (error) {
       rethrow(error, 'Failed to fetch driver');
     }
+  }
+
+  /** Plain flattened driver — what write endpoints return, without the detail-screen queries. */
+  private async findFlattenedDriver(
+    tenantId: string,
+    driverId: string,
+  ): Promise<DriverWithRelation> {
+    return flattenRelation(await this.findRelationWithFullRelations(tenantId, driverId));
+  }
+
+  private async findRelationWithFullRelations(
+    tenantId: string,
+    driverId: string,
+  ): Promise<DriverTenantRelationEntity> {
+    const relation =
+      await this.driverTenantRelationRepository.findByTenantAndDriverWithFullRelations(
+        tenantId,
+        driverId,
+      );
+    if (!relation) throw new NotFoundError(`Driver ${driverId} not found`);
+    return relation;
   }
 
   async updateDriver(
@@ -480,6 +675,12 @@ export class DriverService {
         pinCode,
         emergencyContactName,
         emergencyContactPhone,
+        emergencyContactRelation,
+        engagementType,
+        bhattaPerDay,
+        advanceOutstanding,
+        homeBase,
+        licenseEndorsements,
       } = input;
 
       await this.driverRepository.update(driverId, {
@@ -499,10 +700,17 @@ export class DriverService {
         pinCode,
         emergencyContactName,
         emergencyContactPhone,
+        emergencyContactRelation,
+        engagementType,
+        bhattaPerDay: bhattaPerDay === undefined ? undefined : String(bhattaPerDay),
+        advanceOutstanding:
+          advanceOutstanding === undefined ? undefined : String(advanceOutstanding),
+        homeBase,
+        licenseEndorsements,
         updatedBy: actorId,
       });
 
-      return await this.getDriver(tenantId, driverId);
+      return await this.findFlattenedDriver(tenantId, driverId);
     } catch (error) {
       rethrow(error, 'Failed to update driver');
     }
@@ -964,7 +1172,7 @@ export class DriverService {
 
       if (invitationId) await this.deliverInvite(tenantId, invitationId, driverId);
 
-      return await this.getDriver(tenantId, driverId);
+      return await this.findFlattenedDriver(tenantId, driverId);
     } catch (error) {
       rethrow(error, 'Failed to onboard driver');
     }
@@ -1200,7 +1408,7 @@ export class DriverService {
         );
       }
 
-      return await this.getDriver(tenantId, driverId);
+      return await this.findFlattenedDriver(tenantId, driverId);
     } catch (error) {
       rethrow(error, 'Failed to approve driver');
     }
