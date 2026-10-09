@@ -2,6 +2,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { AuditService } from '../audit/audit.service';
+import { UserEntity } from '../auth/entities/user.entity';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverDocumentEntity } from './entities/driver-document.entity';
 import { DriverVerificationEntity } from './entities/driver-verification.entity';
@@ -15,7 +16,10 @@ import {
   DriverTenantRelationStatus,
 } from './drivers.types';
 import { DriverRepository } from './driver.repository';
-import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
+import {
+  DriverTenantRelationRepository,
+  inviteSendColumns,
+} from './driver-tenant-relation.repository';
 import { Paginated, paginate } from '../../shared/utils/pagination';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
@@ -31,6 +35,11 @@ import {
   AddDriverDocumentInput,
   CreateDriverInput,
   ListDriversInput,
+  ListJoinRequestsInput,
+  ListInvitationsInput,
+  DriverInvitationView,
+  DriverInvitationDetailView,
+  DriverInvitationTimelineStep,
   OnboardDriverInput,
   RecordDriverTripMetricsInput,
   RecordVerificationInput,
@@ -57,6 +66,12 @@ export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'
   approvedBy: string | null;
   approvedAt: Date | null;
   rejectionReason: string | null;
+  /** When this tenant link was created — the "Requested 2 days ago" timestamp. `createdAt` is the
+   * global driver profile's, which predates the request for a driver already on the platform. */
+  requestedAt: Date;
+  /** Latest `driver_verifications.license_class` (e.g. "HTV Heavy Transport"); null when the
+   * verifications weren't loaded or none carries a class. */
+  licenseClass: string | null;
   operationalStatus?: DriverOperationalStatusEntity;
   tripMetrics?: DriverTripMetricsEntity[];
   vehicleLinks?: DriverTenantRelationEntity['vehicleLinks'];
@@ -67,6 +82,115 @@ export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'
 // `updatedAt` audit columns (every TypeORM entity does), which would silently clobber the driver's
 // own `id` etc. if spread after `...driver`. `id` must stay the driver's global id — the same
 // value that's always been in the :driverId URL param — never the relation's own row id.
+function latestLicenseClass(verifications: DriverVerificationEntity[] | undefined): string | null {
+  const latest = (verifications ?? [])
+    .filter((verification) => verification.licenseClass)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  return latest?.licenseClass ?? null;
+}
+
+// Only ever called on rows listInvitations/resendInvite returned — tenant-initiated, invite sent —
+// so anything that isn't pending/active is a driver decline.
+function toInvitationView(relation: DriverTenantRelationEntity): DriverInvitationView {
+  let status: DriverInvitationView['status'];
+  if (relation.status === 'active') status = 'accepted';
+  else if (relation.status === 'rejected') status = 'rejected';
+  else if (relation.inviteExpiresAt && relation.inviteExpiresAt <= new Date()) status = 'expired';
+  else status = 'pending';
+
+  return {
+    invitationId: relation.id,
+    requestId: formatInviteRequestId(relation.inviteNumber),
+    driverId: relation.driverId,
+    fullName: relation.driver.fullName,
+    phoneNumber: relation.driver.phoneNumber,
+    status,
+    sentAt: relation.inviteSentAt!,
+    expiresAt: relation.inviteExpiresAt,
+    respondedAt: relation.driverRespondedAt,
+    rejectionReason: relation.rejectionReason,
+  };
+}
+
+/** Sequential invite number → the drawer's "Req ID", e.g. 42 → INV-00042. */
+function formatInviteRequestId(inviteNumber: string): string {
+  return `INV-${inviteNumber.padStart(5, '0')}`;
+}
+
+function toInvitationDetailView(
+  relation: DriverTenantRelationEntity,
+  sender: UserEntity | null,
+): DriverInvitationDetailView {
+  const view = toInvitationView(relation);
+  const { driver } = relation;
+
+  const sarathiCheck = (driver.verifications ?? [])
+    .filter((verification) => verification.verificationType === 'sarathi_dl')
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+
+  // Latest send only: sent → viewed → one final step derived from the existing status column.
+  const timeline: DriverInvitationTimelineStep[] = [
+    {
+      step: 'sent',
+      at: view.sentAt,
+      by: sender ? { name: sender.fullName, role: sender.role?.name ?? null } : null,
+    },
+  ];
+  if (relation.inviteViewedAt) {
+    timeline.push({
+      step: 'viewed',
+      at: relation.inviteViewedAt,
+      device: relation.inviteViewedDevice,
+    });
+  }
+  if (view.status === 'accepted') {
+    timeline.push({ step: 'accepted', at: relation.driverRespondedAt });
+  } else if (view.status === 'rejected') {
+    timeline.push({
+      step: 'rejected',
+      at: relation.driverRespondedAt,
+      reason: relation.rejectionReason,
+    });
+  } else if (view.status === 'expired') {
+    timeline.push({ step: 'expired', at: relation.inviteExpiresAt });
+  } else {
+    timeline.push({ step: 'awaiting_response', at: null });
+  }
+
+  return {
+    ...view,
+    credentials: {
+      licenseNumber: driver.licenseNumber,
+      licenseClass: latestLicenseClass(driver.verifications),
+      registry: sarathiCheck
+        ? {
+            source: 'sarathi',
+            status: sarathiCheck.verificationStatus,
+            checkedAt: sarathiCheck.verifiedAt ?? sarathiCheck.createdAt,
+          }
+        : null,
+    },
+    timeline,
+    deliveryChannels: [
+      {
+        channel: 'sms',
+        status: relation.smsDeliveryStatus,
+        statusAt: relation.smsDeliveryStatusAt,
+      },
+      {
+        channel: 'whatsapp',
+        status: relation.whatsappDeliveryStatus,
+        statusAt: relation.whatsappDeliveryStatusAt,
+      },
+      {
+        channel: 'push',
+        status: relation.pushDeliveryStatus,
+        statusAt: relation.pushDeliveryStatusAt,
+      },
+    ],
+  };
+}
+
 export function flattenRelation(relation: DriverTenantRelationEntity): DriverWithRelation {
   const { driver } = relation;
   return {
@@ -78,6 +202,8 @@ export function flattenRelation(relation: DriverTenantRelationEntity): DriverWit
     approvedBy: relation.approvedBy,
     approvedAt: relation.approvedAt,
     rejectionReason: relation.rejectionReason,
+    requestedAt: relation.createdAt,
+    licenseClass: latestLicenseClass(driver.verifications),
     operationalStatus: relation.operationalStatus,
     tripMetrics: relation.tripMetrics,
     vehicleLinks: relation.vehicleLinks,
@@ -254,6 +380,7 @@ export class DriverService {
         }
 
         const isAdmin = actorRole === ORG_ADMIN_ROLE;
+        // org_admin's driver is invited right away; dispatch's only once approveDriver runs.
         const relation = await this.driverTenantRelationRepository.create(
           {
             tenantId,
@@ -265,6 +392,7 @@ export class DriverService {
             fleetOwnerRespondedAt: new Date(),
             approvedBy: null,
             approvedAt: null,
+            ...(isAdmin && inviteSendColumns(actorId, new Date())),
             createdBy: actorId,
           },
           txManager,
@@ -285,7 +413,13 @@ export class DriverService {
   ): Promise<Paginated<DriverWithRelation>> {
     try {
       const { items, total } = await this.driverTenantRelationRepository.list(tenantId, input);
-      return paginate(items.map(flattenRelation), total, input);
+      // The list loads driver.verifications only to derive licenseClass — drop the raw rows
+      // (they carry IDfy's rawResponse) so the list payload stays as lean as before.
+      const drivers = items.map((relation) => {
+        const { verifications: _verifications, ...driver } = flattenRelation(relation);
+        return driver as DriverWithRelation;
+      });
+      return paginate(drivers, total, input);
     } catch (error) {
       rethrow(error, 'Failed to list drivers');
     }
@@ -765,7 +899,7 @@ export class DriverService {
           )
         : null;
 
-      let invited = false;
+      let invitationId: string | null = null;
       const driverId = await this.dataSource.transaction(async (manager) => {
         const { driver, relation } = await this.createDriver(
           tenantId,
@@ -774,7 +908,7 @@ export class DriverService {
           driverInput,
           manager,
         );
-        invited = relation.status === 'pending_driver_review';
+        if (relation.status === 'pending_driver_review') invitationId = relation.id;
 
         if (verification) {
           await this.recordVerification(tenantId, actorId, driver.id, verification, manager);
@@ -828,14 +962,7 @@ export class DriverService {
         return driver.id;
       });
 
-      if (invited) {
-        const organization = await this.organizationService.getOrganizationStatus(tenantId);
-        await this.driverPushNotifier.notifyInvited(
-          tenantId,
-          driverId,
-          organization.name ?? 'A fleet owner',
-        );
-      }
+      if (invitationId) await this.deliverInvite(tenantId, invitationId, driverId);
 
       return await this.getDriver(tenantId, driverId);
     } catch (error) {
@@ -843,20 +970,159 @@ export class DriverService {
     }
   }
 
-  /** Relations awaiting admin review, from either origin (dispatch-added driver or a driver join-request). */
-  async listPendingStaffReview(tenantId: string): Promise<DriverWithRelation[]> {
+  /**
+   * "Requests to You" — driver-initiated join requests awaiting this tenant's approval. Dispatch-
+   * added drivers awaiting org_admin approval are also `pending_staff_review` but `initiatedBy:
+   * 'staff'`; they surface via GET /drivers?status=pending_staff_review instead.
+   */
+  async listJoinRequests(
+    tenantId: string,
+    input: ListJoinRequestsInput,
+  ): Promise<Paginated<DriverWithRelation>> {
+    return this.listDrivers(tenantId, {
+      ...input,
+      status: 'pending_staff_review',
+      initiatedBy: 'driver',
+    });
+  }
+
+  /** "Invitations Sent" — every invite this tenant sent, with its derived display status. */
+  async listInvitations(
+    tenantId: string,
+    input: ListInvitationsInput,
+  ): Promise<Paginated<DriverInvitationView>> {
     try {
-      const relations = await this.driverTenantRelationRepository.listPendingStaffReview(tenantId);
-      const withDrivers = await Promise.all(
-        relations.map(async (relation) => ({
-          ...relation,
-          driver: (await this.driverRepository.findById(relation.driverId))!,
-        })),
+      const { items, total } = await this.driverTenantRelationRepository.listInvitations(
+        tenantId,
+        input,
       );
-      return withDrivers.map(flattenRelation);
+      return paginate(items.map(toInvitationView), total, input);
     } catch (error) {
-      rethrow(error, 'Failed to list pending driver join requests');
+      rethrow(error, 'Failed to list driver invitations');
     }
+  }
+
+  /** Invitation detail drawer — header, credentials, latest-send timeline, delivery channels. */
+  async getInvitation(tenantId: string, invitationId: string): Promise<DriverInvitationDetailView> {
+    try {
+      const relation = await this.findInvitationOrThrow(tenantId, invitationId);
+      const sender = relation.inviteSentBy
+        ? await this.dataSource
+            .getRepository(UserEntity)
+            .findOne({ where: { id: relation.inviteSentBy }, relations: { role: true } })
+        : null;
+      return toInvitationDetailView(relation, sender);
+    } catch (error) {
+      rethrow(error, 'Failed to get driver invitation');
+    }
+  }
+
+  /** Re-sends a pending, unexpired invite and restarts its DRIVER_INVITE_TTL_DAYS clock. */
+  async resendInvite(
+    tenantId: string,
+    actorId: string,
+    invitationId: string,
+  ): Promise<DriverInvitationView> {
+    try {
+      const invite = await this.findInvitationOrThrow(tenantId, invitationId);
+      if (invite.status !== 'pending_driver_review') {
+        throw new ConflictError('Only a pending invitation can be resent');
+      }
+      if (invite.inviteExpiresAt && invite.inviteExpiresAt <= new Date()) {
+        throw new ConflictError('This invitation has expired and can no longer be resent');
+      }
+
+      const relation = await this.driverTenantRelationRepository.resendInvite(
+        tenantId,
+        invite.id,
+        actorId,
+      );
+      if (!relation) throw new ConflictError('Invitation resend failed');
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'DRIVER_INVITE_RESENT',
+        resourceType: 'driver',
+        oldData: { id: invite.driverId, invitationId, inviteSentAt: invite.inviteSentAt },
+        newData: { id: invite.driverId, invitationId, inviteSentAt: relation.inviteSentAt },
+      });
+
+      await this.deliverInvite(tenantId, relation.id, relation.driverId);
+
+      return toInvitationView(relation);
+    } catch (error) {
+      rethrow(error, 'Failed to resend driver invitation');
+    }
+  }
+
+  /**
+   * Cancel — soft-deletes the pending invite, so it leaves the list and the driver's app, and
+   * frees the tenant+driver unique slot for a fresh invite later.
+   */
+  async cancelInvite(tenantId: string, actorId: string, invitationId: string): Promise<void> {
+    try {
+      const invite = await this.findInvitationOrThrow(tenantId, invitationId);
+      if (invite.status !== 'pending_driver_review') {
+        throw new ConflictError('Only a pending invitation can be cancelled');
+      }
+      const cancelled = await this.driverTenantRelationRepository.cancelInvite(
+        tenantId,
+        invite.id,
+        actorId,
+      );
+      if (!cancelled) throw new ConflictError('Invitation cancel failed');
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'DRIVER_INVITE_CANCELLED',
+        resourceType: 'driver',
+        oldData: {
+          id: invite.driverId,
+          invitationId,
+          status: invite.status,
+          inviteSentAt: invite.inviteSentAt,
+        },
+        newData: null,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to cancel driver invitation');
+    }
+  }
+
+  private async findInvitationOrThrow(
+    tenantId: string,
+    invitationId: string,
+  ): Promise<DriverTenantRelationEntity> {
+    const invite = await this.driverTenantRelationRepository.findInvitation(tenantId, invitationId);
+    if (!invite) throw new NotFoundError(`Invitation ${invitationId} not found`);
+    return invite;
+  }
+
+  /**
+   * The single place an invite goes out to the driver (first send from onboardDriver/approveDriver,
+   * and Resend). Today only push is really sent and its result recorded; SMS/WhatsApp were stamped
+   * `pending` by inviteSendColumns — wire the notification branch's sending in here once merged.
+   */
+  private async deliverInvite(
+    tenantId: string,
+    invitationId: string,
+    driverId: string,
+    tenantName?: string | null,
+  ): Promise<void> {
+    const name =
+      tenantName ?? (await this.organizationService.getOrganizationStatus(tenantId)).name;
+    const pushed = await this.driverPushNotifier.notifyInvited(
+      tenantId,
+      driverId,
+      name ?? 'A fleet owner',
+      invitationId,
+    );
+    await this.driverTenantRelationRepository.setPushDeliveryStatus(
+      invitationId,
+      pushed ? 'sent' : 'failed',
+    );
   }
 
   /**
@@ -925,11 +1191,7 @@ export class DriverService {
 
       const organization = await this.organizationService.getOrganizationStatus(tenantId);
       if (sendToDriver) {
-        await this.driverPushNotifier.notifyInvited(
-          tenantId,
-          driverId,
-          organization.name ?? 'A fleet owner',
-        );
+        await this.deliverInvite(tenantId, existing.id, driverId, organization.name);
       } else {
         await this.driverPushNotifier.notifyJoinRequestApproved(
           tenantId,
@@ -948,7 +1210,7 @@ export class DriverService {
     tenantId: string,
     actorId: string,
     driverId: string,
-    reason: string,
+    reason: string | null,
   ): Promise<DriverWithRelation> {
     try {
       const existing = await this.assertDriverExists(tenantId, driverId);

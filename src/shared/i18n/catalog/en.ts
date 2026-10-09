@@ -28,6 +28,7 @@ export const en = {
       licenceImagesRequired: 'Driving licence front and back photos are both required',
       relationExists: 'A relation with this fleet owner already exists',
       inviteNotFound: 'Invite not found',
+      inviteExpired: 'This invite has expired. Ask the fleet owner to invite you again',
       phoneMismatch: 'The mobile number does not match your registered number',
       deleteBlockedActiveLoad:
         'You have a trip in progress. Complete it before deleting your account',

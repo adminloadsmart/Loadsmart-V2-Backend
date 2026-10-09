@@ -76,6 +76,30 @@ export const DRIVER_TENANT_RELATION_STATUSES = [
 ] as const;
 export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES)[number];
 
+/** How long a tenant's invite stays acceptable after it's sent (or re-sent). */
+export const DRIVER_INVITE_TTL_DAYS = 7;
+
+/**
+ * "Invitations Sent" display status — derived from a tenant-initiated relation, never stored:
+ * pending = pending_driver_review & not yet expired, expired = pending_driver_review past
+ * invite_expires_at, accepted = active, rejected = declined by the driver.
+ */
+export const DRIVER_INVITATION_STATUSES = ['pending', 'accepted', 'rejected', 'expired'] as const;
+export type DriverInvitationStatus = (typeof DRIVER_INVITATION_STATUSES)[number];
+
+/**
+ * Per-channel delivery state of an invite's latest send. `delivered`/`read` are reserved for
+ * provider delivery webhooks (MSG91), which don't exist yet.
+ */
+export const DRIVER_INVITE_DELIVERY_STATUSES = [
+  'pending',
+  'sent',
+  'delivered',
+  'read',
+  'failed',
+] as const;
+export type DriverInviteDeliveryStatus = (typeof DRIVER_INVITE_DELIVERY_STATUSES)[number];
+
 /** Who created the driver_tenant_relations row. */
 export const DRIVER_TENANT_RELATION_INITIATORS = ['staff', 'driver', 'fleet_owner'] as const;
 export type DriverTenantRelationInitiator = (typeof DRIVER_TENANT_RELATION_INITIATORS)[number];

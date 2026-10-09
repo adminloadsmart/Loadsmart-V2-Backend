@@ -6,6 +6,9 @@ import {
   DriverDocumentParams,
   DriverParams,
   ListDriversInput,
+  ListJoinRequestsInput,
+  ListInvitationsInput,
+  InvitationParams,
 } from './drivers.interface';
 import { DriverService } from './driver.service';
 
@@ -170,7 +173,7 @@ export class DriverController {
       requireTenantId(req),
       req.user!.id,
       req.params.driverId,
-      req.body.reason,
+      req.body.reason ?? null,
     );
     respond(res, driver);
   };
@@ -211,14 +214,46 @@ export class DriverController {
     respond(res, metrics);
   };
 
-  // Driver-initiated join requests only — dispatch-added drivers awaiting org_admin approval
-  // (also `pending_staff_review`, but `initiatedBy: 'staff'`) surface via the regular
-  // GET /drivers?status=pending_staff_review list instead.
-  listJoinRequests = async (req: Request, res: Response) => {
-    const requests = await this.driverService.listPendingStaffReview(requireTenantId(req));
-    respond(
-      res,
-      requests.filter((relation) => relation.initiatedBy === 'driver'),
+  listInvitations = async (req: Request, res: Response) => {
+    const invitations = await this.driverService.listInvitations(
+      requireTenantId(req),
+      req.validatedQuery as ListInvitationsInput,
     );
+    respond(res, invitations);
+  };
+
+  getInvitation = async (req: Request<InvitationParams>, res: Response) => {
+    const invitation = await this.driverService.getInvitation(
+      requireTenantId(req),
+      req.params.invitationId,
+    );
+    respond(res, invitation);
+  };
+
+  resendInvitation = async (req: Request<InvitationParams>, res: Response) => {
+    const invitation = await this.driverService.resendInvite(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.invitationId,
+    );
+    respond(res, invitation);
+  };
+
+  cancelInvitation = async (req: Request<InvitationParams>, res: Response) => {
+    await this.driverService.cancelInvite(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.invitationId,
+    );
+    respond(res, { success: true });
+  };
+
+  // Driver-initiated join requests only — see DriverService.listJoinRequests.
+  listJoinRequests = async (req: Request, res: Response) => {
+    const requests = await this.driverService.listJoinRequests(
+      requireTenantId(req),
+      req.validatedQuery as ListJoinRequestsInput,
+    );
+    respond(res, requests);
   };
 }

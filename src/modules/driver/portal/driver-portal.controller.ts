@@ -296,6 +296,7 @@ export class DriverPortalController {
     const notification = await this.driverPortalService.markMyNotificationRead(
       req.driver!.id,
       String((req.params as { notificationId: string }).notificationId),
+      req.driver!.sid,
     );
     respond(res, notification);
   };

@@ -7,8 +7,10 @@ import {
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
+  DRIVER_INVITATION_STATUSES,
   DRIVER_OPERATIONAL_STATUSES,
   DRIVER_SALARY_TYPES,
+  DRIVER_TENANT_RELATION_INITIATORS,
   DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
@@ -19,6 +21,9 @@ const uuid = z.string().uuid();
 const isoDateTime = z.iso.datetime();
 
 const driverParams = z.object({ driverId: uuid });
+// An invitation is its driver_tenant_relations row — a driver can have several for one tenant
+// (older declined invites plus the current one), so invitation routes key on this, not driverId.
+const invitationParams = z.object({ invitationId: uuid });
 const driverDocumentParams = z.object({ driverId: uuid, documentId: uuid });
 const driverBankDetailsParams = z.object({
   driverId: uuid,
@@ -158,6 +163,8 @@ export const driverValidators = {
   listDrivers: z.object({
     query: pagination.extend({
       status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
+      // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
+      initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),
       operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
     }),
   }),
@@ -196,10 +203,19 @@ export const driverValidators = {
   approveDriver: z.object({ params: driverParams }),
   rejectDriver: z.object({
     params: driverParams,
-    body: z.object({ reason: z.string().trim().min(1) }),
+    // Optional — the "Requests to You" screen rejects in one click with no reason prompt. Defaulted
+    // because Express 5 leaves req.body undefined when the request has no body at all.
+    body: z.object({ reason: z.string().trim().min(1).optional() }).default({}),
   }),
 
   listJoinRequests: z.object({ query: pagination }),
+
+  listInvitations: z.object({
+    query: pagination.extend({ status: z.enum(DRIVER_INVITATION_STATUSES).optional() }),
+  }),
+  getInvitation: z.object({ params: invitationParams }),
+  resendInvitation: z.object({ params: invitationParams }),
+  cancelInvitation: z.object({ params: invitationParams }),
 
   addDriverDocument: z.object({
     params: driverParams,

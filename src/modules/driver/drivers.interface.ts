@@ -12,6 +12,8 @@ import {
   DriverVerificationStatus,
   DriverVerificationType,
   DriverInsuranceAnswer,
+  DriverInvitationStatus,
+  DriverInviteDeliveryStatus,
 } from './drivers.types';
 import { PaginationInput } from '../../shared/utils/pagination';
 
@@ -55,7 +57,66 @@ export interface UpdateDriverInput {
 
 export interface ListDriversInput extends PaginationInput {
   status?: DriverTenantRelationStatus;
+  initiatedBy?: DriverTenantRelationInitiator;
   operationalStatus?: DriverOperationalStatus;
+  search?: string;
+}
+
+/** "Invitations Sent" list — tenant-initiated invites, optionally narrowed to one display status. */
+export interface ListInvitationsInput extends PaginationInput {
+  status?: DriverInvitationStatus;
+  search?: string;
+}
+
+/** One row of the "Invitations Sent" table. */
+export interface DriverInvitationView {
+  invitationId: string;
+  /** Sequential "Req ID", e.g. INV-00042. */
+  requestId: string;
+  driverId: string;
+  fullName: string;
+  phoneNumber: string;
+  status: DriverInvitationStatus;
+  sentAt: Date;
+  expiresAt: Date | null;
+  respondedAt: Date | null;
+  rejectionReason: string | null;
+}
+
+/** Invitation detail drawer — the list row plus credentials, timeline and delivery channels. */
+export interface DriverInvitationDetailView extends DriverInvitationView {
+  credentials: {
+    licenseNumber: string | null;
+    licenseClass: string | null;
+    /** Latest Sarathi DL check; null when the licence was never checked. */
+    registry: {
+      source: 'sarathi';
+      status: DriverVerificationStatus;
+      checkedAt: Date | null;
+    } | null;
+  };
+  timeline: DriverInvitationTimelineStep[];
+  deliveryChannels: {
+    channel: 'sms' | 'whatsapp' | 'push';
+    status: DriverInviteDeliveryStatus | null;
+    statusAt: Date | null;
+  }[];
+}
+
+/**
+ * Latest send only: sent → viewed (once the driver opened the invite notification) → one final
+ * step derived from the relation's status (accepted / rejected / expired / awaiting_response).
+ */
+export type DriverInvitationTimelineStep =
+  | { step: 'sent'; at: Date; by: { name: string | null; role: string | null } | null }
+  | { step: 'viewed'; at: Date; device: string | null }
+  | { step: 'accepted'; at: Date | null }
+  | { step: 'rejected'; at: Date | null; reason: string | null }
+  | { step: 'expired'; at: Date | null }
+  | { step: 'awaiting_response'; at: null };
+
+/** "Requests to You" list — status/initiatedBy are fixed by the service, so only paging + search. */
+export interface ListJoinRequestsInput extends PaginationInput {
   search?: string;
 }
 
@@ -152,7 +213,7 @@ export interface UpdateDriverProfileData {
 
 /** Fields on the tenant-scoped approval-workflow record (masters.driver_tenant_relations) — just
  * the link's own state, not employment data (that's global, on the driver profile). */
-export interface CreateDriverTenantRelationData {
+export interface CreateDriverTenantRelationData extends Partial<InviteSendColumns> {
   tenantId: string;
   driverId: string;
   status: DriverTenantRelationStatus;
@@ -163,6 +224,24 @@ export interface CreateDriverTenantRelationData {
   approvedBy: string | null;
   approvedAt: Date | null;
   createdBy: string | null;
+}
+
+/**
+ * Columns stamped on driver_tenant_relations every time an invite is sent or re-sent (see
+ * driver-tenant-relation.repository.ts's inviteSendColumns) — the drawer shows the latest send.
+ */
+export interface InviteSendColumns {
+  inviteSentAt: Date;
+  inviteExpiresAt: Date;
+  inviteSentBy: string | null;
+  inviteViewedAt: null;
+  inviteViewedDevice: null;
+  smsDeliveryStatus: DriverInviteDeliveryStatus;
+  smsDeliveryStatusAt: Date;
+  whatsappDeliveryStatus: DriverInviteDeliveryStatus;
+  whatsappDeliveryStatusAt: Date;
+  pushDeliveryStatus: DriverInviteDeliveryStatus;
+  pushDeliveryStatusAt: Date;
 }
 
 export interface UpdateDriverTenantRelationData {
@@ -177,6 +256,7 @@ export interface UpdateDriverTenantRelationData {
 
 export interface ListDriversFilters {
   status?: DriverTenantRelationStatus;
+  initiatedBy?: DriverTenantRelationInitiator;
   operationalStatus?: DriverOperationalStatus;
   search?: string;
   page: number;
@@ -295,6 +375,7 @@ export interface OnboardDriverInput extends CreateDriverInput {
 /* Route parameter shapes, used to type `Request<P>` in the controller. */
 
 export type DriverParams = { driverId: string };
+export type InvitationParams = { invitationId: string };
 export type DriverDocumentParams = { driverId: string; documentId: string };
 export type DriverBankDetailsParams = { driverId: string; bankDetailsId: string };
 export type DriverRelationParams = { relationId: string };

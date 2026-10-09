@@ -25,17 +25,28 @@ export class DriverPushNotifier {
     private readonly pushChannel: PushChannel = new PushChannel(),
   ) {}
 
-  private async push(driverId: string, title: string, body: string): Promise<void> {
+  /**
+   * Returns whether at least one of the driver's devices accepted the push — false when they have
+   * no FCM-registered session or every send failed. `data` rides along as the FCM data payload.
+   */
+  private async push(
+    driverId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<boolean> {
     try {
       const sessions = await this.driverSessionRepository.findActiveByDriverId(driverId);
-      const notification = { title, body, metadata: undefined } as unknown as NotificationEntity;
-      await Promise.all(
+      const notification = { title, body, metadata: data } as unknown as NotificationEntity;
+      const results = await Promise.allSettled(
         sessions
           .filter((session) => session.fcmToken)
           .map((session) => this.pushChannel.send(notification, session.fcmToken!)),
       );
+      return results.some((result) => result.status === 'fulfilled');
     } catch {
       // Best-effort — a failed push must never fail the invite/approval action itself.
+      return false;
     }
   }
 
@@ -45,17 +56,20 @@ export class DriverPushNotifier {
     type: string,
     title: string,
     body: string,
-  ): Promise<void> {
+    metadata?: Record<string, unknown>,
+  ): Promise<NotificationEntity | null> {
     try {
-      await this.notificationsService.send(tenantId, {
+      return await this.notificationsService.send(tenantId, {
         recipientUserId: driverId,
         type,
         title,
         body,
         channels: [],
+        metadata,
       });
     } catch {
       // Best-effort, same reasoning as push() above.
+      return null;
     }
   }
 
@@ -72,14 +86,29 @@ export class DriverPushNotifier {
     ]);
   }
 
-  notifyInvited(tenantId: string, driverId: string, tenantName: string): Promise<void> {
-    return this.send(
-      tenantId,
-      driverId,
-      'driver.account.invited',
-      "You've been invited",
-      `${tenantName} has invited you to join their fleet. Open the app to accept or decline.`,
-    );
+  /**
+   * Persists first so the push can carry the in-app notification's id: when the driver opens it,
+   * the app calls PATCH /driver-portal/me/notifications/:notificationId/read, which marks this
+   * invitation viewed (DriverPortalService.markMyNotificationRead). Returns whether the push
+   * reached at least one device — recorded as the invite's push delivery status.
+   */
+  async notifyInvited(
+    tenantId: string,
+    driverId: string,
+    tenantName: string,
+    invitationId: string,
+  ): Promise<boolean> {
+    const type = 'driver.account.invited';
+    const title = "You've been invited";
+    const body = `${tenantName} has invited you to join their fleet. Open the app to accept or decline.`;
+    const notification = await this.persist(tenantId, driverId, type, title, body, {
+      invitationId,
+    });
+    return this.push(driverId, title, body, {
+      type,
+      invitationId,
+      ...(notification && { notificationId: notification.id }),
+    });
   }
 
   notifyJoinRequestApproved(tenantId: string, driverId: string, tenantName: string): Promise<void> {

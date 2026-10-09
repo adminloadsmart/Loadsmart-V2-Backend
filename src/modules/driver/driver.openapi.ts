@@ -23,7 +23,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDrivers',
-    ...authenticated('List drivers for the tenant, paginated and optionally filtered.'),
+    ...authenticated(
+      'List drivers for the tenant, paginated and optionally filtered. `search` matches name, ' +
+        'mobile or DL number; "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner.',
+    ),
     request: { query: driverValidators.listDrivers.shape.query },
     responses: {
       200: {
@@ -98,14 +101,14 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectDriver',
-    ...approve('Reject a pending driver with a mandatory reason. org_admin only.'),
+    ...approve('Reject a pending driver, with an optional reason. org_admin only.'),
     request: {
       params: driverValidators.rejectDriver.shape.params,
       body: json(driverValidators.rejectDriver.shape.body),
     },
     responses: {
       200: { description: 'Rejected driver' },
-      400: { description: 'Validation failed (reason required)', ...errorContent },
+      400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Driver not found', ...errorContent },
       409: { description: 'Driver is not pending', ...errorContent },
     },
@@ -127,10 +130,93 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       'List driver-initiated join requests awaiting this tenant’s approval (status ' +
         '`pending_staff_review`, initiatedBy `driver`) — distinct from dispatch-added drivers ' +
         'awaiting approval, which surface via GET /drivers?status=pending_staff_review instead. ' +
-        'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above.',
+        'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above. `search` matches ' +
+        'name, mobile or DL number. Each item carries `requestedAt` (when the request was made) ' +
+        'and `licenseClass` (latest licence verification’s class, or null).',
     ),
+    request: { query: driverValidators.listJoinRequests.shape.query },
     responses: {
-      200: { description: 'Pending join requests' },
+      200: {
+        description:
+          'Paginated join requests — { data: { items, page, limit, total, totalPages } }',
+      },
+    },
+  });
+
+  // --- Invitations Sent ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/invitations`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listDriverInvitations',
+    ...authenticated(
+      'List invites this tenant sent to drivers (org_admin onboarding, or dispatch-added drivers ' +
+        'after approval), newest `sentAt` first. `status` is derived: `pending` (awaiting the ' +
+        'driver, not expired), `expired` (unanswered 7 days after the last send), `accepted`, ' +
+        '`rejected` (declined by the driver). `search` matches name, mobile or DL number. Items: ' +
+        '{ invitationId, requestId (INV-00042), driverId, fullName, phoneNumber, status, sentAt, ' +
+        'expiresAt, respondedAt, rejectionReason }.',
+    ),
+    request: { query: driverValidators.listInvitations.shape.query },
+    responses: {
+      200: {
+        description: 'Paginated invitations — { data: { items, page, limit, total, totalPages } }',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/invitations/{invitationId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getDriverInvitation',
+    ...authenticated(
+      'Invitation detail drawer — the list item plus `credentials` { licenseNumber, ' +
+        'licenseClass, registry: { source: sarathi, status, checkedAt } | null }, `timeline` for ' +
+        'the latest send (sent { at, by: { name, role } } → viewed { at, device }, once the ' +
+        'driver opened the invite notification → accepted | rejected | expired | ' +
+        'awaiting_response) and `deliveryChannels` [{ channel: sms | whatsapp | push, status, ' +
+        'statusAt }]. SMS/WhatsApp are recorded as `pending` but not yet actually sent.',
+    ),
+    request: { params: driverValidators.getInvitation.shape.params },
+    responses: {
+      200: { description: 'Invitation detail' },
+      404: { description: 'Invitation not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/invitations/{invitationId}/resend`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.resendDriverInvitation',
+    ...write(
+      'Re-send a pending, unexpired invite: re-notifies the driver, restarts the 7-day expiry, ' +
+        'resets the viewed step and every delivery channel to `pending`. Req ID is unchanged.',
+    ),
+    request: { params: driverValidators.resendInvitation.shape.params },
+    responses: {
+      200: { description: 'Updated invitation (same item shape as the list)' },
+      404: { description: 'Invitation not found', ...errorContent },
+      409: { description: 'Invitation is not pending, or it has expired', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/drivers/invitations/{invitationId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.cancelDriverInvitation',
+    ...write(
+      'Cancel a pending invite. It disappears from this list and the driver app, and the driver ' +
+        'can be invited again.',
+    ),
+    request: { params: driverValidators.cancelInvitation.shape.params },
+    responses: {
+      200: { description: '{ data: { success: true } }' },
+      404: { description: 'Invitation not found', ...errorContent },
+      409: { description: 'Invitation is not pending', ...errorContent },
     },
   });
 
