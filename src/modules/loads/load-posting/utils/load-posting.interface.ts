@@ -60,6 +60,8 @@ export interface PostLoadInput {
   truckLengthFt?: string;
   acceptedTruckTypeIds?: string[];
   vehicleId?: string;
+  /** Own fleet: a driver other than the truck's linked one — must be idle. */
+  driverId?: string;
   /** Market fleet: the ticked transporters (Loadsmart is always added). */
   transporterIds?: string[];
   /** Indent: the one contracted transporter. */

@@ -74,6 +74,13 @@ export function createLoadPostingRoutes(controller: LoadPostingController): Rout
     asyncHandler(controller.fleetOptions),
   );
 
+  router.get(
+    '/available-drivers',
+    canPost,
+    validate(loadPostingValidators.availableDrivers),
+    asyncHandler(controller.availableDrivers),
+  );
+
   // --- Indent contracts ---
   router.get(
     '/contracts',

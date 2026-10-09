@@ -34,6 +34,7 @@ import {
   PostAddress,
 } from './utils/load-posting.types';
 import { buildPostMessage } from './utils/post-message';
+import { driverUnavailableReason } from './utils/driver-availability';
 
 const HOUR_MS = 60 * 60 * 1000;
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -135,7 +136,11 @@ export class LoadPostingService {
         contractRate = contract.rate;
         contractId = contract.id;
       } else {
-        vehicleLoadDefaults = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!);
+        vehicleLoadDefaults = await this.assertOwnFleetVehicle(
+          tenantId,
+          input.vehicleId!,
+          input.driverId,
+        );
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
@@ -534,6 +539,7 @@ export class LoadPostingService {
   private async assertOwnFleetVehicle(
     tenantId: string,
     vehicleId: string,
+    pickedDriverId?: string,
   ): Promise<Partial<CreateLoadData>> {
     const vehicle = await this.vehicleService.getVehicle(tenantId, vehicleId);
     if (vehicle.status === 'under_maintenance') {
@@ -547,11 +553,27 @@ export class LoadPostingService {
     const primaryLink = (vehicle.driverLinks ?? []).find(
       (link) => link.isPrimary && link.status === 'active',
     );
+
+    // The truck's linked driver goes first; a picked driver replaces them. Either way the driver
+    // must be idle, and an own-fleet trip always needs one — it is delivered through the driver app.
+    const driverId = pickedDriverId ?? primaryLink?.driverId;
+    if (!driverId) {
+      throw new ValidationError('This truck has no driver linked. Choose an idle driver.');
+    }
+    const [relation] = await this.repository.listDriverRelationsByDriverIds(tenantId, [driverId]);
+    const busy = await this.repository.listDriverIdsOnActiveLoads(tenantId, [driverId]);
+    const reason = driverUnavailableReason(relation, busy.has(driverId));
+    if (reason) {
+      throw new ConflictError(
+        `${relation?.driver?.fullName ?? 'This driver'} is not available (${reason.replace('_', ' ')}). Choose an idle driver.`,
+        { driverId, reason },
+      );
+    }
     return {
       vehicleId: vehicle.id,
       vehicleNumber: vehicle.registrationNumber,
-      driverId: primaryLink?.driverId ?? null,
-      driverNumber: primaryLink?.driver?.phoneNumber ?? null,
+      driverId,
+      driverNumber: relation.driver.phoneNumber,
       plannedCapacityTonnes: vehicle.capacityTons ?? '0',
     };
   }

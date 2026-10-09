@@ -86,6 +86,8 @@ export const postLoadBody = z
     truckLengthFt: z.string().trim().min(1).max(20).optional(),
     acceptedTruckTypeIds: z.array(uuid).max(10).optional(),
     vehicleId: uuid.optional(),
+    /** Own fleet: overrides the truck's linked driver (must be idle). */
+    driverId: uuid.optional(),
     transporterIds: z.array(uuid).max(100).optional(),
     transporterId: uuid.optional(),
     price: price.optional(),
@@ -127,6 +129,7 @@ export const postLoadBody = z
     if (!body.truckTypeId) fail('truckTypeId', 'Truck type is required');
     if (body.advancePercentage === undefined) fail('advancePercentage', 'Advance is required');
     if (body.vehicleId) fail('vehicleId', 'A truck of your own is only for Own fleet');
+    if (body.driverId) fail('driverId', 'A driver is only picked for Own fleet');
 
     if (body.mode === 'indent') {
       if (!body.transporterId) fail('transporterId', 'Pick the contracted transporter');
@@ -179,6 +182,7 @@ export const loadPostingValidators = {
       capacityTons: z.coerce.number().positive().optional(),
     }),
   }),
+  availableDrivers: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   fleetOptions: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   listContracts: z.object({
     query: z.object({
