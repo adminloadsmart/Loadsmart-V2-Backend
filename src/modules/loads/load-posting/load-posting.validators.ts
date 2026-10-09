@@ -8,6 +8,9 @@ import {
   PRICE_MODES,
 } from './utils/load-posting.types';
 
+import { AXLE_TYPES } from '../../masters/vehicle/vehicle.type';
+import { findPickerRow, PICKER_BODIES } from '../../masters/vehicle/truck-type-picker.constants';
+
 const uuid = z.string().uuid();
 const packaging = z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']);
 const dateTime = z.string().datetime({ offset: true });
@@ -26,6 +29,20 @@ const newAddress = z
     source: z.enum(['google', 'pincode']),
   })
   .strict();
+
+/** A tyre count (number) or an axle type, as the picker's step 2 offers. */
+const pickerWheel = z.union([z.number().int().positive(), z.enum(AXLE_TYPES)]);
+
+/** One truck-type pick; must be a combination the fixed picker table actually offers. */
+const truckPick = z
+  .object({
+    body: z.enum(PICKER_BODIES),
+    wheel: pickerWheel,
+    capacityTons: z.number().positive(),
+    bodyLengthFt: z.string().trim().min(1).max(20),
+  })
+  .strict()
+  .refine((pick) => findPickerRow(pick) !== null, 'Not a truck type we offer');
 
 /** Exactly one way to name a place: a saved master row or a new address. */
 function exactlyOne(values: unknown[]): boolean {
@@ -82,9 +99,8 @@ export const postLoadBody = z
     packaging,
     weightTonnes: z.number().positive().optional(),
     truckCount: z.number().int().min(1).default(1),
-    truckTypeId: uuid.optional(),
-    truckLengthFt: z.string().trim().min(1).max(20).optional(),
-    acceptedTruckTypeIds: z.array(uuid).max(10).optional(),
+    truck: truckPick.optional(),
+    acceptedTrucks: z.array(truckPick).max(10).optional(),
     vehicleId: uuid.optional(),
     /** Own fleet: overrides the truck's linked driver (must be idle). */
     driverId: uuid.optional(),
@@ -126,7 +142,11 @@ export const postLoadBody = z
     }
 
     // Market fleet and Indent both need a full truck type and payment terms.
-    if (!body.truckTypeId) fail('truckTypeId', 'Truck type is required');
+    if (!body.truck) fail('truck', 'Truck type is required');
+    // PL-16 — every accepted size shares the main truck's body (all open or all closed).
+    if (body.truck && body.acceptedTrucks?.some((t) => t.body !== body.truck!.body)) {
+      fail('acceptedTrucks', 'Also-accept sizes must have the same body type as the main truck');
+    }
     if (body.advancePercentage === undefined) fail('advancePercentage', 'Advance is required');
     if (body.vehicleId) fail('vehicleId', 'A truck of your own is only for Own fleet');
     if (body.driverId) fail('driverId', 'A driver is only picked for Own fleet');
@@ -177,8 +197,9 @@ export const loadPostingValidators = {
   commodities: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   truckOptions: z.object({
     query: z.object({
-      bodyType: z.string().min(1).optional(),
-      wheelConfiguration: z.coerce.number().int().positive().optional(),
+      body: z.enum(PICKER_BODIES).optional(),
+      // "6" or "mxl" — a digit string is a tyre count, anything else must be an axle type.
+      wheel: z.union([z.enum(AXLE_TYPES), z.coerce.number().int().positive()]).optional(),
       capacityTons: z.coerce.number().positive().optional(),
     }),
   }),

@@ -8,6 +8,7 @@ import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-d
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 import { ProductEntity } from '../../masters/product/entities/product.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
+import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { VehicleService, resolveDocumentStatus } from '../../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
@@ -26,6 +27,7 @@ import {
   DropInput,
   NewAddressInput,
   PickupInput,
+  TruckPickInput,
   PostLoadInput,
 } from './utils/load-posting.interface';
 import {
@@ -89,6 +91,7 @@ export class LoadPostingService {
     private readonly notifier: LoadDispatchNotifier,
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
+    private readonly truckTypeService: TruckTypeService,
   ) {}
 
   async post(
@@ -123,7 +126,6 @@ export class LoadPostingService {
       const drop = await this.resolveDrop(tenantId, customer, input.drop);
       this.assertPlacesDiffer(pickup, drop);
 
-      const trucks = await this.resolveTrucks(tenantId, input);
       const cargoPerTruck =
         input.weightTonnes === undefined ? null : input.weightTonnes / input.truckCount;
 
@@ -154,6 +156,9 @@ export class LoadPostingService {
         const pickupMasterId = await this.savePickup(tenantId, actorId, role, pickup, manager);
         const drop2 = await this.saveDrop(tenantId, actorId, customer, drop, manager);
         const commodity = await this.resolveCommodity(tenantId, actorId, input, manager);
+        // Picked from the fixed picker table; matched to (or added to) the Truck master here so a
+        // failed post leaves nothing behind.
+        const trucks = await this.resolveTrucks(tenantId, actorId, input, manager);
 
         const loadCodes: string[] = [];
         for (let i = 0; i < input.truckCount; i += 1) {
@@ -208,7 +213,9 @@ export class LoadPostingService {
             weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
             truckCount: input.truckCount,
             truckTypeId: trucks.main?.id ?? null,
-            truckLengthFt: input.truckLengthFt ?? null,
+            truckLengthFt: input.truck?.bodyLengthFt ?? null,
+            truckPick: input.truck ?? null,
+            acceptedTruckPicks: input.acceptedTrucks ?? [],
             acceptedTruckTypeIds: trucks.acceptedIds,
             vehicleId: input.vehicleId ?? null,
             priceMode: input.mode === 'market_fleet' ? input.price!.mode : null,
@@ -243,7 +250,7 @@ export class LoadPostingService {
           status: input.mode === 'own_fleet' ? 'assigned' : 'created',
           plannedCapacityTonnes: plannedCapacity,
           truckTypeId: trucks.main?.id ?? null,
-          feetWheels: input.truckLengthFt ?? null,
+          feetWheels: input.truck?.bodyLengthFt ?? null,
           freightType:
             input.mode === 'own_fleet'
               ? null
@@ -485,36 +492,22 @@ export class LoadPostingService {
 
   private async resolveTrucks(
     tenantId: string,
+    actorId: string,
     input: PostLoadInput,
+    manager: EntityManager,
   ): Promise<{ main: TruckTypeEntity | null; acceptedIds: string[]; labels: string[] }> {
-    if (input.mode === 'own_fleet') {
-      // The vehicle supplies the truck; a truck type is optional there.
-      const main = input.truckTypeId
-        ? ((await this.repository.findTruckTypes(tenantId, [input.truckTypeId]))[0] ?? null)
-        : null;
-      if (input.truckTypeId && !main) throw new NotFoundError('Truck type not found');
-      return { main, acceptedIds: [], labels: [main?.name ?? 'Own truck'] };
+    if (!input.truck) {
+      // Own fleet only (the validator requires a truck for the other modes): the vehicle supplies it.
+      return { main: null, acceptedIds: [], labels: ['Own truck'] };
     }
+    const resolve = (pick: TruckPickInput) =>
+      this.truckTypeService.findOrCreateFromPicker(tenantId, actorId, pick, manager);
 
-    const acceptedIds = [...new Set(input.acceptedTruckTypeIds ?? [])].filter(
-      (id) => id !== input.truckTypeId,
-    );
-    const found = await this.repository.findTruckTypes(tenantId, [
-      input.truckTypeId!,
-      ...acceptedIds,
-    ]);
-    const main = found.find((type) => type.id === input.truckTypeId);
-    if (!main) throw new NotFoundError('Truck type not found');
-    const accepted = found.filter((type) => type.id !== main.id);
-    if (accepted.length !== acceptedIds.length)
-      throw new NotFoundError('Accepted truck type not found');
-
-    // PL-16 — all accepted sizes share the main truck's body type (all open or all closed).
-    const sameBody = accepted.every(
-      (type) => type.bodyType !== null && type.bodyType === main.bodyType,
-    );
-    if (!sameBody) {
-      throw new ValidationError('Also-accept sizes must have the same body type as the main truck');
+    const main = await resolve(input.truck);
+    const accepted: TruckTypeEntity[] = [];
+    for (const pick of input.acceptedTrucks ?? []) {
+      const type = await resolve(pick);
+      if (type.id !== main.id && !accepted.some((item) => item.id === type.id)) accepted.push(type);
     }
     return {
       main,

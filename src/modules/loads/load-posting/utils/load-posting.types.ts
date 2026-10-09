@@ -48,3 +48,11 @@ export interface PostAddress {
   longitude: number | null;
   source: AddressSource;
 }
+
+/** A truck-type picker choice as stored on a posting (see TruckPickInput in the interface file). */
+export interface TruckPick {
+  body: 'open' | 'closed';
+  wheel: number | string;
+  capacityTons: number;
+  bodyLengthFt: string;
+}

@@ -352,22 +352,6 @@ export class LoadPostingRepository {
     });
   }
 
-  /** Distinct body lengths (ft) among this tenant's vehicles of the given truck types — the
-   *  master has no length column, so the fleet is the only source. */
-  async listBodyLengths(tenantId: string, truckTypeIds: string[]): Promise<string[]> {
-    if (!truckTypeIds.length) return [];
-    const rows = await this.vehicles.find({
-      select: { bodyLengthFt: true },
-      where: {
-        tenantId,
-        truckTypeId: In(truckTypeIds),
-        bodyLengthFt: Not(IsNull()),
-        deletedAt: IsNull(),
-      },
-    });
-    return [...new Set(rows.map((row) => row.bodyLengthFt as string))];
-  }
-
   findTruckTypes(tenantId: string, ids: string[]) {
     if (!ids.length) return Promise.resolve([] as TruckTypeEntity[]);
     return this.truckTypes.find({ where: { tenantId, id: In(ids), deletedAt: IsNull() } });

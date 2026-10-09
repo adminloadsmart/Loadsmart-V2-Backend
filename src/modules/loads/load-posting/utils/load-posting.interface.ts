@@ -1,3 +1,4 @@
+import { PickerBody, PickerWheel } from '../../../masters/vehicle/truck-type-picker.constants';
 import {
   AddressSource,
   BalancePaidBy,
@@ -45,6 +46,15 @@ export interface PriceInput {
   rate?: number;
 }
 
+/** One truck-type pick from the fixed picker table (body, then tyres or axle, then tonnes, then
+ *  length) — the same table the Add Truck drawer uses. Resolved to a Truck master row on post. */
+export interface TruckPickInput {
+  body: PickerBody;
+  wheel: PickerWheel;
+  capacityTons: number;
+  bodyLengthFt: string;
+}
+
 export interface PostLoadInput {
   mode: PostMode;
   customerId?: string;
@@ -56,9 +66,10 @@ export interface PostLoadInput {
   packaging: string;
   weightTonnes?: number;
   truckCount: number;
-  truckTypeId?: string;
-  truckLengthFt?: string;
-  acceptedTruckTypeIds?: string[];
+  /** Main truck. Required for Market fleet and Indent; optional for Own fleet. */
+  truck?: TruckPickInput;
+  /** "Also accept" sizes — same body (open/closed) as the main truck. */
+  acceptedTrucks?: TruckPickInput[];
   vehicleId?: string;
   /** Own fleet: a driver other than the truck's linked one — must be idle. */
   driverId?: string;
@@ -119,8 +130,9 @@ export interface CreateContractInput {
 }
 
 export interface TruckOptionsInput {
-  bodyType?: string;
-  wheelConfiguration?: number;
+  body?: PickerBody;
+  /** Tyre count (e.g. "6") or axle type (e.g. "mxl"). */
+  wheel?: PickerWheel;
   capacityTons?: number;
 }
 

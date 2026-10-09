@@ -12,6 +12,7 @@ import {
   POST_MODES,
   PostAddress,
   PostMode,
+  TruckPick,
   PRICE_BASES,
   PRICE_MODES,
   PriceBasis,
@@ -89,6 +90,14 @@ export class LoadPostingEntity {
 
   @Column({ name: 'truck_length_ft', type: 'varchar', length: 20, nullable: true })
   truckLengthFt!: string | null;
+
+  /** The picker choices behind truckTypeId/acceptedTruckTypeIds, kept so a past load can refill
+   *  the stepper exactly (axle-typed containers can't be rebuilt from the Truck master row). */
+  @Column({ name: 'truck_pick', type: 'jsonb', nullable: true })
+  truckPick!: TruckPick | null;
+
+  @Column({ name: 'accepted_truck_picks', type: 'jsonb', default: () => "'[]'" })
+  acceptedTruckPicks!: TruckPick[];
 
   /** "Also accept" sizes — same body type as the main truck. */
   @Column({ name: 'accepted_truck_type_ids', type: 'uuid', array: true, default: () => "'{}'" })

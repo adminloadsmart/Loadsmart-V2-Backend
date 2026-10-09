@@ -9,6 +9,7 @@ import {
   ContractsQueryInput,
   CreateContractInput,
   PostLoadInput,
+  TruckOptionsInput,
 } from './utils/load-posting.interface';
 
 export class LoadPostingController {
@@ -113,17 +114,7 @@ export class LoadPostingController {
     );
 
   truckOptions = async (req: Request, res: Response) =>
-    respond(
-      res,
-      await this.lookupService.truckOptions(
-        requireTenantId(req),
-        req.validatedQuery as {
-          bodyType?: string;
-          wheelConfiguration?: number;
-          capacityTons?: number;
-        },
-      ),
-    );
+    respond(res, this.lookupService.truckOptions(req.validatedQuery as TruckOptionsInput));
 
   fleetOptions = async (req: Request, res: Response) =>
     respond(
