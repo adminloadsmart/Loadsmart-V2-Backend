@@ -7,6 +7,7 @@ import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadPostingService } from './load-posting.service';
 import { PostAddress } from './utils/load-posting.types';
+import { driverUnavailableReason } from './utils/driver-availability';
 
 /** How many recent postings of a customer are folded into past-load cards. */
 const PAST_LOAD_SCAN_LIMIT = 200;
@@ -212,6 +213,22 @@ export class LoadPostingLookupService {
         : [];
       const onLoad = new Set(active.map((load) => load.vehicleId));
 
+      // The linked driver of each truck, with whether they can actually take a trip right now.
+      const linkedDriverIds = [
+        ...new Set(
+          usable
+            .map(
+              (v) =>
+                (v.driverLinks ?? []).find((l) => l.isPrimary && l.status === 'active')?.driverId,
+            )
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const [relations, busyDrivers] = await Promise.all([
+        this.repository.listDriverRelationsByDriverIds(tenantId, linkedDriverIds),
+        this.repository.listDriverIdsOnActiveLoads(tenantId, linkedDriverIds),
+      ]);
+
       return Promise.all(
         usable.map(async (vehicle) => {
           const detail = await this.vehicleService.getVehicle(tenantId, vehicle.id);
@@ -219,6 +236,19 @@ export class LoadPostingLookupService {
           const primary = (vehicle.driverLinks ?? []).find(
             (link) => link.isPrimary && link.status === 'active',
           );
+          const relation = relations.find((r) => r.driverId === primary?.driverId);
+          const reason = primary
+            ? driverUnavailableReason(relation, busyDrivers.has(primary.driverId))
+            : null;
+          const linkedDriver = primary
+            ? {
+                id: primary.driverId,
+                name: primary.driver?.fullName ?? null,
+                phone: primary.driver?.phoneNumber ?? null,
+                available: reason === null,
+                unavailableReason: reason,
+              }
+            : null;
           const state =
             vehicle.status === 'under_maintenance'
               ? 'workshop'
@@ -232,6 +262,9 @@ export class LoadPostingLookupService {
             capacityTons: vehicle.capacityTons,
             bodyLengthFt: vehicle.bodyLengthFt,
             driverName: primary?.driver?.fullName ?? null,
+            driver: linkedDriver,
+            // True when the shipper must pick a (different) idle driver before posting.
+            needsDriverChoice: !linkedDriver || !linkedDriver.available,
             state,
             disabled: state !== 'ready',
             warnings,
@@ -240,6 +273,29 @@ export class LoadPostingLookupService {
       );
     } catch (error) {
       rethrow(error, 'Failed to list own fleet');
+    }
+  }
+
+  /** Idle drivers to choose from when a truck's own driver is missing or unavailable (PL-22):
+   *  active in this fleet, not on leave or inactive, and not on a live load. */
+  async availableDrivers(tenantId: string, search?: string) {
+    try {
+      const relations = await this.repository.listActiveDriverRelations(tenantId, search);
+      const busy = await this.repository.listDriverIdsOnActiveLoads(
+        tenantId,
+        relations.map((relation) => relation.driverId),
+      );
+      return relations
+        .filter(
+          (relation) => driverUnavailableReason(relation, busy.has(relation.driverId)) === null,
+        )
+        .map((relation) => ({
+          id: relation.driverId,
+          name: relation.driver.fullName,
+          phone: relation.driver.phoneNumber,
+        }));
+    } catch (error) {
+      rethrow(error, 'Failed to list available drivers');
     }
   }
 

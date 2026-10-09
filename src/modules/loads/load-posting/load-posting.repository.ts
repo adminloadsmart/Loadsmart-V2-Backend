@@ -1,4 +1,5 @@
 import { DataSource, EntityManager, ILike, In, IsNull, Not, Repository } from 'typeorm';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { LoadEntity } from '../entities/load.entity';
 import { RequisitionEntity } from '../entities/requisition.entity';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
@@ -41,6 +42,7 @@ export class LoadPostingRepository {
   private readonly recipients: Repository<LoadRecipientEntity>;
   private readonly requisitions: Repository<RequisitionEntity>;
   private readonly loads: Repository<LoadEntity>;
+  private readonly driverRelations: Repository<DriverTenantRelationEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
   private readonly contracts: Repository<CustomerContractEntity>;
   private readonly customers: Repository<CustomerEntity>;
@@ -56,6 +58,7 @@ export class LoadPostingRepository {
     this.recipients = dataSource.getRepository(LoadRecipientEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
     this.loads = dataSource.getRepository(LoadEntity);
+    this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
     this.contracts = dataSource.getRepository(CustomerContractEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
@@ -120,6 +123,53 @@ export class LoadPostingRepository {
   /** The loads a posting spawned, one per truck. */
   listLoadsByPosting(tenantId: string, postingId: string) {
     return this.loads.find({ where: { tenantId, postingId }, order: { code: 'ASC' } });
+  }
+
+  // --- Drivers ---
+
+  /** This tenant's active drivers with their operational status row, optionally filtered by name. */
+  listActiveDriverRelations(tenantId: string, search?: string) {
+    return this.driverRelations.find({
+      where: {
+        tenantId,
+        status: 'active',
+        driver: search
+          ? { deletedAt: IsNull(), fullName: contains(search) }
+          : { deletedAt: IsNull() },
+      },
+      relations: { driver: true, operationalStatus: true },
+      order: { driver: { fullName: 'ASC' } },
+      take: 100,
+    });
+  }
+
+  /** Relations for specific global driver ids (a vehicle's linked drivers, a picked driver). */
+  listDriverRelationsByDriverIds(tenantId: string, driverIds: string[]) {
+    if (!driverIds.length) return Promise.resolve([] as DriverTenantRelationEntity[]);
+    return this.driverRelations.find({
+      where: { tenantId, driverId: In(driverIds) },
+      relations: { driver: true, operationalStatus: true },
+    });
+  }
+
+  /** Which of these drivers are on a live load right now. */
+  async listDriverIdsOnActiveLoads(tenantId: string, driverIds: string[]): Promise<Set<string>> {
+    if (!driverIds.length) return new Set();
+    const rows = await this.loads.find({
+      select: { driverId: true },
+      where: {
+        tenantId,
+        driverId: In(driverIds),
+        status: In([
+          'assigned',
+          'loading_confirmed',
+          'at_plant',
+          'in_transit',
+          'reached_delivery_point',
+        ]),
+      },
+    });
+    return new Set(rows.map((row) => row.driverId as string));
   }
 
   // --- Recipients ---

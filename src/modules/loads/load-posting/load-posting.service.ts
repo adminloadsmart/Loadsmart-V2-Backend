@@ -34,6 +34,7 @@ import {
   PostAddress,
 } from './utils/load-posting.types';
 import { buildPostMessage } from './utils/post-message';
+import { driverUnavailableReason } from './utils/driver-availability';
 
 const HOUR_MS = 60 * 60 * 1000;
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -50,10 +51,18 @@ interface ResolvedPlace {
   newAddress: NewAddressInput | null;
 }
 
+export interface AssignedDriver {
+  id: string | null;
+  name: string | null;
+  phone: string | null;
+}
+
 export interface PostLoadResult {
   posting: LoadPostingEntity;
   loads: { id: string; code: string }[];
   recipients: LoadRecipientEntity[];
+  /** Own fleet only — the truck and driver the trip was assigned to (PL-25). */
+  assignedTruck: { vehicleNumber: string | null; driver: AssignedDriver } | null;
   /** True when an earlier request with the same idempotency key already posted this load. */
   duplicate: boolean;
 }
@@ -122,6 +131,7 @@ export class LoadPostingService {
       let contractRate: string | null = null;
       let contractId: string | null = null;
       let vehicleLoadDefaults: Partial<CreateLoadData> = {};
+      let assignedDriverName: string | null = null;
 
       if (input.mode === 'market_fleet') {
         const ids = [...new Set(input.transporterIds ?? [])];
@@ -135,7 +145,9 @@ export class LoadPostingService {
         contractRate = contract.rate;
         contractId = contract.id;
       } else {
-        vehicleLoadDefaults = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!);
+        const own = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!, input.driverId);
+        vehicleLoadDefaults = own.defaults;
+        assignedDriverName = own.driverName;
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
@@ -341,6 +353,17 @@ export class LoadPostingService {
         posting: result.posting,
         loads: result.loads.map((load) => ({ id: load.id, code: load.code })),
         recipients,
+        assignedTruck:
+          input.mode === 'own_fleet'
+            ? {
+                vehicleNumber: vehicleLoadDefaults.vehicleNumber ?? null,
+                driver: {
+                  id: vehicleLoadDefaults.driverId ?? null,
+                  name: assignedDriverName,
+                  phone: vehicleLoadDefaults.driverNumber ?? null,
+                },
+              }
+            : null,
         duplicate: false,
       };
     } catch (error) {
@@ -534,7 +557,8 @@ export class LoadPostingService {
   private async assertOwnFleetVehicle(
     tenantId: string,
     vehicleId: string,
-  ): Promise<Partial<CreateLoadData>> {
+    pickedDriverId?: string,
+  ): Promise<{ defaults: Partial<CreateLoadData>; driverName: string | null }> {
     const vehicle = await this.vehicleService.getVehicle(tenantId, vehicleId);
     if (vehicle.status === 'under_maintenance') {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
@@ -547,12 +571,31 @@ export class LoadPostingService {
     const primaryLink = (vehicle.driverLinks ?? []).find(
       (link) => link.isPrimary && link.status === 'active',
     );
+
+    // The truck's linked driver goes first; a picked driver replaces them. Either way the driver
+    // must be idle, and an own-fleet trip always needs one — it is delivered through the driver app.
+    const driverId = pickedDriverId ?? primaryLink?.driverId;
+    if (!driverId) {
+      throw new ValidationError('This truck has no driver linked. Choose an idle driver.');
+    }
+    const [relation] = await this.repository.listDriverRelationsByDriverIds(tenantId, [driverId]);
+    const busy = await this.repository.listDriverIdsOnActiveLoads(tenantId, [driverId]);
+    const reason = driverUnavailableReason(relation, busy.has(driverId));
+    if (reason) {
+      throw new ConflictError(
+        `${relation?.driver?.fullName ?? 'This driver'} is not available (${reason.replace('_', ' ')}). Choose an idle driver.`,
+        { driverId, reason },
+      );
+    }
     return {
-      vehicleId: vehicle.id,
-      vehicleNumber: vehicle.registrationNumber,
-      driverId: primaryLink?.driverId ?? null,
-      driverNumber: primaryLink?.driver?.phoneNumber ?? null,
-      plannedCapacityTonnes: vehicle.capacityTons ?? '0',
+      defaults: {
+        vehicleId: vehicle.id,
+        vehicleNumber: vehicle.registrationNumber,
+        driverId,
+        driverNumber: relation.driver.phoneNumber,
+        plannedCapacityTonnes: vehicle.capacityTons ?? '0',
+      },
+      driverName: relation.driver.fullName,
     };
   }
 
@@ -766,6 +809,25 @@ export class LoadPostingService {
     }
   }
 
+  private async describeAssignedTruck(
+    tenantId: string,
+    posting: LoadPostingEntity,
+    load: LoadEntity | undefined,
+  ): Promise<PostLoadResult['assignedTruck']> {
+    if (posting.mode !== 'own_fleet' || !load) return null;
+    const [relation] = load.driverId
+      ? await this.repository.listDriverRelationsByDriverIds(tenantId, [load.driverId])
+      : [];
+    return {
+      vehicleNumber: load.vehicleNumber,
+      driver: {
+        id: load.driverId,
+        name: relation?.driver?.fullName ?? null,
+        phone: load.driverNumber,
+      },
+    };
+  }
+
   private async describeExisting(
     tenantId: string,
     posting: LoadPostingEntity,
@@ -776,6 +838,7 @@ export class LoadPostingService {
       posting,
       loads: loads.map((load) => ({ id: load.id, code: load.code })),
       recipients,
+      assignedTruck: await this.describeAssignedTruck(tenantId, posting, loads[0]),
       duplicate: true,
     };
   }

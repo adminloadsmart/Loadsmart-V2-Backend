@@ -134,6 +134,15 @@ export class LoadPostingController {
       ),
     );
 
+  availableDrivers = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.lookupService.availableDrivers(
+        requireTenantId(req),
+        (req.validatedQuery as { search?: string }).search,
+      ),
+    );
+
   listContracts = async (req: Request, res: Response) =>
     respond(
       res,
