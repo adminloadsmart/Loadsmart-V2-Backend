@@ -195,8 +195,9 @@ export class LoadPostingLookupService {
     }
   }
 
-  /** PL-22 — own trucks with a state: workshop / on a live load / inactive are disabled; paper
-   *  expiry only adds a warning. */
+  /** PL-22 — only trucks that can take the load are listed: active (so not in the workshop,
+   *  inactive or pending), not on a trip, and not on a live load. Expired papers hide a truck;
+   *  papers expiring soon only add a warning. */
   async fleetOptions(tenantId: string, search?: string) {
     try {
       const { items } = await this.vehicleService.listVehicles(tenantId, {
@@ -204,14 +205,28 @@ export class LoadPostingLookupService {
         limit: FLEET_PICKER_LIMIT,
         search,
       });
-      const usable = items.filter((v) => v.status === 'active' || v.status === 'under_maintenance');
-      const active = usable.length
+      const candidates = items.filter((v) => v.status === 'active');
+      const active = candidates.length
         ? await this.loadRepository.findActiveByVehicles(
             tenantId,
-            usable.map((vehicle) => vehicle.id),
+            candidates.map((vehicle) => vehicle.id),
           )
         : [];
       const onLoad = new Set(active.map((load) => load.vehicleId));
+      // An open maintenance visit means the truck is in the workshop, whatever its status says.
+      const inWorkshop = await this.repository.listVehicleIdsInWorkshop(
+        tenantId,
+        candidates.map((vehicle) => vehicle.id),
+      );
+      const usable = candidates.filter((vehicle) => {
+        const operational = vehicle.operationalStatus?.operationalStatus;
+        return (
+          !onLoad.has(vehicle.id) &&
+          !inWorkshop.has(vehicle.id) &&
+          operational !== 'on_trip' &&
+          operational !== 'inactive'
+        );
+      });
 
       // The linked driver of each truck, with whether they can actually take a trip right now.
       const linkedDriverIds = [
@@ -229,10 +244,12 @@ export class LoadPostingLookupService {
         this.repository.listDriverIdsOnActiveLoads(tenantId, linkedDriverIds),
       ]);
 
-      return Promise.all(
+      const rows = await Promise.all(
         usable.map(async (vehicle) => {
           const detail = await this.vehicleService.getVehicle(tenantId, vehicle.id);
-          const warnings = this.postingService.paperWarnings(detail.documents ?? []);
+          const papers = this.postingService.paperStatus(detail.documents ?? []);
+          // Expired papers make a truck ineligible — it is left out of the list entirely.
+          if (papers.expired.length > 0) return null;
           const primary = (vehicle.driverLinks ?? []).find(
             (link) => link.isPrimary && link.status === 'active',
           );
@@ -249,12 +266,6 @@ export class LoadPostingLookupService {
                 unavailableReason: reason,
               }
             : null;
-          const state =
-            vehicle.status === 'under_maintenance'
-              ? 'workshop'
-              : onLoad.has(vehicle.id) || vehicle.operationalStatus?.operationalStatus === 'on_trip'
-                ? 'on_trip'
-                : 'ready';
           return {
             id: vehicle.id,
             registrationNumber: vehicle.registrationNumber,
@@ -265,12 +276,11 @@ export class LoadPostingLookupService {
             driver: linkedDriver,
             // True when the shipper must pick a (different) idle driver before posting.
             needsDriverChoice: !linkedDriver || !linkedDriver.available,
-            state,
-            disabled: state !== 'ready',
-            warnings,
+            warnings: papers.expiringSoon.map((type) => `${type} expiring soon`),
           };
         }),
       );
+      return rows.filter((row): row is NonNullable<typeof row> => row !== null);
     } catch (error) {
       rethrow(error, 'Failed to list own fleet');
     }

@@ -564,6 +564,21 @@ export class LoadPostingService {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
     }
     if (vehicle.status !== 'active') throw new ConflictError('This truck is not active');
+    if ((await this.repository.listVehicleIdsInWorkshop(tenantId, [vehicleId])).size > 0) {
+      throw new ConflictError('This truck is in the workshop and cannot be assigned');
+    }
+    const { expired } = this.paperStatus(vehicle.documents ?? []);
+    if (expired.length > 0) {
+      throw new ConflictError(
+        `This truck has expired papers (${expired.join(', ')}) and cannot be assigned`,
+      );
+    }
+    const operational = vehicle.operationalStatus?.operationalStatus;
+    if (operational === 'on_trip' || operational === 'inactive') {
+      throw new ConflictError(
+        `This truck is ${operational === 'on_trip' ? 'on a trip' : 'inactive'} and cannot be assigned`,
+      );
+    }
     const active = await this.loadRepository.findActiveByVehicles(tenantId, [vehicleId]);
     if (active.length > 0) {
       throw new ConflictError(`This truck is already on an active load (${active[0].code})`);
@@ -599,14 +614,23 @@ export class LoadPostingService {
     };
   }
 
-  /** Warnings for the fleet picker — expired/expiring papers are shown, never blocking. */
-  paperWarnings(documents: { documentType: string; expiryDate: string | null }[]): string[] {
+  /** Compliance papers of a truck: `expired` ones make it ineligible for a load, `expiringSoon`
+   *  ones (inside the 30-day window) only warn. Undated documents count as valid. */
+  paperStatus(documents: { documentType: string; expiryDate: string | null }[]): {
+    expired: string[];
+    expiringSoon: string[];
+  } {
     const withExpiry: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
-    return documents
+    const dated = documents
       .filter((document) => withExpiry.includes(document.documentType))
-      .map((document) => ({ document, status: resolveDocumentStatus(document.expiryDate) }))
-      .filter(({ status }) => status !== 'valid')
-      .map(({ document, status }) => `${document.documentType} ${status.replace('_', ' ')}`);
+      .map((document) => ({
+        type: document.documentType,
+        status: resolveDocumentStatus(document.expiryDate),
+      }));
+    return {
+      expired: dated.filter((d) => d.status === 'expired').map((d) => d.type),
+      expiringSoon: dated.filter((d) => d.status === 'expiring_soon').map((d) => d.type),
+    };
   }
 
   // --- Writes ---
