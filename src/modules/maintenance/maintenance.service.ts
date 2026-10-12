@@ -503,7 +503,27 @@ export class MaintenanceService {
       if (!job) throw new NotFoundError(`Workshop visit ${jobId} not found`);
       if (job.status !== 'open') throw new ConflictError('This visit is already closed');
       await this.assertInvoice(tenantId, actor, input);
-      const closedAt = this.resolveClosedAt(job, input.closedAt);
+      // A start date re-dates when the work began (the visit may have been checked in late).
+      if (input.startDate && input.endDate && input.startDate > input.endDate) {
+        throw new ValidationError('startDate must be on or before endDate');
+      }
+      const startedAt = input.startDate
+        ? this.resolveDate(input.startDate, 'startDate')
+        : undefined;
+      const openedAt = startedAt && startedAt < new Date() ? startedAt : job.openedAt;
+      // An end date closes at the start of that IST day — or when the work began, when that is
+      // the same day.
+      const closedAt = input.endDate
+        ? new Date(
+            Math.max(this.resolveDate(input.endDate, 'endDate').getTime(), openedAt.getTime()),
+          )
+        : this.resolveClosedAt(job, input.closedAt);
+      if (closedAt < openedAt) {
+        throw new ValidationError('The close time must be on or after the start date');
+      }
+      if (closedAt > new Date()) {
+        throw new ValidationError('The close time cannot be in the future');
+      }
 
       const { serviceType, workshopName, odometerKm, description, invoiceFileKey, ...costInput } =
         input;
@@ -511,7 +531,12 @@ export class MaintenanceService {
         serviceType !== undefined ||
         workshopName !== undefined ||
         invoiceFileKey !== undefined ||
-        Object.values({ ...costInput, closedAt: undefined }).some((value) => value !== undefined);
+        Object.values({
+          ...costInput,
+          closedAt: undefined,
+          endDate: undefined,
+          startDate: undefined,
+        }).some((value) => value !== undefined);
       const resolvedType = logsService
         ? (serviceType ??
           (job.jobType === 'service' ? job.serviceType : null) ??
@@ -530,6 +555,7 @@ export class MaintenanceService {
           { serviceType: resolvedType },
           {
             closedAt,
+            ...(input.startDate ? { openedAt } : {}),
             odometerKm,
             description,
             ...(logsService ? { workshopName, invoiceFileKey, costs: input } : {}),
@@ -963,6 +989,8 @@ export class MaintenanceService {
     outcome: VisitOutcome,
     details: {
       closedAt: Date;
+      /** Re-dates when the work began — only the release sets it. */
+      openedAt?: Date;
       odometerKm?: number;
       workshopName?: string;
       description?: string;
@@ -985,6 +1013,7 @@ export class MaintenanceService {
       {
         status: 'closed',
         closedAt: details.closedAt,
+        ...(details.openedAt ? { openedAt: details.openedAt } : {}),
         ...(serviced ? { serviceType: outcome.serviceType } : {}),
         // Released without a service: drop the check-in's "in for" type so history doesn't claim
         // a service was done — a closed service job with no serviceType means released.

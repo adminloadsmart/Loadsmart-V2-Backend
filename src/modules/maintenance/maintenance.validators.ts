@@ -135,6 +135,10 @@ export const maintenanceValidators = {
     body: z
       .object({
         closedAt: isoDateTime.optional(),
+        /** The date picker's End date, YYYY-MM-DD — use instead of closedAt. */
+        endDate: isoDate.optional(),
+        /** The date picker's Start date, YYYY-MM-DD — when the work began. */
+        startDate: isoDate.optional(),
         serviceType: z.enum(SERVICE_TYPES).optional(),
         odometerKm: odometerKm.optional(),
         workshopName: optionalText(150),
@@ -142,6 +146,10 @@ export const maintenanceValidators = {
         ...costFields,
       })
       .strict()
+      .refine((body) => !(body.closedAt && body.endDate), {
+        message: 'Send either closedAt or endDate, not both',
+        path: ['endDate'],
+      })
       .default({}),
   }),
 

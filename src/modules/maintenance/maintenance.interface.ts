@@ -71,6 +71,10 @@ export interface CheckInServiceInput {
  *  with none, it is a bare release. */
 export interface ReleaseFromWorkshopInput extends JobCostInput {
   closedAt?: string;
+  /** End date, YYYY-MM-DD, not in the future — an alternative to closedAt. */
+  endDate?: string;
+  /** When the work began, YYYY-MM-DD, not in the future — re-dates the visit's start. */
+  startDate?: string;
   /** Defaults to what the visit was checked in for, else preventive_service. */
   serviceType?: ServiceType;
   /** Required when the service is a clock type (preventive service, oil change). */
