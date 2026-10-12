@@ -6,7 +6,15 @@ import { LoadRepository } from '../load.repository';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadPostingService } from './load-posting.service';
-import { PostAddress } from './utils/load-posting.types';
+import {
+  PICKER_BODIES,
+  pickerWheelLabel,
+  PickerBody,
+  PickerWheel,
+  TRUCK_TYPE_PICKER_ROWS,
+} from '../../masters/vehicle/truck-type-picker.constants';
+import { PostAddress, TruckPick } from './utils/load-posting.types';
+import { driverUnavailableReason } from './utils/driver-availability';
 
 /** How many recent postings of a customer are folded into past-load cards. */
 const PAST_LOAD_SCAN_LIMIT = 200;
@@ -149,53 +157,50 @@ export class LoadPostingLookupService {
     }
   }
 
-  /** Truck type steps in order — body, then tyres/axle, then tonnes — each step only offers what
-   *  is left after the previous picks (PL-09 note 3). Length comes from this fleet's vehicles. */
-  async truckOptions(
-    tenantId: string,
-    filters: { bodyType?: string; wheelConfiguration?: number; capacityTons?: number },
-  ) {
-    try {
-      const all = await this.repository.listTruckTypes(tenantId);
-      const distinct = <T>(values: (T | null)[]) => [
-        ...new Set(values.filter((v): v is T => v !== null)),
-      ];
+  /**
+   * The truck-type picker's steps, from the fixed picker table (the one the Add Truck drawer uses),
+   * not from the tenant's Truck master — so every tenant sees the full list. Each step only offers
+   * what is left after the previous picks: body (open/closed), then tyres or axle, then tonnes,
+   * then length (PL-09 note 3). The pick is matched to a Truck master row when the load is posted.
+   */
+  truckOptions(filters: { body?: PickerBody; wheel?: PickerWheel; capacityTons?: number }) {
+    const byBody = TRUCK_TYPE_PICKER_ROWS.filter(
+      (row) => !filters.body || row.body === filters.body,
+    );
+    const byWheel = byBody.filter(
+      (row) => filters.wheel === undefined || row.wheel === filters.wheel,
+    );
+    const byTonnes = byWheel.filter(
+      (row) => filters.capacityTons === undefined || row.capacityTons === filters.capacityTons,
+    );
+    const distinct = <T>(values: T[]) => [...new Set(values)];
 
-      const byBody = filters.bodyType ? all.filter((t) => t.bodyType === filters.bodyType) : all;
-      const byTyres =
-        filters.wheelConfiguration === undefined
-          ? byBody
-          : byBody.filter((t) => t.wheelConfiguration === filters.wheelConfiguration);
-      const matching =
-        filters.capacityTons === undefined
-          ? byTyres
-          : byTyres.filter((t) => Number(t.capacityTons) === filters.capacityTons);
-
-      const lengthsFt = await this.repository.listBodyLengths(
-        tenantId,
-        matching.map((t) => t.id),
-      );
-
-      return {
-        bodyTypes: distinct(all.map((t) => t.bodyType)),
-        wheelConfigurations: distinct(byBody.map((t) => t.wheelConfiguration)),
-        capacities: distinct(byTyres.map((t) => (t.capacityTons ? Number(t.capacityTons) : null))),
-        lengthsFt,
-        truckTypes: matching.map((t) => ({
-          id: t.id,
-          name: t.name,
-          bodyType: t.bodyType,
-          wheelConfiguration: t.wheelConfiguration,
-          capacityTons: t.capacityTons,
-        })),
-      };
-    } catch (error) {
-      rethrow(error, 'Failed to list truck options');
-    }
+    return {
+      bodies: PICKER_BODIES.map((value) => ({
+        value,
+        label: value === 'open' ? 'Open' : 'Closed',
+      })),
+      // Only meaningful once a body is picked; before that every row would be mixed together.
+      wheels: filters.body
+        ? distinct(byBody.map((row) => row.wheel)).map((value) => ({
+            value,
+            label: pickerWheelLabel(value),
+          }))
+        : [],
+      capacities:
+        filters.body && filters.wheel !== undefined
+          ? distinct(byWheel.map((row) => row.capacityTons)).sort((a, b) => a - b)
+          : [],
+      lengthsFt:
+        filters.body && filters.wheel !== undefined && filters.capacityTons !== undefined
+          ? distinct(byTonnes.flatMap((row) => [...row.bodyLengthsFt]))
+          : [],
+    };
   }
 
-  /** PL-22 — own trucks with a state: workshop / on a live load / inactive are disabled; paper
-   *  expiry only adds a warning. */
+  /** PL-22 — only trucks that can take the load are listed: active (so not in the workshop,
+   *  inactive or pending), not on a trip, and not on a live load. Expired papers hide a truck;
+   *  papers expiring soon only add a warning. */
   async fleetOptions(tenantId: string, search?: string) {
     try {
       const { items } = await this.vehicleService.listVehicles(tenantId, {
@@ -203,28 +208,67 @@ export class LoadPostingLookupService {
         limit: FLEET_PICKER_LIMIT,
         search,
       });
-      const usable = items.filter((v) => v.status === 'active' || v.status === 'under_maintenance');
-      const active = usable.length
+      const candidates = items.filter((v) => v.status === 'active');
+      const active = candidates.length
         ? await this.loadRepository.findActiveByVehicles(
             tenantId,
-            usable.map((vehicle) => vehicle.id),
+            candidates.map((vehicle) => vehicle.id),
           )
         : [];
       const onLoad = new Set(active.map((load) => load.vehicleId));
+      // An open maintenance visit means the truck is in the workshop, whatever its status says.
+      const inWorkshop = await this.repository.listVehicleIdsInWorkshop(
+        tenantId,
+        candidates.map((vehicle) => vehicle.id),
+      );
+      const usable = candidates.filter((vehicle) => {
+        const operational = vehicle.operationalStatus?.operationalStatus;
+        return (
+          !onLoad.has(vehicle.id) &&
+          !inWorkshop.has(vehicle.id) &&
+          operational !== 'on_trip' &&
+          operational !== 'inactive'
+        );
+      });
 
-      return Promise.all(
+      // The linked driver of each truck, with whether they can actually take a trip right now.
+      const linkedDriverIds = [
+        ...new Set(
+          usable
+            .map(
+              (v) =>
+                (v.driverLinks ?? []).find((l) => l.isPrimary && l.status === 'active')?.driverId,
+            )
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const [relations, busyDrivers] = await Promise.all([
+        this.repository.listDriverRelationsByDriverIds(tenantId, linkedDriverIds),
+        this.repository.listDriverIdsOnActiveLoads(tenantId, linkedDriverIds),
+      ]);
+
+      const rows = await Promise.all(
         usable.map(async (vehicle) => {
           const detail = await this.vehicleService.getVehicle(tenantId, vehicle.id);
-          const warnings = this.postingService.paperWarnings(detail.documents ?? []);
+          const papers = this.postingService.paperStatus(detail.documents ?? []);
+          // Expired papers make a truck ineligible — it is left out of the list entirely.
+          if (papers.expired.length > 0) return null;
           const primary = (vehicle.driverLinks ?? []).find(
             (link) => link.isPrimary && link.status === 'active',
           );
-          const state =
-            vehicle.status === 'under_maintenance'
-              ? 'workshop'
-              : onLoad.has(vehicle.id) || vehicle.operationalStatus?.operationalStatus === 'on_trip'
-                ? 'on_trip'
-                : 'ready';
+          const relation = relations.find((r) => r.driverId === primary?.driverId);
+          const reason = primary
+            ? driverUnavailableReason(relation, busyDrivers.has(primary.driverId))
+            : null;
+          const linkedDriver = primary
+            ? {
+                id: primary.driverId,
+                name: primary.driver?.fullName ?? null,
+                phone: primary.driver?.phoneNumber ?? null,
+                available: reason === null,
+                unavailableReason: reason,
+              }
+            : null;
           return {
             id: vehicle.id,
             registrationNumber: vehicle.registrationNumber,
@@ -232,14 +276,39 @@ export class LoadPostingLookupService {
             capacityTons: vehicle.capacityTons,
             bodyLengthFt: vehicle.bodyLengthFt,
             driverName: primary?.driver?.fullName ?? null,
-            state,
-            disabled: state !== 'ready',
-            warnings,
+            driver: linkedDriver,
+            // True when the shipper must pick a (different) idle driver before posting.
+            needsDriverChoice: !linkedDriver || !linkedDriver.available,
+            warnings: papers.expiringSoon.map((type) => `${type} expiring soon`),
           };
         }),
       );
+      return rows.filter((row): row is NonNullable<typeof row> => row !== null);
     } catch (error) {
       rethrow(error, 'Failed to list own fleet');
+    }
+  }
+
+  /** Idle drivers to choose from when a truck's own driver is missing or unavailable (PL-22):
+   *  active in this fleet, not on leave or inactive, and not on a live load. */
+  async availableDrivers(tenantId: string, search?: string) {
+    try {
+      const relations = await this.repository.listActiveDriverRelations(tenantId, search);
+      const busy = await this.repository.listDriverIdsOnActiveLoads(
+        tenantId,
+        relations.map((relation) => relation.driverId),
+      );
+      return relations
+        .filter(
+          (relation) => driverUnavailableReason(relation, busy.has(relation.driverId)) === null,
+        )
+        .map((relation) => ({
+          id: relation.driverId,
+          name: relation.driver.fullName,
+          phone: relation.driver.phoneNumber,
+        }));
+    } catch (error) {
+      rethrow(error, 'Failed to list available drivers');
     }
   }
 
@@ -260,10 +329,6 @@ export class LoadPostingLookupService {
         customerId ?? null,
         PAST_LOAD_SCAN_LIMIT,
       );
-      const truckTypeIds = [
-        ...new Set(postings.map((p) => p.truckTypeId).filter(Boolean)),
-      ] as string[];
-      const truckTypes = await this.repository.findTruckTypes(tenantId, truckTypeIds);
 
       const lanes = new Map<string, { latest: LoadPostingEntity; moves: number }>();
       for (const posting of postings) {
@@ -272,7 +337,7 @@ export class LoadPostingLookupService {
           posting.dropCustomerDeliveryPointId ??
             posting.dropLoadingPointId ??
             addressKey(posting.dropAddress),
-          posting.truckTypeId ?? posting.vehicleId ?? 'none',
+          posting.truckPick ? truckPickLabel(posting.truckPick) : (posting.vehicleId ?? 'none'),
         ].join('|');
         const lane = lanes.get(key);
         if (lane) lane.moves += 1;
@@ -285,12 +350,11 @@ export class LoadPostingLookupService {
             latest.mode === 'market_fleet'
               ? await this.repository.listRecipients(tenantId, latest.id)
               : [];
-          const truckType = truckTypes.find((type) => type.id === latest.truckTypeId);
           return {
             key,
             pickup: latest.pickupAddress.label,
             drop: latest.dropAddress.label,
-            truck: truckType?.name ?? null,
+            truck: latest.truckPick ? truckPickLabel(latest.truckPick) : null,
             commodity: latest.commodityName,
             moves,
             fill: {
@@ -313,9 +377,8 @@ export class LoadPostingLookupService {
               packaging: latest.packaging,
               weightTonnes: latest.weightTonnes,
               truckCount: latest.truckCount,
-              truckTypeId: latest.mode === 'own_fleet' ? null : latest.truckTypeId,
-              truckLengthFt: latest.truckLengthFt,
-              acceptedTruckTypeIds: latest.acceptedTruckTypeIds,
+              truck: latest.mode === 'own_fleet' ? null : latest.truckPick,
+              acceptedTrucks: latest.mode === 'own_fleet' ? [] : latest.acceptedTruckPicks,
               advancePercentage: latest.advancePercentage,
               balancePaidBy: latest.balancePaidBy,
               note: latest.note,
@@ -342,6 +405,12 @@ export class LoadPostingLookupService {
       rethrow(error, 'Failed to fetch posting');
     }
   }
+}
+
+/** "Closed · MXL · 18T · 32ft" — card label and lane key for a stored picker choice. */
+function truckPickLabel(pick: TruckPick): string {
+  const wheel = pickerWheelLabel(pick.wheel as PickerWheel);
+  return `${pick.body === 'open' ? 'Open' : 'Closed'} · ${wheel} · ${pick.capacityTons}T · ${pick.bodyLengthFt}ft`;
 }
 
 function addressKey(address: PostAddress): string {

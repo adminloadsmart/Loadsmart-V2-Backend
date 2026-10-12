@@ -152,6 +152,13 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadIssueValidators.list),
     asyncHandler(controller.listLoadIssues),
   );
+  // Staff releases a trip held by a driver-reported accident/breakdown.
+  router.patch(
+    '/loads/:loadId/issues/:issueId/resolve',
+    canManageDispatch,
+    validate(loadIssueValidators.resolve),
+    asyncHandler(controller.resolveLoadIssue),
+  );
 
   return router;
 }

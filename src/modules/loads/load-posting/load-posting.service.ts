@@ -8,6 +8,7 @@ import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-d
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 import { ProductEntity } from '../../masters/product/entities/product.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
+import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { VehicleService, resolveDocumentStatus } from '../../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
@@ -26,6 +27,7 @@ import {
   DropInput,
   NewAddressInput,
   PickupInput,
+  TruckPickInput,
   PostLoadInput,
 } from './utils/load-posting.interface';
 import {
@@ -34,6 +36,7 @@ import {
   PostAddress,
 } from './utils/load-posting.types';
 import { buildPostMessage } from './utils/post-message';
+import { driverUnavailableReason } from './utils/driver-availability';
 
 const HOUR_MS = 60 * 60 * 1000;
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -50,10 +53,18 @@ interface ResolvedPlace {
   newAddress: NewAddressInput | null;
 }
 
+export interface AssignedDriver {
+  id: string | null;
+  name: string | null;
+  phone: string | null;
+}
+
 export interface PostLoadResult {
   posting: LoadPostingEntity;
   loads: { id: string; code: string }[];
   recipients: LoadRecipientEntity[];
+  /** Own fleet only — the truck and driver the trip was assigned to (PL-25). */
+  assignedTruck: { vehicleNumber: string | null; driver: AssignedDriver } | null;
   /** True when an earlier request with the same idempotency key already posted this load. */
   duplicate: boolean;
 }
@@ -80,6 +91,7 @@ export class LoadPostingService {
     private readonly notifier: LoadDispatchNotifier,
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
+    private readonly truckTypeService: TruckTypeService,
   ) {}
 
   async post(
@@ -114,7 +126,6 @@ export class LoadPostingService {
       const drop = await this.resolveDrop(tenantId, customer, input.drop);
       this.assertPlacesDiffer(pickup, drop);
 
-      const trucks = await this.resolveTrucks(tenantId, input);
       const cargoPerTruck =
         input.weightTonnes === undefined ? null : input.weightTonnes / input.truckCount;
 
@@ -122,6 +133,7 @@ export class LoadPostingService {
       let contractRate: string | null = null;
       let contractId: string | null = null;
       let vehicleLoadDefaults: Partial<CreateLoadData> = {};
+      let assignedDriverName: string | null = null;
 
       if (input.mode === 'market_fleet') {
         const ids = [...new Set(input.transporterIds ?? [])];
@@ -135,13 +147,18 @@ export class LoadPostingService {
         contractRate = contract.rate;
         contractId = contract.id;
       } else {
-        vehicleLoadDefaults = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!);
+        const own = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!, input.driverId);
+        vehicleLoadDefaults = own.defaults;
+        assignedDriverName = own.driverName;
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
         const pickupMasterId = await this.savePickup(tenantId, actorId, role, pickup, manager);
         const drop2 = await this.saveDrop(tenantId, actorId, customer, drop, manager);
-        const commodity = await this.resolveCommodity(tenantId, actorId, role, input, manager);
+        const commodity = await this.resolveCommodity(tenantId, actorId, input, manager);
+        // Picked from the fixed picker table; matched to (or added to) the Truck master here so a
+        // failed post leaves nothing behind.
+        const trucks = await this.resolveTrucks(tenantId, actorId, input, manager);
 
         const loadCodes: string[] = [];
         for (let i = 0; i < input.truckCount; i += 1) {
@@ -196,7 +213,9 @@ export class LoadPostingService {
             weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
             truckCount: input.truckCount,
             truckTypeId: trucks.main?.id ?? null,
-            truckLengthFt: input.truckLengthFt ?? null,
+            truckLengthFt: input.truck?.bodyLengthFt ?? null,
+            truckPick: input.truck ?? null,
+            acceptedTruckPicks: input.acceptedTrucks ?? [],
             acceptedTruckTypeIds: trucks.acceptedIds,
             vehicleId: input.vehicleId ?? null,
             priceMode: input.mode === 'market_fleet' ? input.price!.mode : null,
@@ -231,7 +250,7 @@ export class LoadPostingService {
           status: input.mode === 'own_fleet' ? 'assigned' : 'created',
           plannedCapacityTonnes: plannedCapacity,
           truckTypeId: trucks.main?.id ?? null,
-          feetWheels: input.truckLengthFt ?? null,
+          feetWheels: input.truck?.bodyLengthFt ?? null,
           freightType:
             input.mode === 'own_fleet'
               ? null
@@ -341,6 +360,17 @@ export class LoadPostingService {
         posting: result.posting,
         loads: result.loads.map((load) => ({ id: load.id, code: load.code })),
         recipients,
+        assignedTruck:
+          input.mode === 'own_fleet'
+            ? {
+                vehicleNumber: vehicleLoadDefaults.vehicleNumber ?? null,
+                driver: {
+                  id: vehicleLoadDefaults.driverId ?? null,
+                  name: assignedDriverName,
+                  phone: vehicleLoadDefaults.driverNumber ?? null,
+                },
+              }
+            : null,
         duplicate: false,
       };
     } catch (error) {
@@ -462,36 +492,22 @@ export class LoadPostingService {
 
   private async resolveTrucks(
     tenantId: string,
+    actorId: string,
     input: PostLoadInput,
+    manager: EntityManager,
   ): Promise<{ main: TruckTypeEntity | null; acceptedIds: string[]; labels: string[] }> {
-    if (input.mode === 'own_fleet') {
-      // The vehicle supplies the truck; a truck type is optional there.
-      const main = input.truckTypeId
-        ? ((await this.repository.findTruckTypes(tenantId, [input.truckTypeId]))[0] ?? null)
-        : null;
-      if (input.truckTypeId && !main) throw new NotFoundError('Truck type not found');
-      return { main, acceptedIds: [], labels: [main?.name ?? 'Own truck'] };
+    if (!input.truck) {
+      // Own fleet only (the validator requires a truck for the other modes): the vehicle supplies it.
+      return { main: null, acceptedIds: [], labels: ['Own truck'] };
     }
+    const resolve = (pick: TruckPickInput) =>
+      this.truckTypeService.findOrCreateFromPicker(tenantId, actorId, pick, manager);
 
-    const acceptedIds = [...new Set(input.acceptedTruckTypeIds ?? [])].filter(
-      (id) => id !== input.truckTypeId,
-    );
-    const found = await this.repository.findTruckTypes(tenantId, [
-      input.truckTypeId!,
-      ...acceptedIds,
-    ]);
-    const main = found.find((type) => type.id === input.truckTypeId);
-    if (!main) throw new NotFoundError('Truck type not found');
-    const accepted = found.filter((type) => type.id !== main.id);
-    if (accepted.length !== acceptedIds.length)
-      throw new NotFoundError('Accepted truck type not found');
-
-    // PL-16 — all accepted sizes share the main truck's body type (all open or all closed).
-    const sameBody = accepted.every(
-      (type) => type.bodyType !== null && type.bodyType === main.bodyType,
-    );
-    if (!sameBody) {
-      throw new ValidationError('Also-accept sizes must have the same body type as the main truck');
+    const main = await resolve(input.truck);
+    const accepted: TruckTypeEntity[] = [];
+    for (const pick of input.acceptedTrucks ?? []) {
+      const type = await resolve(pick);
+      if (type.id !== main.id && !accepted.some((item) => item.id === type.id)) accepted.push(type);
     }
     return {
       main,
@@ -534,12 +550,28 @@ export class LoadPostingService {
   private async assertOwnFleetVehicle(
     tenantId: string,
     vehicleId: string,
-  ): Promise<Partial<CreateLoadData>> {
+    pickedDriverId?: string,
+  ): Promise<{ defaults: Partial<CreateLoadData>; driverName: string | null }> {
     const vehicle = await this.vehicleService.getVehicle(tenantId, vehicleId);
     if (vehicle.status === 'under_maintenance') {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
     }
     if (vehicle.status !== 'active') throw new ConflictError('This truck is not active');
+    if ((await this.repository.listVehicleIdsInWorkshop(tenantId, [vehicleId])).size > 0) {
+      throw new ConflictError('This truck is in the workshop and cannot be assigned');
+    }
+    const { expired } = this.paperStatus(vehicle.documents ?? []);
+    if (expired.length > 0) {
+      throw new ConflictError(
+        `This truck has expired papers (${expired.join(', ')}) and cannot be assigned`,
+      );
+    }
+    const operational = vehicle.operationalStatus?.operationalStatus;
+    if (operational === 'on_trip' || operational === 'inactive') {
+      throw new ConflictError(
+        `This truck is ${operational === 'on_trip' ? 'on a trip' : 'inactive'} and cannot be assigned`,
+      );
+    }
     const active = await this.loadRepository.findActiveByVehicles(tenantId, [vehicleId]);
     if (active.length > 0) {
       throw new ConflictError(`This truck is already on an active load (${active[0].code})`);
@@ -547,23 +579,51 @@ export class LoadPostingService {
     const primaryLink = (vehicle.driverLinks ?? []).find(
       (link) => link.isPrimary && link.status === 'active',
     );
+
+    // The truck's linked driver goes first; a picked driver replaces them. Either way the driver
+    // must be idle, and an own-fleet trip always needs one — it is delivered through the driver app.
+    const driverId = pickedDriverId ?? primaryLink?.driverId;
+    if (!driverId) {
+      throw new ValidationError('This truck has no driver linked. Choose an idle driver.');
+    }
+    const [relation] = await this.repository.listDriverRelationsByDriverIds(tenantId, [driverId]);
+    const busy = await this.repository.listDriverIdsOnActiveLoads(tenantId, [driverId]);
+    const reason = driverUnavailableReason(relation, busy.has(driverId));
+    if (reason) {
+      throw new ConflictError(
+        `${relation?.driver?.fullName ?? 'This driver'} is not available (${reason.replace('_', ' ')}). Choose an idle driver.`,
+        { driverId, reason },
+      );
+    }
     return {
-      vehicleId: vehicle.id,
-      vehicleNumber: vehicle.registrationNumber,
-      driverId: primaryLink?.driverId ?? null,
-      driverNumber: primaryLink?.driver?.phoneNumber ?? null,
-      plannedCapacityTonnes: vehicle.capacityTons ?? '0',
+      defaults: {
+        vehicleId: vehicle.id,
+        vehicleNumber: vehicle.registrationNumber,
+        driverId,
+        driverNumber: relation.driver.phoneNumber,
+        plannedCapacityTonnes: vehicle.capacityTons ?? '0',
+      },
+      driverName: relation.driver.fullName,
     };
   }
 
-  /** Warnings for the fleet picker — expired/expiring papers are shown, never blocking. */
-  paperWarnings(documents: { documentType: string; expiryDate: string | null }[]): string[] {
+  /** Compliance papers of a truck: `expired` ones make it ineligible for a load, `expiringSoon`
+   *  ones (inside the 30-day window) only warn. Undated documents count as valid. */
+  paperStatus(documents: { documentType: string; expiryDate: string | null }[]): {
+    expired: string[];
+    expiringSoon: string[];
+  } {
     const withExpiry: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
-    return documents
+    const dated = documents
       .filter((document) => withExpiry.includes(document.documentType))
-      .map((document) => ({ document, status: resolveDocumentStatus(document.expiryDate) }))
-      .filter(({ status }) => status !== 'valid')
-      .map(({ document, status }) => `${document.documentType} ${status.replace('_', ' ')}`);
+      .map((document) => ({
+        type: document.documentType,
+        status: resolveDocumentStatus(document.expiryDate),
+      }));
+    return {
+      expired: dated.filter((d) => d.status === 'expired').map((d) => d.type),
+      expiringSoon: dated.filter((d) => d.status === 'expiring_soon').map((d) => d.type),
+    };
   }
 
   // --- Writes ---
@@ -662,7 +722,6 @@ export class LoadPostingService {
   private async resolveCommodity(
     tenantId: string,
     actorId: string,
-    role: string,
     input: PostLoadInput,
     manager: EntityManager,
   ): Promise<{ id: string | null; name: string }> {
@@ -678,18 +737,19 @@ export class LoadPostingService {
     const name = input.commodity.name!.trim();
     const existing = await this.repository.findCommodityByExactName(tenantId, name, manager);
     if (existing) return { id: existing.id, name: existing.productDetails };
-    const autoApproved = role === ORG_ADMIN_ROLE;
+    // A commodity typed on Post a load is usable immediately for every role (shipper's call, not
+    // the Product master's usual pending-approval step), so it shows up in the next search.
     const repo = manager.getRepository(ProductEntity);
     const saved = await repo.save(
       repo.create({
         tenantId,
         productDetails: name,
         packaging: input.packaging,
-        approvalStatus: autoApproved ? 'approved' : 'pending_approval',
-        status: autoApproved ? 'active' : 'inactive',
+        approvalStatus: 'approved',
+        status: 'active',
         createdBy: actorId,
-        approvedBy: autoApproved ? actorId : null,
-        approvedAt: autoApproved ? new Date() : null,
+        approvedBy: actorId,
+        approvedAt: new Date(),
         deletedAt: null,
       }),
     );
@@ -766,6 +826,25 @@ export class LoadPostingService {
     }
   }
 
+  private async describeAssignedTruck(
+    tenantId: string,
+    posting: LoadPostingEntity,
+    load: LoadEntity | undefined,
+  ): Promise<PostLoadResult['assignedTruck']> {
+    if (posting.mode !== 'own_fleet' || !load) return null;
+    const [relation] = load.driverId
+      ? await this.repository.listDriverRelationsByDriverIds(tenantId, [load.driverId])
+      : [];
+    return {
+      vehicleNumber: load.vehicleNumber,
+      driver: {
+        id: load.driverId,
+        name: relation?.driver?.fullName ?? null,
+        phone: load.driverNumber,
+      },
+    };
+  }
+
   private async describeExisting(
     tenantId: string,
     posting: LoadPostingEntity,
@@ -776,6 +855,7 @@ export class LoadPostingService {
       posting,
       loads: loads.map((load) => ({ id: load.id, code: load.code })),
       recipients,
+      assignedTruck: await this.describeAssignedTruck(tenantId, posting, loads[0]),
       duplicate: true,
     };
   }

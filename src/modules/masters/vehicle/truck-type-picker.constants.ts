@@ -174,7 +174,7 @@ export const TRUCK_TYPE_PICKER_ROWS: readonly TruckTypePickerRow[] = [
 /** Picker step 2 tyre counts — a subset of WHEEL_COUNTS (no 22-wheel trailers in the drawer). */
 export const PICKER_WHEEL_COUNTS = [4, 6, 10, 12, 14, 16, 18] as const;
 
-const AXLE_LABELS: Record<VehicleAxleType, string> = {
+export const AXLE_LABELS: Record<VehicleAxleType, string> = {
   sxl: 'SXL',
   sxl_hc_9_5: 'SXL 9.5 HC',
   sxl_hc_10: 'SXL 10 HC',
@@ -213,4 +213,9 @@ export function findPickerRow(pick: TruckTypePick): TruckTypePickerRow | null {
 export function pickerTruckTypeName(row: TruckTypePickerRow, bodyLengthFt: string): string {
   const wheel = typeof row.wheel === 'number' ? `${row.wheel} tyre` : AXLE_LABELS[row.wheel];
   return `${FAMILY_LABELS[row.family]} · ${wheel} · ${row.capacityTons}T · ${bodyLengthFt}ft`;
+}
+
+/** Display label for a picker step-2 value: "6 tyre" or "MXL". */
+export function pickerWheelLabel(wheel: PickerWheel): string {
+  return typeof wheel === 'number' ? `${wheel} tyre` : AXLE_LABELS[wheel];
 }

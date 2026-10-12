@@ -3,6 +3,7 @@ import { AuditService } from '../../audit/audit.service';
 import { CustomerService } from '../../customers/customer.service';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
 import { DriverAuthService } from '../../driver/auth/driver-auth.service';
+import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository } from '../load.repository';
@@ -27,6 +28,7 @@ export function createLoadPostingModule(
     loadActivityService: LoadActivityService;
     driverAuthService: DriverAuthService;
     notificationsService: NotificationsService;
+    truckTypeService: TruckTypeService;
     /** Swap in the real WhatsApp sender here once it exists. */
     notifier?: LoadDispatchNotifier;
   },
@@ -45,6 +47,7 @@ export function createLoadPostingModule(
     deps.notifier ?? new LoggingLoadDispatchNotifier(),
     deps.driverAuthService,
     deps.notificationsService,
+    deps.truckTypeService,
   );
   const lookupService = new LoadPostingLookupService(
     dataSource,

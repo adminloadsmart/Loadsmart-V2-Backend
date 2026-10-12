@@ -115,6 +115,7 @@ export function createLoadsModule(
     loadActivityService,
     driverAuthService: deps.driverAuthService,
     notificationsService: deps.notificationsService,
+    truckTypeService: deps.truckTypeService,
   });
   protectedRouter.use('/post', loadPosting.router);
 

@@ -1,4 +1,6 @@
 import { DataSource, EntityManager, ILike, In, IsNull, Not, Repository } from 'typeorm';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { LoadEntity } from '../entities/load.entity';
 import { RequisitionEntity } from '../entities/requisition.entity';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
@@ -41,6 +43,8 @@ export class LoadPostingRepository {
   private readonly recipients: Repository<LoadRecipientEntity>;
   private readonly requisitions: Repository<RequisitionEntity>;
   private readonly loads: Repository<LoadEntity>;
+  private readonly maintenanceJobs: Repository<MaintenanceJobEntity>;
+  private readonly driverRelations: Repository<DriverTenantRelationEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
   private readonly contracts: Repository<CustomerContractEntity>;
   private readonly customers: Repository<CustomerEntity>;
@@ -56,6 +60,8 @@ export class LoadPostingRepository {
     this.recipients = dataSource.getRepository(LoadRecipientEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
     this.loads = dataSource.getRepository(LoadEntity);
+    this.maintenanceJobs = dataSource.getRepository(MaintenanceJobEntity);
+    this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
     this.contracts = dataSource.getRepository(CustomerContractEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
@@ -120,6 +126,66 @@ export class LoadPostingRepository {
   /** The loads a posting spawned, one per truck. */
   listLoadsByPosting(tenantId: string, postingId: string) {
     return this.loads.find({ where: { tenantId, postingId }, order: { code: 'ASC' } });
+  }
+
+  // --- Workshop ---
+
+  /** Trucks with an open maintenance visit (a service or breakdown) — the maintenance module's
+   *  own definition of "in the workshop", which also flips the vehicle to under_maintenance. */
+  async listVehicleIdsInWorkshop(tenantId: string, vehicleIds: string[]): Promise<Set<string>> {
+    if (!vehicleIds.length) return new Set();
+    const jobs = await this.maintenanceJobs.find({
+      select: { vehicleId: true },
+      where: { tenantId, vehicleId: In(vehicleIds), status: 'open' },
+    });
+    return new Set(jobs.map((job) => job.vehicleId));
+  }
+
+  // --- Drivers ---
+
+  /** This tenant's active drivers with their operational status row, optionally filtered by name. */
+  listActiveDriverRelations(tenantId: string, search?: string) {
+    return this.driverRelations.find({
+      where: {
+        tenantId,
+        status: 'active',
+        driver: search
+          ? { deletedAt: IsNull(), fullName: contains(search) }
+          : { deletedAt: IsNull() },
+      },
+      relations: { driver: true, operationalStatus: true },
+      order: { driver: { fullName: 'ASC' } },
+      take: 100,
+    });
+  }
+
+  /** Relations for specific global driver ids (a vehicle's linked drivers, a picked driver). */
+  listDriverRelationsByDriverIds(tenantId: string, driverIds: string[]) {
+    if (!driverIds.length) return Promise.resolve([] as DriverTenantRelationEntity[]);
+    return this.driverRelations.find({
+      where: { tenantId, driverId: In(driverIds) },
+      relations: { driver: true, operationalStatus: true },
+    });
+  }
+
+  /** Which of these drivers are on a live load right now. */
+  async listDriverIdsOnActiveLoads(tenantId: string, driverIds: string[]): Promise<Set<string>> {
+    if (!driverIds.length) return new Set();
+    const rows = await this.loads.find({
+      select: { driverId: true },
+      where: {
+        tenantId,
+        driverId: In(driverIds),
+        status: In([
+          'assigned',
+          'loading_confirmed',
+          'at_plant',
+          'in_transit',
+          'reached_delivery_point',
+        ]),
+      },
+    });
+    return new Set(rows.map((row) => row.driverId as string));
   }
 
   // --- Recipients ---
@@ -284,22 +350,6 @@ export class LoadPostingRepository {
       where: { tenantId, deletedAt: IsNull() },
       order: { name: 'ASC' },
     });
-  }
-
-  /** Distinct body lengths (ft) among this tenant's vehicles of the given truck types — the
-   *  master has no length column, so the fleet is the only source. */
-  async listBodyLengths(tenantId: string, truckTypeIds: string[]): Promise<string[]> {
-    if (!truckTypeIds.length) return [];
-    const rows = await this.vehicles.find({
-      select: { bodyLengthFt: true },
-      where: {
-        tenantId,
-        truckTypeId: In(truckTypeIds),
-        bodyLengthFt: Not(IsNull()),
-        deletedAt: IsNull(),
-      },
-    });
-    return [...new Set(rows.map((row) => row.bodyLengthFt as string))];
   }
 
   findTruckTypes(tenantId: string, ids: string[]) {
