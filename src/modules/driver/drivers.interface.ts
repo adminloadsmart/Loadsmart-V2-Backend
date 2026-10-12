@@ -19,7 +19,11 @@ import {
   DriverLicenseEndorsement,
   DriverRosterSegment,
 } from './drivers.types';
-import { PaginationInput } from '../../shared/utils/pagination';
+import { Paginated, PaginationInput } from '../../shared/utils/pagination';
+import { DriverEntity } from './entities/driver.entity';
+import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
+import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
+import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
 
 /* Service-layer inputs — shapes accepted from the controller. */
 
@@ -115,11 +119,7 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
     licenseNumber: string | null;
     licenseClass: string | null;
     /** Latest Sarathi DL check; null when the licence was never checked. */
-    registry: {
-      source: 'sarathi';
-      status: DriverVerificationStatus;
-      checkedAt: Date | null;
-    } | null;
+    registry: DriverRegistryCheck | null;
   };
   timeline: DriverInvitationTimelineStep[];
   deliveryChannels: {
@@ -144,63 +144,108 @@ export type DriverInvitationTimelineStep =
   | { step: 'cancelled'; at: Date }
   | { step: 'awaiting_response'; at: null };
 
+/** Latest Sarathi DL check on the driver; null when the licence was never checked. */
+export interface DriverRegistryCheck {
+  source: 'sarathi';
+  status: DriverVerificationStatus;
+  checkedAt: Date | null;
+}
+
+/** Driver detail → "Licence credentials" card (also a roster row's Licence column). */
+export interface DriverLicenceSection {
+  number: string | null;
+  classOfVehicle: string | null;
+  /** Endorsement codes, e.g. ['hazmat']; [] when none. */
+  endorsements: DriverLicenseEndorsement[];
+  validTo: string | null;
+  /** Whole days until licenseExpiry (negative once expired); null when no expiry is on file. */
+  daysLeft: number | null;
+  registry: DriverRegistryCheck | null;
+  /** Active link to this tenant, licence verified and not expired. */
+  eligibleToDrive: boolean;
+}
+
+export interface DriverEmergencyContact {
+  name: string | null;
+  phone: string;
+  relation: string | null;
+}
+
+/** "Compensation package" — monthly pay plus daily bhatta. */
+export interface DriverCompensation {
+  salaryType: DriverSalaryType | null;
+  salaryAmount: string | null;
+  /** Daily bhatta on a trip — null until set on the driver. */
+  bhattaPerDay: string | null;
+}
+
+/** Driver detail → "Contact & engagement" card. */
+export interface DriverContactSection {
+  primaryMobile: string;
+  bloodGroup: DriverBloodGroup | null;
+  emergencyContact: DriverEmergencyContact | null;
+  /** On-roll salaried / per trip / vendor's driver — null until set on the driver. */
+  engagementType: DriverEngagementType | null;
+  dateOfJoining: string | null;
+  tenureYears: number | null;
+  /** Hand-entered balance of advances not yet recovered; null until set. */
+  advanceOutstanding: string | null;
+  compensation: DriverCompensation;
+}
+
+export interface DriverTruckTypeSummary {
+  id: string;
+  name: string;
+}
+
+/** The driver's active primary vehicle in this tenant. */
+export interface DriverAssignedVehicle {
+  id: string;
+  registrationNumber: string;
+  truckType: DriverTruckTypeSummary | null;
+}
+
+export interface DriverAssignmentSection {
+  vehicle: DriverAssignedVehicle | null;
+  /** Yard/branch the driver operates from; null until set. */
+  homeBase: string | null;
+}
+
+/** The driver's newest non-closed load — the live "on a trip" check. */
+export interface DriverActiveLoadSummary {
+  id: string;
+  code: string;
+  status: string;
+}
+
+/** Driver detail → "Availability" card (also a roster row's Availability column). */
+export interface DriverAvailabilitySection {
+  /** Stored company status; can lag reality since load assignment doesn't update it. */
+  operationalStatus: DriverOperationalStatus | null;
+  /** Live check — the driver's newest non-closed load. */
+  activeLoad: DriverActiveLoadSummary | null;
+  dispatchable: boolean;
+}
+
+/** Driver detail → "Performance" card (also a roster row's Trips · On time / Score columns). */
+export interface DriverPerformanceSection {
+  totalTrips: number;
+  onTimePercentage: number | null;
+  /** No scoring model exists yet. */
+  driverScore: null;
+}
+
 /**
  * Driver detail screen sections — added on top of the flattened driver by GET /drivers/{id} so
  * the whole screen loads in one call. Fields typed `null`/`[]`-only have no backing data yet;
  * their shapes are fixed here so the frontend can build against them before the data exists.
  */
 export interface DriverDetailSections {
-  licence: {
-    number: string | null;
-    classOfVehicle: string | null;
-    /** Endorsement codes, e.g. ['hazmat']; [] when none. */
-    endorsements: DriverLicenseEndorsement[];
-    validTo: string | null;
-    /** Whole days until licenseExpiry (negative once expired); null when no expiry is on file. */
-    daysLeft: number | null;
-    registry: DriverInvitationDetailView['credentials']['registry'];
-    /** Active link to this tenant, licence verified and not expired. */
-    eligibleToDrive: boolean;
-  };
-  contact: {
-    primaryMobile: string;
-    bloodGroup: DriverBloodGroup | null;
-    emergencyContact: { name: string | null; phone: string; relation: string | null } | null;
-    /** On-roll salaried / per trip / vendor's driver — null until set on the driver. */
-    engagementType: DriverEngagementType | null;
-    dateOfJoining: string | null;
-    tenureYears: number | null;
-    /** Hand-entered balance of advances not yet recovered; null until set. */
-    advanceOutstanding: string | null;
-    compensation: {
-      salaryType: DriverSalaryType | null;
-      salaryAmount: string | null;
-      /** Daily bhatta on a trip — null until set on the driver. */
-      bhattaPerDay: string | null;
-    };
-  };
-  assignment: {
-    vehicle: {
-      id: string;
-      registrationNumber: string;
-      truckType: { id: string; name: string } | null;
-    } | null;
-    /** Yard/branch the driver operates from; null until set. */
-    homeBase: string | null;
-  };
-  availability: {
-    /** Stored company status; can lag reality since load assignment doesn't update it. */
-    operationalStatus: DriverOperationalStatus | null;
-    /** Live check — the driver's newest non-closed load. */
-    activeLoad: { id: string; code: string; status: string } | null;
-    dispatchable: boolean;
-  };
-  performance: {
-    totalTrips: number;
-    onTimePercentage: number | null;
-    /** No scoring model exists yet. */
-    driverScore: null;
-  };
+  licence: DriverLicenceSection;
+  contact: DriverContactSection;
+  assignment: DriverAssignmentSection;
+  availability: DriverAvailabilitySection;
+  performance: DriverPerformanceSection;
   /** Future shape: `{ from, to, laneType, distanceKm }[]` — no lane/distance data yet. */
   knownLanes: never[];
   /** Future shape: `{ event: 'over_speeding' | 'harsh_braking' | 'harsh_acceleration' |
@@ -209,6 +254,57 @@ export interface DriverDetailSections {
   /** Future shape: `{ loadId, code, status, from, to, date, progressPercentage }[]` — no SLA
    *  data yet. */
   slaBreachTrips: never[];
+}
+
+/**
+ * The flattened, tenant-facing shape of a driver: the global profile (fullName, phoneNumber,
+ * dateOfJoining, salaryType/Amount, documents, verifications, bankDetails — all person-level, one
+ * job at a time) with this tenant's DriverTenantRelationEntity fields (status, initiatedBy,
+ * approvedBy/At, rejectionReason — the link's own approval-workflow state) and satellites
+ * (operationalStatus, tripMetrics, vehicleLinks) spread on top — so existing API consumers see the
+ * same response shape they always did, even though the data now lives across two tables. `id`
+ * stays the driver's global id (the same value that's always been in the :driverId URL param);
+ * `driverTenantRelationId` is the new row backing the approval fields, exposed for callers that
+ * need it (e.g. accept/reject an invite).
+ */
+export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'> {
+  driverTenantRelationId: string;
+  tenantId: string;
+  status: DriverTenantRelationStatus;
+  initiatedBy: DriverTenantRelationInitiator;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+  rejectionReason: string | null;
+  /** When this tenant link was created — the "Requested 2 days ago" timestamp. `createdAt` is the
+   * global driver profile's, which predates the request for a driver already on the platform. */
+  requestedAt: Date;
+  /** Latest `driver_verifications.license_class` (e.g. "HTV Heavy Transport"); null when the
+   * verifications weren't loaded or none carries a class. */
+  licenseClass: string | null;
+  operationalStatus?: DriverOperationalStatusEntity;
+  tripMetrics?: DriverTripMetricsEntity[];
+  vehicleLinks?: DriverTenantRelationEntity['vehicleLinks'];
+}
+
+/** GET /drivers/{id} — the flattened driver plus every section of the driver detail screen. */
+export type DriverDetailView = DriverWithRelation & DriverDetailSections;
+
+/** One My Drivers roster row — the list's driver plus the detail sections its columns read. */
+export type DriverRosterRow = DriverWithRelation &
+  Pick<
+    DriverDetailSections,
+    'licence' | 'contact' | 'assignment' | 'availability' | 'performance' | 'behaviour'
+  >;
+
+/** GET /drivers — the paginated roster plus every tab's badge count. */
+export interface DriverRosterPage extends Paginated<DriverRosterRow> {
+  counts: DriverRosterCounts;
+}
+
+/** Relation ids by stored company status — the only statuses a roster segment excludes on. */
+export interface UnavailableRelationIds {
+  notAvailable: string[];
+  left: string[];
 }
 
 /** "Requests to You" list — status/initiatedBy are fixed by the service, so only paging + search. */

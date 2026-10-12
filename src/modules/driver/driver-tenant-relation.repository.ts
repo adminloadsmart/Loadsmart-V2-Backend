@@ -22,6 +22,7 @@ import {
   ListDriversFilters,
   ListInvitationsInput,
   UpdateDriverTenantRelationData,
+  UnavailableRelationIds,
 } from './drivers.interface';
 import {
   DRIVER_INVITE_TTL_DAYS,
@@ -75,12 +76,6 @@ function driverSearchPatterns(search: string): {
     phone: digits ? `%${digits}%` : null,
     license: `%${search.replace(/\s+/g, '')}%`,
   };
-}
-
-/** Relation ids by stored company status — the only statuses a roster segment excludes on. */
-interface UnavailableRelationIds {
-  notAvailable: string[];
-  left: string[];
 }
 
 /**

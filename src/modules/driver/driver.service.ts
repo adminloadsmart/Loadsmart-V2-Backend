@@ -11,11 +11,7 @@ import { DriverOperationalStatusEntity } from './entities/driver-operational-sta
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
 import { LoadEntity } from '../loads/entities/load.entity';
-import {
-  DriverBankVerificationStatus,
-  DriverTenantRelationInitiator,
-  DriverTenantRelationStatus,
-} from './drivers.types';
+import { DriverBankVerificationStatus } from './drivers.types';
 import { DriverRepository } from './driver.repository';
 import {
   DriverTenantRelationRepository,
@@ -37,7 +33,11 @@ import {
   AddDriverDocumentInput,
   CreateDriverInput,
   DriverDetailSections,
-  DriverRosterCounts,
+  DriverDetailView,
+  DriverRegistryCheck,
+  DriverRosterPage,
+  DriverRosterRow,
+  DriverWithRelation,
   ListDriversInput,
   ListJoinRequestsInput,
   ListInvitationsInput,
@@ -50,51 +50,6 @@ import {
   SetDriverOperationalStatusInput,
   UpdateDriverInput,
 } from './drivers.interface';
-
-/**
- * The flattened, tenant-facing shape of a driver: the global profile (fullName, phoneNumber,
- * dateOfJoining, salaryType/Amount, documents, verifications, bankDetails — all person-level, one
- * job at a time) with this tenant's DriverTenantRelationEntity fields (status, initiatedBy,
- * approvedBy/At, rejectionReason — the link's own approval-workflow state) and satellites
- * (operationalStatus, tripMetrics, vehicleLinks) spread on top — so existing API consumers see the
- * same response shape they always did, even though the data now lives across two tables. `id`
- * stays the driver's global id (the same value that's always been in the :driverId URL param);
- * `driverTenantRelationId` is the new row backing the approval fields, exposed for callers that
- * need it (e.g. accept/reject an invite).
- */
-export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'> {
-  driverTenantRelationId: string;
-  tenantId: string;
-  status: DriverTenantRelationStatus;
-  initiatedBy: DriverTenantRelationInitiator;
-  approvedBy: string | null;
-  approvedAt: Date | null;
-  rejectionReason: string | null;
-  /** When this tenant link was created — the "Requested 2 days ago" timestamp. `createdAt` is the
-   * global driver profile's, which predates the request for a driver already on the platform. */
-  requestedAt: Date;
-  /** Latest `driver_verifications.license_class` (e.g. "HTV Heavy Transport"); null when the
-   * verifications weren't loaded or none carries a class. */
-  licenseClass: string | null;
-  operationalStatus?: DriverOperationalStatusEntity;
-  tripMetrics?: DriverTripMetricsEntity[];
-  vehicleLinks?: DriverTenantRelationEntity['vehicleLinks'];
-}
-
-/** GET /drivers/{id} — the flattened driver plus every section of the driver detail screen. */
-export type DriverDetailView = DriverWithRelation & DriverDetailSections;
-
-/** One My Drivers roster row — the list's driver plus the detail sections its columns read. */
-export type DriverRosterRow = DriverWithRelation &
-  Pick<
-    DriverDetailSections,
-    'licence' | 'contact' | 'assignment' | 'availability' | 'performance' | 'behaviour'
-  >;
-
-/** GET /drivers — the paginated roster plus every tab's badge count. */
-export interface DriverRosterPage extends Paginated<DriverRosterRow> {
-  counts: DriverRosterCounts;
-}
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MS_PER_YEAR = 365.25 * MS_PER_DAY;
@@ -113,7 +68,7 @@ function latestLicenseClass(verifications: DriverVerificationEntity[] | undefine
 
 function latestSarathiCheck(
   verifications: DriverVerificationEntity[] | undefined,
-): DriverDetailSections['licence']['registry'] {
+): DriverRegistryCheck | null {
   const latest = (verifications ?? [])
     .filter((verification) => verification.verificationType === 'sarathi_dl')
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
