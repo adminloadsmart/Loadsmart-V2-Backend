@@ -164,7 +164,7 @@ export class MaintenanceController {
   releaseFromWorkshop = async (req: Request<JobParams>, res: Response) => {
     const job = await this.maintenanceService.releaseFromWorkshop(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.params.jobId,
       req.body ?? {},
       canSeeMaintenanceCosts(req),
@@ -208,7 +208,7 @@ export class MaintenanceController {
   setWorkshopStatus = async (req: Request<VehicleParams>, res: Response) => {
     const result = await this.maintenanceService.setWorkshopStatus(
       requireTenantId(req),
-      req.user!.id,
+      actorOf(req),
       req.params.vehicleId,
       req.body.status,
       canSeeMaintenanceCosts(req),

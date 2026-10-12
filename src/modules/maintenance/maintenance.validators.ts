@@ -135,8 +135,11 @@ export const maintenanceValidators = {
     body: z
       .object({
         closedAt: isoDateTime.optional(),
+        serviceType: z.enum(SERVICE_TYPES).optional(),
         odometerKm: odometerKm.optional(),
+        workshopName: optionalText(150),
         description: optionalText(2000),
+        ...costFields,
       })
       .strict()
       .default({}),

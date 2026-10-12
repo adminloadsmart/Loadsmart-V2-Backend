@@ -155,7 +155,9 @@ export class MaintenanceService {
           });
           return { vehicle, usage, intervalKm, intervalMonths, due };
         })
-        .filter((row) => row.due.isDue)
+        // A truck in the workshop is off the list — its visit is the service in progress. It comes
+        // back only if it is released without a service and is still over policy.
+        .filter((row) => row.due.isDue && !state.openJobByVehicle.has(row.vehicle.id))
         .sort((a, b) => b.due.overdueRatio - a.due.overdueRatio)
         .map(({ vehicle, usage, intervalKm, intervalMonths, due }) => ({
           vehicle: toVehicleSummary(vehicle),
@@ -176,9 +178,6 @@ export class MaintenanceService {
           },
           // Service due alone never blocks dispatch — only being in the workshop does.
           dispatchEffect: state.dispatchEffect(vehicle.id),
-          // Already in — the row stays until the service is logged (so the headline still
-          // matches the queue), but the screen shows "in workshop since …".
-          inWorkshop: workshopVisit(state.openJobByVehicle.get(vehicle.id)),
         }));
 
       return pageOfQueue(items, pageInput);
@@ -487,12 +486,14 @@ export class MaintenanceService {
   }
 
   /**
-   * Release from the workshop — finishes an open visit without a service: the service clock is
-   * untouched and the truck returns to dispatch.
+   * Release from the workshop — finishes an open visit and returns the truck to dispatch.
+   *  - With service details (serviceType, garage, cost, invoice, parts): the service is logged
+   *    against the visit, the same outcome as complete / Log a service.
+   *  - Without: a bare release — the service clock is untouched.
    */
   async releaseFromWorkshop(
     tenantId: string,
-    actorId: string,
+    actor: Actor,
     jobId: string,
     input: ReleaseFromWorkshopInput,
     canSeeCosts: boolean,
@@ -501,17 +502,39 @@ export class MaintenanceService {
       const job = await this.jobRepository.findById(tenantId, jobId);
       if (!job) throw new NotFoundError(`Workshop visit ${jobId} not found`);
       if (job.status !== 'open') throw new ConflictError('This visit is already closed');
+      await this.assertInvoice(tenantId, actor, input);
       const closedAt = this.resolveClosedAt(job, input.closedAt);
+
+      const { serviceType, workshopName, odometerKm, description, invoiceFileKey, ...costInput } =
+        input;
+      const logsService =
+        serviceType !== undefined ||
+        workshopName !== undefined ||
+        invoiceFileKey !== undefined ||
+        Object.values({ ...costInput, closedAt: undefined }).some((value) => value !== undefined);
+      const resolvedType = logsService
+        ? (serviceType ??
+          (job.jobType === 'service' ? job.serviceType : null) ??
+          'preventive_service')
+        : null;
+      if (resolvedType && SERVICE_CLOCK_TYPES.includes(resolvedType) && odometerKm === undefined) {
+        throw new ValidationError('odometerKm is required to log a service');
+      }
 
       const released = await this.dataSource.transaction(async (manager) => {
         await this.finishVisit(
           manager,
           tenantId,
-          actorId,
+          actor.id,
           job,
-          { serviceType: null },
-          { closedAt, odometerKm: input.odometerKm, description: input.description },
-          'MAINTENANCE_WORKSHOP_RELEASED',
+          { serviceType: resolvedType },
+          {
+            closedAt,
+            odometerKm,
+            description,
+            ...(logsService ? { workshopName, invoiceFileKey, costs: input } : {}),
+          },
+          logsService ? 'MAINTENANCE_SERVICE_COMPLETED' : 'MAINTENANCE_WORKSHOP_RELEASED',
         );
         return this.jobRepository.findById(tenantId, jobId, manager);
       });
@@ -532,7 +555,7 @@ export class MaintenanceService {
    */
   async setWorkshopStatus(
     tenantId: string,
-    actorId: string,
+    actor: Actor,
     vehicleId: string,
     status: WorkshopStatus,
     canSeeCosts: boolean,
@@ -543,7 +566,7 @@ export class MaintenanceService {
 
       if (status === 'available') {
         const visit = open
-          ? await this.releaseFromWorkshop(tenantId, actorId, open.id, {}, canSeeCosts)
+          ? await this.releaseFromWorkshop(tenantId, actor, open.id, {}, canSeeCosts)
           : null;
         return { vehicleId: vehicle.id, status, visit };
       }
@@ -556,7 +579,7 @@ export class MaintenanceService {
       try {
         const visit = await this.checkInService(
           tenantId,
-          actorId,
+          actor.id,
           { vehicleId: vehicle.id },
           canSeeCosts,
         );
@@ -1095,17 +1118,6 @@ export class MaintenanceService {
     if (closedAt > new Date()) throw new ValidationError('The close time cannot be in the future');
     return closedAt;
   }
-}
-
-function workshopVisit(job: MaintenanceJobEntity | undefined) {
-  return job
-    ? {
-        jobId: job.id,
-        jobType: job.jobType,
-        since: job.openedAt,
-        days: jobDays(job.openedAt, null, new Date()),
-      }
-    : null;
 }
 
 /**

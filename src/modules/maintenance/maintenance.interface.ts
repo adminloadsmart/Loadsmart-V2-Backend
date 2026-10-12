@@ -67,9 +67,16 @@ export interface CheckInServiceInput {
   description?: string;
 }
 
-export interface ReleaseFromWorkshopInput {
+/** Release from the workshop. Any service detail below logs the service against the visit;
+ *  with none, it is a bare release. */
+export interface ReleaseFromWorkshopInput extends JobCostInput {
   closedAt?: string;
+  /** Defaults to what the visit was checked in for, else preventive_service. */
+  serviceType?: ServiceType;
+  /** Required when the service is a clock type (preventive service, oil change). */
   odometerKm?: number;
+  /** The Garage field. */
+  workshopName?: string;
   description?: string;
 }
 
