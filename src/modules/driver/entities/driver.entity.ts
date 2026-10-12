@@ -13,6 +13,9 @@ import { DriverBankDetailsEntity } from './driver-bank-details.entity';
 import { DriverTenantRelationEntity } from './driver-tenant-relation.entity';
 import {
   DRIVER_BLOOD_GROUPS,
+  DRIVER_ENGAGEMENT_TYPES,
+  DriverEngagementType,
+  DriverLicenseEndorsement,
   DRIVER_ONBOARDING_STEPS,
   DRIVER_REGISTRATION_SOURCES,
   DRIVER_SALARY_TYPES,
@@ -64,6 +67,38 @@ export class DriverEntity {
 
   @Column({ name: 'salary_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
   salaryAmount!: string | null;
+
+  // How the driver is employed (on-roll / per trip / vendor's driver) — separate from salaryType.
+  @Column({
+    name: 'engagement_type',
+    type: 'enum',
+    enum: [...DRIVER_ENGAGEMENT_TYPES],
+    nullable: true,
+  })
+  engagementType!: DriverEngagementType | null;
+
+  // "Bhatta per trip day" — daily allowance on a trip, same numeric type as salaryAmount.
+  @Column({ name: 'bhatta_per_day', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  bhattaPerDay!: string | null;
+
+  // Hand-entered running balance of advances not yet recovered — no advances ledger exists yet.
+  @Column({ name: 'advance_outstanding', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  advanceOutstanding!: string | null;
+
+  // Yard/branch the driver works from ("Ludhiana Yard") — free text until a yards master exists.
+  @Column({ name: 'home_base', type: 'varchar', length: 150, nullable: true })
+  homeBase!: string | null;
+
+  // Codes from DRIVER_LICENSE_ENDORSEMENTS (e.g. 'hazmat') — validated in the request schema, not
+  // a DB enum, so a new endorsement needs no migration.
+  @Column({
+    name: 'license_endorsements',
+    type: 'varchar',
+    length: 30,
+    array: true,
+    default: () => "'{}'",
+  })
+  licenseEndorsements!: DriverLicenseEndorsement[];
 
   // Required by the Sarathi DL check (IDfy's verify_with_source needs id_number + date_of_birth
   // together), so it's captured on the driver even though nothing else in the product needs it yet.

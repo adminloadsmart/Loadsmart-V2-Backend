@@ -163,9 +163,9 @@ export class SarathiClient implements DlVerificationClient {
     return {
       status: 'verified',
       holderName: output.name ?? undefined,
-      // Non-transport validity is the general driving-licence validity; transport (commercial) is
-      // the fallback for drivers who only hold that class.
-      validUntil: output.nt_validity_to ?? output.t_validity_to ?? undefined,
+      // Transport (commercial) validity first — it's the one that governs a fleet driver of HTV/
+      // HGMV etc.; non-transport validity is the fallback for licences with no transport class.
+      validUntil: output.t_validity_to ?? output.nt_validity_to ?? undefined,
       licenseClass: output.cov_details?.map((cov) => cov.cov).join(', ') || undefined,
       licenseStatus: output.dl_status ?? undefined,
       addressLine1: output.address ?? undefined,

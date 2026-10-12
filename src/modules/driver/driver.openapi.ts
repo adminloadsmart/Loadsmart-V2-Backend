@@ -23,11 +23,24 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDrivers',
-    ...authenticated('List drivers for the tenant, paginated and optionally filtered.'),
+    ...authenticated(
+      'My Drivers roster, paginated and optionally filtered. `search` matches name, mobile or DL ' +
+        'number; "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner. ' +
+        '`segment` picks an Active Roster tab (all, on_trip, available, not_available, ' +
+        'left_company, licence_expired, hazmat_endorsed, not_verified); every segment but ' +
+        'left_company excludes drivers who left, and on_trip/available use the live active-load ' +
+        'check. Each row adds `licence`, `contact`, `assignment`, `availability`, `performance` ' +
+        'and `behaviour`, shaped as on GET /drivers/{driverId} (driverScore and behaviour are ' +
+        'null until backed by data). not_available = on_leave or medically_unfit; ' +
+        "hazmat_endorsed = 'hazmat' in licenseEndorsements.",
+    ),
     request: { query: driverValidators.listDrivers.shape.query },
     responses: {
       200: {
-        description: 'Paginated drivers — { data: { items, page, limit, total, totalPages } }',
+        description:
+          'Paginated drivers — { data: { items, page, limit, total, totalPages, counts } }, ' +
+          'counts = { total, all, on_trip, available, not_available, left_company, ' +
+          'licence_expired, hazmat_endorsed, not_verified } under the same filters minus segment.',
       },
     },
   });
@@ -38,7 +51,18 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.getDriver',
     ...authenticated(
-      'Get a single driver, including documents, verifications, bank details, and linked vehicles.',
+      'Driver detail screen in one call — the driver (documents, verifications, bank details, ' +
+        'linked vehicles) plus screen sections: `licence` { number, classOfVehicle, endorsements, ' +
+        'validTo, daysLeft, registry, eligibleToDrive }, `contact` { primaryMobile, bloodGroup, ' +
+        'emergencyContact, engagementType, dateOfJoining, tenureYears, advanceOutstanding, ' +
+        'compensation { salaryType, salaryAmount, bhattaPerDay } }, `assignment` { vehicle, ' +
+        'homeBase }, `availability` { operationalStatus, activeLoad, dispatchable }, ' +
+        '`performance` { totalTrips, onTimePercentage, driverScore }, `knownLanes`, `behaviour`, ' +
+        '`slaBreachTrips`. Not yet backed by data, so always null/[] for now: driverScore, ' +
+        'knownLanes ' +
+        '({ from, to, laneType, distanceKm }[]), behaviour ({ event, per1000Km, ' +
+        'fleetComparison }[]), slaBreachTrips ({ loadId, code, status, from, to, date, ' +
+        'progressPercentage }[]).',
     ),
     request: { params: driverValidators.getDriver.shape.params },
     responses: {
@@ -52,7 +76,13 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.updateDriver',
-    ...write('Update one or more fields on a driver.'),
+    ...write(
+      'Update one or more fields on a driver, including `emergencyContactRelation`, ' +
+        '`engagementType` (on_roll | per_trip | vendor — how they are employed, separate from ' +
+        '`salaryType`), `bhattaPerDay` (daily trip allowance), `advanceOutstanding` ' +
+        '(hand-entered balance), `homeBase` (yard, free text) and `licenseEndorsements` ' +
+        "(e.g. ['hazmat']; replaces the whole list).",
+    ),
     request: {
       params: driverValidators.updateDriver.shape.params,
       body: json(driverValidators.updateDriver.shape.body),
@@ -98,14 +128,14 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectDriver',
-    ...approve('Reject a pending driver with a mandatory reason. org_admin only.'),
+    ...approve('Reject a pending driver, with an optional reason. org_admin only.'),
     request: {
       params: driverValidators.rejectDriver.shape.params,
       body: json(driverValidators.rejectDriver.shape.body),
     },
     responses: {
       200: { description: 'Rejected driver' },
-      400: { description: 'Validation failed (reason required)', ...errorContent },
+      400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Driver not found', ...errorContent },
       409: { description: 'Driver is not pending', ...errorContent },
     },
@@ -127,10 +157,94 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       'List driver-initiated join requests awaiting this tenant’s approval (status ' +
         '`pending_staff_review`, initiatedBy `driver`) — distinct from dispatch-added drivers ' +
         'awaiting approval, which surface via GET /drivers?status=pending_staff_review instead. ' +
-        'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above.',
+        'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above. `search` matches ' +
+        'name, mobile or DL number. Each item carries `requestedAt` (when the request was made) ' +
+        'and `licenseClass` (latest licence verification’s class, or null).',
     ),
+    request: { query: driverValidators.listJoinRequests.shape.query },
     responses: {
-      200: { description: 'Pending join requests' },
+      200: {
+        description:
+          'Paginated join requests — { data: { items, page, limit, total, totalPages } }',
+      },
+    },
+  });
+
+  // --- Invitations Sent ---
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/invitations`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listDriverInvitations',
+    ...authenticated(
+      'List invites this tenant sent to drivers (org_admin onboarding, or dispatch-added drivers ' +
+        'after approval), newest `sentAt` first. `status` is derived: `pending` (awaiting the ' +
+        'driver, not expired), `expired` (unanswered 7 days after the last send), `accepted`, ' +
+        '`rejected` (declined by the driver), `cancelled` (withdrawn by this organisation). `search` matches name, mobile or DL number. Items: ' +
+        '{ invitationId, requestId (INV-00042), driverId, fullName, phoneNumber, status, sentAt, ' +
+        'expiresAt, respondedAt, rejectionReason }.',
+    ),
+    request: { query: driverValidators.listInvitations.shape.query },
+    responses: {
+      200: {
+        description: 'Paginated invitations — { data: { items, page, limit, total, totalPages } }',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/invitations/{invitationId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.getDriverInvitation',
+    ...authenticated(
+      'Invitation detail drawer — the list item plus `credentials` { licenseNumber, ' +
+        'licenseClass, registry: { source: sarathi, status, checkedAt } | null }, `timeline` for ' +
+        'the latest send (sent { at, by: { name, role } } → viewed { at, device }, once the ' +
+        'driver opened the invite notification → accepted | rejected | expired | ' +
+        'awaiting_response) and `deliveryChannels` [{ channel: sms | whatsapp | push, status, ' +
+        'statusAt }]. SMS/WhatsApp are recorded as `pending` but not yet actually sent.',
+    ),
+    request: { params: driverValidators.getInvitation.shape.params },
+    responses: {
+      200: { description: 'Invitation detail' },
+      404: { description: 'Invitation not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/invitations/{invitationId}/resend`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.resendDriverInvitation',
+    ...write(
+      'Re-send a pending, unexpired invite: re-notifies the driver, restarts the 7-day expiry, ' +
+        'resets the viewed step and every delivery channel to `pending`. Req ID is unchanged.',
+    ),
+    request: { params: driverValidators.resendInvitation.shape.params },
+    responses: {
+      200: { description: 'Updated invitation (same item shape as the list)' },
+      404: { description: 'Invitation not found', ...errorContent },
+      409: { description: 'Invitation is not pending, or it has expired', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/drivers/invitations/{invitationId}`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.cancelDriverInvitation',
+    ...write(
+      'Cancel a pending invite. The row stays in this list with status `cancelled`; it disappears ' +
+        'from the driver app (they can no longer accept or decline it), and the driver can no ' +
+        "longer request to join this organisation. Only this organisation's link changes.",
+    ),
+    request: { params: driverValidators.cancelInvitation.shape.params },
+    responses: {
+      200: { description: '{ data: { success: true } }' },
+      404: { description: 'Invitation not found', ...errorContent },
+      409: { description: 'Invitation is not pending', ...errorContent },
     },
   });
 
@@ -285,7 +399,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'polls for the result before responding. As of 2026-08 (IDfy credits exhausted), always ' +
         'falls back to verified (without registry fields) — whether IDFY_API_KEY/IDFY_ACCOUNT_ID/' +
         'IDFY_TASK_ID/IDFY_GROUP_ID are unset, the call fails, or IDfy completes the task but ' +
-        'reports no match. Revert to manual_review on those paths once IDfy credits are restored.',
+        'reports no match. Revert to manual_review on those paths once IDfy credits are restored. ' +
+        '`validUntil` is the transport validity when the licence has one, else the non-transport ' +
+        'validity.',
     ),
     request: { body: json(driverValidators.verifyDriverDl.shape.body) },
     responses: {
@@ -324,7 +440,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'verification, licence photos, bank details and operational status. The vehicle link stays ' +
         "a separate call. Only org_admin and dispatch may call this at all — org_admin's driver " +
         "is created `active` immediately; dispatch's is created `pending` until an org_admin " +
-        'approves or rejects it via PATCH .../approve|reject.',
+        'approves or rejects it via PATCH .../approve|reject. Also takes `emergencyContactRelation`, ' +
+        '`engagementType` (on_roll | per_trip | vendor), `bhattaPerDay`, `advanceOutstanding`, ' +
+        '`homeBase` and `licenseEndorsements`.',
     ),
     request: { body: json(driverValidators.onboardDriver.shape.body) },
     responses: {

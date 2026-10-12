@@ -349,8 +349,26 @@ export class DriverPortalService {
     });
   }
 
-  markMyNotificationRead(driverId: string, notificationId: string) {
-    return this.notificationsService.markReadForDriver(driverId, notificationId);
+  /**
+   * Opening the "You've been invited" notification (push tap or in-app list) is what marks that
+   * invitation viewed for the fleet owner's drawer — see DriverPushNotifier.notifyInvited, which
+   * stores the invitationId on the notification. Device comes from the calling session.
+   */
+  async markMyNotificationRead(driverId: string, notificationId: string, sessionId?: string) {
+    const notification = await this.notificationsService.markReadForDriver(
+      driverId,
+      notificationId,
+    );
+    const invitationId = notification.metadata?.invitationId;
+    if (notification.type === 'driver.account.invited' && typeof invitationId === 'string') {
+      await this.driverTenantRelationRepository.markInviteViewed(
+        invitationId,
+        driverId,
+        notification.createdAt,
+        sessionId,
+      );
+    }
+    return notification;
   }
 
   async markAllMyNotificationsRead(driverId: string): Promise<{ markedCount: number }> {

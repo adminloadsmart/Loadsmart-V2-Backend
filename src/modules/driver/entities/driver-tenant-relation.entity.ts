@@ -15,6 +15,8 @@ import { DriverOperationalStatusEntity } from './driver-operational-status.entit
 import { DriverTripMetricsEntity } from './driver-trip-metrics.entity';
 import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import {
+  DRIVER_INVITE_DELIVERY_STATUSES,
+  DriverInviteDeliveryStatus,
   DRIVER_TENANT_RELATION_INITIATORS,
   DRIVER_TENANT_RELATION_STATUSES,
   DriverTenantRelationInitiator,
@@ -74,6 +76,72 @@ export class DriverTenantRelationEntity {
 
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
   approvedAt!: Date | null;
+
+  // When the tenant's invite last reached the driver (first send or Resend) — "Sent On" on the
+  // Invitations Sent tab. Null for driver-initiated requests and invites not yet sent.
+  @Column({ name: 'invite_sent_at', type: 'timestamptz', nullable: true })
+  inviteSentAt!: Date | null;
+
+  // inviteSentAt + DRIVER_INVITE_TTL_DAYS; past it a pending invite reads as Expired and can no
+  // longer be accepted.
+  @Column({ name: 'invite_expires_at', type: 'timestamptz', nullable: true })
+  inviteExpiresAt!: Date | null;
+
+  // Sequential "Req ID" (formatted INV-00042) — DB default from masters.driver_invite_number_seq,
+  // stable across Resends. bigint, so TypeORM hands it back as a string.
+  @Column({ name: 'invite_number', type: 'bigint', insert: false, update: false })
+  inviteNumber!: string;
+
+  // Staff user behind the latest send ("Dispatched by …") — the inviting org_admin, the approving
+  // org_admin for a dispatch-added driver, or whoever pressed Resend last.
+  @Column({ name: 'invite_sent_by', type: 'uuid', nullable: true })
+  inviteSentBy!: string | null;
+
+  // Driver opened the latest invite notification on their device (see
+  // DriverPortalService.markMyNotificationRead); cleared on every Resend.
+  @Column({ name: 'invite_viewed_at', type: 'timestamptz', nullable: true })
+  inviteViewedAt!: Date | null;
+
+  @Column({ name: 'invite_viewed_device', type: 'varchar', length: 255, nullable: true })
+  inviteViewedDevice!: string | null;
+
+  // Per-channel result of the latest send. SMS/WhatsApp stay `pending` (recorded, not sent) until
+  // the notification-branch sending lands; push reflects the real FCM push.
+  @Column({
+    name: 'sms_delivery_status',
+    type: 'enum',
+    enum: [...DRIVER_INVITE_DELIVERY_STATUSES],
+    enumName: 'driver_tenant_relations_invite_delivery_status_enum',
+    nullable: true,
+  })
+  smsDeliveryStatus!: DriverInviteDeliveryStatus | null;
+
+  @Column({ name: 'sms_delivery_status_at', type: 'timestamptz', nullable: true })
+  smsDeliveryStatusAt!: Date | null;
+
+  @Column({
+    name: 'whatsapp_delivery_status',
+    type: 'enum',
+    enum: [...DRIVER_INVITE_DELIVERY_STATUSES],
+    enumName: 'driver_tenant_relations_invite_delivery_status_enum',
+    nullable: true,
+  })
+  whatsappDeliveryStatus!: DriverInviteDeliveryStatus | null;
+
+  @Column({ name: 'whatsapp_delivery_status_at', type: 'timestamptz', nullable: true })
+  whatsappDeliveryStatusAt!: Date | null;
+
+  @Column({
+    name: 'push_delivery_status',
+    type: 'enum',
+    enum: [...DRIVER_INVITE_DELIVERY_STATUSES],
+    enumName: 'driver_tenant_relations_invite_delivery_status_enum',
+    nullable: true,
+  })
+  pushDeliveryStatus!: DriverInviteDeliveryStatus | null;
+
+  @Column({ name: 'push_delivery_status_at', type: 'timestamptz', nullable: true })
+  pushDeliveryStatusAt!: Date | null;
 
   // Set by reject, cleared by approve — mirrors the old DriverEntity.rejectionReason.
   @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })

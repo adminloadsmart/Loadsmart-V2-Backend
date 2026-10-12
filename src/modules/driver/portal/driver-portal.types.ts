@@ -1,4 +1,4 @@
-import { DriverWithRelation } from '../driver.service';
+import { DriverWithRelation } from '../drivers.interface';
 import { TripListRow } from '../../loads/utils/trip-view';
 import { LoadStatus } from '../../loads/utils/loads.types';
 

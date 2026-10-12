@@ -54,6 +54,8 @@ export interface DriverRelationSummary {
   status: DriverTenantRelationEntity['status'];
   initiatedBy: DriverTenantRelationEntity['initiatedBy'];
   createdAt: Date;
+  // Pending invites past this can no longer be accepted; null for driver-initiated requests.
+  expiresAt: Date | null;
   // Fleet-owner-initiated invites carry the inviter + org snapshot the driver app's "Invite for
   // you" card renders; null for relations the driver started themselves (no inviter to show).
   invitedBy: { name: string | null; phoneNumber: string; role: string } | null;
@@ -66,7 +68,7 @@ export interface DriverRelationSummary {
  * registration details, requesting to join a tenant, and accepting/rejecting a fleet-owner's
  * invite. The tenant-side half of the same workflow (staff adding a driver, approving/rejecting
  * a join request) lives in DriverService — see its
- * onboardDriver/approveDriver/rejectDriver/listPendingStaffReview.
+ * onboardDriver/approveDriver/rejectDriver/listJoinRequests.
  */
 export class DriverIdentityService {
   constructor(
@@ -420,7 +422,10 @@ export class DriverIdentityService {
     status?: DriverRelationSummary['status'],
   ): Promise<DriverRelationSummary[]> {
     try {
-      const relations = await this.driverTenantRelationRepository.listByDriver(driverId, status);
+      // A tenant's cancelled invite is withdrawn as far as the driver is concerned.
+      const relations = (
+        await this.driverTenantRelationRepository.listByDriver(driverId, status)
+      ).filter((relation) => relation.status !== 'cancelled');
       const users = this.dataSource.getRepository(UserEntity);
       const vehicles = this.dataSource.getRepository(VehicleEntity);
       return await Promise.all(
@@ -444,6 +449,7 @@ export class DriverIdentityService {
             status: relation.status,
             initiatedBy: relation.initiatedBy,
             createdAt: relation.createdAt,
+            expiresAt: relation.inviteExpiresAt,
             invitedBy: inviter
               ? {
                   name: inviter.fullName,
@@ -507,6 +513,10 @@ export class DriverIdentityService {
         input.tenantId,
         driverId,
       );
+      if (existing?.status === 'cancelled') {
+        // This tenant withdrew its invite — the driver can't ask their way back in.
+        throw new ConflictError(msg('errors.driver.joinBlocked'));
+      }
       if (existing) {
         throw new ConflictError(msg('errors.driver.relationExists'));
       }
@@ -550,7 +560,19 @@ export class DriverIdentityService {
             driverId,
             input.reason ?? null,
           );
-      if (!relation) throw new NotFoundError(msg('errors.driver.inviteNotFound'));
+      if (!relation) {
+        // accept() refuses an expired invite — tell the driver why rather than "not found".
+        const pending = input.accept
+          ? await this.driverTenantRelationRepository.findPendingInviteForDriver(
+              relationId,
+              driverId,
+            )
+          : null;
+        if (pending?.inviteExpiresAt && pending.inviteExpiresAt <= new Date()) {
+          throw new ConflictError(msg('errors.driver.inviteExpired'));
+        }
+        throw new NotFoundError(msg('errors.driver.inviteNotFound'));
+      }
 
       const driver = await this.driverRepository.findById(driverId);
 

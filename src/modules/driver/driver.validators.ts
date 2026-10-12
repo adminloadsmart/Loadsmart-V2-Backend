@@ -7,8 +7,13 @@ import {
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
+  DRIVER_ENGAGEMENT_TYPES,
+  DRIVER_INVITATION_STATUSES,
+  DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_OPERATIONAL_STATUSES,
+  DRIVER_ROSTER_SEGMENTS,
   DRIVER_SALARY_TYPES,
+  DRIVER_TENANT_RELATION_INITIATORS,
   DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
@@ -19,6 +24,9 @@ const uuid = z.string().uuid();
 const isoDateTime = z.iso.datetime();
 
 const driverParams = z.object({ driverId: uuid });
+// An invitation is its driver_tenant_relations row — a driver can have several for one tenant
+// (older declined invites plus the current one), so invitation routes key on this, not driverId.
+const invitationParams = z.object({ invitationId: uuid });
 const driverDocumentParams = z.object({ driverId: uuid, documentId: uuid });
 const driverBankDetailsParams = z.object({
   driverId: uuid,
@@ -65,6 +73,17 @@ const driverCoreFields = {
     .optional(),
   salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
   salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+  // "Brother", "Wife", ... — drivers.emergency_contact_relation is varchar(50).
+  emergencyContactRelation: z.string().trim().min(1).max(50).optional(),
+  engagementType: z.enum(DRIVER_ENGAGEMENT_TYPES).optional(),
+  bhattaPerDay: z.number().nonnegative().max(9999999999).optional(),
+  advanceOutstanding: z.number().nonnegative().max(9999999999).optional(),
+  // drivers.home_base is varchar(150).
+  homeBase: z.string().trim().min(1).max(150).optional(),
+  licenseEndorsements: z
+    .array(z.enum(DRIVER_LICENSE_ENDORSEMENTS))
+    .transform((codes) => [...new Set(codes)])
+    .optional(),
 };
 
 /** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
@@ -158,7 +177,10 @@ export const driverValidators = {
   listDrivers: z.object({
     query: pagination.extend({
       status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
-      operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
+      // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
+      initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),
+      operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES).optional(),
+      segment: z.enum(DRIVER_ROSTER_SEGMENTS).optional(),
     }),
   }),
   getDriver: z.object({ params: driverParams }),
@@ -189,6 +211,12 @@ export const driverValidators = {
           .optional(),
         salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
         salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+        emergencyContactRelation: driverCoreFields.emergencyContactRelation,
+        engagementType: driverCoreFields.engagementType,
+        bhattaPerDay: driverCoreFields.bhattaPerDay,
+        advanceOutstanding: driverCoreFields.advanceOutstanding,
+        homeBase: driverCoreFields.homeBase,
+        licenseEndorsements: driverCoreFields.licenseEndorsements,
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
@@ -196,10 +224,19 @@ export const driverValidators = {
   approveDriver: z.object({ params: driverParams }),
   rejectDriver: z.object({
     params: driverParams,
-    body: z.object({ reason: z.string().trim().min(1) }),
+    // Optional — the "Requests to You" screen rejects in one click with no reason prompt. Defaulted
+    // because Express 5 leaves req.body undefined when the request has no body at all.
+    body: z.object({ reason: z.string().trim().min(1).optional() }).default({}),
   }),
 
   listJoinRequests: z.object({ query: pagination }),
+
+  listInvitations: z.object({
+    query: pagination.extend({ status: z.enum(DRIVER_INVITATION_STATUSES).optional() }),
+  }),
+  getInvitation: z.object({ params: invitationParams }),
+  resendInvitation: z.object({ params: invitationParams }),
+  cancelInvitation: z.object({ params: invitationParams }),
 
   addDriverDocument: z.object({
     params: driverParams,
