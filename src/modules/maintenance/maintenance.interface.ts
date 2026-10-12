@@ -77,7 +77,8 @@ export interface ReleaseFromWorkshopInput extends JobCostInput {
   startDate?: string;
   /** Defaults to what the visit was checked in for, else preventive_service. */
   serviceType?: ServiceType;
-  /** Required when the service is a clock type (preventive service, oil change). */
+  /** Optional. For a preventive service / oil change, defaults to the truck's last recorded
+   *  odometer. */
   odometerKm?: number;
   /** The Garage field. */
   workshopName?: string;

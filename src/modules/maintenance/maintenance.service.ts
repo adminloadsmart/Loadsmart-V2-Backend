@@ -525,8 +525,14 @@ export class MaintenanceService {
         throw new ValidationError('The close time cannot be in the future');
       }
 
-      const { serviceType, workshopName, odometerKm, description, invoiceFileKey, ...costInput } =
-        input;
+      const {
+        serviceType,
+        workshopName,
+        odometerKm: enteredOdometerKm,
+        description,
+        invoiceFileKey,
+        ...costInput
+      } = input;
       const logsService =
         serviceType !== undefined ||
         workshopName !== undefined ||
@@ -545,8 +551,12 @@ export class MaintenanceService {
       if (logsService && !invoiceFileKey) {
         throw new ValidationError('invoiceFileKey is required to log a service');
       }
-      if (resolvedType && SERVICE_CLOCK_TYPES.includes(resolvedType) && odometerKm === undefined) {
-        throw new ValidationError('odometerKm is required to log a service');
+      // No reading entered: a clock-type service is stamped with the truck's last recorded
+      // odometer, so it still leaves Service Due. With none recorded the clock can't move.
+      let odometerKm = enteredOdometerKm;
+      if (odometerKm === undefined && resolvedType && SERVICE_CLOCK_TYPES.includes(resolvedType)) {
+        const vehicle = await this.fleetRepository.findVehicle(tenantId, job.vehicleId);
+        odometerKm = vehicle?.serviceUsage?.odometerKm ?? undefined;
       }
 
       const released = await this.dataSource.transaction(async (manager) => {
