@@ -16,4 +16,20 @@ export class StorageGatewayLocal implements StorageGateway {
       throw new ValidationError(`File ${key} must be confirmed before it can be attached`);
     }
   }
+
+  async getInvoiceDownloadUrl(
+    tenantId: string,
+    actorRole: string,
+    key: string,
+  ): Promise<string | null> {
+    try {
+      const { downloadUrl } = await this.storageService.getByKey(
+        { tenantId, role: actorRole },
+        key,
+      );
+      return downloadUrl;
+    } catch {
+      return null;
+    }
+  }
 }

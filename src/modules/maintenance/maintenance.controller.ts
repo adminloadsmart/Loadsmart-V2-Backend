@@ -102,6 +102,7 @@ export class MaintenanceController {
       requireTenantId(req),
       req.validatedQuery as ListJobsInput,
       canSeeMaintenanceCosts(req),
+      req.user!.role,
     );
     respond(res, jobs);
   };
@@ -112,6 +113,7 @@ export class MaintenanceController {
       req.params.vehicleId,
       req.validatedQuery as ListVehicleJobsInput,
       canSeeMaintenanceCosts(req),
+      req.user!.role,
     );
     respond(res, jobs);
   };

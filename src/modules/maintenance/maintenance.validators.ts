@@ -106,6 +106,8 @@ export const maintenanceValidators = {
         startDate: isoDate.optional(),
         serviceDate: isoDate.optional(),
         ...costFields,
+        // A service log needs its bill on file.
+        invoiceFileKey,
       })
       .strict(),
   }),
@@ -179,6 +181,7 @@ export const maintenanceValidators = {
         workshopName: optionalText(150),
         description: optionalText(2000),
         ...costFields,
+        invoiceFileKey,
       })
       .strict(),
   }),

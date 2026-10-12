@@ -542,6 +542,9 @@ export class MaintenanceService {
           (job.jobType === 'service' ? job.serviceType : null) ??
           'preventive_service')
         : null;
+      if (logsService && !invoiceFileKey) {
+        throw new ValidationError('invoiceFileKey is required to log a service');
+      }
       if (resolvedType && SERVICE_CLOCK_TYPES.includes(resolvedType) && odometerKm === undefined) {
         throw new ValidationError('odometerKm is required to log a service');
       }
@@ -838,7 +841,7 @@ export class MaintenanceService {
 
   /* ---------------------------------------------------------------- job history */
 
-  async listJobs(tenantId: string, input: ListJobsInput, canSeeCosts: boolean) {
+  async listJobs(tenantId: string, input: ListJobsInput, canSeeCosts: boolean, actorRole: string) {
     try {
       const range = this.resolvePeriod(input);
       const [jobs, total] = await this.jobRepository.list(tenantId, {
@@ -852,7 +855,11 @@ export class MaintenanceService {
       return {
         period: { from: range.from, to: range.to },
         ...paginate(
-          jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          await this.withInvoiceUrls(
+            tenantId,
+            actorRole,
+            jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          ),
           total,
           input,
         ),
@@ -868,6 +875,7 @@ export class MaintenanceService {
     vehicleId: string,
     input: ListVehicleJobsInput,
     canSeeCosts: boolean,
+    actorRole: string,
   ) {
     try {
       const vehicle = await this.findOwnFleetVehicle(tenantId, vehicleId);
@@ -880,7 +888,11 @@ export class MaintenanceService {
       return {
         vehicle: toVehicleSummary(vehicle),
         ...paginate(
-          jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          await this.withInvoiceUrls(
+            tenantId,
+            actorRole,
+            jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          ),
           total,
           input,
         ),
@@ -891,6 +903,29 @@ export class MaintenanceService {
   }
 
   /* -------------------------------------------------------------------- helpers */
+
+  /**
+   * Adds `invoiceUrl` — a fresh signed download link — next to each view's `invoiceFileKey`.
+   * Views from a seat without cost access carry no key, so they get no URL either.
+   */
+  private async withInvoiceUrls<T extends object>(
+    tenantId: string,
+    actorRole: string,
+    views: T[],
+  ): Promise<Array<T & { invoiceUrl?: string | null }>> {
+    return Promise.all(
+      views.map(async (view) => {
+        const key = (view as { invoiceFileKey?: string | null }).invoiceFileKey;
+        if (!key) return view;
+        const invoiceUrl = await this.storageGateway.getInvoiceDownloadUrl(
+          tenantId,
+          actorRole,
+          key,
+        );
+        return { ...view, invoiceUrl };
+      }),
+    );
+  }
 
   resolvePeriod(input: PeriodInput) {
     const range = resolveDateRange(input.filter ?? DEFAULT_OVERVIEW_FILTER, input.from, input.to);
