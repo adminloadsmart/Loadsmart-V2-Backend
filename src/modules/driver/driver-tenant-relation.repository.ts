@@ -85,11 +85,25 @@ interface UnavailableRelationIds {
 
 /**
  * A roster segment as extra where-conditions on the relation, or null when it can't match any
- * row (an empty In() list). Status-based segments match on
- * relation ids rather than a nested `operationalStatus` condition, because a driver with no status
- * row at all must still count as available/on the roster, and a nested condition drops them.
+ * row (an empty In() list). Every segment is a slice of the Active Roster, so each one also pins
+ * the relation to `active` — on_trip comes from the loads table alone, which knows nothing about
+ * the link's status, so without this a pending/rejected link with an open load leaked into the
+ * tab (and every count).
  */
 function rosterSegmentWhere(
+  segment: DriverRosterSegment,
+  onLoadDriverIds: readonly string[],
+  unavailable: UnavailableRelationIds,
+): FindOptionsWhere<DriverTenantRelationEntity> | null {
+  const where = segmentConditions(segment, onLoadDriverIds, unavailable);
+  return where && { ...where, status: 'active' };
+}
+
+/** Status-based segments match on relation ids rather than a nested `operationalStatus`
+ *  condition, because a driver with no status row at all must still count as available/on the
+ *  roster, and a nested condition drops them. */
+
+function segmentConditions(
   segment: DriverRosterSegment,
   onLoadDriverIds: readonly string[],
   { notAvailable, left }: UnavailableRelationIds,
@@ -243,7 +257,8 @@ export class DriverTenantRelationRepository {
         : Promise.resolve(0);
 
     const [total, ...segmentCounts] = await Promise.all([
-      countFor({}),
+      // "of 45" — the whole Active Roster, left-the-company included.
+      countFor({ status: 'active' }),
       ...DRIVER_ROSTER_SEGMENTS.map((segment) =>
         countFor(rosterSegmentWhere(segment, onLoadDriverIds, unavailable)),
       ),
@@ -283,14 +298,13 @@ export class DriverTenantRelationRepository {
   ): FindOptionsWhere<DriverTenantRelationEntity>[] {
     const { status, initiatedBy, operationalStatus, search } = filters;
 
-    const base: FindOptionsWhere<DriverTenantRelationEntity> = {
-      tenantId,
-      deletedAt: IsNull(),
-      ...segmentWhere,
-    };
+    const base: FindOptionsWhere<DriverTenantRelationEntity> = { tenantId, deletedAt: IsNull() };
     if (status) base.status = status;
     if (initiatedBy) base.initiatedBy = initiatedBy;
     if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
+    // Applied last so a segment's own conditions (notably status: 'active') win over the
+    // caller's `status` filter.
+    Object.assign(base, segmentWhere);
     if (!search) return [base];
 
     // Search spans three columns on the driver profile (name / mobile / DL number), so it becomes
