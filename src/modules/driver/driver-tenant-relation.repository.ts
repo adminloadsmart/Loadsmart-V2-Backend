@@ -335,6 +335,21 @@ export class DriverTenantRelationRepository {
     );
   }
 
+  /**
+   * Account deletion's counterpart to softDelete for a still-pending invite: the row stays so the
+   * inviting tenant sees it as `expired` in Invitations Sent instead of it silently vanishing,
+   * and its expiry is pulled forward to now so the existing expired-invite guards (resend, accept)
+   * apply too.
+   */
+  async expirePendingInvite(id: string, manager: EntityManager): Promise<void> {
+    await manager
+      .getRepository(DriverTenantRelationEntity)
+      .update(
+        { id, status: 'pending_driver_review', deletedAt: IsNull() },
+        { inviteExpiresAt: new Date(), updatedBy: null },
+      );
+  }
+
   /** Every relation a driver (identified globally) holds, across all tenants. */
   listByDriver(
     driverId: string,
@@ -425,14 +440,24 @@ export class DriverTenantRelationRepository {
       .andWhere(
         new Brackets((statusClause) => {
           const pendingDriver = "relation.status = 'pending_driver_review'";
+          // Mirrors toInvitationView: a driver who left the platform (driver.service.ts's
+          // isDriverOffPlatform) makes a still-pending invite read `expired`, whatever its date.
+          const onPlatform = 'driver.deletedAt IS NULL';
           if (!status || status === 'pending') {
-            statusClause.orWhere(`${pendingDriver} AND relation.inviteExpiresAt > now()`);
+            statusClause.orWhere(
+              `${pendingDriver} AND ${onPlatform} AND relation.inviteExpiresAt > now()`,
+            );
           }
           if (!status || status === 'expired') {
-            statusClause.orWhere(`${pendingDriver} AND relation.inviteExpiresAt <= now()`);
+            statusClause.orWhere(
+              `${pendingDriver} AND (NOT ${onPlatform} OR relation.inviteExpiresAt <= now())`,
+            );
           }
           if (!status || status === 'accepted') {
             statusClause.orWhere("relation.status = 'active'");
+          }
+          if (!status || status === 'cancelled') {
+            statusClause.orWhere("relation.status = 'cancelled'");
           }
           // A staff-rejected dispatch driver never reached the driver — only driver declines count.
           if (!status || status === 'rejected') {
@@ -543,11 +568,15 @@ export class DriverTenantRelationRepository {
     });
   }
 
-  /** Cancel — soft-deletes just this pending invite, leaving the driver's older rejected rows. */
+  /**
+   * Cancel — flips just this tenant's pending invite to `cancelled`. The row is kept, so it stays
+   * in Invitations Sent and keeps occupying the tenant+driver slot, which is what stops the driver
+   * from requesting to join this tenant again.
+   */
   async cancelInvite(tenantId: string, id: string, actorId: string): Promise<boolean> {
     const result = await this.relations.update(
       { id, tenantId, status: 'pending_driver_review', deletedAt: IsNull() },
-      { deletedAt: new Date(), updatedBy: actorId },
+      { status: 'cancelled', updatedBy: actorId },
     );
     return result.affected === 1;
   }

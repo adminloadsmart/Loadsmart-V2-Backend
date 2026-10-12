@@ -422,7 +422,10 @@ export class DriverIdentityService {
     status?: DriverRelationSummary['status'],
   ): Promise<DriverRelationSummary[]> {
     try {
-      const relations = await this.driverTenantRelationRepository.listByDriver(driverId, status);
+      // A tenant's cancelled invite is withdrawn as far as the driver is concerned.
+      const relations = (
+        await this.driverTenantRelationRepository.listByDriver(driverId, status)
+      ).filter((relation) => relation.status !== 'cancelled');
       const users = this.dataSource.getRepository(UserEntity);
       const vehicles = this.dataSource.getRepository(VehicleEntity);
       return await Promise.all(
@@ -510,6 +513,10 @@ export class DriverIdentityService {
         input.tenantId,
         driverId,
       );
+      if (existing?.status === 'cancelled') {
+        // This tenant withdrew its invite — the driver can't ask their way back in.
+        throw new ConflictError(msg('errors.driver.joinBlocked'));
+      }
       if (existing) {
         throw new ConflictError(msg('errors.driver.relationExists'));
       }

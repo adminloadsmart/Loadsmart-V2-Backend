@@ -27,6 +27,7 @@ export const en = {
       licenseExists: 'A driver with this license number already exists',
       licenceImagesRequired: 'Driving licence front and back photos are both required',
       relationExists: 'A relation with this fleet owner already exists',
+      joinBlocked: 'This fleet owner is not accepting a request from you',
       inviteNotFound: 'Invite not found',
       inviteExpired: 'This invite has expired. Ask the fleet owner to invite you again',
       phoneMismatch: 'The mobile number does not match your registered number',

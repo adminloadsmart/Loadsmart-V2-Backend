@@ -13,6 +13,7 @@ import {
   DriverVerificationStatus,
   DriverVerificationType,
   DriverInsuranceAnswer,
+  DriverInvitationExpiryReason,
   DriverInvitationStatus,
   DriverInviteDeliveryStatus,
   DriverLicenseEndorsement,
@@ -100,6 +101,8 @@ export interface DriverInvitationView {
   fullName: string;
   phoneNumber: string;
   status: DriverInvitationStatus;
+  /** Set only when status is `expired`. */
+  expiredReason: DriverInvitationExpiryReason | null;
   sentAt: Date;
   expiresAt: Date | null;
   respondedAt: Date | null;
@@ -128,7 +131,9 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
 
 /**
  * Latest send only: sent → viewed (once the driver opened the invite notification) → one final
- * step derived from the relation's status (accepted / rejected / expired / awaiting_response).
+ * step derived from the relation's status (accepted / rejected / cancelled / expired /
+ * awaiting_response). `cancelled.at` is the relation's last update — the cancel itself, since a
+ * cancelled invite can't be changed afterwards.
  */
 export type DriverInvitationTimelineStep =
   | { step: 'sent'; at: Date; by: { name: string | null; role: string | null } | null }
@@ -136,6 +141,7 @@ export type DriverInvitationTimelineStep =
   | { step: 'accepted'; at: Date | null }
   | { step: 'rejected'; at: Date | null; reason: string | null }
   | { step: 'expired'; at: Date | null }
+  | { step: 'cancelled'; at: Date }
   | { step: 'awaiting_response'; at: null };
 
 /**

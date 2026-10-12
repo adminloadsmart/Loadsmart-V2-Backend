@@ -78,6 +78,12 @@ export class DriverAccountService {
 
         const relations = await this.driverTenantRelationRepository.listByDriver(driverId);
         for (const relation of relations) {
+          // A tenant's pending invite is kept and expired rather than removed, so it shows as
+          // `expired` (reason driver_inactive) in that tenant's Invitations Sent.
+          if (relation.status === 'pending_driver_review' && relation.inviteSentAt) {
+            await this.driverTenantRelationRepository.expirePendingInvite(relation.id, manager);
+            continue;
+          }
           await this.driverTenantRelationRepository.softDelete(
             relation.tenantId,
             driverId,

@@ -126,14 +126,31 @@ function latestSarathiCheck(
     : null;
 }
 
+/**
+ * Whether the driver can no longer act on anything — today only "deleted their own account"
+ * (DriverAccountService.deleteAccount). The single place to extend if a platform block/suspend
+ * flag is added; keep DriverTenantRelationRepository.listInvitations' SQL in step with it.
+ */
+export function isDriverOffPlatform(driver: Pick<DriverEntity, 'deletedAt'>): boolean {
+  return driver.deletedAt !== null;
+}
+
 // Only ever called on rows listInvitations/resendInvite returned — tenant-initiated, invite sent —
-// so anything that isn't pending/active is a driver decline.
+// so anything that isn't pending/active is a driver decline. A still-pending invite to a driver
+// who has left the platform reads `expired` — nobody is left to accept it.
 function toInvitationView(relation: DriverTenantRelationEntity): DriverInvitationView {
   let status: DriverInvitationView['status'];
+  let expiredReason: DriverInvitationView['expiredReason'] = null;
   if (relation.status === 'active') status = 'accepted';
   else if (relation.status === 'rejected') status = 'rejected';
-  else if (relation.inviteExpiresAt && relation.inviteExpiresAt <= new Date()) status = 'expired';
-  else status = 'pending';
+  else if (relation.status === 'cancelled') status = 'cancelled';
+  else if (isDriverOffPlatform(relation.driver)) {
+    status = 'expired';
+    expiredReason = 'driver_inactive';
+  } else if (relation.inviteExpiresAt && relation.inviteExpiresAt <= new Date()) {
+    status = 'expired';
+    expiredReason = 'invite_timeout';
+  } else status = 'pending';
 
   return {
     invitationId: relation.id,
@@ -142,6 +159,7 @@ function toInvitationView(relation: DriverTenantRelationEntity): DriverInvitatio
     fullName: relation.driver.fullName,
     phoneNumber: relation.driver.phoneNumber,
     status,
+    expiredReason,
     sentAt: relation.inviteSentAt!,
     expiresAt: relation.inviteExpiresAt,
     respondedAt: relation.driverRespondedAt,
@@ -186,6 +204,8 @@ function toInvitationDetailView(
     });
   } else if (view.status === 'expired') {
     timeline.push({ step: 'expired', at: relation.inviteExpiresAt });
+  } else if (view.status === 'cancelled') {
+    timeline.push({ step: 'cancelled', at: relation.updatedAt });
   } else {
     timeline.push({ step: 'awaiting_response', at: null });
   }
@@ -1236,6 +1256,9 @@ export class DriverService {
       if (invite.status !== 'pending_driver_review') {
         throw new ConflictError('Only a pending invitation can be resent');
       }
+      if (isDriverOffPlatform(invite.driver)) {
+        throw new ConflictError('This driver is no longer active on the platform');
+      }
       if (invite.inviteExpiresAt && invite.inviteExpiresAt <= new Date()) {
         throw new ConflictError('This invitation has expired and can no longer be resent');
       }
@@ -1265,8 +1288,9 @@ export class DriverService {
   }
 
   /**
-   * Cancel — soft-deletes the pending invite, so it leaves the list and the driver's app, and
-   * frees the tenant+driver unique slot for a fresh invite later.
+   * Cancel — marks this tenant's pending invite `cancelled`. It stays in Invitations Sent with
+   * that status, leaves the driver's app (they can no longer accept or decline it), and blocks the
+   * driver from requesting to join this tenant. Only this tenant's row changes.
    */
   async cancelInvite(tenantId: string, actorId: string, invitationId: string): Promise<void> {
     try {
@@ -1292,7 +1316,7 @@ export class DriverService {
           status: invite.status,
           inviteSentAt: invite.inviteSentAt,
         },
-        newData: null,
+        newData: { id: invite.driverId, invitationId, status: 'cancelled' },
       });
     } catch (error) {
       rethrow(error, 'Failed to cancel driver invitation');
@@ -1351,7 +1375,8 @@ export class DriverService {
         driverId,
         manager,
       );
-      if (!relation || relation.status === 'rejected') {
+      // Rejected and cancelled links give this tenant no standing over the driver.
+      if (!relation || relation.status === 'rejected' || relation.status === 'cancelled') {
         throw new NotFoundError(`Driver ${driverId} not found`);
       }
       const driver = await this.driverRepository.findById(driverId, manager);

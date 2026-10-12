@@ -181,7 +181,7 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       'List invites this tenant sent to drivers (org_admin onboarding, or dispatch-added drivers ' +
         'after approval), newest `sentAt` first. `status` is derived: `pending` (awaiting the ' +
         'driver, not expired), `expired` (unanswered 7 days after the last send), `accepted`, ' +
-        '`rejected` (declined by the driver). `search` matches name, mobile or DL number. Items: ' +
+        '`rejected` (declined by the driver), `cancelled` (withdrawn by this organisation). `search` matches name, mobile or DL number. Items: ' +
         '{ invitationId, requestId (INV-00042), driverId, fullName, phoneNumber, status, sentAt, ' +
         'expiresAt, respondedAt, rejectionReason }.',
     ),
@@ -236,8 +236,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.cancelDriverInvitation',
     ...write(
-      'Cancel a pending invite. It disappears from this list and the driver app, and the driver ' +
-        'can be invited again.',
+      'Cancel a pending invite. The row stays in this list with status `cancelled`; it disappears ' +
+        'from the driver app (they can no longer accept or decline it), and the driver can no ' +
+        "longer request to join this organisation. Only this organisation's link changes.",
     ),
     request: { params: driverValidators.cancelInvitation.shape.params },
     responses: {

@@ -88,13 +88,17 @@ export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[numbe
  * `pending_staff_review` covers both a dispatch-added driver awaiting org_admin approval AND a
  * driver-initiated join request awaiting staff approval — `initiatedBy` disambiguates which,
  * but the approve/reject action is identical for both. `pending_driver_review` is a fleet-owner-
- * initiated invite awaiting the driver's acceptance.
+ * initiated invite awaiting the driver's acceptance. `cancelled` is such an invite the fleet owner
+ * withdrew: the row is kept (Invitations Sent shows it) and it blocks the driver from requesting to
+ * join this tenant — every status is per tenant+driver row, so the driver's other tenants are
+ * never affected.
  */
 export const DRIVER_TENANT_RELATION_STATUSES = [
   'pending_staff_review',
   'pending_driver_review',
   'active',
   'rejected',
+  'cancelled',
 ] as const;
 export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES)[number];
 
@@ -124,10 +128,24 @@ export const DRIVER_INVITE_TTL_DAYS = 7;
 /**
  * "Invitations Sent" display status — derived from a tenant-initiated relation, never stored:
  * pending = pending_driver_review & not yet expired, expired = pending_driver_review past
- * invite_expires_at, accepted = active, rejected = declined by the driver.
+ * invite_expires_at, accepted = active, rejected = declined by the driver, cancelled = withdrawn
+ * by the fleet owner.
  */
-export const DRIVER_INVITATION_STATUSES = ['pending', 'accepted', 'rejected', 'expired'] as const;
+export const DRIVER_INVITATION_STATUSES = [
+  'pending',
+  'accepted',
+  'rejected',
+  'expired',
+  'cancelled',
+] as const;
 export type DriverInvitationStatus = (typeof DRIVER_INVITATION_STATUSES)[number];
+
+/**
+ * Why an invitation reads `expired`: the 7-day window ran out, or the driver is no longer active
+ * on the platform (today: deleted their own account — see isDriverOffPlatform).
+ */
+export const DRIVER_INVITATION_EXPIRY_REASONS = ['invite_timeout', 'driver_inactive'] as const;
+export type DriverInvitationExpiryReason = (typeof DRIVER_INVITATION_EXPIRY_REASONS)[number];
 
 /**
  * Per-channel delivery state of an invite's latest send. `delivered`/`read` are reserved for
