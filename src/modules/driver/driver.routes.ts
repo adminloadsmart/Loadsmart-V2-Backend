@@ -73,6 +73,13 @@ export function createDriverRoutes(controller: DriverController): Router {
     validate(driverValidators.listInvitations),
     asyncHandler(controller.listInvitations),
   );
+  // "Invite by mobile number" on the Invitations tab.
+  router.post(
+    '/drivers/invitations',
+    canWrite,
+    validate(driverValidators.inviteDriverByPhone),
+    asyncHandler(controller.inviteDriverByPhone),
+  );
   router.get(
     '/drivers/invitations/:invitationId',
     validate(driverValidators.getInvitation),

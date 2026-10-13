@@ -172,6 +172,47 @@ export class DriverTenantRelationRepository {
     return relations.findOneBy({ tenantId, driverId, deletedAt: IsNull() });
   }
 
+  /**
+   * This tenant's newest row for the driver. A driver can hold several (older declined or
+   * cancelled ones plus the current one); findByTenantAndDriver above returns any of them.
+   */
+  findLatestByTenantAndDriver(
+    tenantId: string,
+    driverId: string,
+    manager?: EntityManager,
+  ): Promise<DriverTenantRelationEntity | null> {
+    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
+    return relations.findOne({
+      where: { tenantId, driverId, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Invites again on a row that's finished with — an expired, declined or cancelled invite — so
+   * the tenant keeps one row per driver rather than adding another (see findLatestByTenantAndDriver).
+   * Clears the previous answer; keeps the row's invite number.
+   */
+  async reinvite(
+    tenantId: string,
+    id: string,
+    data: Omit<CreateDriverTenantRelationData, 'tenantId' | 'driverId' | 'createdBy'>,
+    actorId: string,
+    manager?: EntityManager,
+  ): Promise<DriverTenantRelationEntity | null> {
+    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
+    const result = await relations.update(
+      {
+        id,
+        tenantId,
+        status: In(['pending_driver_review', 'rejected', 'cancelled']),
+        deletedAt: IsNull(),
+      },
+      { ...data, rejectionReason: null, updatedBy: actorId },
+    );
+    return result.affected === 1 ? relations.findOneBy({ id, tenantId }) : null;
+  }
+
   // Full staff-facing detail view: driver profile (with its person-level documents/verifications/
   // bank details) plus this tenant's operational status, trip metrics, and vehicle assignment.
   findByTenantAndDriverWithFullRelations(
@@ -421,7 +462,7 @@ export class DriverTenantRelationRepository {
     tenantId: string,
     filters: ListInvitationsInput,
   ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
-    const { status, search, page, limit } = filters;
+    const { status, phoneNumber, page, limit } = filters;
 
     const query = this.relations
       .createQueryBuilder('relation')
@@ -463,23 +504,10 @@ export class DriverTenantRelationRepository {
         }),
       );
 
-    if (search) {
-      // Same name / mobile / DL matching as list() above.
-      const patterns = driverSearchPatterns(search);
-      query.andWhere(
-        new Brackets((searchClause) => {
-          searchClause
-            .where('driver.fullName ILIKE :nameSearch', { nameSearch: patterns.name })
-            .orWhere('driver.licenseNumber ILIKE :licenseSearch', {
-              licenseSearch: patterns.license,
-            });
-          if (patterns.phone) {
-            searchClause.orWhere('driver.phoneNumber ILIKE :phoneSearch', {
-              phoneSearch: patterns.phone,
-            });
-          }
-        }),
-      );
+    // Mobile only — names aren't unique. Same digits normalisation as the roster's search.
+    const phonePattern = phoneNumber ? driverSearchPatterns(phoneNumber).phone : null;
+    if (phonePattern) {
+      query.andWhere('driver.phoneNumber ILIKE :phoneSearch', { phoneSearch: phonePattern });
     }
 
     const [items, total] = await query
