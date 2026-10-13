@@ -2,12 +2,14 @@ import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { IFSC_REGEX } from '../masters/masters.constants';
+import { DRIVING_LICENCE_REGEX } from './driver.constants';
 import {
   DRIVER_BANK_VERIFICATION_STATUSES,
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_ENGAGEMENT_TYPES,
+  DRIVER_INSURANCE_ANSWERS,
   DRIVER_INVITATION_STATUSES,
   DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_OPERATIONAL_STATUSES,
@@ -34,28 +36,34 @@ const driverBankDetailsParams = z.object({
 });
 
 /**
- * Licence numbers are typed as printed — "MH12 20190012345" — but formats vary too much across
- * states for a format regex, so normalise whitespace and case only. Without this the same licence
- * stores two ways and the tenant-unique index cannot catch the duplicate.
+ * Licence numbers are typed as printed — "MH-12 2019 0012345" — so strip spaces/hyphens and
+ * uppercase before checking the Sarathi format. Without the normalisation the same licence stores
+ * two ways and the tenant-unique index cannot catch the duplicate. Shared with the driver app's
+ * validators so both sides accept exactly the same numbers.
  */
-const licenseNumber = z
+export const licenseNumber = z
   .string()
   .trim()
-  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
-  .refine((value) => value.length >= 8 && value.length <= 30, 'Invalid driving licence number');
+  .transform((value) => value.replace(/[\s-]+/g, '').toUpperCase())
+  .refine((value) => DRIVING_LICENCE_REGEX.test(value), 'Invalid driving licence number');
 
-/** Shared by `createDriver` and the section-1 fields of `onboardDriver`. */
+/**
+ * Section-1 fields of `onboardDriver`. Mirrors what the driver app's own /register requires —
+ * licenseNumber + dateOfBirth mandatory — so a staff-created profile is a usable app account.
+ * fullName is optional: the server takes it from the Sarathi lookup and only needs this one when
+ * the lookup returns no name (see DriverService.onboardDriver).
+ */
 const driverCoreFields = {
-  fullName: z.string().min(1).max(150),
+  fullName: z.string().trim().min(1).max(150).optional(),
   phoneNumber: z
     .string()
     .trim()
     .transform((value) => value.replace(/[\s-]/g, ''))
     .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number'),
-  licenseNumber: licenseNumber.optional(),
+  licenseNumber,
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
-  dateOfBirth: isoDate.optional(),
+  dateOfBirth: isoDate,
   bloodGroup: z.enum(DRIVER_BLOOD_GROUPS).optional(),
   addressLine1: z.string().min(1).max(255).optional(),
   addressLine2: z.string().min(1).max(255).optional(),
@@ -84,6 +92,9 @@ const driverCoreFields = {
     .array(z.enum(DRIVER_LICENSE_ENDORSEMENTS))
     .transform((codes) => [...new Set(codes)])
     .optional(),
+  // Same yes | no | dont_know answers as the driver app's insurance screen.
+  hasHealthInsurance: z.enum(DRIVER_INSURANCE_ANSWERS).optional(),
+  hasLifeInsurance: z.enum(DRIVER_INSURANCE_ANSWERS).optional(),
 };
 
 /** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
@@ -232,7 +243,20 @@ export const driverValidators = {
   listJoinRequests: z.object({ query: pagination }),
 
   listInvitations: z.object({
-    query: pagination.extend({ status: z.enum(DRIVER_INVITATION_STATUSES).optional() }),
+    // Mobile number only — names aren't unique. Partial numbers match ("98720" finds every
+    // invite whose mobile contains it); spaces, hyphens and a leading + are ignored.
+    query: pagination.omit({ search: true }).extend({
+      status: z.enum(DRIVER_INVITATION_STATUSES).optional(),
+      phoneNumber: z
+        .string()
+        .trim()
+        .transform((value) => value.replace(/[\s+-]/g, ''))
+        .refine((value) => /^\d{3,15}$/.test(value), 'Expected 3-15 digits of a mobile number')
+        .optional(),
+    }),
+  }),
+  inviteDriverByPhone: z.object({
+    body: z.object({ phoneNumber: driverCoreFields.phoneNumber }),
   }),
   getInvitation: z.object({ params: invitationParams }),
   resendInvitation: z.object({ params: invitationParams }),

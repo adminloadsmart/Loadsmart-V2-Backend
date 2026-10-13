@@ -222,6 +222,16 @@ export class DriverController {
     respond(res, invitations);
   };
 
+  inviteDriverByPhone = async (req: Request, res: Response) => {
+    const result = await this.driverService.inviteDriverByPhone(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      req.body,
+    );
+    respond(res, result, 201);
+  };
+
   getInvitation = async (req: Request<InvitationParams>, res: Response) => {
     const invitation = await this.driverService.getInvitation(
       requireTenantId(req),

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../../shared/utils/date';
-import { bankAccountCheckBody } from '../driver.validators';
+import { bankAccountCheckBody, licenseNumber } from '../driver.validators';
 import {
   DRIVER_INSURANCE_ANSWERS,
   DRIVER_TENANT_RELATION_STATUSES,
@@ -32,12 +32,6 @@ const requireDeviceType = (
     });
   }
 };
-
-const licenseNumber = z
-  .string()
-  .trim()
-  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
-  .refine((value) => value.length >= 8 && value.length <= 30, 'Invalid driving licence number');
 
 const registerDocumentBody = z.object({
   documentType: z.enum(DRIVER_DOCUMENT_TYPES),
