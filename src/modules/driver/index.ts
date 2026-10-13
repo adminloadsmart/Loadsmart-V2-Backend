@@ -46,8 +46,9 @@ export function createDriverModule(
   const driverRepository = new DriverRepository(dataSource);
   const driverTenantRelationRepository = new DriverTenantRelationRepository(dataSource);
   const sarathiClient = new SarathiClient();
+  const driverSessionRepository = new DriverSessionRepository(dataSource);
   const driverPushNotifier = new DriverPushNotifier(
-    new DriverSessionRepository(dataSource),
+    driverSessionRepository,
     deps.notificationsService,
   );
   const idfyClient = new IdfyClient();
@@ -64,6 +65,8 @@ export function createDriverModule(
     // Detail screen's trip stats + live active-load check — read straight off loads, since the
     // loads module (and its LoadService) is built after this one in composition-root.ts.
     new DriverAnalyticsRepository(dataSource),
+    // Roster/detail "app installed" icon — read straight off driver_sessions.
+    driverSessionRepository,
   );
   const driverController = new DriverController(driverService);
 

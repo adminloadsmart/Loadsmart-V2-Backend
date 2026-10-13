@@ -236,7 +236,8 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
         'registration form. Read-only: does not persist anything, and does not require ' +
         'licenseNumber/dateOfBirth to match what the driver eventually submits to /register, ' +
         'which runs this same lookup again (and is the one whose result actually gets saved as a ' +
-        'driver_verifications row).',
+        'driver_verifications row). Returns the same shape as the masters endpoint, including ' +
+        '`transportClass` and `age`.',
     ),
     request: { body: json(driverAuthValidators.verifyDl.shape.body) },
     responses: {

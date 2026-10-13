@@ -30,8 +30,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'left_company, licence_expired, hazmat_endorsed, not_verified); every segment but ' +
         'left_company excludes drivers who left, and on_trip/available use the live active-load ' +
         'check. Each row adds `licence`, `contact`, `assignment`, `availability`, `performance` ' +
-        'and `behaviour`, shaped as on GET /drivers/{driverId} (driverScore and behaviour are ' +
-        'null until backed by data). not_available = on_leave or medically_unfit; ' +
+        'and `behaviour`, plus `appInstalled`/`appLastSeenAt`, shaped as on GET ' +
+        '/drivers/{driverId} (driverScore and behaviour are null until backed by data). ' +
+        'not_available = on_leave or medically_unfit; ' +
         "hazmat_endorsed = 'hazmat' in licenseEndorsements.",
     ),
     request: { query: driverValidators.listDrivers.shape.query },
@@ -57,8 +58,12 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'emergencyContact, engagementType, dateOfJoining, tenureYears, advanceOutstanding, ' +
         'compensation { salaryType, salaryAmount, bhattaPerDay } }, `assignment` { vehicle, ' +
         'homeBase }, `availability` { operationalStatus, activeLoad, dispatchable }, ' +
-        '`performance` { totalTrips, onTimePercentage, driverScore }, `knownLanes`, `behaviour`, ' +
-        '`slaBreachTrips`. Not yet backed by data, so always null/[] for now: driverScore, ' +
+        '`performance` { totalTrips, onTimePercentage, driverScore, scoreStatus }, `knownLanes`, ' +
+        '`behaviour`, `slaBreachTrips`. `scoreStatus` (new | strong | watch) is the score badge — ' +
+        '`new` until the driver has 5 trips and a score, so a just-added driver is neutral. ' +
+        '`appInstalled` is true once the driver has ever logged into the driver app (any session, ' +
+        'revoked or expired included — uninstalls are not detectable); `appLastSeenAt` is their ' +
+        'latest app activity, null if never. Not yet backed by data, so always null/[] for now: driverScore, ' +
         'knownLanes ' +
         '({ from, to, laneType, distanceKm }[]), behaviour ({ event, per1000Km, ' +
         'fleetComparison }[]), slaBreachTrips ({ loadId, code, status, from, to, date, ' +
@@ -181,14 +186,43 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       'List invites this tenant sent to drivers (org_admin onboarding, or dispatch-added drivers ' +
         'after approval), newest `sentAt` first. `status` is derived: `pending` (awaiting the ' +
         'driver, not expired), `expired` (unanswered 7 days after the last send), `accepted`, ' +
-        '`rejected` (declined by the driver), `cancelled` (withdrawn by this organisation). `search` matches name, mobile or DL number. Items: ' +
-        '{ invitationId, requestId (INV-00042), driverId, fullName, phoneNumber, status, sentAt, ' +
-        'expiresAt, respondedAt, rejectionReason }.',
+        '`rejected` (declined by the driver), `cancelled` (withdrawn by this organisation). ' +
+        '`phoneNumber` searches by mobile only (names are not unique) — partial digits match, ' +
+        'spaces/hyphens/+ ignored. Items: { invitationId, requestId (INV-00042), driverId, ' +
+        'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
+        'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled }.',
     ),
     request: { query: driverValidators.listInvitations.shape.query },
     responses: {
       200: {
         description: 'Paginated invitations — { data: { items, page, limit, total, totalPages } }',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/invitations`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.inviteDriverByPhone',
+    ...write(
+      'Invite a driver by mobile number from the Invitations tab. Reuses the driver profile on ' +
+        'that number, or creates a phone-only "Pending driver" profile when the number has no ' +
+        'Loadsmart account yet — when its owner installs the driver app and registers with it, ' +
+        'the invite is waiting for them. A previous expired, declined or cancelled invite is ' +
+        "re-sent on its own row. org_admin's invite goes out immediately (`invitation` set); " +
+        "dispatch's waits for org_admin approval (`awaitingApproval: true`, `invitation: null`) " +
+        'and is sent by PATCH /drivers/{driverId}/approve. Delivery is push today; WhatsApp is ' +
+        'added once the notification templates are merged.',
+    ),
+    request: { body: json(driverValidators.inviteDriverByPhone.shape.body) },
+    responses: {
+      201: { description: '{ driverId, invitationId, awaitingApproval, invitation }' },
+      400: { description: 'Validation failed', ...errorContent },
+      409: {
+        description:
+          'Driver already in your fleet, already awaiting approval, or an invite is already pending',
+        ...errorContent,
       },
     },
   });
@@ -400,12 +434,19 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'falls back to verified (without registry fields) — whether IDFY_API_KEY/IDFY_ACCOUNT_ID/' +
         'IDFY_TASK_ID/IDFY_GROUP_ID are unset, the call fails, or IDfy completes the task but ' +
         'reports no match. Revert to manual_review on those paths once IDfy credits are restored. ' +
-        '`validUntil` is the transport validity when the licence has one, else the non-transport ' +
-        'validity.',
+        '`licenseNumber` must be the standard 15-character DL format (e.g. MH1220190012345); ' +
+        'spaces and hyphens are stripped first. `validUntil` is the transport validity when the ' +
+        'licence has one, else the non-transport validity. `transportClass` lists only the ' +
+        'transport classes. `age` is computed from `dateOfBirth`, so it is present even when the ' +
+        'registry returned nothing.',
     ),
     request: { body: json(driverValidators.verifyDriverDl.shape.body) },
     responses: {
-      200: { description: 'verified (with registry fields when available)' },
+      200: {
+        description:
+          '{ status, holderName?, licenseClass?, transportClass?, validUntil?, licenseStatus?, ' +
+          'age, addressLine1?, city?, rawResponse? } — registry fields only when available',
+      },
       400: { description: 'Validation failed', ...errorContent },
     },
   });
@@ -437,7 +478,15 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.onboardDriver',
     ...write(
       'Create a driver and every section of the "Add a driver" form in one transaction: Sarathi ' +
-        'verification, licence photos, bank details and operational status. The vehicle link stays ' +
+        'verification, licence photos, bank details and operational status. `licenseNumber` and ' +
+        '`dateOfBirth` are required — the server re-runs the Sarathi lookup itself and records ' +
+        'that result; a client `verification` is only used when the lookup comes back ' +
+        'manual_review. `fullName` is taken from the lookup and is required only when the lookup ' +
+        'returns no holder name (400 otherwise). With both driving_license_front and ' +
+        "driving_license_back in `documents`, the new profile's onboardingStep is set to " +
+        '`completed`, so the driver app skips its registration wizard. Also takes the emergency ' +
+        'contact (`emergencyContactName`, `emergencyContactPhone`, `emergencyContactRelation`) and ' +
+        '`hasHealthInsurance`/`hasLifeInsurance` (yes | no | dont_know). The vehicle link stays ' +
         "a separate call. Only org_admin and dispatch may call this at all — org_admin's driver " +
         "is created `active` immediately; dispatch's is created `pending` until an org_admin " +
         'approves or rejects it via PATCH .../approve|reject. Also takes `emergencyContactRelation`, ' +
@@ -447,7 +496,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     request: { body: json(driverValidators.onboardDriver.shape.body) },
     responses: {
       201: { description: 'Created driver, with relations loaded' },
-      400: { description: 'Validation failed', ...errorContent },
+      400: {
+        description: 'Validation failed, or no fullName when the lookup returned no name',
+        ...errorContent,
+      },
       409: { description: 'Phone number already in use', ...errorContent },
     },
   });

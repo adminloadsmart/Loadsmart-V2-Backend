@@ -28,12 +28,14 @@ import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.en
 /* Service-layer inputs — shapes accepted from the controller. */
 
 export interface CreateDriverInput {
-  fullName: string;
+  // Optional — onboardDriver fills it from the Sarathi lookup; required only to create a new
+  // profile when the lookup returned no name.
+  fullName?: string;
   phoneNumber: string;
-  licenseNumber?: string;
+  licenseNumber: string;
   licenseExpiry?: string;
   dateOfJoining?: string;
-  dateOfBirth?: string;
+  dateOfBirth: string;
   bloodGroup?: DriverBloodGroup;
   addressLine1?: string;
   addressLine2?: string;
@@ -49,6 +51,11 @@ export interface CreateDriverInput {
   advanceOutstanding?: number;
   homeBase?: string;
   licenseEndorsements?: DriverLicenseEndorsement[];
+  hasHealthInsurance?: DriverInsuranceAnswer;
+  hasLifeInsurance?: DriverInsuranceAnswer;
+  // Set by onboardDriver itself (never from the request body) — `completed` once the form carries
+  // everything the driver app's registration needs, so the app skips its wizard.
+  onboardingStep?: DriverOnboardingStep;
 }
 
 export interface UpdateDriverInput {
@@ -93,7 +100,31 @@ export type DriverRosterCounts = Record<DriverRosterSegment, number> & {
 /** "Invitations Sent" list — tenant-initiated invites, optionally narrowed to one display status. */
 export interface ListInvitationsInput extends PaginationInput {
   status?: DriverInvitationStatus;
-  search?: string;
+  /** Digits only, partial allowed — names aren't unique, so the tab searches by mobile alone. */
+  phoneNumber?: string;
+}
+
+/** POST /drivers/invitations — the Invitations tab's "Invite by mobile number". */
+export interface InviteDriverByPhoneInput {
+  phoneNumber: string;
+}
+
+/**
+ * Result of an invite by mobile number. org_admin's invite goes straight out (`invitation` set);
+ * dispatch's waits for an org_admin to approve it (`awaitingApproval`, `invitation` null — it
+ * joins Invitations Sent once approveDriver sends it).
+ */
+export interface InviteDriverByPhoneResult {
+  driverId: string;
+  invitationId: string;
+  awaitingApproval: boolean;
+  invitation: DriverInvitationView | null;
+}
+
+export interface DriverInvitationDeliveryChannel {
+  channel: 'sms' | 'whatsapp' | 'push';
+  status: DriverInviteDeliveryStatus | null;
+  statusAt: Date | null;
 }
 
 /** One row of the "Invitations Sent" table. */
@@ -111,6 +142,11 @@ export interface DriverInvitationView {
   expiresAt: Date | null;
   respondedAt: Date | null;
   rejectionReason: string | null;
+  /** How the latest send went out, per channel. */
+  deliveryChannels: DriverInvitationDeliveryChannel[];
+  /** Whether the driver has ever logged into the driver app — false for a number invited before
+   *  its owner installed it. */
+  appInstalled: boolean;
 }
 
 /** Invitation detail drawer — the list row plus credentials, timeline and delivery channels. */
@@ -122,11 +158,6 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
     registry: DriverRegistryCheck | null;
   };
   timeline: DriverInvitationTimelineStep[];
-  deliveryChannels: {
-    channel: 'sms' | 'whatsapp' | 'push';
-    status: DriverInviteDeliveryStatus | null;
-    statusAt: Date | null;
-  }[];
 }
 
 /**
@@ -233,7 +264,12 @@ export interface DriverPerformanceSection {
   onTimePercentage: number | null;
   /** No scoring model exists yet. */
   driverScore: null;
+  /** The score badge to show. `new` until the driver has MIN_SCORED_TRIPS trips and a score — a
+   *  freshly added driver is neutral, never `watch`. */
+  scoreStatus: DriverScoreStatus;
 }
+
+export type DriverScoreStatus = 'new' | 'strong' | 'watch';
 
 /**
  * Driver detail screen sections — added on top of the flattened driver by GET /drivers/{id} so
@@ -246,6 +282,11 @@ export interface DriverDetailSections {
   assignment: DriverAssignmentSection;
   availability: DriverAvailabilitySection;
   performance: DriverPerformanceSection;
+  /** Whether the driver has ever logged into the driver app (any driver_sessions row, revoked or
+   *  expired included) — the roster's phone icon. Uninstalls can't be detected server-side. */
+  appInstalled: boolean;
+  /** Latest app activity across all of the driver's sessions; null if never logged in. */
+  appLastSeenAt: Date | null;
   /** Future shape: `{ from, to, laneType, distanceKm }[]` — no lane/distance data yet. */
   knownLanes: never[];
   /** Future shape: `{ event: 'over_speeding' | 'harsh_braking' | 'harsh_acceleration' |
@@ -293,7 +334,14 @@ export type DriverDetailView = DriverWithRelation & DriverDetailSections;
 export type DriverRosterRow = DriverWithRelation &
   Pick<
     DriverDetailSections,
-    'licence' | 'contact' | 'assignment' | 'availability' | 'performance' | 'behaviour'
+    | 'licence'
+    | 'contact'
+    | 'assignment'
+    | 'availability'
+    | 'performance'
+    | 'behaviour'
+    | 'appInstalled'
+    | 'appLastSeenAt'
   >;
 
 /** GET /drivers — the paginated roster plus every tab's badge count. */
@@ -569,7 +617,7 @@ export interface UpdateDriverTripMetricsData {
  * The vehicle link is deliberately not here: it spans the vehicle aggregate and is owned by
  * FleetDriverLinkService, so it stays a separate `POST /vehicles/:vehicleId/drivers` call.
  */
-export interface OnboardDriverInput extends CreateDriverInput {
+export interface OnboardDriverInput extends Omit<CreateDriverInput, 'onboardingStep'> {
   verification?: RecordVerificationInput;
   bankDetails?: AddBankDetailsInput;
   documents?: AddDriverDocumentInput[];
