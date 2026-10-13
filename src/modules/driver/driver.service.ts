@@ -11,7 +11,7 @@ import { DriverOperationalStatusEntity } from './entities/driver-operational-sta
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
 import { LoadEntity } from '../loads/entities/load.entity';
-import { DriverBankVerificationStatus } from './drivers.types';
+import { DriverBankVerificationStatus, DriverScoreStatus } from './drivers.types';
 import { DriverRepository } from './driver.repository';
 import {
   DriverTenantRelationRepository,
@@ -49,7 +49,6 @@ import {
   OnboardDriverInput,
   RecordDriverTripMetricsInput,
   RecordVerificationInput,
-  DriverScoreStatus,
   SetDriverOperationalStatusInput,
   UpdateDriverInput,
   CreateDriverTenantRelationData,

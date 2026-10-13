@@ -1,8 +1,10 @@
 import {
+  And,
   ArrayContains,
   Brackets,
   DataSource,
   EntityManager,
+  FindOperator,
   FindOptionsWhere,
   ILike,
   In,
@@ -10,6 +12,7 @@ import {
   LessThan,
   MoreThan,
   Not,
+  Raw,
   Repository,
 } from 'typeorm';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
@@ -27,6 +30,8 @@ import {
 import {
   DRIVER_INVITE_TTL_DAYS,
   DRIVER_ROSTER_SEGMENTS,
+  DriverLicenceValidityFilter,
+  DriverRosterEmploymentFilter,
   DriverRosterSegment,
 } from './drivers.types';
 
@@ -128,6 +133,73 @@ function segmentConditions(
     case 'hazmat_endorsed':
       return { ...notLeft, driver: { licenseEndorsements: ArrayContains(['hazmat']) } };
   }
+}
+
+/** SQL per employment option, on the driver alias `d` — a vendor's driver is only ever `vendor`. */
+const EMPLOYMENT_SQL: Record<DriverRosterEmploymentFilter, string> = {
+  fixed: "(d.salary_type = 'fixed' AND d.engagement_type IS DISTINCT FROM 'vendor')",
+  per_trip: "(d.salary_type = 'per_trip' AND d.engagement_type IS DISTINCT FROM 'vendor')",
+  per_km: "(d.salary_type = 'per_km' AND d.engagement_type IS DISTINCT FROM 'vendor')",
+  vendor: "d.engagement_type = 'vendor'",
+};
+
+/** Same thresholds as the roster's licence-validity label: past / 0-30 days left / beyond. */
+const LICENCE_VALIDITY_SQL: Record<DriverLicenceValidityFilter, string> = {
+  expired: 'd.license_expiry < CURRENT_DATE',
+  expiring: "d.license_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'",
+  valid: "d.license_expiry > CURRENT_DATE + INTERVAL '30 days'",
+};
+
+/**
+ * The roster filter panel as one condition on the relation's driverId, or null when no filter is
+ * set. Every filter reads the driver profile (or its sessions / latest Sarathi check), so they
+ * combine into a single `driver_id IN (SELECT ...)` — which also keeps them on every OR'd search
+ * branch and every tab count. SQL fragments come only from the fixed maps above, never from the
+ * request; the class list (validated against DRIVER_LICENCE_CLASS_FILTERS) is a bound parameter.
+ */
+function rosterFilterCondition(filters: ListDriversFilters) {
+  const { employmentType, licenceValidity, licenceClass, hazmatEndorsed, scoreStatus } = filters;
+  const conditions: string[] = [];
+  const params: Record<string, unknown> = {};
+
+  if (employmentType?.length) {
+    conditions.push(`(${employmentType.map((option) => EMPLOYMENT_SQL[option]).join(' OR ')})`);
+  }
+  if (licenceValidity?.length) {
+    conditions.push(
+      `(${licenceValidity.map((option) => LICENCE_VALIDITY_SQL[option]).join(' OR ')})`,
+    );
+  }
+  if (licenceClass?.length) {
+    // Latest check that recorded a class, as the roster's class column shows it. Classes are a
+    // comma-separated list ("MCWG, LMV, HGMV"), so match whole codes, not substrings.
+    conditions.push(
+      `(SELECT v.license_class FROM masters.driver_verifications v
+         WHERE v.driver_id = d.id AND v.license_class IS NOT NULL AND v.deleted_at IS NULL
+         ORDER BY v.created_at DESC LIMIT 1) ~* :rosterLicenceClassPattern`,
+    );
+    params.rosterLicenceClassPattern = `(^|[^A-Z])(${licenceClass.join('|')})([^A-Z]|$)`;
+  }
+  if (hazmatEndorsed !== undefined) {
+    conditions.push(`${hazmatEndorsed ? '' : 'NOT '}('hazmat' = ANY(d.license_endorsements))`);
+  }
+  if (scoreStatus?.length && !scoreStatus.includes('new')) {
+    // No scoring model exists yet, so every driver reads `new` (DriverService's toScoreStatus) —
+    // strong/watch alone match nobody. Turn this into a real score condition once scores exist.
+    conditions.push('FALSE');
+  }
+  if (filters.appInstalled !== undefined) {
+    // "Installed" = has ever logged into the driver app — same rule as the roster's phone icon.
+    conditions.push(
+      `${filters.appInstalled ? '' : 'NOT '}EXISTS (SELECT 1 FROM masters.driver_sessions s WHERE s.driver_id = d.id)`,
+    );
+  }
+
+  if (!conditions.length) return null;
+  return Raw(
+    (alias) => `${alias} IN (SELECT d.id FROM masters.drivers d WHERE ${conditions.join(' AND ')})`,
+    params,
+  );
 }
 
 export class DriverTenantRelationRepository {
@@ -341,6 +413,13 @@ export class DriverTenantRelationRepository {
     // Applied last so a segment's own conditions (notably status: 'active') win over the
     // caller's `status` filter.
     Object.assign(base, segmentWhere);
+    // The filter panel narrows on driverId too; on_trip/available segments may already have.
+    const rosterFilter = rosterFilterCondition(filters);
+    if (rosterFilter) {
+      base.driverId = base.driverId
+        ? And(base.driverId as FindOperator<string>, rosterFilter)
+        : rosterFilter;
+    }
     if (!search) return [base];
 
     // Search spans three columns on the driver profile (name / mobile / DL number), so it becomes

@@ -10,6 +10,10 @@ import {
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_ENGAGEMENT_TYPES,
   DRIVER_INSURANCE_ANSWERS,
+  DRIVER_LICENCE_CLASS_FILTERS,
+  DRIVER_LICENCE_VALIDITY_FILTERS,
+  DRIVER_ROSTER_EMPLOYMENT_FILTERS,
+  DRIVER_SCORE_STATUSES,
   DRIVER_INVITATION_STATUSES,
   DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_OPERATIONAL_STATUSES,
@@ -22,6 +26,26 @@ import {
 } from './drivers.types';
 
 const uuid = z.string().uuid();
+
+/** "a,b,c" → ['a', 'b', 'c'], each checked against `values` and de-duplicated. */
+const csvList = <T extends readonly [string, ...string[]]>(
+  values: T,
+  normalise: (value: string) => string = (value) => value,
+) =>
+  z
+    .string()
+    .transform((raw) => [
+      ...new Set(
+        raw
+          .split(',')
+          .map((part) => normalise(part.trim()))
+          .filter(Boolean),
+      ),
+    ])
+    .pipe(z.array(z.enum(values)).min(1));
+
+/** Query-string yes/no: "true" | "false" → boolean. */
+const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
 
@@ -186,7 +210,17 @@ export const driverValidators = {
     }),
   }),
   listDrivers: z.object({
+    // Filter panel lists arrive as one comma-separated string each ("fixed,vendor"); yes/no keys
+    // as "true"/"false". A key is simply absent when nothing in its section is ticked.
     query: pagination.extend({
+      employmentType: csvList(DRIVER_ROSTER_EMPLOYMENT_FILTERS).optional(),
+      licenceValidity: csvList(DRIVER_LICENCE_VALIDITY_FILTERS).optional(),
+      licenceClass: csvList(DRIVER_LICENCE_CLASS_FILTERS, (value) =>
+        value.toUpperCase(),
+      ).optional(),
+      hazmatEndorsed: booleanString.optional(),
+      scoreStatus: csvList(DRIVER_SCORE_STATUSES).optional(),
+      appInstalled: booleanString.optional(),
       status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
       // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
       initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),

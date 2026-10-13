@@ -110,6 +110,28 @@ export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES
  * latter. `not_available` = on_leave or medically_unfit; `hazmat_endorsed` = 'hazmat' in
  * drivers.license_endorsements.
  */
+/**
+ * Roster filter panel (GET /drivers), each sent as a comma-separated list. "Employment":
+ * `fixed`/`per_trip`/`per_km` are how a company driver is paid (drivers.salary_type) and `vendor`
+ * is a vendor's driver (engagement_type), so a vendor's driver only ever matches `vendor` — the
+ * same split the roster's Pay column shows.
+ */
+export const DRIVER_ROSTER_EMPLOYMENT_FILTERS = ['fixed', 'per_trip', 'per_km', 'vendor'] as const;
+export type DriverRosterEmploymentFilter = (typeof DRIVER_ROSTER_EMPLOYMENT_FILTERS)[number];
+
+/** `expiring` = 0-30 days left, `valid` = more than 30, `expired` = past — the roster's own
+ *  licence-validity labels. A driver with no expiry on file matches none of them. */
+export const DRIVER_LICENCE_VALIDITY_FILTERS = ['valid', 'expiring', 'expired'] as const;
+export type DriverLicenceValidityFilter = (typeof DRIVER_LICENCE_VALIDITY_FILTERS)[number];
+
+/** Classes of vehicle the filter panel offers, matched against the latest Sarathi check. */
+export const DRIVER_LICENCE_CLASS_FILTERS = ['HTV', 'HMV', 'HGMV'] as const;
+export type DriverLicenceClassFilter = (typeof DRIVER_LICENCE_CLASS_FILTERS)[number];
+
+/** Score badge — `new` until MIN_SCORED_TRIPS trips and a score (see driver.service.ts). */
+export const DRIVER_SCORE_STATUSES = ['new', 'strong', 'watch'] as const;
+export type DriverScoreStatus = (typeof DRIVER_SCORE_STATUSES)[number];
+
 export const DRIVER_ROSTER_SEGMENTS = [
   'all',
   'on_trip',

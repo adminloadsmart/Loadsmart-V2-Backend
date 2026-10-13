@@ -18,6 +18,10 @@ import {
   DriverInviteDeliveryStatus,
   DriverLicenseEndorsement,
   DriverRosterSegment,
+  DriverRosterEmploymentFilter,
+  DriverLicenceValidityFilter,
+  DriverLicenceClassFilter,
+  DriverScoreStatus,
 } from './drivers.types';
 import { Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { DriverEntity } from './entities/driver.entity';
@@ -89,6 +93,13 @@ export interface ListDriversInput extends PaginationInput {
   /** "Active Roster" tab — see DRIVER_ROSTER_SEGMENTS. Omitted = no segment narrowing. */
   segment?: DriverRosterSegment;
   search?: string;
+  // Roster filter panel — every option ticked within a list is OR'd; the lists themselves AND.
+  employmentType?: DriverRosterEmploymentFilter[];
+  licenceValidity?: DriverLicenceValidityFilter[];
+  licenceClass?: DriverLicenceClassFilter[];
+  hazmatEndorsed?: boolean;
+  scoreStatus?: DriverScoreStatus[];
+  appInstalled?: boolean;
 }
 
 /** Tab-bar badge counts — each under the same status/initiatedBy/search filters as the list. */
@@ -268,8 +279,6 @@ export interface DriverPerformanceSection {
    *  freshly added driver is neutral, never `watch`. */
   scoreStatus: DriverScoreStatus;
 }
-
-export type DriverScoreStatus = 'new' | 'strong' | 'watch';
 
 /**
  * Driver detail screen sections — added on top of the flattened driver by GET /drivers/{id} so
@@ -511,6 +520,13 @@ export interface ListDriversFilters {
   operationalStatus?: DriverOperationalStatus;
   segment?: DriverRosterSegment;
   search?: string;
+  // Roster filter panel — every option ticked within a list is OR'd; the lists themselves AND.
+  employmentType?: DriverRosterEmploymentFilter[];
+  licenceValidity?: DriverLicenceValidityFilter[];
+  licenceClass?: DriverLicenceClassFilter[];
+  hazmatEndorsed?: boolean;
+  scoreStatus?: DriverScoreStatus[];
+  appInstalled?: boolean;
   page: number;
   limit: number;
 }
