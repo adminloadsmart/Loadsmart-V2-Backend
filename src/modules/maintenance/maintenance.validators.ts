@@ -106,6 +106,8 @@ export const maintenanceValidators = {
         startDate: isoDate.optional(),
         serviceDate: isoDate.optional(),
         ...costFields,
+        // A service log needs its bill on file.
+        invoiceFileKey,
       })
       .strict(),
   }),
@@ -135,10 +137,21 @@ export const maintenanceValidators = {
     body: z
       .object({
         closedAt: isoDateTime.optional(),
+        /** The date picker's End date, YYYY-MM-DD — use instead of closedAt. */
+        endDate: isoDate.optional(),
+        /** The date picker's Start date, YYYY-MM-DD — when the work began. */
+        startDate: isoDate.optional(),
+        serviceType: z.enum(SERVICE_TYPES).optional(),
         odometerKm: odometerKm.optional(),
+        workshopName: optionalText(150),
         description: optionalText(2000),
+        ...costFields,
       })
       .strict()
+      .refine((body) => !(body.closedAt && body.endDate), {
+        message: 'Send either closedAt or endDate, not both',
+        path: ['endDate'],
+      })
       .default({}),
   }),
 
@@ -168,6 +181,7 @@ export const maintenanceValidators = {
         workshopName: optionalText(150),
         description: optionalText(2000),
         ...costFields,
+        invoiceFileKey,
       })
       .strict(),
   }),

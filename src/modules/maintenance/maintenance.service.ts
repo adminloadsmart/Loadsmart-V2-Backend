@@ -155,7 +155,9 @@ export class MaintenanceService {
           });
           return { vehicle, usage, intervalKm, intervalMonths, due };
         })
-        .filter((row) => row.due.isDue)
+        // A truck in the workshop is off the list — its visit is the service in progress. It comes
+        // back only if it is released without a service and is still over policy.
+        .filter((row) => row.due.isDue && !state.openJobByVehicle.has(row.vehicle.id))
         .sort((a, b) => b.due.overdueRatio - a.due.overdueRatio)
         .map(({ vehicle, usage, intervalKm, intervalMonths, due }) => ({
           vehicle: toVehicleSummary(vehicle),
@@ -176,9 +178,6 @@ export class MaintenanceService {
           },
           // Service due alone never blocks dispatch — only being in the workshop does.
           dispatchEffect: state.dispatchEffect(vehicle.id),
-          // Already in — the row stays until the service is logged (so the headline still
-          // matches the queue), but the screen shows "in workshop since …".
-          inWorkshop: workshopVisit(state.openJobByVehicle.get(vehicle.id)),
         }));
 
       return pageOfQueue(items, pageInput);
@@ -487,12 +486,14 @@ export class MaintenanceService {
   }
 
   /**
-   * Release from the workshop — finishes an open visit without a service: the service clock is
-   * untouched and the truck returns to dispatch.
+   * Release from the workshop — finishes an open visit and returns the truck to dispatch.
+   *  - With service details (serviceType, garage, cost, invoice, parts): the service is logged
+   *    against the visit, the same outcome as complete / Log a service.
+   *  - Without: a bare release — the service clock is untouched.
    */
   async releaseFromWorkshop(
     tenantId: string,
-    actorId: string,
+    actor: Actor,
     jobId: string,
     input: ReleaseFromWorkshopInput,
     canSeeCosts: boolean,
@@ -501,17 +502,78 @@ export class MaintenanceService {
       const job = await this.jobRepository.findById(tenantId, jobId);
       if (!job) throw new NotFoundError(`Workshop visit ${jobId} not found`);
       if (job.status !== 'open') throw new ConflictError('This visit is already closed');
-      const closedAt = this.resolveClosedAt(job, input.closedAt);
+      await this.assertInvoice(tenantId, actor, input);
+      // A start date re-dates when the work began (the visit may have been checked in late).
+      if (input.startDate && input.endDate && input.startDate > input.endDate) {
+        throw new ValidationError('startDate must be on or before endDate');
+      }
+      const startedAt = input.startDate
+        ? this.resolveDate(input.startDate, 'startDate')
+        : undefined;
+      const openedAt = startedAt && startedAt < new Date() ? startedAt : job.openedAt;
+      // An end date closes at the start of that IST day — or when the work began, when that is
+      // the same day.
+      const closedAt = input.endDate
+        ? new Date(
+            Math.max(this.resolveDate(input.endDate, 'endDate').getTime(), openedAt.getTime()),
+          )
+        : this.resolveClosedAt(job, input.closedAt);
+      if (closedAt < openedAt) {
+        throw new ValidationError('The close time must be on or after the start date');
+      }
+      if (closedAt > new Date()) {
+        throw new ValidationError('The close time cannot be in the future');
+      }
+
+      const {
+        serviceType,
+        workshopName,
+        odometerKm: enteredOdometerKm,
+        description,
+        invoiceFileKey,
+        ...costInput
+      } = input;
+      const logsService =
+        serviceType !== undefined ||
+        workshopName !== undefined ||
+        invoiceFileKey !== undefined ||
+        Object.values({
+          ...costInput,
+          closedAt: undefined,
+          endDate: undefined,
+          startDate: undefined,
+        }).some((value) => value !== undefined);
+      const resolvedType = logsService
+        ? (serviceType ??
+          (job.jobType === 'service' ? job.serviceType : null) ??
+          'preventive_service')
+        : null;
+      if (logsService && !invoiceFileKey) {
+        throw new ValidationError('invoiceFileKey is required to log a service');
+      }
+      // No reading entered: a clock-type service is stamped with the truck's last recorded
+      // odometer, so it still leaves Service Due. With none recorded the clock can't move.
+      let odometerKm = enteredOdometerKm;
+      if (odometerKm === undefined && resolvedType && SERVICE_CLOCK_TYPES.includes(resolvedType)) {
+        const vehicle = await this.fleetRepository.findVehicle(tenantId, job.vehicleId);
+        odometerKm = vehicle?.serviceUsage?.odometerKm ?? undefined;
+      }
 
       const released = await this.dataSource.transaction(async (manager) => {
         await this.finishVisit(
           manager,
           tenantId,
-          actorId,
+          actor.id,
           job,
-          { serviceType: null },
-          { closedAt, odometerKm: input.odometerKm, description: input.description },
-          'MAINTENANCE_WORKSHOP_RELEASED',
+          { serviceType: resolvedType },
+          {
+            closedAt,
+            ...(input.startDate ? { openedAt } : {}),
+            odometerKm,
+            description,
+            ...(logsService ? { workshopName, invoiceFileKey, costs: input } : {}),
+          },
+          logsService ? 'MAINTENANCE_SERVICE_COMPLETED' : 'MAINTENANCE_WORKSHOP_RELEASED',
         );
         return this.jobRepository.findById(tenantId, jobId, manager);
       });
@@ -532,7 +594,7 @@ export class MaintenanceService {
    */
   async setWorkshopStatus(
     tenantId: string,
-    actorId: string,
+    actor: Actor,
     vehicleId: string,
     status: WorkshopStatus,
     canSeeCosts: boolean,
@@ -543,7 +605,7 @@ export class MaintenanceService {
 
       if (status === 'available') {
         const visit = open
-          ? await this.releaseFromWorkshop(tenantId, actorId, open.id, {}, canSeeCosts)
+          ? await this.releaseFromWorkshop(tenantId, actor, open.id, {}, canSeeCosts)
           : null;
         return { vehicleId: vehicle.id, status, visit };
       }
@@ -556,7 +618,7 @@ export class MaintenanceService {
       try {
         const visit = await this.checkInService(
           tenantId,
-          actorId,
+          actor.id,
           { vehicleId: vehicle.id },
           canSeeCosts,
         );
@@ -789,7 +851,7 @@ export class MaintenanceService {
 
   /* ---------------------------------------------------------------- job history */
 
-  async listJobs(tenantId: string, input: ListJobsInput, canSeeCosts: boolean) {
+  async listJobs(tenantId: string, input: ListJobsInput, canSeeCosts: boolean, actorRole: string) {
     try {
       const range = this.resolvePeriod(input);
       const [jobs, total] = await this.jobRepository.list(tenantId, {
@@ -803,7 +865,11 @@ export class MaintenanceService {
       return {
         period: { from: range.from, to: range.to },
         ...paginate(
-          jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          await this.withInvoiceUrls(
+            tenantId,
+            actorRole,
+            jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          ),
           total,
           input,
         ),
@@ -819,6 +885,7 @@ export class MaintenanceService {
     vehicleId: string,
     input: ListVehicleJobsInput,
     canSeeCosts: boolean,
+    actorRole: string,
   ) {
     try {
       const vehicle = await this.findOwnFleetVehicle(tenantId, vehicleId);
@@ -831,7 +898,11 @@ export class MaintenanceService {
       return {
         vehicle: toVehicleSummary(vehicle),
         ...paginate(
-          jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          await this.withInvoiceUrls(
+            tenantId,
+            actorRole,
+            jobs.map((job) => toJobView(job, canSeeCosts, now)),
+          ),
           total,
           input,
         ),
@@ -842,6 +913,29 @@ export class MaintenanceService {
   }
 
   /* -------------------------------------------------------------------- helpers */
+
+  /**
+   * Adds `invoiceUrl` — a fresh signed download link — next to each view's `invoiceFileKey`.
+   * Views from a seat without cost access carry no key, so they get no URL either.
+   */
+  private async withInvoiceUrls<T extends object>(
+    tenantId: string,
+    actorRole: string,
+    views: T[],
+  ): Promise<Array<T & { invoiceUrl?: string | null }>> {
+    return Promise.all(
+      views.map(async (view) => {
+        const key = (view as { invoiceFileKey?: string | null }).invoiceFileKey;
+        if (!key) return view;
+        const invoiceUrl = await this.storageGateway.getInvoiceDownloadUrl(
+          tenantId,
+          actorRole,
+          key,
+        );
+        return { ...view, invoiceUrl };
+      }),
+    );
+  }
 
   resolvePeriod(input: PeriodInput) {
     const range = resolveDateRange(input.filter ?? DEFAULT_OVERVIEW_FILTER, input.from, input.to);
@@ -940,6 +1034,8 @@ export class MaintenanceService {
     outcome: VisitOutcome,
     details: {
       closedAt: Date;
+      /** Re-dates when the work began — only the release sets it. */
+      openedAt?: Date;
       odometerKm?: number;
       workshopName?: string;
       description?: string;
@@ -962,6 +1058,7 @@ export class MaintenanceService {
       {
         status: 'closed',
         closedAt: details.closedAt,
+        ...(details.openedAt ? { openedAt: details.openedAt } : {}),
         ...(serviced ? { serviceType: outcome.serviceType } : {}),
         // Released without a service: drop the check-in's "in for" type so history doesn't claim
         // a service was done — a closed service job with no serviceType means released.
@@ -1095,17 +1192,6 @@ export class MaintenanceService {
     if (closedAt > new Date()) throw new ValidationError('The close time cannot be in the future');
     return closedAt;
   }
-}
-
-function workshopVisit(job: MaintenanceJobEntity | undefined) {
-  return job
-    ? {
-        jobId: job.id,
-        jobType: job.jobType,
-        since: job.openedAt,
-        days: jobDays(job.openedAt, null, new Date()),
-      }
-    : null;
 }
 
 /**
