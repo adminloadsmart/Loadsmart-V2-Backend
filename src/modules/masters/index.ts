@@ -10,6 +10,7 @@ import { VehicleImportController } from './vehicle/vehicle-import.controller';
 import { createVehicleComplianceAlertsWorker } from './vehicle/workers/vehicle-compliance-alerts.worker';
 import { DriverTenantRelationRepository } from '../driver/driver-tenant-relation.repository';
 import { DriverController } from '../driver/driver.controller';
+import { DriverImportController } from '../driver/driver-import.controller';
 import { FleetDriverLinkRepository } from './fleet-driver-link/fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link/fleet-driver-link.service';
 import { FleetDriverLinkController } from './fleet-driver-link/fleet-driver-link.controller';
@@ -48,6 +49,7 @@ export function createMastersModule(
     // unchanged URLs).
     driverTenantRelationRepository: DriverTenantRelationRepository;
     driverController: DriverController;
+    driverImportController: DriverImportController;
     // Only used for the vehicle-compliance-alerts worker (WhatsApp/push) — not for the
     // master-approval flow, which is on hold until an email provider exists.
     notifyByType: NotifyByType;
@@ -128,6 +130,7 @@ export function createMastersModule(
     vehicleController,
     vehicleImportController,
     deps.driverController,
+    deps.driverImportController,
     fleetDriverLinkController,
   );
 

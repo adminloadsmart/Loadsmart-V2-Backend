@@ -25,6 +25,7 @@ import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
 import { MIN_SCORED_TRIPS } from './driver.constants';
+import { getCachedLicenceLookup, setCachedLicenceLookup } from './driver-licence-lookup-cache';
 import {
   BankAccountVerificationResult,
   IdfyClient,
@@ -277,6 +278,7 @@ export function flattenRelation(relation: DriverTenantRelationEntity): DriverWit
     approvedBy: relation.approvedBy,
     approvedAt: relation.approvedAt,
     rejectionReason: relation.rejectionReason,
+    note: relation.note,
     requestedAt: relation.createdAt,
     licenseClass: latestLicenseClass(driver.verifications),
     operationalStatus: relation.operationalStatus,
@@ -453,6 +455,22 @@ export class DriverService {
   }
 
   /**
+   * checkDrivingLicence for the bulk-import preview. A genuine registry answer (one carrying
+   * `rawResponse`) is cached so onboardDriver can reuse it when the admin saves the approved rows;
+   * the "IDfy unusable" fallback is not, so the save retries a real lookup.
+   */
+  async checkDrivingLicenceForImport(
+    tenantId: string,
+    licenseNumber: string,
+    dateOfBirth: string,
+  ): Promise<SarathiDrivingLicenceResult> {
+    const result = await this.checkDrivingLicence(licenseNumber, dateOfBirth);
+    if (result.rawResponse)
+      await setCachedLicenceLookup(tenantId, licenseNumber, dateOfBirth, result);
+    return result;
+  }
+
+  /**
    * Bank-account preflight, the bank counterpart of checkDrivingLicence: checks an account +
    * IFSC against IDfy before the bank details exist. Submits an async IDfy task and polls for the
    * result before responding. Read-only — every save path (addBankDetails, onboardDriver,
@@ -572,6 +590,7 @@ export class DriverService {
             tenantId,
             driverId: driver.id,
             ...newRelationColumns(actorId, actorRole),
+            note: input.note ?? null,
             createdBy: actorId,
           },
           txManager,
@@ -752,7 +771,16 @@ export class DriverService {
         advanceOutstanding,
         homeBase,
         licenseEndorsements,
+        note,
       } = input;
+
+      // The note is this fleet's own, so it goes on the relation rather than the shared profile.
+      if (note !== undefined) {
+        await this.driverTenantRelationRepository.update(tenantId, relation.id, {
+          note,
+          updatedBy: actorId,
+        });
+      }
 
       await this.driverRepository.update(driverId, {
         fullName,
@@ -1171,12 +1199,20 @@ export class DriverService {
       const { verification, bankDetails, documents, operationalStatus, ...driverInput } = input;
 
       // The licence lookup runs here, server-side, rather than trusting a result the client sends —
-      // same as the bank check below and DriverIdentityService.completeRegistration. Outside the
-      // transaction, since the IDfy poll can take ~15s and shouldn't hold it open.
-      const licenceLookup = await this.dlVerificationClient.lookupDrivingLicence(
-        driverInput.licenseNumber,
-        driverInput.dateOfBirth,
-      );
+      // same as the bank check below and DriverIdentityService.completeRegistration. A result the
+      // bulk-import preview fetched (and cached) a moment ago is reused instead of paying for a
+      // second lookup. Outside the transaction, since the IDfy poll can take ~15s and shouldn't
+      // hold it open.
+      const licenceLookup =
+        (await getCachedLicenceLookup(
+          tenantId,
+          driverInput.licenseNumber,
+          driverInput.dateOfBirth,
+        )) ??
+        (await this.dlVerificationClient.lookupDrivingLicence(
+          driverInput.licenseNumber,
+          driverInput.dateOfBirth,
+        ));
       const licenceVerification: RecordVerificationInput =
         licenceLookup.status === 'manual_review' && verification
           ? // Registry couldn't confirm it — keep the details staff typed in for manual review.

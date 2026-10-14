@@ -4,6 +4,8 @@ import { DriverRepository } from './driver.repository';
 import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
 import { DriverService } from './driver.service';
 import { DriverController } from './driver.controller';
+import { DriverImportService } from './driver-import.service';
+import { DriverImportController } from './driver-import.controller';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
@@ -69,12 +71,21 @@ export function createDriverModule(
     driverSessionRepository,
   );
   const driverController = new DriverController(driverService);
+  const driverImportController = new DriverImportController(
+    new DriverImportService(
+      driverService,
+      driverRepository,
+      driverTenantRelationRepository,
+      deps.auditService,
+    ),
+  );
 
   return {
     driverRepository,
     driverTenantRelationRepository,
     driverService,
     driverController,
+    driverImportController,
     idfyClient,
     dlVerificationClient: sarathiClient,
   };
