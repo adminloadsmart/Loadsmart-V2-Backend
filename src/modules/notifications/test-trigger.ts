@@ -15,8 +15,9 @@ import { NotificationTypeDefinition } from './catalog/notification-catalog.types
 import { NotificationContextOf, NotificationTypeKey } from './notification-triggers';
 
 /**
- * TEMPORARY, non-production test endpoint — POST /v1/notifications/test/trigger-all. Sends every
- * implemented notification type ONCE to the caller only, built from fixed sample data (no real
+ * TEMPORARY, non-production test endpoint — POST /v1/notifications/test/trigger-all. Sends each
+ * type in SHEET_IDS ONCE, built from fixed sample data, with SMS/WhatsApp going to
+ * TEST_PHONE_NUMBER and email/push/in-app to the caller (no real
  * vehicle/load/org record is read or changed). Mounted only when NODE_ENV !== 'production' AND
  * NOTIFICATIONS_TEST_ENDPOINT=true (see composition-root.ts). Delete this file and its mount once
  * notification QA is done.
@@ -36,107 +37,38 @@ const SAMPLE_ID = '00000000-0000-4000-8000-000000000001';
 
 /** Sheet ID per type, for the response. */
 const SHEET_IDS: Partial<Record<NotificationTypeKey, string>> = {
-  'organization.account_approved': 'LS_N_0001',
-  'organization.signup_received': 'LS_N_0002',
-  'organization.document_more_info_needed': 'LS_N_0003',
-  'organization.account_not_approved': 'LS_N_0004',
-  'organization.team_member_invited': 'LS_N_0005',
-  'user.access_changed': 'LS_N_0006',
-  'organization.master_approval_requested': 'LS_N_0009',
-  'organization.master_approvals_waiting': 'LS_N_0009 (collapsed summary)',
-  'organization.master_approved': 'LS_N_0010',
-  'organization.master_rejected': 'LS_N_0011',
-  'vehicle.vahan_unverified': 'LS_N_0012',
   'vehicle.document_expiry': 'LS_N_0047',
-  'vehicle.documents_expiring_rollup': 'LS_N_0047 (weekly roll-up)',
   'vehicle.compliance_expired': 'LS_N_0048',
   'driver.licence_expiry': 'LS_N_0049 (expiring)',
   'driver.licence_expired': 'LS_N_0049 (expired)',
   'load.breakdown_reported': 'LS_N_0054',
-  'vehicle.back_in_service': 'LS_N_0055',
   'vehicle.service_due_soon': 'LS_N_0056',
   'vehicle.service_overdue': 'LS_N_0057',
   'vehicle.tyre_attention': 'LS_N_0058',
-  'vehicle.idle_weekly': 'LS_N_0059',
-  'digest.daily_brief': 'LS_N_0060',
 };
 
-/** Fixed sample context per implemented type — compile-checked against each type's own context.
- *  `callerId` fills the "who" fields so names resolve to the caller. Placeholder catalog types
- *  with no producer (load.stage_handoff etc.) are deliberately not listed. */
-function sampleContexts(callerId: string, today: string): SampleContexts {
+/** Every SMS/WhatsApp from this endpoint goes here instead of the caller's own number. */
+const TEST_PHONE_NUMBER = '6284333505';
+
+/** YYYY-MM-DD, `days` after `today` (also YYYY-MM-DD). */
+function addDays(today: string, days: number): string {
+  const date = new Date(`${today}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Fixed sample context per type — compile-checked against each type's own context. Dates are
+ *  consistent with the counts (e.g. "expires in 7 days" carries an expiry date 7 days out). */
+function sampleContexts(today: string): SampleContexts {
   return {
-    'organization.account_approved': { orgName: 'Sample Logistics' },
-    'organization.signup_received': { orgName: 'Sample Logistics' },
-    'organization.document_more_info_needed': {
-      orgName: 'Sample Logistics',
-      docType: 'GST certificate',
-      documentId: SAMPLE_ID,
-    },
-    'organization.account_not_approved': {
-      orgName: 'Sample Logistics',
-      reason: 'GSTIN does not match the registered business name',
-    },
-    'organization.team_member_invited': {
-      userId: callerId,
-      inviterName: 'Sample Admin',
-      orgName: 'Sample Logistics',
-      capabilitySummary: 'manage load requisitions and create customers',
-    },
-    'user.access_changed': {
-      userId: callerId,
-      adminUserId: callerId,
-      baselinePermissions: [],
-      adminName: 'Sample Admin',
-      orgName: 'Sample Logistics',
-      addedCapabilities: 'approve customers',
-      removedCapabilities: 'manage load requisitions',
-      removedCount: 1,
-    },
-    'organization.master_approval_requested': {
-      kind: 'vehicle',
-      recordId: SAMPLE_ID,
-      masterValue: 'MH12AB1234',
-      createdByUserId: callerId,
-      userName: 'Dev Patel',
-    },
-    'organization.master_approvals_waiting': { userId: callerId, waitingCount: 5 },
-    'organization.master_approved': {
-      kind: 'loading_point',
-      recordId: SAMPLE_ID,
-      masterValue: 'Pune Warehouse',
-      createdByUserId: callerId,
-      approvedByUserId: callerId,
-      adminName: 'Sample Admin',
-    },
-    'organization.master_rejected': {
-      kind: 'customer',
-      recordId: SAMPLE_ID,
-      masterValue: 'Shree Traders',
-      createdByUserId: callerId,
-      rejectedByUserId: callerId,
-      reason: 'GSTIN is invalid',
-      adminName: 'Sample Admin',
-    },
-    'vehicle.vahan_unverified': {
-      vehicleId: SAMPLE_ID,
-      vehicleNo: 'MH12AB1234',
-      createdByUserId: callerId,
-    },
     'vehicle.document_expiry': {
       vehicleId: SAMPLE_ID,
       vehicleNo: 'MH12AB1234',
       docType: 'Insurance',
-      expiryDate: today,
+      expiryDate: addDays(today, 7),
       daysLeft: 7,
       plannedTripCount: 2,
       otherCount: 3,
-      runDate: today,
-    },
-    'vehicle.documents_expiring_rollup': {
-      docCount: 3,
-      docList:
-        'MH12AB1234: Insurance (in 7 days); MH14CD5678: PUC (in 12 days); MH12AB1234: Permit (in 25 days)',
       runDate: today,
     },
     'vehicle.compliance_expired': {
@@ -152,7 +84,7 @@ function sampleContexts(callerId: string, today: string): SampleContexts {
       driverId: SAMPLE_ID,
       driverName: 'Ramesh Yadav',
       dlNo: 'MH1220110012345',
-      expiryDate: today,
+      expiryDate: addDays(today, 15),
       daysLeft: 15,
       tripCount: 2,
       runDate: today,
@@ -180,16 +112,6 @@ function sampleContexts(callerId: string, today: string): SampleContexts {
       destination: 'Pune',
       loadCode: 'LD-0001',
       consignee: 'Shree Traders',
-    },
-    'vehicle.back_in_service': {
-      jobId: SAMPLE_ID,
-      vehicleId: SAMPLE_ID,
-      vehicleNo: 'MH12AB1234',
-      downtimeHours: '18',
-      repairCost: '₹12,500',
-      availableFrom: today,
-      loadCount: 4,
-      costViewerIds: [callerId],
     },
     'vehicle.service_due_soon': {
       vehicleId: SAMPLE_ID,
@@ -225,30 +147,6 @@ function sampleContexts(callerId: string, today: string): SampleContexts {
       fleetCpk: '₹0.38',
       runDate: today,
     },
-    'vehicle.idle_weekly': {
-      vehicleId: SAMPLE_ID,
-      vehicleNo: 'MH12AB1234',
-      idleDays: 6,
-      lastTripDate: today,
-      fixedCostPerDay: '₹2,000',
-      idleCost: '₹12,000',
-      otherIdleCount: 2,
-      runDate: today,
-    },
-    'digest.daily_brief': {
-      userId: callerId,
-      orgName: 'Sample Logistics',
-      tripsRunning: 4,
-      arrivingToday: '0 (static)',
-      delayed: '0 (static)',
-      podsPending: 2,
-      approvalsPending: 3,
-      vehiclesBlocked: 1,
-      emptyVehicles: 2,
-      idleLocations: 'location unavailable (static)',
-      needsAction: 6,
-      runDate: today,
-    },
   };
 }
 
@@ -276,7 +174,7 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
       if (!caller) throw new NotFoundError('User not found');
 
       const today = new Date().toISOString().slice(0, 10);
-      const samples = sampleContexts(caller.id, today);
+      const samples = sampleContexts(today);
       const wanted: string[] | undefined = req.body?.types;
       const [session] = await deps.authService.getActiveDeviceTokensForUser(caller.id);
 
@@ -295,28 +193,21 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
           fullName: caller.fullName,
         });
 
-        // Same channel rules as notify-by-type.ts, applied to the caller only.
+        // Same channel rules as notify-by-type.ts — SMS/WhatsApp to TEST_PHONE_NUMBER, the rest to
+        // the caller.
         const channels: NotificationChannelName[] = [];
         const destinations: NotificationDestinations = {};
         if (definition.channels.includes('email') && caller.email) {
           channels.push('email');
           destinations.email = caller.email;
         }
-        if (
-          definition.channels.includes('sms') &&
-          definition.templates?.sms &&
-          caller.phoneNumber
-        ) {
+        if (definition.channels.includes('sms') && definition.templates?.sms) {
           channels.push('sms');
-          destinations.phoneNumber = caller.phoneNumber;
+          destinations.phoneNumber = TEST_PHONE_NUMBER;
         }
-        if (
-          definition.channels.includes('whatsapp') &&
-          caller.phoneNumber &&
-          (!definition.requiresWhatsappOptIn || caller.whatsappOptIn === true)
-        ) {
+        if (definition.channels.includes('whatsapp')) {
           channels.push('whatsapp');
-          destinations.whatsappNumber = caller.phoneNumber;
+          destinations.whatsappNumber = TEST_PHONE_NUMBER;
         }
         if (definition.channels.includes('push') && session?.fcmToken) {
           channels.push('push');
@@ -348,7 +239,7 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
 
       respond(res, {
         sent: results.length,
-        recipient: { id: caller.id, email: caller.email, phoneNumber: caller.phoneNumber },
+        recipient: { id: caller.id, email: caller.email, phoneNumber: TEST_PHONE_NUMBER },
         note:
           'Delivery is asynchronous — check GET /v1/notifications/:notificationId for per-channel status. ' +
           'LS_N_0008 (login OTP) is not a stored notification: test it via POST /v1/auth/login/otp/request.',
