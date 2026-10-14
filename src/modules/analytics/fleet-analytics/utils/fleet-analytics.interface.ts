@@ -224,17 +224,27 @@ export interface FleetAnalyticsEnergy {
 
 export type TyreConditionLabel = 'new_like' | 'good' | 'fair' | 'worn' | 'very_worn';
 
+/**
+ * Money fields (marked optional) are omitted for a seat without maintenance.costs.view — the
+ * workshop figures go to everybody, same split as the maintenance screen.
+ */
 export interface FleetAnalyticsMaintenance {
   period: FleetAnalyticsPeriodView;
-  spend: { total: number; perKm: number; jobs: number };
+  /** perKm is spend over km read off odometer readings; 0 when no km could be read. */
+  spend?: { total: number; perKm: number; jobs: number };
+  /** Distance the trucks ran in the period, from odometer readings. */
+  distance: { km: number; vehicles: number; estimated: boolean };
   preventiveShare: { pct: number; planned: number; total: number };
   downtime: { days: number; trucks: number };
-  meanDistanceBetweenFailures: { km: number; breakdowns: number };
+  /** km is null when there were no breakdowns in the period. */
+  meanDistanceBetweenFailures: { km: number | null; breakdowns: number };
   averageFleetAge: { years: number; vehicles: number };
   lifetimeDistance: { km: number; vehicles: number };
   /** null until vehicles carry a purchase price. */
-  writtenDownValue: { value: number | null; onRoadValue: number | null };
+  writtenDownValue?: { value: number | null; onRoadValue: number | null };
   tyresPastLife: { positions: number; thresholdPct: number };
+  /** `amount` in rupees for a seat that can see cost, else `count` of jobs. */
+  plannedVsUnplannedUnit: 'amount' | 'count';
   plannedVsUnplanned: {
     month: string;
     preventive: number;
@@ -242,15 +252,21 @@ export interface FleetAnalyticsMaintenance {
     roadsideBreakdown: number;
     total: number;
   }[];
+  /** Worst per km first; trucks with no km read in the period are left out. */
   byVehicle: {
     vehicle: FleetVehicleSummary;
     ageYears: number | null;
-    cost: number;
-    perKm: number;
+    kmRun: number;
+    kmEstimated: boolean;
+    cost?: number;
+    perKm?: number;
   }[];
-  replacementCandidates: {
+  replacementCandidates?: {
     vehicle: FleetVehicleSummary;
     ageYears: number | null;
+    perKm: number;
+    benchmarkPerKm: number;
+    benchmarkScope: 'class' | 'fleet';
     extraPerKm: number;
   }[];
   tyresByVehicle: {
@@ -259,8 +275,10 @@ export interface FleetAnalyticsMaintenance {
     tyres: number;
     avgTreadLeftPct: number;
     condition: TyreConditionLabel;
-    cost: number;
-    perKm: number;
+    kmRun: number;
+    kmEstimated: boolean;
+    cost?: number;
+    perKm?: number;
   }[];
 }
 

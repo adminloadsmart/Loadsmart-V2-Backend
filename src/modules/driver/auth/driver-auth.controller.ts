@@ -2,9 +2,11 @@ import { Request, Response } from 'express';
 import { respond } from '../../../shared/responses/respond';
 import { DriverAuthService } from './driver-auth.service';
 import { DriverIdentityService } from './driver-identity.service';
+import { DriverAccountService } from './driver-account.service';
 import { OrganizationService } from '../../organization/organization.service';
 import { StorageService } from '../../storage/storage.service';
 import { GenerateUploadUrlInput, FileParams } from '../../storage/storage.types';
+import { DriverTenantRelationStatus } from '../drivers.types';
 import { DriverRelationParams } from '../drivers.interface';
 
 // Mirrors modules/auth/auth.controller.ts's shape — see docs/driver-auth.md for why this is a
@@ -20,6 +22,7 @@ export class DriverAuthController {
     private readonly driverIdentityService: DriverIdentityService,
     private readonly organizationService: OrganizationService,
     private readonly storageService: StorageService,
+    private readonly driverAccountService: DriverAccountService,
   ) {}
 
   // --- Login ---
@@ -87,6 +90,17 @@ export class DriverAuthController {
       exp: req.driver!.exp,
     });
     respond(res, { success: true });
+  };
+
+  // Soft delete of the caller's own account — jti/exp come from the verified access token so the
+  // token that made the request is blocked immediately.
+  deleteAccount = async (req: Request, res: Response) => {
+    const result = await this.driverAccountService.deleteAccount(req.driver!.id, {
+      phoneNumber: req.body.phoneNumber,
+      jti: req.driver!.jti,
+      exp: req.driver!.exp,
+    });
+    respond(res, result);
   };
 
   updateDeviceToken = async (req: Request, res: Response) => {
@@ -177,8 +191,20 @@ export class DriverAuthController {
   // one tenant — see createDriverAuth's requireTenant: false wiring in index.ts.
 
   listMyRelations = async (req: Request, res: Response) => {
-    const relations = await this.driverIdentityService.listMyRelations(req.driver!.id);
+    const relations = await this.driverIdentityService.listMyRelations(
+      req.driver!.id,
+      req.query.status as DriverTenantRelationStatus | undefined,
+    );
     respond(res, relations);
+  };
+
+  getInsuranceResponse = async (req: Request, res: Response) => {
+    respond(res, await this.driverIdentityService.getMyInsurance(req.driver!.id));
+  };
+
+  saveInsuranceResponse = async (req: Request, res: Response) => {
+    const result = await this.driverIdentityService.saveMyInsurance(req.driver!.id, req.body);
+    respond(res, result);
   };
 
   requestJoin = async (req: Request, res: Response) => {

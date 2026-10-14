@@ -1,12 +1,15 @@
 import { computeShareAmount } from '../load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
+import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 import { EwayBillExpiry } from './load.interface';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
+  HALTING_ISSUE_CATEGORIES,
   LIFECYCLE_STAGE_LABEL_KEYS,
   LOAD_STATUSES,
+  LoadIssueCategory,
   LoadSourceType,
   LoadStatus,
   MARKET_LIFECYCLE_STATUSES,
@@ -62,10 +65,13 @@ export interface TripListRow {
   /** Display code `LOAD-nnnn` — see load.entity.ts's doc comment. */
   code: string;
   status: LoadStatus;
-  requisitionId: string;
+  /** Null for loads posted straight from Post a load (no requisition). */
+  requisitionId: string | null;
   /** The parent requisition's own display code `REQ-nnnn` — null only if the requisition
    *  relation somehow wasn't loaded (never happens via LoadRepository.list). */
   requisitionCode: string | null;
+  /** The requisition's planned pickup date (YYYY-MM-DD) — null only if the relation wasn't loaded. */
+  pickupDate: string | null;
   route: {
     loadingPointTitle: string;
     loadingPointCity: string;
@@ -106,6 +112,33 @@ export interface TripStepperStep {
   /** ISO timestamp from the matching *_At column; null for 'created'/'assigned', which have no
    *  dedicated timestamp column on LoadEntity. */
   at: string | null;
+  /** True for the steps still ahead of the current one while the load is halted by an unresolved
+   *  accident/breakdown — the driver app renders them as "ON HOLD". */
+  onHold: boolean;
+}
+
+/** The load's newest unresolved driver-reported issue, shown on the trip-detail screen as the
+ *  incident card. `halted` is true only for HALTING_ISSUE_CATEGORIES — other categories are info
+ *  only and don't stop the trip. */
+export interface TripIncident {
+  id: string;
+  category: LoadIssueCategory;
+  details: string | null;
+  locationLabel: string;
+  reportedAt: string;
+  halted: boolean;
+}
+
+export function buildIncident(issue: LoadIssueReportEntity | null): TripIncident | null {
+  if (!issue) return null;
+  return {
+    id: issue.id,
+    category: issue.category,
+    details: issue.details,
+    locationLabel: issue.locationLabel,
+    reportedAt: issue.createdAt.toISOString(),
+    halted: HALTING_ISSUE_CATEGORIES.includes(issue.category),
+  };
 }
 
 export interface TripNextAction {
@@ -138,7 +171,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
 
   // Advance/balance amounts mirror buildNextAction's computation below — market-only, derived
   // from freightValue + plannedCapacityTonnes + the stored percentages via computeShareAmount.
-  const isMarket = load.sourceType === 'market';
+  const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
   const advanceAmount =
     isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
   const balanceAmount =
@@ -150,6 +183,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     status: load.status,
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,
+    pickupDate: req?.pickupDate ?? null,
     route: req
       ? {
           loadingPointTitle: req.loadingPoint.title,
@@ -247,6 +281,8 @@ export interface TripDoneDetail {
     shortageOrDamage: ShortageOrDamageStatus | null;
     numberOfTonnesShort: string | null;
     podRemarks: string | null;
+    /** ISO time the receiver's code was verified; null = no phone (photo-only) or staff-recorded. */
+    receiverVerifiedAt: string | null;
     /** Staff-review state of this trip's E-POD — see LoadEntity's doc comment. Also reachable
      *  (deliberately) for a load that's 'delivered' but not yet 'closed', so a rejected trip's
      *  driver can see why and re-upload via the same uploadPod endpoint. */
@@ -299,6 +335,7 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
           shortageOrDamage: load.shortageOrDamage,
           numberOfTonnesShort: load.numberOfTonnesShort,
           podRemarks: load.podRemarks,
+          receiverVerifiedAt: load.podReceiverVerifiedAt?.toISOString() ?? null,
           podStatus: load.podStatus,
           podRejectionReason: load.podRejectionReason,
         }
@@ -382,7 +419,11 @@ export function toLoadPapers(
 
 /** Walks LOAD_STATUSES by index — the same indexing LoadService.updateStatus uses — to build
  *  the trip-detail screen's 8-step progress stepper. */
-export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripStepperStep[] {
+export function buildStepper(
+  load: LoadEntity,
+  locale: Locale = DEFAULT_LOCALE,
+  incident: TripIncident | null = null,
+): TripStepperStep[] {
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const timestampByStatus: Partial<Record<LoadStatus, Date | null>> = {
     loading_confirmed: load.loadingConfirmedAt,
@@ -398,6 +439,7 @@ export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE):
     completed: index < currentIndex,
     current: index === currentIndex,
     at: timestampByStatus[status]?.toISOString() ?? null,
+    onHold: Boolean(incident?.halted) && index > currentIndex,
   }));
 }
 
@@ -412,7 +454,7 @@ export function buildStepper(load: LoadEntity, locale: Locale = DEFAULT_LOCALE):
  * `status` still reads 'delivered' or has since moved to 'closed'.
  */
 function resolveLifecycleStage(load: LoadEntity): LoadStatus | typeof PAYMENTS_STAGE {
-  if (load.sourceType === 'market' && load.advancePaidAt && load.balancePaidAt) {
+  if (load.sourceType !== 'own_fleet' && load.advancePaidAt && load.balancePaidAt) {
     return PAYMENTS_STAGE;
   }
   if (load.status === 'loading_confirmed' || load.status === 'at_plant') return 'assigned';
@@ -427,7 +469,7 @@ export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCAL
   const currentIndex = LOAD_STATUSES.indexOf(load.status);
   const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
 
-  const isMarket = load.sourceType === 'market';
+  const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
   // Own Fleet's doc lifecycle is 4 stages; Market's is 6 (5 real statuses + the derived
   // "Payments" stage) — R-38, not one shared count across every load regardless of strategy.
   const lifecycleStatuses = isMarket ? MARKET_LIFECYCLE_STATUSES : OWN_FLEET_LIFECYCLE_STATUSES;

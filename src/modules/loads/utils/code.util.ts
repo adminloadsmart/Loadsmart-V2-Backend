@@ -16,3 +16,10 @@ export function formatRequisitionCode(sequenceValue: number): string {
 export function formatLoadCode(sequenceValue: number): string {
   return `LOAD-${LOAD_CODE_OFFSET + sequenceValue}`;
 }
+
+const CUSTOMER_CODE_OFFSET = 1000;
+
+/** `CUS-nnnn` — tenant-wide customer display code, same offset scheme as REQ/LOAD. */
+export function formatCustomerCode(sequenceValue: number): string {
+  return `CUS-${CUSTOMER_CODE_OFFSET + sequenceValue}`;
+}

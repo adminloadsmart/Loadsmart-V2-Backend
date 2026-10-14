@@ -5,6 +5,7 @@ import { DriverRepository } from './driver.repository';
 import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
 import { DriverService } from './driver.service';
 import { DriverController } from './driver.controller';
+import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { SarathiClient, DlVerificationClient } from '../../adapters/sarathi.client';
@@ -23,6 +24,7 @@ import { DriverPortalController } from './portal/driver-portal.controller';
 import { DriverPortalService } from './portal/driver-portal.service';
 import { createDriverPortalRoutes } from './portal/driver-portal.routes';
 import { DriverIdentityService } from './auth/driver-identity.service';
+import { DriverAccountService } from './auth/driver-account.service';
 import { IdfyClient } from '../../adapters/idfy.client';
 import { NotifyByType } from '../notifications/notify-by-type';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -47,8 +49,9 @@ export function createDriverModule(
   const driverRepository = new DriverRepository(dataSource);
   const driverTenantRelationRepository = new DriverTenantRelationRepository(dataSource);
   const sarathiClient = new SarathiClient();
+  const driverSessionRepository = new DriverSessionRepository(dataSource);
   const driverPushNotifier = new DriverPushNotifier(
-    new DriverSessionRepository(dataSource),
+    driverSessionRepository,
     deps.notificationsService,
   );
   const idfyClient = new IdfyClient();
@@ -62,6 +65,11 @@ export function createDriverModule(
     deps.organizationService,
     driverPushNotifier,
     idfyClient,
+    // Detail screen's trip stats + live active-load check — read straight off loads, since the
+    // loads module (and its LoadService) is built after this one in composition-root.ts.
+    new DriverAnalyticsRepository(dataSource),
+    // Roster/detail "app installed" icon — read straight off driver_sessions.
+    driverSessionRepository,
     deps.masterApprovalNotifier,
   );
   const driverController = new DriverController(driverService);
@@ -143,11 +151,21 @@ export function createDriverIdentityModule(
     deps.idfyClient,
   );
 
+  const accountService = new DriverAccountService(
+    deps.driverRepository,
+    deps.driverTenantRelationRepository,
+    new DriverSessionRepository(dataSource),
+    dataSource,
+    deps.auditService,
+    deps.notifyByType,
+  );
+
   const authController = new DriverAuthController(
     deps.driverAuthService,
     service,
     deps.organizationService,
     deps.storageService,
+    accountService,
   );
   const authPublicRouter = createDriverAuthPublicRoutes(authController);
   // requireTenant: false — logout/device-token/select-relation/relations/* must also work from an

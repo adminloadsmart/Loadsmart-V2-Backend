@@ -18,9 +18,50 @@ import { OrganizationService } from '../../organization/organization.service';
 import {
   DriverProfileView,
   DriverHomeView,
+  DriverHomeCurrentTrip,
+  DriverHomeNextTrip,
   DriverNotificationCategory,
   NOTIFICATION_TYPE_PREFIXES,
 } from './driver-portal.types';
+
+function toHomeCurrentTrip(
+  job: TripListRow,
+  organizationName: string | null,
+): DriverHomeCurrentTrip {
+  const destination = job.route
+    ? { location: job.route.deliveryPointLocation, city: job.route.deliveryPointCity }
+    : null;
+  return {
+    id: job.id,
+    code: job.code,
+    status: job.status,
+    organizationName,
+    origin: job.route
+      ? { title: job.route.loadingPointTitle, city: job.route.loadingPointCity }
+      : null,
+    destination,
+    distanceLeftKm: null,
+    etaAt: null,
+    directionsQuery: destination
+      ? [destination.location, destination.city].filter(Boolean).join(', ')
+      : null,
+  };
+}
+
+function toHomeNextTrip(job: TripListRow, organizationName: string | null): DriverHomeNextTrip {
+  return {
+    id: job.id,
+    code: job.code,
+    organizationName,
+    origin: job.route
+      ? { title: job.route.loadingPointTitle, city: job.route.loadingPointCity }
+      : null,
+    destination: job.route
+      ? { location: job.route.deliveryPointLocation, city: job.route.deliveryPointCity }
+      : null,
+    pickupDate: job.pickupDate,
+  };
+}
 
 /**
  * The service layer behind driver-portal.controller.ts — every "tenant or not" branch and every
@@ -235,7 +276,11 @@ export class DriverPortalService {
    *  zeroed/empty — same "empty, not an error" convention as every method above. Settlement Due,
    *  Distance, and Score/Rating are deliberately not here — no backing data exists for any of
    *  them yet. */
-  async getMyHome(driverId: string, tenantId: string | null): Promise<DriverHomeView> {
+  async getMyHome(
+    driverId: string,
+    tenantId: string | null,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<DriverHomeView> {
     const unreadNotificationCount = await this.notificationsService.countUnreadForDriver(driverId);
 
     if (!tenantId) {
@@ -250,16 +295,19 @@ export class DriverPortalService {
         stats: { tripsDone: 0, onTimePercentage: null, openTrips: 0 },
         currentJob: null,
         upcomingJobs: [],
+        currentTrip: null,
+        nextTrip: null,
+        money: { cashHeld: null, organizationName: null },
         unreadNotificationCount,
       };
     }
 
     const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
       this.fetchTenantProfile(tenantId, driverId),
-      this.loadService.getMyTripsDone(tenantId, driverId, { page: 1, limit: 1 }),
-      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'active' }),
-      this.loadService.list(tenantId, { page: 1, limit: 5, driverId, status: 'assigned' }),
-      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'open' }),
+      this.loadService.getMyTripsDone(tenantId, driverId, { page: 1, limit: 1 }, locale),
+      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'active' }, locale),
+      this.loadService.list(tenantId, { page: 1, limit: 5, driverId, status: 'assigned' }, locale),
+      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
 
     return {
@@ -276,6 +324,13 @@ export class DriverPortalService {
       },
       currentJob: activeJobs.items[0] ?? null,
       upcomingJobs: upcomingJobs.items,
+      currentTrip: activeJobs.items[0]
+        ? toHomeCurrentTrip(activeJobs.items[0], profile.organizationName)
+        : null,
+      nextTrip: upcomingJobs.items[0]
+        ? toHomeNextTrip(upcomingJobs.items[0], profile.organizationName)
+        : null,
+      money: { cashHeld: null, organizationName: profile.organizationName },
       unreadNotificationCount,
     };
   }
@@ -294,8 +349,26 @@ export class DriverPortalService {
     });
   }
 
-  markMyNotificationRead(driverId: string, notificationId: string) {
-    return this.notificationsService.markReadForDriver(driverId, notificationId);
+  /**
+   * Opening the "You've been invited" notification (push tap or in-app list) is what marks that
+   * invitation viewed for the fleet owner's drawer — see DriverPushNotifier.notifyInvited, which
+   * stores the invitationId on the notification. Device comes from the calling session.
+   */
+  async markMyNotificationRead(driverId: string, notificationId: string, sessionId?: string) {
+    const notification = await this.notificationsService.markReadForDriver(
+      driverId,
+      notificationId,
+    );
+    const invitationId = notification.metadata?.invitationId;
+    if (notification.type === 'driver.account.invited' && typeof invitationId === 'string') {
+      await this.driverTenantRelationRepository.markInviteViewed(
+        invitationId,
+        driverId,
+        notification.createdAt,
+        sessionId,
+      );
+    }
+    return notification;
   }
 
   async markAllMyNotificationsRead(driverId: string): Promise<{ markedCount: number }> {

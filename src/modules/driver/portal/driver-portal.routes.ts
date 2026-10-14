@@ -139,6 +139,28 @@ export function createDriverPortalRoutes(
     validate(driverPortalValidators.updateMyLoadStatus),
     asyncHandler(controller.updateMyLoadStatus),
   );
+  // Optional receiver verification — texts the receiver a 4-digit code that the PATCH below then
+  // checks. Skipped entirely when the receiver has no phone.
+  router.post(
+    '/loads/:loadId/receiver-code',
+    createIpRateLimit({
+      keyPrefix: 'driver-portal-pod-receiver-code',
+      limit: env.podReceiverOtpRequestRateLimitMax,
+      windowSeconds: env.podReceiverOtpRequestRateLimitWindowSeconds,
+    }),
+    validate(driverPortalValidators.sendMyPodReceiverCode),
+    asyncHandler(controller.sendMyPodReceiverCode),
+  );
+  router.post(
+    '/loads/:loadId/receiver-code/verify',
+    createIpRateLimit({
+      keyPrefix: 'driver-portal-pod-receiver-verify',
+      limit: env.podReceiverOtpRequestRateLimitMax,
+      windowSeconds: env.podReceiverOtpRequestRateLimitWindowSeconds,
+    }),
+    validate(driverPortalValidators.verifyMyPodReceiverCode),
+    asyncHandler(controller.verifyMyPodReceiverCode),
+  );
   router.patch(
     '/loads/:loadId/pod',
     validate(driverPortalValidators.uploadMyPod),

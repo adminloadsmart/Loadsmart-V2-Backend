@@ -2,6 +2,7 @@ import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { CustomerRepository } from './customer.repository';
+import { CodeSequenceRepository } from '../loads/code-sequence.repository';
 import { CustomerService } from './customer.service';
 import { CustomerController } from './customer.controller';
 import { createCustomerRoutes } from './customer.routes';
@@ -15,7 +16,13 @@ export function createCustomersModule(
   masterApprovalNotifier?: MasterApprovalNotifier,
 ) {
   const repository = new CustomerRepository(dataSource);
-  const service = new CustomerService(repository, dataSource, auditService, masterApprovalNotifier);
+  const service = new CustomerService(
+    repository,
+    dataSource,
+    auditService,
+    new CodeSequenceRepository(dataSource),
+    masterApprovalNotifier,
+  );
   const controller = new CustomerController(service);
   const importService = new CustomerImportService(dataSource, service, auditService);
   const importController = new CustomerImportController(importService);

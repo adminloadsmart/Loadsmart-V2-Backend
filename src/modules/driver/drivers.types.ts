@@ -36,6 +36,21 @@ export type DriverBloodGroup = (typeof DRIVER_BLOOD_GROUPS)[number];
 export const DRIVER_SALARY_TYPES = ['fixed', 'per_trip', 'per_km'] as const;
 export type DriverSalaryType = (typeof DRIVER_SALARY_TYPES)[number];
 
+/**
+ * How the driver is engaged — the "Engagement" choice on the Add-a-driver form (On-roll salaried /
+ * Per trip / Vendor's driver). Deliberately separate from DRIVER_SALARY_TYPES: that's how they're
+ * paid, this is how they're employed (a vendor's driver can still be paid per trip).
+ */
+export const DRIVER_ENGAGEMENT_TYPES = ['on_roll', 'per_trip', 'vendor'] as const;
+export type DriverEngagementType = (typeof DRIVER_ENGAGEMENT_TYPES)[number];
+
+/**
+ * Licence endorsements a driver can hold — stored as codes in drivers.license_endorsements
+ * (varchar[]), so adding one here needs no migration. Only Hazmat is on the screen so far.
+ */
+export const DRIVER_LICENSE_ENDORSEMENTS = ['hazmat'] as const;
+export type DriverLicenseEndorsement = (typeof DRIVER_LICENSE_ENDORSEMENTS)[number];
+
 /** Whether the document came from the registry or was uploaded by hand. */
 export const DRIVER_DOCUMENT_VERIFICATION_SOURCES = ['sarathi', 'manual'] as const;
 export type DriverDocumentVerificationSource =
@@ -56,8 +71,15 @@ export type DriverVerificationStatus = (typeof DRIVER_VERIFICATION_STATUSES)[num
 export const DRIVER_BANK_VERIFICATION_STATUSES = ['pending', 'verified', 'rejected'] as const;
 export type DriverBankVerificationStatus = (typeof DRIVER_BANK_VERIFICATION_STATUSES)[number];
 
-/** What the driver is doing right now — the status dropdown on the My Drivers table. */
-export const DRIVER_OPERATIONAL_STATUSES = ['active', 'on_trip', 'on_leave', 'inactive'] as const;
+/** What the driver is doing right now — the status dropdown on the My Drivers table.
+ * `on_leave`/`medically_unfit` = not available; `inactive` = left the company. */
+export const DRIVER_OPERATIONAL_STATUSES = [
+  'active',
+  'on_trip',
+  'on_leave',
+  'medically_unfit',
+  'inactive',
+] as const;
 export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[number];
 
 /**
@@ -66,15 +88,99 @@ export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[numbe
  * `pending_staff_review` covers both a dispatch-added driver awaiting org_admin approval AND a
  * driver-initiated join request awaiting staff approval — `initiatedBy` disambiguates which,
  * but the approve/reject action is identical for both. `pending_driver_review` is a fleet-owner-
- * initiated invite awaiting the driver's acceptance.
+ * initiated invite awaiting the driver's acceptance. `cancelled` is such an invite the fleet owner
+ * withdrew: the row is kept (Invitations Sent shows it) and it blocks the driver from requesting to
+ * join this tenant — every status is per tenant+driver row, so the driver's other tenants are
+ * never affected.
  */
 export const DRIVER_TENANT_RELATION_STATUSES = [
   'pending_staff_review',
   'pending_driver_review',
   'active',
   'rejected',
+  'cancelled',
 ] as const;
 export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES)[number];
+
+/**
+ * "Active Roster" tab bar on My Drivers. Every segment except `left_company` excludes drivers
+ * whose company status is `inactive` (left), so `all` is the roster and the rest are slices of it
+ * that can overlap (an on-trip driver can also be licence-expired). `on_trip`/`available` use the
+ * live active-load check, not the stored operational status — load assignment never updates the
+ * latter. `not_available` = on_leave or medically_unfit; `hazmat_endorsed` = 'hazmat' in
+ * drivers.license_endorsements.
+ */
+/**
+ * Roster filter panel (GET /drivers), each sent as a comma-separated list. "Employment":
+ * `fixed`/`per_trip`/`per_km` are how a company driver is paid (drivers.salary_type) and `vendor`
+ * is a vendor's driver (engagement_type), so a vendor's driver only ever matches `vendor` — the
+ * same split the roster's Pay column shows.
+ */
+export const DRIVER_ROSTER_EMPLOYMENT_FILTERS = ['fixed', 'per_trip', 'per_km', 'vendor'] as const;
+export type DriverRosterEmploymentFilter = (typeof DRIVER_ROSTER_EMPLOYMENT_FILTERS)[number];
+
+/** `expiring` = 0-30 days left, `valid` = more than 30, `expired` = past — the roster's own
+ *  licence-validity labels. A driver with no expiry on file matches none of them. */
+export const DRIVER_LICENCE_VALIDITY_FILTERS = ['valid', 'expiring', 'expired'] as const;
+export type DriverLicenceValidityFilter = (typeof DRIVER_LICENCE_VALIDITY_FILTERS)[number];
+
+/** Classes of vehicle the filter panel offers, matched against the latest Sarathi check. */
+export const DRIVER_LICENCE_CLASS_FILTERS = ['HTV', 'HMV', 'HGMV'] as const;
+export type DriverLicenceClassFilter = (typeof DRIVER_LICENCE_CLASS_FILTERS)[number];
+
+/** Score badge — `new` until MIN_SCORED_TRIPS trips and a score (see driver.service.ts). */
+export const DRIVER_SCORE_STATUSES = ['new', 'strong', 'watch'] as const;
+export type DriverScoreStatus = (typeof DRIVER_SCORE_STATUSES)[number];
+
+export const DRIVER_ROSTER_SEGMENTS = [
+  'all',
+  'on_trip',
+  'available',
+  'not_available',
+  'left_company',
+  'licence_expired',
+  'hazmat_endorsed',
+  'not_verified',
+] as const;
+export type DriverRosterSegment = (typeof DRIVER_ROSTER_SEGMENTS)[number];
+
+/** How long a tenant's invite stays acceptable after it's sent (or re-sent). */
+export const DRIVER_INVITE_TTL_DAYS = 7;
+
+/**
+ * "Invitations Sent" display status — derived from a tenant-initiated relation, never stored:
+ * pending = pending_driver_review & not yet expired, expired = pending_driver_review past
+ * invite_expires_at, accepted = active, rejected = declined by the driver, cancelled = withdrawn
+ * by the fleet owner.
+ */
+export const DRIVER_INVITATION_STATUSES = [
+  'pending',
+  'accepted',
+  'rejected',
+  'expired',
+  'cancelled',
+] as const;
+export type DriverInvitationStatus = (typeof DRIVER_INVITATION_STATUSES)[number];
+
+/**
+ * Why an invitation reads `expired`: the 7-day window ran out, or the driver is no longer active
+ * on the platform (today: deleted their own account — see isDriverOffPlatform).
+ */
+export const DRIVER_INVITATION_EXPIRY_REASONS = ['invite_timeout', 'driver_inactive'] as const;
+export type DriverInvitationExpiryReason = (typeof DRIVER_INVITATION_EXPIRY_REASONS)[number];
+
+/**
+ * Per-channel delivery state of an invite's latest send. `delivered`/`read` are reserved for
+ * provider delivery webhooks (MSG91), which don't exist yet.
+ */
+export const DRIVER_INVITE_DELIVERY_STATUSES = [
+  'pending',
+  'sent',
+  'delivered',
+  'read',
+  'failed',
+] as const;
+export type DriverInviteDeliveryStatus = (typeof DRIVER_INVITE_DELIVERY_STATUSES)[number];
 
 /** Who created the driver_tenant_relations row. */
 export const DRIVER_TENANT_RELATION_INITIATORS = ['staff', 'driver', 'fleet_owner'] as const;
@@ -98,3 +204,7 @@ export const DRIVER_ONBOARDING_STEPS = [
   'completed',
 ] as const;
 export type DriverOnboardingStep = (typeof DRIVER_ONBOARDING_STEPS)[number];
+
+/** Answers on the driver app's Insurance screen — "Do you have health/life insurance?". */
+export const DRIVER_INSURANCE_ANSWERS = ['yes', 'no', 'dont_know'] as const;
+export type DriverInsuranceAnswer = (typeof DRIVER_INSURANCE_ANSWERS)[number];

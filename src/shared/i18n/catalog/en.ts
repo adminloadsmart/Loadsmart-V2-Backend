@@ -27,7 +27,12 @@ export const en = {
       licenseExists: 'A driver with this license number already exists',
       licenceImagesRequired: 'Driving licence front and back photos are both required',
       relationExists: 'A relation with this fleet owner already exists',
+      joinBlocked: 'This fleet owner is not accepting a request from you',
       inviteNotFound: 'Invite not found',
+      inviteExpired: 'This invite has expired. Ask the fleet owner to invite you again',
+      phoneMismatch: 'The mobile number does not match your registered number',
+      deleteBlockedActiveLoad:
+        'You have a trip in progress. Complete it before deleting your account',
     },
   },
   loads: {
@@ -71,6 +76,10 @@ export const en = {
     driverLinkAccepted: {
       title: 'Driver invite accepted',
       body: '{driverName} ({phoneNumber}) has accepted your invitation and is now linked to your fleet.',
+    },
+    driverAccountDeleted: {
+      title: 'Driver account deleted',
+      body: '{driverName} ({phoneNumber}) has deleted their account and is no longer linked to your fleet.',
     },
   },
   validation: {

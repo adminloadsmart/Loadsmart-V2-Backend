@@ -18,6 +18,7 @@ import { ListLoadsInput } from './utils/load.interface';
 import {
   COMPLETED_LOAD_STATUSES,
   FreightMode,
+  FreightType,
   LOAD_STATUS_GROUP_FILTERS,
   LoadSourceType,
   LoadStatus,
@@ -39,7 +40,8 @@ export interface CreateLoadData {
   /** Assigned by DispatchPlanningService.planDispatch right before createMany — every row built
    *  by buildRowsForLine still needs one before it reaches the DB (the column is NOT NULL). */
   code?: string;
-  requisitionId: string;
+  requisitionId?: string | null;
+  postingId?: string | null;
   sourceType: LoadSourceType;
   status?: LoadStatus; // own-fleet lands 'assigned' directly (R-35); market defaults to 'created'
   plannedCapacityTonnes: string;
@@ -49,8 +51,11 @@ export interface CreateLoadData {
   vehicleNumber?: string | null;
   driverId?: string | null;
   driverNumber?: string | null;
+  transporterId?: string | null;
+  freightType?: FreightType | null;
   freightMode?: FreightMode | null;
   expectedRate?: string | null;
+  freightValue?: string | null;
   advancePercentage?: string | null;
   balancePercentage?: string | null;
   coversVehicleId?: string | null;

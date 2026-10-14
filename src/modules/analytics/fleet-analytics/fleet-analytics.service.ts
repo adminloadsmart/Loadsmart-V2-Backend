@@ -29,7 +29,10 @@ import {
   HELD_AS_LABELS,
   LEAST_USED_TRUCKS_LIMIT,
   LOAD_STAGES,
+  MIN_BENCHMARK_TRUCKS,
+  NEW_TRUCK_MAX_AGE_YEARS,
   RENEW_THIS_WEEK_LIMIT,
+  REPLACEMENT_CANDIDATES_LIMIT,
   TYRE_PAST_LIFE_LEFT_PCT,
 } from './utils/fleet-analytics.constants';
 import { FleetPeriod, resolveFleetPeriod } from './utils/fleet-analytics.period';
@@ -44,7 +47,10 @@ import {
   istMonth,
   jobCategory,
   jobCost,
+  kmInWindow,
   monthlyEmiAndLease,
+  OdometerPoint,
+  replacementCandidates,
   overlapDays,
   pct,
   intersect,
@@ -88,6 +94,10 @@ interface FleetContext {
 
 function sum<T>(rows: T[], pick: (row: T) => number): number {
   return rows.reduce((total, row) => total + pick(row), 0);
+}
+
+function average(values: number[]): number {
+  return values.length ? sum(values, (value) => value) / values.length : 0;
 }
 
 export class FleetAnalyticsService {
@@ -438,20 +448,31 @@ export class FleetAnalyticsService {
   async getMaintenance(
     tenantId: string,
     filters: FleetAnalyticsFilters,
+    canSeeCosts: boolean,
   ): Promise<FleetAnalyticsMaintenance> {
     try {
-      const { period, periodView, stats, today } = await this.loadContext(tenantId, filters);
-      const tyres = await this.repository.listFittedTyres(
-        tenantId,
-        stats.map((s) => s.vehicle.id),
-      );
+      const { period, periodView, stats, now, today } = await this.loadContext(tenantId, filters);
+      const vehicleIds = stats.map((s) => s.vehicle.id);
+      const [tyres, distance] = await Promise.all([
+        this.repository.listFittedTyres(tenantId, vehicleIds),
+        this.distanceByVehicle(tenantId, stats, now),
+      ]);
 
       const jobs = stats.flatMap((s) => s.jobs);
       const planned = jobs.filter((job) => jobCategory(job) === 'preventive').length;
       const breakdowns = jobs.filter((job) => job.jobType === 'breakdown').length;
+      const spend = sum(jobs, jobCost);
 
       const aged = stats.filter((s) => s.ageYears !== null);
       const withOdometer = stats.filter((s) => s.vehicle.serviceUsage?.odometerKm != null);
+
+      const kmOf = (s: VehicleStats) => distance.get(s.vehicle.id) ?? { km: 0, estimated: true };
+      const running = stats.filter((s) => kmOf(s).km > 0);
+      const totalKm = sum(running, (s) => kmOf(s).km);
+      const perKmOf = (s: VehicleStats) => {
+        const { km } = kmOf(s);
+        return km > 0 ? s.maintenanceCost / km : 0;
+      };
 
       const statsById = new Map(stats.map((s) => [s.vehicle.id, s]));
       const tyreLeft = new Map<string, number[]>();
@@ -482,9 +503,37 @@ export class FleetAnalyticsService {
         ]);
       }
 
-      return {
+      // Money per truck is only built for a seat that may see it; the km stay for everybody.
+      const costFields = (s: VehicleStats) =>
+        canSeeCosts ? { cost: money(s.maintenanceCost), perKm: money(perKmOf(s)) } : {};
+      const worstPerKmFirst = (a: VehicleStats, b: VehicleStats) =>
+        perKmOf(b) - perKmOf(a) || b.maintenanceCost - a.maintenanceCost;
+
+      const plannedVsUnplanned = period.months.map((month) => {
+        const inMonth = jobs.filter((job) => istMonth(job.openedAt) === month.month);
+        const valueOf = (category: string) => {
+          const rows = inMonth.filter((job) => jobCategory(job) === category);
+          return canSeeCosts ? money(sum(rows, jobCost)) : rows.length;
+        };
+        const preventive = valueOf('preventive');
+        const unplannedRepair = valueOf('unplannedRepair');
+        const roadsideBreakdown = valueOf('roadsideBreakdown');
+        return {
+          month: month.month,
+          preventive,
+          unplannedRepair,
+          roadsideBreakdown,
+          total: money(preventive + unplannedRepair + roadsideBreakdown),
+        };
+      });
+
+      const workshop = {
         period: periodView,
-        spend: { total: money(sum(jobs, jobCost)), perKm: 0, jobs: jobs.length },
+        distance: {
+          km: totalKm,
+          vehicles: running.length,
+          estimated: running.some((s) => kmOf(s).estimated),
+        },
         preventiveShare: { pct: pct(planned, jobs.length), planned, total: jobs.length },
         downtime: {
           days: round(
@@ -493,7 +542,10 @@ export class FleetAnalyticsService {
           ),
           trucks: stats.filter((s) => s.workshopDays > 0).length,
         },
-        meanDistanceBetweenFailures: { km: 0, breakdowns },
+        meanDistanceBetweenFailures: {
+          km: breakdowns > 0 ? Math.round(totalKm / breakdowns) : null,
+          breakdowns,
+        },
         averageFleetAge: {
           years: aged.length ? round(sum(aged, (s) => s.ageYears!) / aged.length, 1) : 0,
           vehicles: aged.length,
@@ -502,59 +554,107 @@ export class FleetAnalyticsService {
           km: sum(withOdometer, (s) => s.vehicle.serviceUsage!.odometerKm!),
           vehicles: withOdometer.length,
         },
-        writtenDownValue: { value: null, onRoadValue: null },
         tyresPastLife: { positions: tyresPastLife, thresholdPct: 100 - TYRE_PAST_LIFE_LEFT_PCT },
-        plannedVsUnplanned: period.months.map((month) => {
-          const inMonth = jobs.filter((job) => istMonth(job.openedAt) === month.month);
-          const costOf = (category: string) =>
-            money(
-              sum(
-                inMonth.filter((job) => jobCategory(job) === category),
-                jobCost,
-              ),
-            );
-          const preventive = costOf('preventive');
-          const unplannedRepair = costOf('unplannedRepair');
-          const roadsideBreakdown = costOf('roadsideBreakdown');
-          return {
-            month: month.month,
-            preventive,
-            unplannedRepair,
-            roadsideBreakdown,
-            total: money(preventive + unplannedRepair + roadsideBreakdown),
-          };
-        }),
-        byVehicle: stats
+        plannedVsUnplannedUnit: canSeeCosts ? ('amount' as const) : ('count' as const),
+        plannedVsUnplanned,
+        byVehicle: running
           .filter((s) => s.maintenanceCost > 0)
+          .sort(worstPerKmFirst)
           .map((s) => ({
             vehicle: s.summary,
             ageYears: s.ageYears,
-            cost: money(s.maintenanceCost),
-            perKm: 0,
-          }))
-          .sort((a, b) => b.cost - a.cost),
-        // Needs a new-truck cost-per-km benchmark per class, which needs km run.
-        replacementCandidates: [],
+            kmRun: kmOf(s).km,
+            kmEstimated: kmOf(s).estimated,
+            ...costFields(s),
+          })),
         tyresByVehicle: stats
           .filter((s) => tyreLeft.has(s.vehicle.id))
+          .sort(
+            (a, b) =>
+              worstPerKmFirst(a, b) ||
+              average(tyreLeft.get(a.vehicle.id)!) - average(tyreLeft.get(b.vehicle.id)!),
+          )
           .map((s) => {
-            const left = tyreLeft.get(s.vehicle.id)!;
-            const avg = round(sum(left, (value) => value) / left.length, 1);
+            const avg = round(average(tyreLeft.get(s.vehicle.id)!), 1);
             return {
               vehicle: s.summary,
               ageYears: s.ageYears,
-              tyres: left.length,
+              tyres: tyreLeft.get(s.vehicle.id)!.length,
               avgTreadLeftPct: avg,
               condition: tyreCondition(avg),
-              cost: money(s.maintenanceCost),
-              perKm: 0,
+              kmRun: kmOf(s).km,
+              kmEstimated: kmOf(s).estimated,
+              ...costFields(s),
             };
-          })
-          .sort((a, b) => a.avgTreadLeftPct - b.avgTreadLeftPct),
+          }),
+      };
+
+      if (!canSeeCosts) return workshop;
+
+      return {
+        ...workshop,
+        spend: {
+          total: money(spend),
+          perKm: totalKm > 0 ? money(spend / totalKm) : 0,
+          jobs: jobs.length,
+        },
+        writtenDownValue: { value: null, onRoadValue: null },
+        replacementCandidates: replacementCandidates(
+          running.map((s) => ({
+            row: s,
+            truckTypeId: s.vehicle.truckTypeId,
+            ageYears: s.ageYears,
+            perKm: perKmOf(s),
+          })),
+          NEW_TRUCK_MAX_AGE_YEARS,
+          MIN_BENCHMARK_TRUCKS,
+        )
+          .slice(0, REPLACEMENT_CANDIDATES_LIMIT)
+          .map((candidate) => ({
+            vehicle: candidate.row.summary,
+            ageYears: candidate.row.ageYears,
+            perKm: money(candidate.perKm),
+            benchmarkPerKm: money(candidate.benchmarkPerKm),
+            benchmarkScope: candidate.benchmarkScope,
+            extraPerKm: money(candidate.extraPerKm),
+          })),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch fleet maintenance');
     }
+  }
+
+  /** Km each truck ran over its active window, read off its odometer readings plus the last
+   *  service and the current odometer on the truck record. */
+  private async distanceByVehicle(
+    tenantId: string,
+    stats: VehicleStats[],
+    now: Date,
+  ): Promise<Map<string, { km: number; estimated: boolean }>> {
+    const readings = await this.repository.listOdometerReadings(
+      tenantId,
+      stats.map((s) => s.vehicle.id),
+      now,
+    );
+    const points = new Map<string, OdometerPoint[]>();
+    const add = (vehicleId: string, at: Date | string, km: number) => {
+      const date = typeof at === 'string' ? startOfIstDate(at) : at;
+      if (date > now) return;
+      points.set(vehicleId, [...(points.get(vehicleId) ?? []), { at: date, km }]);
+    };
+
+    for (const reading of readings) add(reading.vehicleId, reading.at, reading.km);
+    for (const { vehicle } of stats) {
+      const usage = vehicle.serviceUsage;
+      if (usage?.lastServiceDate && usage.lastServiceOdometerKm != null) {
+        add(vehicle.id, usage.lastServiceDate, usage.lastServiceOdometerKm);
+      }
+      if (usage?.odometerKm != null) add(vehicle.id, now, usage.odometerKm);
+    }
+
+    return new Map(
+      stats.map((s) => [s.vehicle.id, kmInWindow(points.get(s.vehicle.id) ?? [], s.active)]),
+    );
   }
 
   /** Every figure here comes from loads/dispatch, so the tab is zero-filled for now. */

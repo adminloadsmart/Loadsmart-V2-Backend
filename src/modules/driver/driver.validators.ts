@@ -2,23 +2,57 @@ import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { IFSC_REGEX } from '../masters/masters.constants';
+import { DRIVING_LICENCE_REGEX } from './driver.constants';
 import {
   DRIVER_BANK_VERIFICATION_STATUSES,
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
+  DRIVER_ENGAGEMENT_TYPES,
+  DRIVER_INSURANCE_ANSWERS,
+  DRIVER_LICENCE_CLASS_FILTERS,
+  DRIVER_LICENCE_VALIDITY_FILTERS,
+  DRIVER_ROSTER_EMPLOYMENT_FILTERS,
+  DRIVER_SCORE_STATUSES,
+  DRIVER_INVITATION_STATUSES,
+  DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_OPERATIONAL_STATUSES,
+  DRIVER_ROSTER_SEGMENTS,
   DRIVER_SALARY_TYPES,
+  DRIVER_TENANT_RELATION_INITIATORS,
   DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
 } from './drivers.types';
 
 const uuid = z.string().uuid();
+
+/** "a,b,c" → ['a', 'b', 'c'], each checked against `values` and de-duplicated. */
+const csvList = <T extends readonly [string, ...string[]]>(
+  values: T,
+  normalise: (value: string) => string = (value) => value,
+) =>
+  z
+    .string()
+    .transform((raw) => [
+      ...new Set(
+        raw
+          .split(',')
+          .map((part) => normalise(part.trim()))
+          .filter(Boolean),
+      ),
+    ])
+    .pipe(z.array(z.enum(values)).min(1));
+
+/** Query-string yes/no: "true" | "false" → boolean. */
+const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
 
 const driverParams = z.object({ driverId: uuid });
+// An invitation is its driver_tenant_relations row — a driver can have several for one tenant
+// (older declined invites plus the current one), so invitation routes key on this, not driverId.
+const invitationParams = z.object({ invitationId: uuid });
 const driverDocumentParams = z.object({ driverId: uuid, documentId: uuid });
 const driverBankDetailsParams = z.object({
   driverId: uuid,
@@ -26,28 +60,34 @@ const driverBankDetailsParams = z.object({
 });
 
 /**
- * Licence numbers are typed as printed — "MH12 20190012345" — but formats vary too much across
- * states for a format regex, so normalise whitespace and case only. Without this the same licence
- * stores two ways and the tenant-unique index cannot catch the duplicate.
+ * Licence numbers are typed as printed — "MH-12 2019 0012345" — so strip spaces/hyphens and
+ * uppercase before checking the Sarathi format. Without the normalisation the same licence stores
+ * two ways and the tenant-unique index cannot catch the duplicate. Shared with the driver app's
+ * validators so both sides accept exactly the same numbers.
  */
-const licenseNumber = z
+export const licenseNumber = z
   .string()
   .trim()
-  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
-  .refine((value) => value.length >= 8 && value.length <= 30, 'Invalid driving licence number');
+  .transform((value) => value.replace(/[\s-]+/g, '').toUpperCase())
+  .refine((value) => DRIVING_LICENCE_REGEX.test(value), 'Invalid driving licence number');
 
-/** Shared by `createDriver` and the section-1 fields of `onboardDriver`. */
+/**
+ * Section-1 fields of `onboardDriver`. Mirrors what the driver app's own /register requires —
+ * licenseNumber + dateOfBirth mandatory — so a staff-created profile is a usable app account.
+ * fullName is optional: the server takes it from the Sarathi lookup and only needs this one when
+ * the lookup returns no name (see DriverService.onboardDriver).
+ */
 const driverCoreFields = {
-  fullName: z.string().min(1).max(150),
+  fullName: z.string().trim().min(1).max(150).optional(),
   phoneNumber: z
     .string()
     .trim()
     .transform((value) => value.replace(/[\s-]/g, ''))
     .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number'),
-  licenseNumber: licenseNumber.optional(),
+  licenseNumber,
   licenseExpiry: isoDate.optional(),
   dateOfJoining: isoDate.optional(),
-  dateOfBirth: isoDate.optional(),
+  dateOfBirth: isoDate,
   bloodGroup: z.enum(DRIVER_BLOOD_GROUPS).optional(),
   addressLine1: z.string().min(1).max(255).optional(),
   addressLine2: z.string().min(1).max(255).optional(),
@@ -65,6 +105,20 @@ const driverCoreFields = {
     .optional(),
   salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
   salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+  // "Brother", "Wife", ... — drivers.emergency_contact_relation is varchar(50).
+  emergencyContactRelation: z.string().trim().min(1).max(50).optional(),
+  engagementType: z.enum(DRIVER_ENGAGEMENT_TYPES).optional(),
+  bhattaPerDay: z.number().nonnegative().max(9999999999).optional(),
+  advanceOutstanding: z.number().nonnegative().max(9999999999).optional(),
+  // drivers.home_base is varchar(150).
+  homeBase: z.string().trim().min(1).max(150).optional(),
+  licenseEndorsements: z
+    .array(z.enum(DRIVER_LICENSE_ENDORSEMENTS))
+    .transform((codes) => [...new Set(codes)])
+    .optional(),
+  // Same yes | no | dont_know answers as the driver app's insurance screen.
+  hasHealthInsurance: z.enum(DRIVER_INSURANCE_ANSWERS).optional(),
+  hasLifeInsurance: z.enum(DRIVER_INSURANCE_ANSWERS).optional(),
 };
 
 /** dateOfBirth is required here (unlike driverCoreFields) — IDfy's verify_with_source rejects a
@@ -156,9 +210,22 @@ export const driverValidators = {
     }),
   }),
   listDrivers: z.object({
+    // Filter panel lists arrive as one comma-separated string each ("fixed,vendor"); yes/no keys
+    // as "true"/"false". A key is simply absent when nothing in its section is ticked.
     query: pagination.extend({
+      employmentType: csvList(DRIVER_ROSTER_EMPLOYMENT_FILTERS).optional(),
+      licenceValidity: csvList(DRIVER_LICENCE_VALIDITY_FILTERS).optional(),
+      licenceClass: csvList(DRIVER_LICENCE_CLASS_FILTERS, (value) =>
+        value.toUpperCase(),
+      ).optional(),
+      hazmatEndorsed: booleanString.optional(),
+      scoreStatus: csvList(DRIVER_SCORE_STATUSES).optional(),
+      appInstalled: booleanString.optional(),
       status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
-      operationalStatus: z.enum(['active', 'on_trip', 'on_leave', 'inactive']).optional(),
+      // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
+      initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),
+      operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES).optional(),
+      segment: z.enum(DRIVER_ROSTER_SEGMENTS).optional(),
     }),
   }),
   getDriver: z.object({ params: driverParams }),
@@ -189,6 +256,12 @@ export const driverValidators = {
           .optional(),
         salaryType: z.enum(DRIVER_SALARY_TYPES).optional(),
         salaryAmount: z.number().nonnegative().max(9999999999).optional(),
+        emergencyContactRelation: driverCoreFields.emergencyContactRelation,
+        engagementType: driverCoreFields.engagementType,
+        bhattaPerDay: driverCoreFields.bhattaPerDay,
+        advanceOutstanding: driverCoreFields.advanceOutstanding,
+        homeBase: driverCoreFields.homeBase,
+        licenseEndorsements: driverCoreFields.licenseEndorsements,
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
@@ -196,10 +269,32 @@ export const driverValidators = {
   approveDriver: z.object({ params: driverParams }),
   rejectDriver: z.object({
     params: driverParams,
-    body: z.object({ reason: z.string().trim().min(1) }),
+    // Optional — the "Requests to You" screen rejects in one click with no reason prompt. Defaulted
+    // because Express 5 leaves req.body undefined when the request has no body at all.
+    body: z.object({ reason: z.string().trim().min(1).optional() }).default({}),
   }),
 
   listJoinRequests: z.object({ query: pagination }),
+
+  listInvitations: z.object({
+    // Mobile number only — names aren't unique. Partial numbers match ("98720" finds every
+    // invite whose mobile contains it); spaces, hyphens and a leading + are ignored.
+    query: pagination.omit({ search: true }).extend({
+      status: z.enum(DRIVER_INVITATION_STATUSES).optional(),
+      phoneNumber: z
+        .string()
+        .trim()
+        .transform((value) => value.replace(/[\s+-]/g, ''))
+        .refine((value) => /^\d{3,15}$/.test(value), 'Expected 3-15 digits of a mobile number')
+        .optional(),
+    }),
+  }),
+  inviteDriverByPhone: z.object({
+    body: z.object({ phoneNumber: driverCoreFields.phoneNumber }),
+  }),
+  getInvitation: z.object({ params: invitationParams }),
+  resendInvitation: z.object({ params: invitationParams }),
+  cancelInvitation: z.object({ params: invitationParams }),
 
   addDriverDocument: z.object({
     params: driverParams,

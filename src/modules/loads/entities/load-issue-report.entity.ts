@@ -67,6 +67,14 @@ export class LoadIssueReportEntity {
   @Column({ name: 'photo_file_keys', type: 'text', array: true, nullable: true })
   photoFileKeys!: string[] | null;
 
+  // Set by staff via LoadService.resolveIssue. An unresolved accident/breakdown keeps the load on
+  // hold (see HALTING_ISSUE_CATEGORIES) — the report row is otherwise append-only.
+  @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })
+  resolvedAt!: Date | null;
+
+  @Column({ name: 'resolved_by', type: 'uuid', nullable: true })
+  resolvedBy!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 }

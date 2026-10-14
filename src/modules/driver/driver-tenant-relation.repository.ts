@@ -1,16 +1,282 @@
-import { DataSource, EntityManager, FindOptionsWhere, ILike, IsNull, Repository } from 'typeorm';
+import {
+  And,
+  ArrayContains,
+  Brackets,
+  DataSource,
+  EntityManager,
+  FindOperator,
+  FindOptionsWhere,
+  ILike,
+  In,
+  IsNull,
+  LessThan,
+  MoreThan,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Between,
+  Not,
+  Or,
+  Repository,
+} from 'typeorm';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
+import { DriverEntity } from './entities/driver.entity';
+import { DriverSessionEntity } from './entities/driver-session.entity';
+import { DriverVerificationEntity } from './entities/driver-verification.entity';
+import { toDateString } from '../../shared/utils/date';
 import {
   CreateDriverTenantRelationData,
+  DriverRosterCounts,
+  InviteSendColumns,
   ListDriversFilters,
+  ListInvitationsInput,
   UpdateDriverTenantRelationData,
+  UnavailableRelationIds,
 } from './drivers.interface';
+import {
+  DRIVER_INVITE_TTL_DAYS,
+  DRIVER_ROSTER_SEGMENTS,
+  DriverLicenceClassFilter,
+  DriverLicenceValidityFilter,
+  DriverRosterEmploymentFilter,
+  DriverRosterSegment,
+} from './drivers.types';
+
+/** When an invite sent at `sentAt` stops being acceptable. */
+export function inviteExpiryFrom(sentAt: Date): Date {
+  return new Date(sentAt.getTime() + DRIVER_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Everything a fresh send (first invite or Resend) stamps on the relation: the clock restarts,
+ * the previous send's "viewed" is cleared, and every channel goes back to `pending`. SMS and
+ * WhatsApp stay `pending` — recorded, not sent — until the notification-branch sending is wired in
+ * here; push is overwritten with the real FCM result via setPushDeliveryStatus right after.
+ */
+export function inviteSendColumns(actorId: string | null, now: Date): InviteSendColumns {
+  return {
+    inviteSentAt: now,
+    inviteExpiresAt: inviteExpiryFrom(now),
+    inviteSentBy: actorId,
+    inviteViewedAt: null,
+    inviteViewedDevice: null,
+    smsDeliveryStatus: 'pending',
+    smsDeliveryStatusAt: now,
+    whatsappDeliveryStatus: 'pending',
+    whatsappDeliveryStatusAt: now,
+    pushDeliveryStatus: 'pending',
+    pushDeliveryStatusAt: now,
+  };
+}
+
+/**
+ * ILIKE patterns for the "Search by name, mobile, or DL number" box, normalised to how each column
+ * is stored: phones are digits only (normalizePhoneNumber / driver.validators.ts), so "+91 98720
+ * 44102" must become "9872044102" — the "91" country code dropped so it matches numbers stored
+ * with or without it; licence numbers have whitespace stripped. `phone` is null when the term
+ * has no digits, since an empty pattern would match every row.
+ */
+function driverSearchPatterns(search: string): {
+  name: string;
+  phone: string | null;
+  license: string;
+} {
+  let digits = search.replace(/\D+/g, '');
+  if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
+  return {
+    name: `%${search}%`,
+    phone: digits ? `%${digits}%` : null,
+    license: `%${search.replace(/\s+/g, '')}%`,
+  };
+}
+
+/**
+ * A roster segment as extra where-conditions on the relation, or null when it can't match any
+ * row (an empty In() list). Every segment is a slice of the Active Roster, so each one also pins
+ * the relation to `active` — on_trip comes from the loads table alone, which knows nothing about
+ * the link's status, so without this a pending/rejected link with an open load leaked into the
+ * tab (and every count).
+ */
+function rosterSegmentWhere(
+  segment: DriverRosterSegment,
+  onLoadDriverIds: readonly string[],
+  unavailable: UnavailableRelationIds,
+): FindOptionsWhere<DriverTenantRelationEntity> | null {
+  const where = segmentConditions(segment, onLoadDriverIds, unavailable);
+  return where && { ...where, status: 'active' };
+}
+
+/** Status-based segments match on relation ids rather than a nested `operationalStatus`
+ *  condition, because a driver with no status row at all must still count as available/on the
+ *  roster, and a nested condition drops them. */
+
+function segmentConditions(
+  segment: DriverRosterSegment,
+  onLoadDriverIds: readonly string[],
+  { notAvailable, left }: UnavailableRelationIds,
+): FindOptionsWhere<DriverTenantRelationEntity> | null {
+  const notLeft = left.length ? { id: Not(In(left)) } : {};
+  const today = new Date().toISOString().slice(0, 10);
+  switch (segment) {
+    case 'all':
+      return notLeft;
+    case 'on_trip':
+      return onLoadDriverIds.length ? { ...notLeft, driverId: In([...onLoadDriverIds]) } : null;
+    case 'available': {
+      const unavailable = [...notAvailable, ...left];
+      return {
+        ...(unavailable.length ? { id: Not(In(unavailable)) } : {}),
+        ...(onLoadDriverIds.length ? { driverId: Not(In([...onLoadDriverIds])) } : {}),
+      };
+    }
+    case 'not_available':
+      return notAvailable.length ? { id: In(notAvailable) } : null;
+    case 'left_company':
+      return left.length ? { id: In(left) } : null;
+    case 'licence_expired':
+      return { ...notLeft, driver: { licenseExpiry: LessThan(today) } };
+    case 'not_verified':
+      return { ...notLeft, driver: { licenseVerified: false } };
+    case 'hazmat_endorsed':
+      return { ...notLeft, driver: { licenseEndorsements: ArrayContains(['hazmat']) } };
+  }
+}
+
+/**
+ * `licenceValidity` options as one condition on drivers.license_expiry. The three options are
+ * adjacent ranges (expired < today <= expiring <= today + 30 < valid), so every combination is a
+ * single range — or, for expired + valid, the gap between them. A driver with no expiry on file
+ * matches none of them, as the roster shows no validity for one.
+ */
+function licenceExpiryCondition(options: DriverLicenceValidityFilter[]): FindOperator<string> {
+  const today = toDateString(new Date());
+  const in30Days = toDateString(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+  const expired = options.includes('expired');
+  const expiring = options.includes('expiring');
+  const valid = options.includes('valid');
+
+  if (expired && expiring && valid) return Not(IsNull());
+  if (expired && expiring) return LessThanOrEqual(in30Days);
+  if (expiring && valid) return MoreThanOrEqual(today);
+  if (expired && valid) return Not(Between(today, in30Days));
+  if (expired) return LessThan(today);
+  if (expiring) return Between(today, in30Days);
+  return MoreThan(in30Days);
+}
+
+/**
+ * `employmentType` options as OR'd driver conditions — `fixed`/`per_trip`/`per_km` are how a
+ * company driver is paid (salaryType), `vendor` is a vendor's driver (engagementType), and a
+ * vendor's driver only ever matches `vendor`: the same split the roster's Pay column shows.
+ */
+function employmentConditions(
+  options: DriverRosterEmploymentFilter[],
+): FindOptionsWhere<DriverEntity>[] {
+  const paidAs = options.filter((option) => option !== 'vendor');
+  const branches: FindOptionsWhere<DriverEntity>[] = [];
+  if (paidAs.length) {
+    branches.push({ salaryType: In(paidAs), engagementType: Or(IsNull(), Not('vendor')) });
+  }
+  if (options.includes('vendor')) branches.push({ engagementType: 'vendor' });
+  return branches;
+}
+
+/** A licence-class list ("MCWG, LMV, HGMV") holds one of `classes` as a whole code. */
+function hasLicenceClass(licenseClass: string, classes: DriverLicenceClassFilter[]): boolean {
+  const codes = licenseClass.toUpperCase().split(/[^A-Z0-9]+/);
+  return classes.some((code) => codes.includes(code));
+}
+
+function hasRosterFilters(filters: ListDriversFilters): boolean {
+  return Boolean(
+    filters.employmentType?.length ||
+    filters.licenceValidity?.length ||
+    filters.licenceClass?.length ||
+    filters.scoreStatus?.length ||
+    filters.hazmatEndorsed !== undefined ||
+    filters.appInstalled !== undefined,
+  );
+}
 
 export class DriverTenantRelationRepository {
   private readonly relations: Repository<DriverTenantRelationEntity>;
+  private readonly operationalStatuses: Repository<DriverOperationalStatusEntity>;
+  private readonly sessions: Repository<DriverSessionEntity>;
+  private readonly verifications: Repository<DriverVerificationEntity>;
 
   constructor(dataSource: DataSource) {
     this.relations = dataSource.getRepository(DriverTenantRelationEntity);
+    this.operationalStatuses = dataSource.getRepository(DriverOperationalStatusEntity);
+    this.sessions = dataSource.getRepository(DriverSessionEntity);
+    this.verifications = dataSource.getRepository(DriverVerificationEntity);
+  }
+
+  /**
+   * The roster filter panel, resolved to the ids of this tenant's relations that match it — or
+   * null when no filter is set. Ticked options within one key are OR'd and the keys AND'd. Profile
+   * fields filter in one query; app installed and licence class then narrow those candidates by
+   * their own tables. Returned as ids so list() and every tab count apply it identically.
+   */
+  private async findRosterFilterRelationIds(
+    tenantId: string,
+    filters: ListDriversFilters,
+  ): Promise<string[] | null> {
+    if (!hasRosterFilters(filters)) return null;
+    const { employmentType, licenceValidity, licenceClass, hazmatEndorsed, scoreStatus } = filters;
+
+    // No scoring model exists yet, so every driver reads `new` (DriverService's toScoreStatus) —
+    // strong/watch alone match nobody. Replace with a real score condition once scores exist.
+    if (scoreStatus?.length && !scoreStatus.includes('new')) return [];
+
+    const driver: FindOptionsWhere<DriverEntity> = {};
+    if (licenceValidity?.length) driver.licenseExpiry = licenceExpiryCondition(licenceValidity);
+    if (hazmatEndorsed !== undefined) {
+      const hazmat = ArrayContains(['hazmat']);
+      driver.licenseEndorsements = hazmatEndorsed ? hazmat : Not(hazmat);
+    }
+    const driverBranches = employmentType?.length
+      ? employmentConditions(employmentType).map((branch) => ({ ...driver, ...branch }))
+      : [driver];
+
+    let candidates = await this.relations.find({
+      select: { id: true, driverId: true },
+      where: driverBranches.map((branch) => ({ tenantId, deletedAt: IsNull(), driver: branch })),
+    });
+
+    if (filters.appInstalled !== undefined && candidates.length) {
+      // "Installed" = has ever logged into the driver app — same rule as the roster's phone icon.
+      const sessions = await this.sessions.find({
+        select: { driverId: true },
+        where: { driverId: In(candidates.map((relation) => relation.driverId)) },
+      });
+      const withApp = new Set(sessions.map((session) => session.driverId));
+      candidates = candidates.filter(
+        (relation) => withApp.has(relation.driverId) === filters.appInstalled,
+      );
+    }
+
+    if (licenceClass?.length && candidates.length) {
+      // Latest check that recorded a class — what the roster's class column shows.
+      const checks = await this.verifications.find({
+        select: { driverId: true, licenseClass: true, createdAt: true },
+        where: {
+          driverId: In(candidates.map((relation) => relation.driverId)),
+          licenseClass: Not(IsNull()),
+          deletedAt: IsNull(),
+        },
+        order: { createdAt: 'DESC' },
+      });
+      const latestClass = new Map<string, string>();
+      for (const check of checks) {
+        if (!latestClass.has(check.driverId)) latestClass.set(check.driverId, check.licenseClass!);
+      }
+      candidates = candidates.filter((relation) => {
+        const latest = latestClass.get(relation.driverId);
+        return latest !== undefined && hasLicenceClass(latest, licenceClass);
+      });
+    }
+
+    return candidates.map((relation) => relation.id);
   }
 
   async create(
@@ -46,6 +312,47 @@ export class DriverTenantRelationRepository {
     return relations.findOneBy({ tenantId, driverId, deletedAt: IsNull() });
   }
 
+  /**
+   * This tenant's newest row for the driver. A driver can hold several (older declined or
+   * cancelled ones plus the current one); findByTenantAndDriver above returns any of them.
+   */
+  findLatestByTenantAndDriver(
+    tenantId: string,
+    driverId: string,
+    manager?: EntityManager,
+  ): Promise<DriverTenantRelationEntity | null> {
+    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
+    return relations.findOne({
+      where: { tenantId, driverId, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Invites again on a row that's finished with — an expired, declined or cancelled invite — so
+   * the tenant keeps one row per driver rather than adding another (see findLatestByTenantAndDriver).
+   * Clears the previous answer; keeps the row's invite number.
+   */
+  async reinvite(
+    tenantId: string,
+    id: string,
+    data: Omit<CreateDriverTenantRelationData, 'tenantId' | 'driverId' | 'createdBy'>,
+    actorId: string,
+    manager?: EntityManager,
+  ): Promise<DriverTenantRelationEntity | null> {
+    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
+    const result = await relations.update(
+      {
+        id,
+        tenantId,
+        status: In(['pending_driver_review', 'rejected', 'cancelled']),
+        deletedAt: IsNull(),
+      },
+      { ...data, rejectionReason: null, updatedBy: actorId },
+    );
+    return result.affected === 1 ? relations.findOneBy({ id, tenantId }) : null;
+  }
+
   // Full staff-facing detail view: driver profile (with its person-level documents/verifications/
   // bank details) plus this tenant's operational status, trip metrics, and vehicle assignment.
   findByTenantAndDriverWithFullRelations(
@@ -58,7 +365,7 @@ export class DriverTenantRelationRepository {
         driver: { documents: true, verifications: true, bankDetails: true },
         operationalStatus: true,
         tripMetrics: true,
-        vehicleLinks: { vehicle: true },
+        vehicleLinks: { vehicle: { truckType: true } },
       },
     });
   }
@@ -79,31 +386,33 @@ export class DriverTenantRelationRepository {
     });
   }
 
+  /** `onLoadDriverIds` — drivers currently on an active load; only the on_trip/available
+   *  segments read it. */
   async list(
     tenantId: string,
     filters: ListDriversFilters,
+    onLoadDriverIds: readonly string[] = [],
   ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
-    const { status, operationalStatus, search, page, limit } = filters;
-
-    const base: FindOptionsWhere<DriverTenantRelationEntity> = { tenantId, deletedAt: IsNull() };
-    if (status) base.status = status;
-    if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
-
-    // Search spans two columns on the driver profile, so it becomes two OR'd where-clauses.
-    const where: FindOptionsWhere<DriverTenantRelationEntity>[] = search
-      ? [
-          { ...base, driver: { fullName: ILike(`%${search}%`) } },
-          { ...base, driver: { phoneNumber: ILike(`%${search}%`) } },
-        ]
-      : [base];
+    const { segment, page, limit } = filters;
+    const segmentWhere = segment
+      ? rosterSegmentWhere(
+          segment,
+          onLoadDriverIds,
+          await this.findUnavailableRelationIds(tenantId),
+        )
+      : {};
+    if (!segmentWhere) return { items: [], total: 0 };
+    const filterIds = await this.findRosterFilterRelationIds(tenantId, filters);
+    if (filterIds?.length === 0) return { items: [], total: 0 };
 
     const [items, total] = await this.relations.findAndCount({
-      where,
+      where: this.listWhere(tenantId, filters, segmentWhere, filterIds),
       relations: {
-        driver: true,
+        // verifications only feed DriverService's licenseClass — stripped from the list response.
+        driver: { verifications: true },
         operationalStatus: true,
         tripMetrics: true,
-        vehicleLinks: { vehicle: true },
+        vehicleLinks: { vehicle: { truckType: true } },
       },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
@@ -113,17 +422,129 @@ export class DriverTenantRelationRepository {
     return { items, total };
   }
 
-  async softDelete(tenantId: string, driverId: string, deletedBy: string | null): Promise<void> {
-    await this.relations.update(
+  /** Every roster tab's badge count, under the same status/initiatedBy/search filters as list(). */
+  async countRosterSegments(
+    tenantId: string,
+    filters: ListDriversFilters,
+    onLoadDriverIds: readonly string[],
+  ): Promise<DriverRosterCounts> {
+    const [unavailable, filterIds] = await Promise.all([
+      this.findUnavailableRelationIds(tenantId),
+      this.findRosterFilterRelationIds(tenantId, filters),
+    ]);
+    const countFor = (segmentWhere: FindOptionsWhere<DriverTenantRelationEntity> | null) =>
+      segmentWhere && filterIds?.length !== 0
+        ? this.relations.count({
+            where: this.listWhere(tenantId, filters, segmentWhere, filterIds),
+          })
+        : Promise.resolve(0);
+
+    const [total, ...segmentCounts] = await Promise.all([
+      // "of 45" — the whole Active Roster, left-the-company included.
+      countFor({ status: 'active' }),
+      ...DRIVER_ROSTER_SEGMENTS.map((segment) =>
+        countFor(rosterSegmentWhere(segment, onLoadDriverIds, unavailable)),
+      ),
+    ]);
+
+    return {
+      total,
+      ...(Object.fromEntries(
+        DRIVER_ROSTER_SEGMENTS.map((segment, index) => [segment, segmentCounts[index]]),
+      ) as Record<DriverRosterSegment, number>),
+    };
+  }
+
+  private async findUnavailableRelationIds(tenantId: string): Promise<UnavailableRelationIds> {
+    const rows = await this.operationalStatuses.find({
+      where: {
+        tenantId,
+        operationalStatus: In(['on_leave', 'medically_unfit', 'inactive']),
+        deletedAt: IsNull(),
+      },
+      select: { driverTenantRelationId: true, operationalStatus: true },
+    });
+    return {
+      notAvailable: rows
+        .filter((row) => row.operationalStatus !== 'inactive')
+        .map((row) => row.driverTenantRelationId),
+      left: rows
+        .filter((row) => row.operationalStatus === 'inactive')
+        .map((row) => row.driverTenantRelationId),
+    };
+  }
+
+  private listWhere(
+    tenantId: string,
+    filters: ListDriversFilters,
+    segmentWhere: FindOptionsWhere<DriverTenantRelationEntity>,
+    filterIds: string[] | null,
+  ): FindOptionsWhere<DriverTenantRelationEntity>[] {
+    const { status, initiatedBy, operationalStatus, search } = filters;
+
+    const base: FindOptionsWhere<DriverTenantRelationEntity> = { tenantId, deletedAt: IsNull() };
+    if (status) base.status = status;
+    if (initiatedBy) base.initiatedBy = initiatedBy;
+    if (operationalStatus) base.operationalStatus = { operationalStatus, deletedAt: IsNull() };
+    // Applied last so a segment's own conditions (notably status: 'active') win over the
+    // caller's `status` filter.
+    Object.assign(base, segmentWhere);
+    // The filter panel's matches, as relation ids; a status segment may already narrow `id`.
+    if (filterIds) {
+      base.id = base.id ? And(base.id as FindOperator<string>, In(filterIds)) : In(filterIds);
+    }
+    if (!search) return [base];
+
+    // Search spans three columns on the driver profile (name / mobile / DL number), so it becomes
+    // up to three OR'd where-clauses — see driverSearchPatterns for the normalisation. Each keeps
+    // the segment's own driver conditions (e.g. licence expired) alongside the search column.
+    const segmentDriver = segmentWhere.driver as FindOptionsWhere<DriverEntity> | undefined;
+    const patterns = driverSearchPatterns(search);
+    const where: FindOptionsWhere<DriverTenantRelationEntity>[] = [
+      { ...base, driver: { ...segmentDriver, fullName: ILike(patterns.name) } },
+      { ...base, driver: { ...segmentDriver, licenseNumber: ILike(patterns.license) } },
+    ];
+    if (patterns.phone) {
+      where.push({ ...base, driver: { ...segmentDriver, phoneNumber: ILike(patterns.phone) } });
+    }
+    return where;
+  }
+
+  async softDelete(
+    tenantId: string,
+    driverId: string,
+    deletedBy: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
+    await relations.update(
       { tenantId, driverId, deletedAt: IsNull() },
       { deletedAt: new Date(), updatedBy: deletedBy },
     );
   }
 
+  /**
+   * Account deletion's counterpart to softDelete for a still-pending invite: the row stays so the
+   * inviting tenant sees it as `expired` in Invitations Sent instead of it silently vanishing,
+   * and its expiry is pulled forward to now so the existing expired-invite guards (resend, accept)
+   * apply too.
+   */
+  async expirePendingInvite(id: string, manager: EntityManager): Promise<void> {
+    await manager
+      .getRepository(DriverTenantRelationEntity)
+      .update(
+        { id, status: 'pending_driver_review', deletedAt: IsNull() },
+        { inviteExpiresAt: new Date(), updatedBy: null },
+      );
+  }
+
   /** Every relation a driver (identified globally) holds, across all tenants. */
-  listByDriver(driverId: string): Promise<DriverTenantRelationEntity[]> {
+  listByDriver(
+    driverId: string,
+    status?: DriverTenantRelationEntity['status'],
+  ): Promise<DriverTenantRelationEntity[]> {
     return this.relations.find({
-      where: { driverId, deletedAt: IsNull() },
+      where: { driverId, deletedAt: IsNull(), ...(status && { status }) },
       order: { createdAt: 'DESC' },
     });
   }
@@ -131,13 +552,6 @@ export class DriverTenantRelationRepository {
   listActiveByDriver(driverId: string): Promise<DriverTenantRelationEntity[]> {
     return this.relations.find({
       where: { driverId, status: 'active', deletedAt: IsNull() },
-    });
-  }
-
-  listPendingStaffReview(tenantId: string): Promise<DriverTenantRelationEntity[]> {
-    return this.relations.find({
-      where: { tenantId, status: 'pending_staff_review', deletedAt: IsNull() },
-      order: { createdAt: 'DESC' },
     });
   }
 
@@ -163,13 +577,16 @@ export class DriverTenantRelationRepository {
     actorId: string,
     nextStatus: 'pending_driver_review' | 'active',
   ): Promise<DriverTenantRelationEntity | null> {
+    const now = new Date();
     const result = await this.relations.update(
       { id, tenantId, status: 'pending_staff_review', deletedAt: IsNull() },
       {
         status: nextStatus,
         approvedBy: actorId,
-        approvedAt: new Date(),
+        approvedAt: now,
         rejectionReason: null,
+        // Approving a dispatch-added driver is what sends them the invite.
+        ...(nextStatus === 'pending_driver_review' && inviteSendColumns(actorId, now)),
         updatedBy: actorId,
       },
     );
@@ -180,7 +597,7 @@ export class DriverTenantRelationRepository {
     tenantId: string,
     id: string,
     actorId: string,
-    reason: string,
+    reason: string | null,
   ): Promise<DriverTenantRelationEntity | null> {
     const result = await this.relations.update(
       { id, tenantId, status: 'pending_staff_review', deletedAt: IsNull() },
@@ -189,10 +606,191 @@ export class DriverTenantRelationRepository {
     return result.affected === 1 ? this.findById(tenantId, id) : null;
   }
 
-  /** Driver accepts a `pending_driver_review` relation (a fleet-owner-initiated invite). */
+  /**
+   * "Invitations Sent" tab — tenant-initiated relations whose invite actually went out
+   * (invite_sent_at set), with the display status derived per DRIVER_INVITATION_STATUSES.
+   */
+  async listInvitations(
+    tenantId: string,
+    filters: ListInvitationsInput,
+  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
+    const { status, phoneNumber, page, limit } = filters;
+
+    const query = this.relations
+      .createQueryBuilder('relation')
+      .innerJoinAndSelect('relation.driver', 'driver')
+      .where('relation.tenantId = :tenantId', { tenantId })
+      .andWhere('relation.deletedAt IS NULL')
+      .andWhere('relation.initiatedBy IN (:...initiators)', {
+        initiators: ['fleet_owner', 'staff'],
+      })
+      .andWhere('relation.inviteSentAt IS NOT NULL')
+      .andWhere(
+        new Brackets((statusClause) => {
+          const pendingDriver = "relation.status = 'pending_driver_review'";
+          // Mirrors toInvitationView: a driver who left the platform (driver.service.ts's
+          // isDriverOffPlatform) makes a still-pending invite read `expired`, whatever its date.
+          const onPlatform = 'driver.deletedAt IS NULL';
+          if (!status || status === 'pending') {
+            statusClause.orWhere(
+              `${pendingDriver} AND ${onPlatform} AND relation.inviteExpiresAt > now()`,
+            );
+          }
+          if (!status || status === 'expired') {
+            statusClause.orWhere(
+              `${pendingDriver} AND (NOT ${onPlatform} OR relation.inviteExpiresAt <= now())`,
+            );
+          }
+          if (!status || status === 'accepted') {
+            statusClause.orWhere("relation.status = 'active'");
+          }
+          if (!status || status === 'cancelled') {
+            statusClause.orWhere("relation.status = 'cancelled'");
+          }
+          // A staff-rejected dispatch driver never reached the driver — only driver declines count.
+          if (!status || status === 'rejected') {
+            statusClause.orWhere(
+              "relation.status = 'rejected' AND relation.driverRespondedAt IS NOT NULL",
+            );
+          }
+        }),
+      );
+
+    // Mobile only — names aren't unique. Same digits normalisation as the roster's search.
+    const phonePattern = phoneNumber ? driverSearchPatterns(phoneNumber).phone : null;
+    if (phonePattern) {
+      query.andWhere('driver.phoneNumber ILIKE :phoneSearch', { phoneSearch: phonePattern });
+    }
+
+    const [items, total] = await query
+      .orderBy('relation.inviteSentAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return { items, total };
+  }
+
+  /**
+   * One invitation (tenant-initiated relation whose invite went out) by its own id, scoped to the
+   * tenant — with the driver's verifications for the drawer's credentials block.
+   */
+  findInvitation(tenantId: string, id: string): Promise<DriverTenantRelationEntity | null> {
+    return this.relations.findOne({
+      where: {
+        id,
+        tenantId,
+        initiatedBy: In(['fleet_owner', 'staff']),
+        inviteSentAt: Not(IsNull()),
+        deletedAt: IsNull(),
+      },
+      relations: { driver: { verifications: true } },
+    });
+  }
+
+  /** Records the real FCM result for the latest send's push channel. */
+  async setPushDeliveryStatus(id: string, status: 'sent' | 'failed'): Promise<void> {
+    await this.relations.update(
+      { id },
+      { pushDeliveryStatus: status, pushDeliveryStatusAt: new Date() },
+    );
+  }
+
+  /**
+   * Driver opened the invite notification on their device. Only the first open of the CURRENT
+   * send counts: a notification created before the latest (re)send is ignored, as is an invite
+   * the driver already answered or the tenant cancelled. The device label comes from the driver's
+   * session row (driver_sessions.device_type · device_info).
+   */
+  async markInviteViewed(
+    id: string,
+    driverId: string,
+    notificationCreatedAt: Date,
+    sessionId: string | undefined,
+  ): Promise<void> {
+    const now = new Date();
+    await this.relations
+      .createQueryBuilder()
+      .update(DriverTenantRelationEntity)
+      .set({
+        inviteViewedAt: now,
+        inviteViewedDevice: sessionId
+          ? () =>
+              `(SELECT NULLIF(concat_ws(' · ', s.device_type, s.device_info), '') ` +
+              `FROM masters.driver_sessions s WHERE s.id = :sessionId)`
+          : null,
+      })
+      .where('id = :id', { id })
+      .andWhere('driver_id = :driverId', { driverId })
+      .andWhere("status = 'pending_driver_review'")
+      .andWhere('deleted_at IS NULL')
+      .andWhere('invite_viewed_at IS NULL')
+      .andWhere('invite_sent_at <= :notificationCreatedAt', { notificationCreatedAt })
+      .setParameter('sessionId', sessionId ?? null)
+      .execute();
+  }
+
+  /** Driver-side lookup of one of their own pending invites, by relation id. */
+  findPendingInviteForDriver(
+    id: string,
+    driverId: string,
+  ): Promise<DriverTenantRelationEntity | null> {
+    return this.relations.findOneBy({
+      id,
+      driverId,
+      status: 'pending_driver_review',
+      deletedAt: IsNull(),
+    });
+  }
+
+  /**
+   * Cancel — flips just this tenant's pending invite to `cancelled`. The row is kept, so it stays
+   * in Invitations Sent and keeps occupying the tenant+driver slot, which is what stops the driver
+   * from requesting to join this tenant again.
+   */
+  async cancelInvite(tenantId: string, id: string, actorId: string): Promise<boolean> {
+    const result = await this.relations.update(
+      { id, tenantId, status: 'pending_driver_review', deletedAt: IsNull() },
+      { status: 'cancelled', updatedBy: actorId },
+    );
+    return result.affected === 1;
+  }
+
+  /** Resend — restarts the invite's clock. Only a still-pending, unexpired invite qualifies. */
+  async resendInvite(
+    tenantId: string,
+    id: string,
+    actorId: string,
+  ): Promise<DriverTenantRelationEntity | null> {
+    const now = new Date();
+    const result = await this.relations.update(
+      {
+        id,
+        tenantId,
+        status: 'pending_driver_review',
+        inviteExpiresAt: MoreThan(now),
+        deletedAt: IsNull(),
+      },
+      { ...inviteSendColumns(actorId, now), updatedBy: actorId },
+    );
+    if (result.affected !== 1) return null;
+    return this.relations.findOne({ where: { id, tenantId }, relations: { driver: true } });
+  }
+
+  /**
+   * Driver accepts a `pending_driver_review` relation (a fleet-owner-initiated invite). An expired
+   * invite can't be accepted — every pending invite carries an expiry (stamped on send, and
+   * backfilled by the AddDriverInviteTimestamps migration).
+   */
   async accept(id: string, driverId: string): Promise<DriverTenantRelationEntity | null> {
     const result = await this.relations.update(
-      { id, driverId, status: 'pending_driver_review', deletedAt: IsNull() },
+      {
+        id,
+        driverId,
+        status: 'pending_driver_review',
+        inviteExpiresAt: MoreThan(new Date()),
+        deletedAt: IsNull(),
+      },
       { status: 'active', driverRespondedAt: new Date() },
     );
     if (result.affected !== 1) return null;

@@ -66,6 +66,38 @@ export function createDriverRoutes(controller: DriverController): Router {
     asyncHandler(controller.listJoinRequests),
   );
 
+  // "Invitations Sent" — invites this tenant sent (org_admin onboard, or dispatch-added + approved).
+  // Declared before '/drivers/:driverId' so "invitations" isn't parsed as a driverId.
+  router.get(
+    '/drivers/invitations',
+    validate(driverValidators.listInvitations),
+    asyncHandler(controller.listInvitations),
+  );
+  // "Invite by mobile number" on the Invitations tab.
+  router.post(
+    '/drivers/invitations',
+    canWrite,
+    validate(driverValidators.inviteDriverByPhone),
+    asyncHandler(controller.inviteDriverByPhone),
+  );
+  router.get(
+    '/drivers/invitations/:invitationId',
+    validate(driverValidators.getInvitation),
+    asyncHandler(controller.getInvitation),
+  );
+  router.post(
+    '/drivers/invitations/:invitationId/resend',
+    canWrite,
+    validate(driverValidators.resendInvitation),
+    asyncHandler(controller.resendInvitation),
+  );
+  router.delete(
+    '/drivers/invitations/:invitationId',
+    canWrite,
+    validate(driverValidators.cancelInvitation),
+    asyncHandler(controller.cancelInvitation),
+  );
+
   router.get(
     '/drivers/:driverId',
     validate(driverValidators.getDriver),

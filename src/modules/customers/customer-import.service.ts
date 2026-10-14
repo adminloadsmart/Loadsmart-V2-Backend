@@ -54,7 +54,7 @@ export class CustomerImportService {
         continue;
       }
       const input = result.data.body as CreateCustomerInput;
-      const mobile = input.mobile.replace(/[\s-]/g, '');
+      const mobile = (input.mobile ?? '').replace(/[\s-]/g, '');
       if (mobiles.has(mobile)) {
         errors.push({
           row: item.row,

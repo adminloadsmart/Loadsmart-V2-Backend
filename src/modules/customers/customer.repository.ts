@@ -21,14 +21,16 @@ export class CustomerRepository {
     status: CustomerEntity['status'],
     input: CreateCustomerInput,
     manager?: EntityManager,
+    code: string | null = null,
   ) {
     const repo = manager?.getRepository(CustomerEntity) ?? this.customers;
     const customer = repo.create({
       tenantId,
+      code,
       createdBy: actorId,
       status,
       name: input.name,
-      mobile: input.mobile,
+      mobile: input.mobile ?? null,
       email: input.email ?? null,
       gstin: input.gstin ?? null,
       contactPersonName: input.contactPersonName ?? null,
@@ -100,7 +102,7 @@ export class CustomerRepository {
     if (status) query.andWhere('customer.status = :status', { status });
     if (search)
       query.andWhere(
-        '(customer.name ILIKE :search OR customer.mobile ILIKE :search OR customer.email ILIKE :search OR customer.gstin ILIKE :search)',
+        '(customer.name ILIKE :search OR customer.code ILIKE :search OR customer.mobile ILIKE :search OR customer.email ILIKE :search OR customer.gstin ILIKE :search)',
         { search: `%${search}%` },
       );
     const [items, total] = await query

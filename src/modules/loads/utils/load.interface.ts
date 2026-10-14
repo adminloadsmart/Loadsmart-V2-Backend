@@ -59,7 +59,9 @@ export interface ReviewPodInput {
 export interface UploadPodInput {
   podFileKey: string;
   podReceiverName: string;
-  podReceiverMobile: string;
+  /** Absent when the receiver has no phone — the POD photo alone is then the proof. A driver
+   *  sending it must have verified it first via LoadService.verifyPodReceiverCode. */
+  podReceiverMobile?: string;
   podReceiverDesignation?: string;
   podQuantityReceived: number;
   sealStatus?: SealStatus;

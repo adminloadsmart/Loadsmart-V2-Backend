@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../../shared/utils/date';
-import { bankAccountCheckBody } from '../driver.validators';
-import { IFSC_REGEX } from '../../masters/masters.constants';
+import { bankAccountCheckBody, licenseNumber } from '../driver.validators';
 import {
+  DRIVER_INSURANCE_ANSWERS,
+  DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_BLOOD_GROUPS,
   DRIVER_DOCUMENT_TYPES,
   DRIVER_DOCUMENT_VERIFICATION_SOURCES,
   DRIVER_ONBOARDING_STEPS,
 } from '../drivers.types';
+import { IFSC_REGEX } from '../../masters/masters.constants';
 
 // Same convention as modules/auth/auth.validators.ts's deviceTokenFields — optional on every
 // session-issuing endpoint below, deviceType required alongside fcmToken via .superRefine. No
@@ -30,12 +32,6 @@ const requireDeviceType = (
     });
   }
 };
-
-const licenseNumber = z
-  .string()
-  .trim()
-  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
-  .refine((value) => value.length >= 8 && value.length <= 30, 'Invalid driving licence number');
 
 const registerDocumentBody = z.object({
   documentType: z.enum(DRIVER_DOCUMENT_TYPES),
@@ -81,6 +77,15 @@ export const driverAuthValidators = {
       .object({
         fcmToken: z.string().trim().min(1).max(512),
         deviceType: z.enum(['ios', 'android', 'web']),
+      })
+      .strict(),
+  }),
+  // POST rather than DELETE — several mobile HTTP clients drop request bodies on DELETE.
+  deleteAccount: z.object({
+    body: z
+      .object({
+        phoneNumber: z.string().trim().min(10),
+        confirm: z.literal(true),
       })
       .strict(),
   }),
@@ -131,8 +136,8 @@ export const driverAuthValidators = {
         .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number')
         .optional(),
       emergencyContactRelation: z.string().min(1).max(50).optional(),
-      hasHealthInsurance: z.boolean().optional(),
-      hasLifeInsurance: z.boolean().optional(),
+      hasHealthInsurance: z.enum(DRIVER_INSURANCE_ANSWERS).optional(),
+      hasLifeInsurance: z.enum(DRIVER_INSURANCE_ANSWERS).optional(),
       bankDetails: z
         .object({
           accountNumber: z.string().min(6).max(30),
@@ -194,6 +199,19 @@ export const driverAuthValidators = {
   // --- Cross-tenant relation management ---
   requestJoin: z.object({
     body: z.object({ tenantId: z.string().uuid() }),
+  }),
+  saveInsuranceResponse: z.object({
+    body: z
+      .object({
+        hasHealthInsurance: z.enum(DRIVER_INSURANCE_ANSWERS),
+        hasLifeInsurance: z.enum(DRIVER_INSURANCE_ANSWERS),
+      })
+      .strict(),
+  }),
+  listMyRelations: z.object({
+    query: z.object({
+      status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
+    }),
   }),
   acceptInvite: z.object({ params: relationParams }),
   rejectInvite: z.object({

@@ -199,6 +199,16 @@ export class LoadsController {
 
   // Driver-app "Report An Issue" reports, staff read-only view — the driver-side POST lives on
   // driver-portal, not here (see driver-portal.controller.ts's reportMyIssue).
+  resolveLoadIssue = async (req: Request<LoadParams & { issueId: string }>, res: Response) => {
+    const issue = await this.loadService.resolveIssue(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      req.params.issueId,
+    );
+    respond(res, issue);
+  };
+
   listLoadIssues = async (req: Request<LoadParams>, res: Response) => {
     const issues = await this.loadService.listIssues(requireTenantId(req), req.params.loadId);
     respond(res, issues);

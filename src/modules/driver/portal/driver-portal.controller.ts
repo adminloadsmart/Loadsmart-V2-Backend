@@ -214,6 +214,29 @@ export class DriverPortalController {
     respond(res, load);
   };
 
+  // Step 1 of the delivery flow — texts the receiver a 4-digit code; verified at uploadMyPod.
+  sendMyPodReceiverCode = async (req: Request<LoadParams>, res: Response) => {
+    await this.loadService.sendPodReceiverCode(
+      req.driver!.tenantId!,
+      req.params.loadId,
+      req.body.mobile,
+      req.driver!.id,
+    );
+    respond(res, { sent: true });
+  };
+
+  // Step 1b — checks the code the receiver read out; uploadMyPod then relies on this having passed.
+  verifyMyPodReceiverCode = async (req: Request<LoadParams>, res: Response) => {
+    await this.loadService.verifyPodReceiverCode(
+      req.driver!.tenantId!,
+      req.params.loadId,
+      req.body.mobile,
+      req.body.code,
+      req.driver!.id,
+    );
+    respond(res, { verified: true });
+  };
+
   // Driver-app "Report An Issue" — a problem flagged on a load this driver is carrying (see
   // load.service.ts's reportIssue for the ownership-check/audit-FK reasoning, identical to
   // updateMyLoadStatus/uploadMyPod above). actorRole is a literal, same reasoning as uploadMyPod.
@@ -273,6 +296,7 @@ export class DriverPortalController {
     const notification = await this.driverPortalService.markMyNotificationRead(
       req.driver!.id,
       String((req.params as { notificationId: string }).notificationId),
+      req.driver!.sid,
     );
     respond(res, notification);
   };
@@ -287,6 +311,7 @@ export class DriverPortalController {
     const home = await this.driverPortalService.getMyHome(
       req.driver!.id,
       req.driver!.tenantId ?? null,
+      req.locale,
     );
     respond(res, home);
   };

@@ -23,7 +23,8 @@ export const REQUISITION_ITEM_UNITS = [
 ] as const;
 export type RequisitionItemUnit = (typeof REQUISITION_ITEM_UNITS)[number];
 
-export const LOAD_SOURCE_TYPES = ['own_fleet', 'market'] as const;
+/** `indent` — posted straight to one contracted transporter at the contract rate (Post a load). */
+export const LOAD_SOURCE_TYPES = ['own_fleet', 'market', 'indent'] as const;
 export type LoadSourceType = (typeof LOAD_SOURCE_TYPES)[number];
 
 export const FREIGHT_TYPES = ['per_ton', 'flat'] as const;
@@ -52,10 +53,10 @@ export const SEAL_STATUSES = ['intact', 'broken'] as const;
 export type SealStatus = (typeof SEAL_STATUSES)[number];
 
 /** E-POD's cargo-condition-on-arrival field — captured alongside the delivery receipt. A
- *  'damage'/'both' value requires a damagePhotoKey (see load.validators.ts's uploadPodBody);
+ *  'damage'/'wet'/'both' value requires a damagePhotoKey (see load.validators.ts's uploadPodBody);
  *  'shortage'/'both' pairs with the optional numberOfTonnesShort. Like sealStatus, never blocks
  *  uploadPod — recorded for visibility, no escalation workflow exists yet. */
-export const SHORTAGE_OR_DAMAGE_STATUSES = ['none', 'shortage', 'damage', 'both'] as const;
+export const SHORTAGE_OR_DAMAGE_STATUSES = ['none', 'shortage', 'damage', 'wet', 'both'] as const;
 export type ShortageOrDamageStatus = (typeof SHORTAGE_OR_DAMAGE_STATUSES)[number];
 
 /** E-POD's staff-review state — set to 'pending' by uploadPod, then decided by
@@ -201,3 +202,8 @@ export const LOAD_ISSUE_CATEGORIES = [
   'other',
 ] as const;
 export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];
+
+/** Categories that put the trip on hold until staff resolve the report — the driver can't move the
+ *  load forward and the trip-detail view shows it as halted. Every other category is shown as
+ *  incident info only. */
+export const HALTING_ISSUE_CATEGORIES: readonly LoadIssueCategory[] = ['accident', 'breakdown'];

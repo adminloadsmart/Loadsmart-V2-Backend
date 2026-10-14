@@ -80,6 +80,28 @@ export class DriverRepository {
     return drivers.findOneBy({ id, deletedAt: IsNull() });
   }
 
+  // Driver self-service account deletion — the profile row itself stays (trip history joins to
+  // it) with deletedAt set, and purgeAfter marks when its personal data can be scrubbed. Unlike
+  // update() above, this is the one write that is meant to flip deletedAt.
+  async softDeleteAccount(id: string, purgeAfter: Date, manager?: EntityManager): Promise<boolean> {
+    const drivers = manager ? manager.getRepository(DriverEntity) : this.drivers;
+    const result = await drivers.update(
+      { id, deletedAt: IsNull() },
+      { deletedAt: new Date(), purgeAfter, updatedBy: null },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  // Person-level children of a deleted account (documents, bank details, verifications) — the
+  // tenant-scoped ones hang off the relations, which are soft-deleted separately.
+  async softDeletePersonData(driverId: string, manager: EntityManager): Promise<void> {
+    const where = { driverId, deletedAt: IsNull() };
+    const set = { deletedAt: new Date(), updatedBy: null };
+    await manager.getRepository(DriverDocumentEntity).update(where, set);
+    await manager.getRepository(DriverBankDetailsEntity).update(where, set);
+    await manager.getRepository(DriverVerificationEntity).update(where, set);
+  }
+
   async createDocument(
     data: CreateDriverDocumentData,
     manager?: EntityManager,

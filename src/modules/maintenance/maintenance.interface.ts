@@ -67,9 +67,21 @@ export interface CheckInServiceInput {
   description?: string;
 }
 
-export interface ReleaseFromWorkshopInput {
+/** Release from the workshop. Any service detail below logs the service against the visit;
+ *  with none, it is a bare release. */
+export interface ReleaseFromWorkshopInput extends JobCostInput {
   closedAt?: string;
+  /** End date, YYYY-MM-DD, not in the future — an alternative to closedAt. */
+  endDate?: string;
+  /** When the work began, YYYY-MM-DD, not in the future — re-dates the visit's start. */
+  startDate?: string;
+  /** Defaults to what the visit was checked in for, else preventive_service. */
+  serviceType?: ServiceType;
+  /** Optional. For a preventive service / oil change, defaults to the truck's last recorded
+   *  odometer. */
   odometerKm?: number;
+  /** The Garage field. */
+  workshopName?: string;
   description?: string;
 }
 

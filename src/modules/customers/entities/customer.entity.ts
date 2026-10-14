@@ -14,6 +14,10 @@ import { CustomerDeliveryPointEntity } from './customer-delivery-point.entity';
 @Index('customers_tenant_id_idx', ['tenantId'])
 @Index('customers_tenant_status_idx', ['tenantId', 'status'])
 @Index('customers_tenant_name_idx', ['tenantId', 'name'])
+@Index('customers_tenant_code_unique', ['tenantId', 'code'], {
+  unique: true,
+  where: '"code" IS NOT NULL AND "deleted_at" IS NULL',
+})
 @Index('customers_tenant_mobile_active_unique', ['tenantId', 'mobile'], {
   unique: true,
   where: '"deleted_at" IS NULL',
@@ -21,8 +25,12 @@ import { CustomerDeliveryPointEntity } from './customer-delivery-point.entity';
 export class CustomerEntity {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'tenant_id', type: 'uuid' }) tenantId!: string;
+  /** Display code `CUS-nnnn`, tenant-wide sequential (loads CodeSequenceRepository, kind
+   *  'customer'). Searchable on Post a load. */
+  @Column({ type: 'varchar', length: 20, nullable: true }) code!: string | null;
   @Column({ type: 'varchar', length: 150 }) name!: string;
-  @Column({ type: 'varchar', length: 15 }) mobile!: string;
+  // Null only for customers added by name from Post a load; details are completed later.
+  @Column({ type: 'varchar', length: 15, nullable: true }) mobile!: string | null;
   @Column({ type: 'varchar', nullable: true }) email!: string | null;
   @Column({ type: 'varchar', length: 15, nullable: true }) gstin!: string | null;
   @Column({ name: 'contact_person_name', type: 'varchar', length: 150, nullable: true })

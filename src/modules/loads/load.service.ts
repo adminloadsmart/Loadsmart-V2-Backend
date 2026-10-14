@@ -1,10 +1,19 @@
-import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import {
+  AuthenticationError,
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+  rethrow,
+} from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
+import { msg } from '../../shared/i18n/translate';
+import { redisManager } from '../../db/redis';
+import { MAX_OTP_ATTEMPTS } from '../auth/auth.constants';
 import { paginate, Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
@@ -41,6 +50,8 @@ import {
   TripListRow,
   TripNextAction,
   TripStepperStep,
+  TripIncident,
+  buildIncident,
 } from './utils/trip-view';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 
@@ -85,7 +96,19 @@ export interface LoadDetailView {
   ewayBillExpiry: EwayBillExpiry;
   stepper: TripStepperStep[];
   nextAction: TripNextAction;
+  /** Newest unresolved driver-reported issue, or null. `incident.halted` means the trip is on hold. */
+  incident: TripIncident | null;
 }
+
+// TEMPORARY: the receiver code is a fixed value until a real SMS template/provider is wired in —
+// no SMS is sent. Replace sendPodReceiverCode's no-op and the check in uploadPod together.
+const POD_RECEIVER_STATIC_OTP = '1234';
+/** How long a verified receiver number stays valid for the final E-POD submit. */
+const POD_RECEIVER_VERIFIED_TTL_SECONDS = 30 * 60;
+const podReceiverVerifiedKey = (loadId: string, mobile: string) =>
+  `pod-receiver-verified:${loadId}:${mobile}`;
+const podReceiverAttemptsKey = (loadId: string, mobile: string) =>
+  `pod-receiver-attempts:${loadId}:${mobile}`;
 
 export class LoadService {
   constructor(
@@ -557,6 +580,7 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
+      await this.assertNotHalted(tenantId, loadId);
       const manualTrackingStatuses: readonly string[] = MANUAL_TRACKING_STATUSES;
       const currentIndex = LOAD_STATUSES.indexOf(load.status);
       const nextStatus = LOAD_STATUSES[currentIndex + 1];
@@ -607,6 +631,85 @@ export class LoadService {
     }
   }
 
+  /** Step 1 of the driver-app delivery flow: sends a 4-digit code to the receiver's phone.
+   *  Ownership-checked like uploadPod; the code is verified there, at final submission. */
+  async sendPodReceiverCode(
+    tenantId: string,
+    loadId: string,
+    mobile: string,
+    driverOwnerId: string,
+  ): Promise<void> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      if (!this.canRecordPod(load)) {
+        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+      }
+      // Static code for now — nothing to send; see POD_RECEIVER_STATIC_OTP. A fresh send always
+      // gets a fresh guess budget and invalidates any earlier verification of this number.
+      await redisManager.delete(podReceiverAttemptsKey(loadId, mobile));
+      await redisManager.delete(podReceiverVerifiedKey(loadId, mobile));
+    } catch (error) {
+      rethrow(error, 'Failed to send receiver code');
+    }
+  }
+
+  /** Step 1b of the driver-app delivery flow: checks the code the receiver read out. On success
+   *  the number is marked verified (Redis, short TTL) for this load, and uploadPod then requires
+   *  that mark whenever a receiver mobile is submitted. */
+  async verifyPodReceiverCode(
+    tenantId: string,
+    loadId: string,
+    mobile: string,
+    code: string,
+    driverOwnerId: string,
+  ): Promise<void> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.driverId !== driverOwnerId) {
+        throw new NotFoundError(`Load ${loadId} not found`);
+      }
+      if (!this.canRecordPod(load)) {
+        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+      }
+      const attempts = await redisManager.incr(
+        podReceiverAttemptsKey(loadId, mobile),
+        POD_RECEIVER_VERIFIED_TTL_SECONDS,
+      );
+      if (attempts > MAX_OTP_ATTEMPTS) {
+        throw new AuthenticationError(msg('errors.otp.tooManyAttempts'));
+      }
+      if (code !== POD_RECEIVER_STATIC_OTP) {
+        throw new AuthenticationError(msg('errors.otp.invalid'));
+      }
+      await redisManager.delete(podReceiverAttemptsKey(loadId, mobile));
+      await redisManager.set(
+        podReceiverVerifiedKey(loadId, mobile),
+        '1',
+        POD_RECEIVER_VERIFIED_TTL_SECONDS,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to verify receiver code');
+    }
+  }
+
+  private canRecordPod(load: LoadEntity): boolean {
+    const validPriorStatuses = [
+      'loading_confirmed',
+      'at_plant',
+      'in_transit',
+      'reached_delivery_point',
+    ];
+    // A rejected E-POD can be resubmitted from 'delivered' — the truck already arrived, only
+    // the paperwork is being redone. See LoadEntity's podStatus doc comment.
+    return (
+      validPriorStatuses.includes(load.status) ||
+      (load.status === 'delivered' && load.podStatus === 'rejected')
+    );
+  }
+
   /** The delivery receipt — photo, receiver name/mobile, and quantity received are required;
    *  receiver designation and sealStatus are optional (kept for staff-side/older callers, but the
    *  driver-app ePOD screen doesn't collect either). Marks the load Delivered; own-fleet loads
@@ -635,18 +738,48 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const validPriorStatuses = [
-        'loading_confirmed',
-        'at_plant',
-        'in_transit',
-        'reached_delivery_point',
-      ];
-      // A rejected E-POD can be resubmitted from 'delivered' — the truck already arrived, only
-      // the paperwork is being redone, so this is the one case 'delivered' is itself a valid
-      // prior status. See LoadEntity's podStatus doc comment.
       const isResubmission = load.status === 'delivered' && load.podStatus === 'rejected';
-      if (!validPriorStatuses.includes(load.status) && !isResubmission) {
+      if (!this.canRecordPod(load)) {
         throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+      }
+
+      // Driver-only receiver verification: a receiver mobile must have been verified via verifyPodReceiverCode;
+      // no mobile means the receiver has no phone and the POD photo alone is the proof. A
+      // resubmission with the same, already-verified mobile doesn't need a fresh code.
+      let podReceiverVerifiedAt: Date | null = null;
+      if (driverOwnerId && input.podReceiverMobile) {
+        const alreadyVerified =
+          isResubmission &&
+          load.podReceiverVerifiedAt &&
+          load.podReceiverMobile === input.podReceiverMobile;
+        if (alreadyVerified) {
+          podReceiverVerifiedAt = load.podReceiverVerifiedAt;
+        } else {
+          const verifiedKey = podReceiverVerifiedKey(loadId, input.podReceiverMobile);
+          if (!(await redisManager.get(verifiedKey))) {
+            throw new ValidationError(
+              'Receiver mobile must be verified (receiver-code/verify) before submitting E-POD',
+            );
+          }
+          await redisManager.delete(verifiedKey);
+          podReceiverVerifiedAt = new Date();
+        }
+      }
+
+      // Driver-submitted shortage is worked out here, not trusted from the client: planned minus
+      // unloaded, never negative.
+      let numberOfTonnesShort = input.numberOfTonnesShort;
+      let shortageOrDamage = input.shortageOrDamage;
+      if (driverOwnerId) {
+        const short = Math.max(
+          0,
+          Math.round((Number(load.plannedCapacityTonnes) - input.podQuantityReceived) * 100) / 100,
+        );
+        numberOfTonnesShort = short;
+        if (short > 0) {
+          if (!shortageOrDamage || shortageOrDamage === 'none') shortageOrDamage = 'shortage';
+          else if (shortageOrDamage === 'damage') shortageOrDamage = 'both';
+        }
       }
 
       await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
@@ -661,13 +794,13 @@ export class LoadService {
         ...(isResubmission ? {} : { deliveredAt: new Date() }),
         podFileKey: input.podFileKey,
         podReceiverName: input.podReceiverName,
-        podReceiverMobile: input.podReceiverMobile,
+        podReceiverMobile: input.podReceiverMobile ?? null,
+        podReceiverVerifiedAt,
         podReceiverDesignation: input.podReceiverDesignation ?? null,
         podQuantityReceived: String(input.podQuantityReceived),
         sealStatus: input.sealStatus ?? null,
-        shortageOrDamage: input.shortageOrDamage ?? null,
-        numberOfTonnesShort:
-          input.numberOfTonnesShort === undefined ? null : String(input.numberOfTonnesShort),
+        shortageOrDamage: shortageOrDamage ?? null,
+        numberOfTonnesShort: numberOfTonnesShort === undefined ? null : String(numberOfTonnesShort),
         damagePhotoKey: input.damagePhotoKey ?? null,
         podRemarks: input.podRemarks ?? null,
         // Every upload (first or resubmission) restarts staff review from scratch.
@@ -687,7 +820,8 @@ export class LoadService {
         {
           pod: true,
           sealStatus: input.sealStatus,
-          shortageOrDamage: input.shortageOrDamage,
+          shortageOrDamage,
+          receiverVerified: Boolean(podReceiverVerifiedAt),
         },
       );
       await this.loadActivityService.record(
@@ -709,14 +843,15 @@ export class LoadService {
               id: loadId,
               status: 'delivered',
               sealStatus: input.sealStatus,
-              shortageOrDamage: input.shortageOrDamage,
+              shortageOrDamage,
+              receiverVerified: Boolean(podReceiverVerifiedAt),
               driverId: actorId,
             }
           : {
               id: loadId,
               status: 'delivered',
               sealStatus: input.sealStatus,
-              shortageOrDamage: input.shortageOrDamage,
+              shortageOrDamage,
             },
       });
 
@@ -907,6 +1042,42 @@ export class LoadService {
     }
   }
 
+  /** A trip with an unresolved accident/breakdown can't move forward until staff resolve it. */
+  private async assertNotHalted(tenantId: string, loadId: string): Promise<void> {
+    const open = buildIncident(
+      await this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
+    );
+    if (open?.halted) {
+      throw new ConflictError('This trip is on hold because of a reported incident');
+    }
+  }
+
+  /** Staff marks a driver-reported issue resolved — releases the hold if it was an accident or
+   *  breakdown. Idempotent-safe: resolving an already-resolved report is a 404, not a re-stamp. */
+  async resolveIssue(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    issueId: string,
+  ): Promise<LoadIssueReportEntity> {
+    try {
+      await this.assertExists(tenantId, loadId);
+      const issue = await this.loadIssueRepository.resolve(tenantId, loadId, issueId, actorId);
+      if (!issue) throw new NotFoundError(`Open issue ${issueId} not found on load ${loadId}`);
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_ISSUE_RESOLVED',
+        resourceType: 'load',
+        newData: { id: issue.id, loadId, category: issue.category },
+      });
+      return issue;
+    } catch (error) {
+      rethrow(error, 'Failed to resolve load issue');
+    }
+  }
+
   async listIssues(tenantId: string, loadId: string): Promise<LoadIssueReportEntity[]> {
     try {
       return await this.loadIssueRepository.listByLoad(tenantId, loadId);
@@ -947,12 +1118,14 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, contactPhones] = await Promise.all([
+      const [timeline, payments, loadWithUrls, contactPhones, openIssue] = await Promise.all([
         this.loadActivityService.listByLoad(tenantId, loadId),
         this.loadPaymentRepository.listByLoad(tenantId, loadId),
         this.withDocumentDownloadUrls(tenantId, actorRole, load),
         this.authService.getOrganizationContactPhones(tenantId),
+        this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
       ]);
+      const incident = buildIncident(openIssue);
 
       return {
         load: loadWithUrls,
@@ -969,8 +1142,9 @@ export class LoadService {
         timeline,
         payments,
         ewayBillExpiry: this.getEwayBillExpiry(load),
-        stepper: buildStepper(load, locale),
+        stepper: buildStepper(load, locale, incident),
         nextAction: buildNextAction(load, locale),
+        incident,
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch load');

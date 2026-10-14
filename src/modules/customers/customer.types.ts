@@ -13,7 +13,8 @@ export interface DeliveryPointInput {
 
 export interface CreateCustomerInput {
   name: string;
-  mobile: string;
+  /** Optional only for name-only quick-add from Post a load (CustomerService.quickAdd). */
+  mobile?: string;
   email?: string;
   gstin?: string;
   contactPersonName?: string;

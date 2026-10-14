@@ -5,6 +5,7 @@ import {
   IsNull,
   LessThanOrEqual,
   MoreThanOrEqual,
+  Not,
   Repository,
 } from 'typeorm';
 import { FleetAnalyticsFilters } from './utils/fleet-analytics.interface';
@@ -15,6 +16,7 @@ import { CustomerEntity } from '../../customers/entities/customer.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { TyreEntity } from '../../maintenance/entities/tyre.entity';
 import { TyreReadingEntity } from '../../maintenance/entities/tyre-reading.entity';
+import { BatterySohReadingEntity } from '../../maintenance/entities/battery-soh-reading.entity';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { MAINTAINED_VEHICLE_STATUSES } from '../../maintenance/maintenance.types';
 
@@ -31,6 +33,7 @@ export class FleetAnalyticsRepository {
   private readonly jobs: Repository<MaintenanceJobEntity>;
   private readonly tyres: Repository<TyreEntity>;
   private readonly tyreReadings: Repository<TyreReadingEntity>;
+  private readonly batteryReadings: Repository<BatterySohReadingEntity>;
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
 
   constructor(dataSource: DataSource) {
@@ -40,6 +43,7 @@ export class FleetAnalyticsRepository {
     this.jobs = dataSource.getRepository(MaintenanceJobEntity);
     this.tyres = dataSource.getRepository(TyreEntity);
     this.tyreReadings = dataSource.getRepository(TyreReadingEntity);
+    this.batteryReadings = dataSource.getRepository(BatterySohReadingEntity);
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
   }
 
@@ -117,6 +121,76 @@ export class FleetAnalyticsRepository {
     }
 
     return tyres.map((tyre) => ({ tyre, reading: latest.get(tyre.id) ?? null }));
+  }
+
+  /** Every dated odometer reading we hold for these vehicles up to `until` — job check-ins,
+   *  tyre gauge readings, battery SoH readings, tyre fit/removal. Loads carry no distance, so
+   *  km run in a window is read off these. Date columns come back as 'YYYY-MM-DD' strings. */
+  async listOdometerReadings(
+    tenantId: string,
+    vehicleIds: string[],
+    until: Date,
+  ): Promise<{ vehicleId: string; at: Date | string; km: number }[]> {
+    if (vehicleIds.length === 0) return [];
+    const [jobs, tyres, tyreReadings, batteryReadings] = await Promise.all([
+      this.jobs.find({
+        where: {
+          tenantId,
+          vehicleId: In(vehicleIds),
+          openedAt: LessThanOrEqual(until),
+          odometerKm: Not(IsNull()),
+        },
+        select: { vehicleId: true, openedAt: true, odometerKm: true },
+      }),
+      this.tyres.find({
+        where: { tenantId, vehicleId: In(vehicleIds) },
+        select: {
+          vehicleId: true,
+          fittedAt: true,
+          fittedOdometerKm: true,
+          removedAt: true,
+          removedOdometerKm: true,
+        },
+      }),
+      this.tyreReadings.find({
+        where: { tenantId, odometerKm: Not(IsNull()), tyre: { vehicleId: In(vehicleIds) } },
+        relations: { tyre: true },
+        select: { readingDate: true, odometerKm: true, tyre: { id: true, vehicleId: true } },
+      }),
+      this.batteryReadings.find({
+        where: {
+          tenantId,
+          odometerKm: Not(IsNull()),
+          batteryPack: { vehicleId: In(vehicleIds) },
+        },
+        relations: { batteryPack: true },
+        select: {
+          readingMonth: true,
+          odometerKm: true,
+          batteryPack: { id: true, vehicleId: true },
+        },
+      }),
+    ]);
+
+    return [
+      ...jobs.map((job) => ({ vehicleId: job.vehicleId, at: job.openedAt, km: job.odometerKm! })),
+      ...tyres.flatMap((tyre) => [
+        { vehicleId: tyre.vehicleId, at: tyre.fittedAt, km: tyre.fittedOdometerKm },
+        ...(tyre.removedAt && tyre.removedOdometerKm != null
+          ? [{ vehicleId: tyre.vehicleId, at: tyre.removedAt, km: tyre.removedOdometerKm }]
+          : []),
+      ]),
+      ...tyreReadings.map((reading) => ({
+        vehicleId: reading.tyre.vehicleId,
+        at: reading.readingDate,
+        km: reading.odometerKm!,
+      })),
+      ...batteryReadings.map((reading) => ({
+        vehicleId: reading.batteryPack.vehicleId,
+        at: reading.readingMonth,
+        km: reading.odometerKm!,
+      })),
+    ];
   }
 
   /** Drivers on the tenant's roll, with their DL verifications (for licence class). */

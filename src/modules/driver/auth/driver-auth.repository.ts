@@ -1,4 +1,4 @@
-import { DataSource, IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { DriverSessionEntity } from '../entities/driver-session.entity';
 import { DriverDevicePlatform } from './driver-auth.types';
 
@@ -52,6 +52,14 @@ export class DriverSessionRepository {
     await this.sessions.update({ driverId, revokedAt: IsNull() }, { revokedAt: new Date() });
   }
 
+  // Account deletion: revokes every live session and drops the push tokens on all of the driver's
+  // sessions, so nothing keeps pushing to a device after the account is gone.
+  async revokeAndClearDevicesForDriver(driverId: string, manager?: EntityManager): Promise<void> {
+    const sessions = manager ? manager.getRepository(DriverSessionEntity) : this.sessions;
+    await sessions.update({ driverId, revokedAt: IsNull() }, { revokedAt: new Date() });
+    await sessions.update({ driverId, fcmToken: Not(IsNull()) }, { fcmToken: null });
+  }
+
   // A driver's active push targets — one row per currently-active session that has registered an
   // FCM token. See driver-auth.service.ts's getActiveDeviceTokensForDriver and
   // docs/driver-auth.md's push-notification example (dispatch-planning.service.ts).
@@ -64,6 +72,21 @@ export class DriverSessionRepository {
         fcmToken: Not(IsNull()),
       },
     });
+  }
+
+  // My Drivers' "app installed" icon: any session row at all — revoked or expired included — means
+  // the driver has logged into the app at least once. Maps each such driver to their latest app
+  // activity; drivers who never logged in are absent from the map. One query for the whole page.
+  async findLastAppActivityByDriverIds(driverIds: string[]): Promise<Map<string, Date>> {
+    if (!driverIds.length) return new Map();
+    const rows = await this.sessions
+      .createQueryBuilder('driver_session')
+      .select('driver_session.driver_id', 'driverId')
+      .addSelect('MAX(COALESCE(driver_session.last_seen, driver_session.created_at))', 'lastSeenAt')
+      .where('driver_session.driver_id IN (:...driverIds)', { driverIds })
+      .groupBy('driver_session.driver_id')
+      .getRawMany<{ driverId: string; lastSeenAt: Date }>();
+    return new Map(rows.map((row) => [row.driverId, new Date(row.lastSeenAt)]));
   }
 
   // Keyed by the row's own id (the driver access token's `sid` claim). Returns whether a row was

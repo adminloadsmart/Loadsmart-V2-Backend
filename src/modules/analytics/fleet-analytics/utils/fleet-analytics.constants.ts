@@ -71,3 +71,9 @@ export const LOAD_STAGES = [
   'invoiced',
   'closed',
 ] as const;
+
+/** Replacement candidates: trucks this young or younger set the "new truck" cost per km for
+ *  their class, provided a class has at least MIN_BENCHMARK_TRUCKS of them. */
+export const NEW_TRUCK_MAX_AGE_YEARS = 2;
+export const MIN_BENCHMARK_TRUCKS = 2;
+export const REPLACEMENT_CANDIDATES_LIMIT = 10;

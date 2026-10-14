@@ -1,4 +1,4 @@
-import { DriverBloodGroup, DriverOnboardingStep } from '../drivers.types';
+import { DriverBloodGroup, DriverInsuranceAnswer, DriverOnboardingStep } from '../drivers.types';
 import { AddDriverDocumentInput } from '../drivers.interface';
 import { DriverDeviceCaptureInput } from './driver-auth.types';
 import { DriverEntity } from '../entities/driver.entity';
@@ -42,8 +42,8 @@ export interface RegisterDriverInput {
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   emergencyContactRelation?: string;
-  hasLifeInsurance?: boolean;
-  hasHealthInsurance?: boolean;
+  hasLifeInsurance?: DriverInsuranceAnswer;
+  hasHealthInsurance?: DriverInsuranceAnswer;
   // Screen 3 — optional
   bankDetails?: RegisterBankDetailsInput;
   // Kept as optional extras — not part of any screen, but not removed either.

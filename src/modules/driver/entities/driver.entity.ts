@@ -13,6 +13,9 @@ import { DriverBankDetailsEntity } from './driver-bank-details.entity';
 import { DriverTenantRelationEntity } from './driver-tenant-relation.entity';
 import {
   DRIVER_BLOOD_GROUPS,
+  DRIVER_ENGAGEMENT_TYPES,
+  DriverEngagementType,
+  DriverLicenseEndorsement,
   DRIVER_ONBOARDING_STEPS,
   DRIVER_REGISTRATION_SOURCES,
   DRIVER_SALARY_TYPES,
@@ -20,6 +23,8 @@ import {
   DriverOnboardingStep,
   DriverRegistrationSource,
   DriverSalaryType,
+  DRIVER_INSURANCE_ANSWERS,
+  DriverInsuranceAnswer,
 } from '../drivers.types';
 
 // A driver profile is global (one row per person), not tenant-scoped — a driver links to many
@@ -63,6 +68,38 @@ export class DriverEntity {
   @Column({ name: 'salary_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
   salaryAmount!: string | null;
 
+  // How the driver is employed (on-roll / per trip / vendor's driver) — separate from salaryType.
+  @Column({
+    name: 'engagement_type',
+    type: 'enum',
+    enum: [...DRIVER_ENGAGEMENT_TYPES],
+    nullable: true,
+  })
+  engagementType!: DriverEngagementType | null;
+
+  // "Bhatta per trip day" — daily allowance on a trip, same numeric type as salaryAmount.
+  @Column({ name: 'bhatta_per_day', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  bhattaPerDay!: string | null;
+
+  // Hand-entered running balance of advances not yet recovered — no advances ledger exists yet.
+  @Column({ name: 'advance_outstanding', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  advanceOutstanding!: string | null;
+
+  // Yard/branch the driver works from ("Ludhiana Yard") — free text until a yards master exists.
+  @Column({ name: 'home_base', type: 'varchar', length: 150, nullable: true })
+  homeBase!: string | null;
+
+  // Codes from DRIVER_LICENSE_ENDORSEMENTS (e.g. 'hazmat') — validated in the request schema, not
+  // a DB enum, so a new endorsement needs no migration.
+  @Column({
+    name: 'license_endorsements',
+    type: 'varchar',
+    length: 30,
+    array: true,
+    default: () => "'{}'",
+  })
+  licenseEndorsements!: DriverLicenseEndorsement[];
+
   // Required by the Sarathi DL check (IDfy's verify_with_source needs id_number + date_of_birth
   // together), so it's captured on the driver even though nothing else in the product needs it yet.
   @Column({ name: 'date_of_birth', type: 'date', nullable: true })
@@ -92,11 +129,21 @@ export class DriverEntity {
   @Column({ name: 'emergency_contact_relation', type: 'varchar', length: 50, nullable: true })
   emergencyContactRelation!: string | null;
 
-  @Column({ name: 'has_health_insurance', type: 'boolean', default: false })
-  hasHealthInsurance!: boolean;
+  @Column({
+    name: 'has_health_insurance',
+    type: 'enum',
+    enum: [...DRIVER_INSURANCE_ANSWERS],
+    default: 'no',
+  })
+  hasHealthInsurance!: DriverInsuranceAnswer;
 
-  @Column({ name: 'has_life_insurance', type: 'boolean', default: false })
-  hasLifeInsurance!: boolean;
+  @Column({
+    name: 'has_life_insurance',
+    type: 'enum',
+    enum: [...DRIVER_INSURANCE_ANSWERS],
+    default: 'no',
+  })
+  hasLifeInsurance!: DriverInsuranceAnswer;
 
   @Column({
     name: 'registration_source',
@@ -136,6 +183,11 @@ export class DriverEntity {
 
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
+
+  // Set alongside deletedAt when the driver deletes their own account — the retained personal data
+  // becomes eligible for scrubbing at this time. See DriverAuthService.deleteAccount.
+  @Column({ name: 'purge_after', type: 'timestamptz', nullable: true })
+  purgeAfter!: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

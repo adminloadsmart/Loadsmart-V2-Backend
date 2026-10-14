@@ -1,4 +1,5 @@
 import { env } from '../config/env';
+import { ageFromDateOfBirth } from '../shared/utils/date';
 
 /**
  * Provider-agnostic driving-licence verification contract. `SarathiClient` implements this; a
@@ -25,7 +26,13 @@ export interface SarathiDrivingLicenceResult {
   status: 'verified' | 'manual_review';
   holderName?: string;
   validUntil?: string;
+  /** Every class of vehicle on the licence, e.g. "MCWG, LMV, HGMV". */
   licenseClass?: string;
+  /** Only the transport (commercial) classes, e.g. "HGMV, HPMV" — absent for a non-transport DL. */
+  transportClass?: string;
+  /** Holder's age in whole years, from the date of birth sent with the lookup — always set, even
+   * on the fallback paths where the registry returned nothing. */
+  age?: number;
   licenseStatus?: string;
   addressLine1?: string;
   addressLine2?: string;
@@ -74,20 +81,22 @@ export class SarathiClient implements DlVerificationClient {
     licenseNumber: string,
     dateOfBirth: string,
   ): Promise<SarathiDrivingLicenceResult> {
+    const age = ageFromDateOfBirth(dateOfBirth);
+
     if (!env.idfyApiKey || !env.idfyAccountId || !env.idfyTaskId || !env.idfyGroupId) {
-      return { status: 'verified' };
+      return { status: 'verified', age };
     }
 
     try {
       const requestId = await this.submit(licenseNumber, dateOfBirth);
       const output = await this.poll(requestId);
-      return this.mapResult(output);
+      return { ...this.mapResult(output), age };
     } catch {
       // Network error, non-2xx, unexpected shape, or poll timeout (e.g. IDfy credits exhausted) —
       // fall back to verified rather than stalling the "Add a driver" form on an unusable
       // integration. A genuine "registry doesn't recognise this licence" response still goes to
       // manual_review, in mapResult below.
-      return { status: 'verified' };
+      return { status: 'verified', age };
     }
   }
 
@@ -163,10 +172,16 @@ export class SarathiClient implements DlVerificationClient {
     return {
       status: 'verified',
       holderName: output.name ?? undefined,
-      // Non-transport validity is the general driving-licence validity; transport (commercial) is
-      // the fallback for drivers who only hold that class.
-      validUntil: output.nt_validity_to ?? output.t_validity_to ?? undefined,
+      // Transport (commercial) validity first — it's the one that governs a fleet driver of HTV/
+      // HGMV etc.; non-transport validity is the fallback for licences with no transport class.
+      validUntil: output.t_validity_to ?? output.nt_validity_to ?? undefined,
       licenseClass: output.cov_details?.map((cov) => cov.cov).join(', ') || undefined,
+      // IDfy tags each class `TR` (transport) or `NT` (non-transport).
+      transportClass:
+        output.cov_details
+          ?.filter((cov) => cov.category?.toUpperCase() === 'TR')
+          .map((cov) => cov.cov)
+          .join(', ') || undefined,
       licenseStatus: output.dl_status ?? undefined,
       addressLine1: output.address ?? undefined,
       city: output.city ?? undefined,

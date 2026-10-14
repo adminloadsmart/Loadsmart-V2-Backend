@@ -279,7 +279,7 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: {
       params: v.releaseFromWorkshop.shape.params,
-      body: json(v.releaseFromWorkshop.shape.body),
+      body: json(v.releaseFromWorkshop.shape.body.unwrap()),
     },
     responses: { 200: { description: 'Closed job' }, 404: notFound, 409: conflict },
   });
@@ -392,7 +392,10 @@ export function registerMaintenanceOpenApi(registry: OpenAPIRegistry): void {
         'service was also done on this visit — the service clock moves and the job is marked ' +
         'includesService, so no separate service entry is needed.',
     ),
-    request: { params: v.closeBreakdown.shape.params, body: json(v.closeBreakdown.shape.body) },
+    request: {
+      params: v.closeBreakdown.shape.params,
+      body: json(v.closeBreakdown.shape.body.unwrap()),
+    },
     responses: {
       200: { description: 'Closed breakdown job' },
       400: validationFailed,

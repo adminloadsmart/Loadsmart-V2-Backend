@@ -61,14 +61,41 @@ export const confirmLoadingBody = z
     'At least one document must be submitted',
   );
 
+// Driver-app "send the receiver a code" step — see LoadService.sendPodReceiverCode.
+export const sendPodReceiverCodeBody = z
+  .object({
+    mobile: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+  })
+  .strict();
+
+export const verifyPodReceiverCodeBody = z
+  .object({
+    mobile: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+    code: z
+      .string()
+      .trim()
+      .regex(/^\d{4}$/, 'Must be the 4-digit code sent to the receiver'),
+  })
+  .strict();
+
 export const uploadPodBody = z
   .object({
     podFileKey: z.string().trim().min(1),
     podReceiverName: z.string().trim().min(1).max(150),
+    // Optional: a receiver without a phone skips code verification and the POD photo alone is the
+    // proof. When a driver sends it, it must already be verified via the receiver-code/verify
+    // step — see LoadService.uploadPod.
     podReceiverMobile: z
       .string()
       .trim()
-      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number')
+      .optional(),
     // Optional as of the driver-app ePOD screen redesign — that screen doesn't collect either of
     // these, but a staff-side or older caller may still send them.
     podReceiverDesignation: z.string().trim().min(1).max(150).optional(),
@@ -86,13 +113,15 @@ export const uploadPodBody = z
   .strict()
   .superRefine((data, ctx) => {
     if (
-      (data.shortageOrDamage === 'damage' || data.shortageOrDamage === 'both') &&
+      (data.shortageOrDamage === 'damage' ||
+        data.shortageOrDamage === 'wet' ||
+        data.shortageOrDamage === 'both') &&
       !data.damagePhotoKey
     ) {
       ctx.addIssue({
         code: 'custom',
         path: ['damagePhotoKey'],
-        message: 'damagePhotoKey is required when shortageOrDamage is damage or both',
+        message: 'damagePhotoKey is required when shortageOrDamage is damage, wet or both',
       });
     }
   });
