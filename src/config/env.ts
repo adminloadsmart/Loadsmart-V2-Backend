@@ -174,6 +174,9 @@ export const env = {
   notificationsTestEndpoint:
     nodeEnv !== 'production' && process.env.NOTIFICATIONS_TEST_ENDPOINT === 'true',
   msg91WhatsappTemplateOtp: process.env.MSG91_WHATSAPP_TEMPLATE_OTP || undefined,
+  // LS_N_0008's own DLT-approved OTP SMS template (must carry MSG91's ##OTP## variable). Unset =
+  // falls back to msg91TemplateId, exactly as before (see Msg91Client.sendOtp).
+  msg91SmsTemplateOtp: process.env.MSG91_SMS_TEMPLATE_OTP || undefined,
   // LS_N_0002 "signup received, under review" (SMS + email only).
   msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,
   msg91EmailTemplateSignupReceived: process.env.MSG91_EMAIL_TEMPLATE_SIGNUP_RECEIVED || undefined,

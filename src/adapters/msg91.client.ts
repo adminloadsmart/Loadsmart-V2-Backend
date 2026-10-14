@@ -27,7 +27,7 @@ export class Msg91Client {
    *  generates it, as before. */
   async sendOtp(phoneNumber: string, otp?: string): Promise<void> {
     const url = new URL(`${env.msg91BaseUrl}/api/v5/otp`);
-    url.searchParams.set('template_id', env.msg91TemplateId!);
+    url.searchParams.set('template_id', (env.msg91SmsTemplateOtp ?? env.msg91TemplateId)!);
     url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
     url.searchParams.set('authkey', env.msg91AuthKey!);
     if (otp) {
