@@ -33,7 +33,13 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'and `behaviour`, plus `appInstalled`/`appLastSeenAt`, shaped as on GET ' +
         '/drivers/{driverId} (driverScore and behaviour are null until backed by data). ' +
         'not_available = on_leave or medically_unfit; ' +
-        "hazmat_endorsed = 'hazmat' in licenseEndorsements.",
+        "hazmat_endorsed = 'hazmat' in licenseEndorsements. Filter panel (lists are " +
+        'comma-separated, OR within a list, AND across keys; also narrows every count): ' +
+        "`employmentType` fixed | per_trip | per_km | vendor (a vendor's driver only matches " +
+        'vendor); `licenceValidity` valid (>30 days left) | expiring (0-30) | expired; ' +
+        '`licenceClass` HTV | HMV | HGMV (latest Sarathi check, whole codes); `hazmatEndorsed` ' +
+        'true | false; `scoreStatus` new | strong | watch (every driver is `new` until scoring ' +
+        'exists); `appInstalled` true | false (has ever logged into the driver app).',
     ),
     request: { query: driverValidators.listDrivers.shape.query },
     responses: {
