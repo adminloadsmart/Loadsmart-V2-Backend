@@ -1398,7 +1398,12 @@ export const NOTIFICATION_CATALOG = {
     recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'email'],
-    buildContent: ({ driverName, phoneNumber }: DriverLinkContext, locale = DEFAULT_LOCALE) => ({
+    severity: 'p3_info',
+    buildContent: (
+      { driverName, phoneNumber }: DriverLinkContext,
+      _recipient,
+      locale = DEFAULT_LOCALE,
+    ) => ({
       title: t(locale, 'notifications.driverAccountDeleted.title'),
       body: t(locale, 'notifications.driverAccountDeleted.body', { driverName, phoneNumber }),
     }),
