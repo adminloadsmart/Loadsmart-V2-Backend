@@ -4,6 +4,7 @@ import {
   NotificationCategoryOrGeneral,
   NotificationChannelName,
   NotificationCtaStyle,
+  NotificationPreferenceChannel,
   NotificationSeverity,
 } from './notifications.types';
 import { NotificationEntity } from './notifications.entity';
@@ -35,6 +36,9 @@ export interface CreateNotificationInput {
   /** Hold a channel's delivery this long (e.g. until the org's quiet hours end — see
    *  quiet-hours.ts). The in-app row itself is always created immediately. */
   channelDelaysMs?: Partial<Record<NotificationChannelName, number>>;
+  /** False = the recipient turned in-app off for this type: the row is still created (for the
+   *  external deliveries) but never appears in their inbox. Defaults to true. */
+  showInApp?: boolean;
 }
 
 export interface ListNotificationsInput extends PaginationInput {
@@ -52,6 +56,38 @@ export interface NotificationPresentation {
 }
 
 export type PresentedNotification = NotificationEntity & NotificationPresentation;
+
+/** One row of the caller's own Settings → Notifications screen. */
+export interface MyNotificationPreferenceView {
+  key: string;
+  label: string;
+  description: string | null;
+  severity: NotificationSeverity;
+  category: NotificationCategoryOrGeneral;
+  categoryLabel: string;
+  /** Mediums this type can use — fixed per type; any other toggle must be disabled. */
+  supportedChannels: NotificationPreferenceChannel[];
+  /** The caller's effective on/off per medium (unsupported ones are always false). */
+  preferences: ChannelPreferenceFlags;
+  /** True once the caller saved their own choice for this type; false = still on the
+   *  organisation's setting / the type's defaults. */
+  isCustomized: boolean;
+}
+
+/** One item of PUT /notifications/preferences (the caller's own). `inApp` omitted = unchanged. */
+export interface UpdateMyNotificationPreferenceInput {
+  key: string;
+  channels: Omit<ChannelPreferenceFlags, 'inApp'> & { inApp?: boolean };
+}
+
+/** On/off per medium for one notification type — a user's effective preference. */
+export interface ChannelPreferenceFlags {
+  inApp: boolean;
+  email: boolean;
+  sms: boolean;
+  push: boolean;
+  whatsapp: boolean;
+}
 
 /** An organisation's quiet hours — 24-hour 'HH:MM', India time; the window may wrap midnight. */
 export interface QuietHoursSetting {

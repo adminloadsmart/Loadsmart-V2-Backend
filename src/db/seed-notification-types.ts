@@ -15,7 +15,15 @@ import { NOTIFICATION_CATALOG } from '../modules/notifications/catalog/notificat
 
 /** vehicle.compliance_expiring_soon: the masters 15-day alert, replaced by LS_N_0047's
  *  30/15/7/3/1 ladder ('vehicle.document_expiry'). */
-const RETIRED_NOTIFICATION_TYPES = ['vehicle.compliance_expiring_soon'];
+const RETIRED_NOTIFICATION_TYPES = [
+  'vehicle.compliance_expiring_soon',
+  // Settings-screen placeholders that were never sent — removed so only notifications from the
+  // LS_N sheet that actually fire appear on Settings → Notifications.
+  'load.trip_delay_exception',
+  'tracking.geofence_breach',
+  'payments.due_settlement',
+  'maintenance.compliance_due',
+];
 
 export async function seedNotificationTypes(dataSource: DataSource): Promise<void> {
   const typeRepo = dataSource.getRepository(NotificationTypeEntity);

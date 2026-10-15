@@ -339,10 +339,6 @@ function allSampleContexts(
     'driver.link_requested': driverLink,
     'driver.link_accepted': driverLink,
     'driver.account_deleted': driverLink,
-    'load.trip_delay_exception': {},
-    'tracking.geofence_breach': {},
-    'payments.due_settlement': {},
-    'maintenance.compliance_due': {},
   };
 }
 

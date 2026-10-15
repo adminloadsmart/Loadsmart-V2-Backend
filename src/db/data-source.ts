@@ -19,6 +19,7 @@ import { NotificationTemplateEntity } from '../modules/notifications/templates/t
 import { NotificationTypeEntity } from '../modules/notifications/entities/notification-type.entity';
 import { NotificationPreferenceEntity } from '../modules/notifications/entities/notification-preference.entity';
 import { NotificationQuietHoursEntity } from '../modules/notifications/entities/notification-quiet-hours.entity';
+import { UserNotificationPreferenceEntity } from '../modules/notifications/entities/user-notification-preference.entity';
 import { PaymentEntity } from '../modules/payments/payments.entity';
 import { MaintenanceJobEntity } from '../modules/maintenance/entities/maintenance-job.entity';
 import { TyreEntity } from '../modules/maintenance/entities/tyre.entity';
@@ -88,6 +89,7 @@ export const AppDataSource = new DataSource({
     NotificationTypeEntity,
     NotificationPreferenceEntity,
     NotificationQuietHoursEntity,
+    UserNotificationPreferenceEntity,
     PaymentEntity,
     // maintenance module
     MaintenanceJobEntity,

@@ -1,8 +1,9 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { NotificationTypeEntity } from './entities/notification-type.entity';
 import { NotificationPreferenceEntity } from './entities/notification-preference.entity';
 import { NotificationQuietHoursEntity } from './entities/notification-quiet-hours.entity';
-import { QuietHoursSetting } from './notifications.interface';
+import { UserNotificationPreferenceEntity } from './entities/user-notification-preference.entity';
+import { ChannelPreferenceFlags, QuietHoursSetting } from './notifications.interface';
 
 export interface UpsertPreferenceInput {
   notificationTypeId: string;
@@ -16,11 +17,13 @@ export class NotificationPreferencesRepository {
   private readonly types: Repository<NotificationTypeEntity>;
   private readonly preferences: Repository<NotificationPreferenceEntity>;
   private readonly quietHours: Repository<NotificationQuietHoursEntity>;
+  private readonly userPreferences: Repository<UserNotificationPreferenceEntity>;
 
   constructor(dataSource: DataSource) {
     this.types = dataSource.getRepository(NotificationTypeEntity);
     this.preferences = dataSource.getRepository(NotificationPreferenceEntity);
     this.quietHours = dataSource.getRepository(NotificationQuietHoursEntity);
+    this.userPreferences = dataSource.getRepository(UserNotificationPreferenceEntity);
   }
 
   listTypes(): Promise<NotificationTypeEntity[]> {
@@ -88,6 +91,59 @@ export class NotificationPreferencesRepository {
    *  this is exactly "reset to default" with no separate default-state bookkeeping needed. */
   async resetToDefault(tenantId: string): Promise<void> {
     await this.preferences.delete({ tenantId });
+  }
+
+  /** Every organisation-level row for this tenant (the org_admin's settings) — the starting
+   *  point for users who haven't customised a type. */
+  listOrganizationPreferences(tenantId: string): Promise<NotificationPreferenceEntity[]> {
+    return this.preferences.find({ where: { tenantId } });
+  }
+
+  /** One user's own saved rows, all types. */
+  listUserPreferences(
+    tenantId: string,
+    userId: string,
+  ): Promise<UserNotificationPreferenceEntity[]> {
+    return this.userPreferences.find({ where: { tenantId, userId } });
+  }
+
+  /** The saved rows of several users for one type — one query per dispatch (notify-by-type.ts). */
+  listUserPreferencesForType(
+    tenantId: string,
+    notificationTypeId: string,
+    userIds: string[],
+  ): Promise<UserNotificationPreferenceEntity[]> {
+    if (!userIds.length) return Promise.resolve([]);
+    return this.userPreferences.find({
+      where: { tenantId, notificationTypeId, userId: In(userIds) },
+    });
+  }
+
+  /** Insert-or-update on the unique (tenant, user, type) index. */
+  async upsertUserPreferences(
+    tenantId: string,
+    userId: string,
+    items: { notificationTypeId: string; channels: ChannelPreferenceFlags }[],
+  ): Promise<void> {
+    if (!items.length) return;
+    await this.userPreferences.upsert(
+      items.map(({ notificationTypeId, channels }) => ({
+        tenantId,
+        userId,
+        notificationTypeId,
+        inAppEnabled: channels.inApp,
+        emailEnabled: channels.email,
+        smsEnabled: channels.sms,
+        pushEnabled: channels.push,
+        whatsappEnabled: channels.whatsapp,
+      })),
+      ['tenantId', 'userId', 'notificationTypeId'],
+    );
+  }
+
+  /** "Reset to Default" for one user — back to the organisation's setting / type defaults. */
+  async deleteUserPreferences(tenantId: string, userId: string): Promise<void> {
+    await this.userPreferences.delete({ tenantId, userId });
   }
 
   /** Null = this org never saved quiet hours (treated as off). */

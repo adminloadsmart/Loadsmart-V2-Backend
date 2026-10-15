@@ -18,6 +18,7 @@ export interface CreateNotificationData {
   channels: NotificationChannelName[];
   metadata: Record<string, unknown> | null;
   severity: NotificationSeverity;
+  showInApp: boolean;
 }
 
 // Postgres error codes worth retrying the whole transaction for — both are about lock
@@ -109,6 +110,7 @@ export class NotificationRepository {
           channels: data.channels,
           metadata: data.metadata,
           severity: data.severity,
+          showInApp: data.showInApp,
           status: data.channels.length ? 'pending' : 'sent',
           readAt: null,
         }),
@@ -146,7 +148,8 @@ export class NotificationRepository {
     const qb = this.repo
       .createQueryBuilder('notification')
       .where('notification.tenant_id = :tenantId', { tenantId })
-      .andWhere('notification.recipient_user_id = :recipientUserId', { recipientUserId });
+      .andWhere('notification.recipient_user_id = :recipientUserId', { recipientUserId })
+      .andWhere('notification.show_in_app = true');
 
     if (hiddenTypes.length) {
       qb.andWhere('notification.type NOT IN (:...hiddenTypes)', { hiddenTypes });
@@ -223,6 +226,7 @@ export class NotificationRepository {
       id,
       tenantId,
       recipientUserId,
+      showInApp: true,
       ...(hiddenTypes.length ? { type: Not(In(hiddenTypes)) } : {}),
     });
   }
@@ -295,6 +299,7 @@ export class NotificationRepository {
       .set({ readAt: new Date() })
       .where('tenant_id = :tenantId', { tenantId })
       .andWhere('recipient_user_id = :recipientUserId', { recipientUserId })
+      .andWhere('show_in_app = true')
       .andWhere('read_at IS NULL');
     if (hiddenTypes.length) qb.andWhere('type NOT IN (:...hiddenTypes)', { hiddenTypes });
     const result = await qb.execute();

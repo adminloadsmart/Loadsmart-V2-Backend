@@ -3,6 +3,11 @@
 export const NOTIFICATION_CHANNELS = ['email', 'sms', 'push', 'whatsapp'] as const;
 export type NotificationChannelName = (typeof NOTIFICATION_CHANNELS)[number];
 
+// The mediums a user can switch on/off per notification type in Settings → Notifications:
+// in-app (the inbox row itself) plus the external channels above.
+export const NOTIFICATION_PREFERENCE_CHANNELS = ['inApp', ...NOTIFICATION_CHANNELS] as const;
+export type NotificationPreferenceChannel = (typeof NOTIFICATION_PREFERENCE_CHANNELS)[number];
+
 // How urgent a notification is — product's P1/P2/P3/P4 scale (e.g. LS_N_0001 "Account approved"
 // is P2 Action; P4 Digest is for roll-ups like LS_N_0060's morning brief). Set per type in the notification catalog, stored on every notification row, and
 // returned by GET /notifications, GET /notifications/:id, and the preferences screen. Rows

@@ -69,6 +69,11 @@ export class NotificationEntity {
   @Column({ name: 'read_at', type: 'timestamptz', nullable: true })
   readAt!: Date | null;
 
+  // False when the recipient turned in-app off for this type: the row still exists to carry
+  // another medium's delivery (e.g. email) but never shows in their inbox. See notify-by-type.ts.
+  @Column({ name: 'show_in_app', default: true })
+  showInApp!: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

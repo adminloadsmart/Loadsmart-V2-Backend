@@ -2,7 +2,7 @@ import { AuthRepository } from '../auth/auth.repository';
 import { AuthService } from '../auth/auth.service';
 import { UserEntity } from '../auth/entities/user.entity';
 import { NotificationsService } from './notifications.service';
-import { NotificationDestinations } from './notifications.interface';
+import { ChannelPreferenceFlags, NotificationDestinations } from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
 import { NotificationTypeDefinition } from './catalog/notification-catalog.types';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
@@ -12,6 +12,7 @@ import { NotificationTriggers } from './notification-triggers';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 import { QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
 import { getQuietHoursDelayMs } from './utils/quiet-hours';
+import { resolveChannelPreferences } from './utils/channel-preferences';
 
 export interface NotifyByTypeDeps {
   notificationsService: NotificationsService;
@@ -120,23 +121,40 @@ async function notifyByTypeImpl(
         audience.findIndex((other) => other.id === recipient.id) === index,
     );
 
-    // One row per (tenant, type) — org-wide, so every recipient in this dispatch shares the same
-    // preference (see NotificationPreferencesRepository). No saved row falls back to the type's
-    // own defaultChannels (matches notification-preferences.service.ts's getPreferences and
-    // "Reset to Default" — a tenant that's never touched settings still gets the product-intended
-    // defaults, not silence).
+    // Each recipient's own mediums for this type (Settings → Notifications): their saved row, else
+    // the org_admin's setting, else the type's defaultChannels — see utils/channel-preferences.ts.
+    // Loaded once per dispatch (one query for every recipient's own row).
     const notificationType = await deps.notificationPreferencesRepository.findTypeByKey(type);
     if (!notificationType) {
       console.warn(
         `No notification_types row for "${type}" — external channels disabled for this dispatch until it's seeded (see src/db/seed-notification-types.ts)`,
       );
     }
-    const preference = notificationType
+    const organizationPreference = notificationType
       ? await deps.notificationPreferencesRepository.findByTenantAndTypeId(
           tenantId,
           notificationType.id,
         )
       : null;
+    const userPreferenceByUserId = new Map(
+      (notificationType
+        ? await deps.notificationPreferencesRepository.listUserPreferencesForType(
+            tenantId,
+            notificationType.id,
+            recipients.map((recipient) => recipient.id),
+          )
+        : []
+      ).map((userPreference) => [userPreference.userId, userPreference]),
+    );
+    const isShownInApp = definition.inApp !== false;
+    const channelPreferencesOf = (recipientId: string): ChannelPreferenceFlags =>
+      notificationType
+        ? resolveChannelPreferences({
+            userPreference: userPreferenceByUserId.get(recipientId) ?? null,
+            organizationPreference,
+            defaultChannels: notificationType.defaultChannels,
+          })
+        : { inApp: true, email: false, sms: false, push: false, whatsapp: false };
     // Org quiet hours: hold push/SMS/WhatsApp until the window ends (P1 bypasses — see
     // quiet-hours.ts). Worked out once per dispatch, like the preference row above.
     const quietHoursDelayMs = getQuietHoursDelayMs(
@@ -153,21 +171,6 @@ async function notifyByTypeImpl(
       definition.reminderAfterMs && !isReminder && (definition.shouldRemind?.(context) ?? true)
         ? new Date(Date.now() + definition.reminderAfterMs).toISOString()
         : undefined;
-
-    const enabled = {
-      email: preference
-        ? preference.emailEnabled
-        : (notificationType?.defaultChannels.includes('email') ?? false),
-      sms: preference
-        ? preference.smsEnabled
-        : (notificationType?.defaultChannels.includes('sms') ?? false),
-      push: preference
-        ? preference.pushEnabled
-        : (notificationType?.defaultChannels.includes('push') ?? false),
-      whatsapp: preference
-        ? preference.whatsappEnabled
-        : (notificationType?.defaultChannels.includes('whatsapp') ?? false),
-    };
 
     await Promise.all(
       recipients.map(async (recipient) => {
@@ -188,6 +191,7 @@ async function notifyByTypeImpl(
           { id: recipient.id, fullName: recipient.fullName },
           locale,
         );
+        const enabled = channelPreferencesOf(recipient.id);
         const channels: NotificationChannelName[] = [];
         const destinations: NotificationDestinations = {};
 
@@ -230,11 +234,16 @@ async function notifyByTypeImpl(
           }
         }
 
-        // No early-return when channels is empty — a recipient with no enabled channel for this
-        // type (e.g. no contact info on file, even if the org has the channel turned on) still
-        // gets the notification row itself, visible via GET /notifications; see
-        // notifications.types.ts's own note that channels: [] means in-app only, not
-        // "nothing to do".
+        // The recipient turned in-app off and no other medium is going out — they get nothing at
+        // all for this type ("turning an alert off stops it on every channel"). Types never shown
+        // in the app (inApp: false) keep their row as before: it carries delivery tracking and
+        // once_per_tenant.
+        if (isShownInApp && !enabled.inApp && channels.length === 0) return;
+
+        // Otherwise no early-return when channels is empty — a recipient with in-app on but no
+        // other enabled channel (e.g. no contact info on file) still gets the notification row
+        // itself, visible via GET /notifications; see notifications.types.ts's own note that
+        // channels: [] means in-app only, not "nothing to do".
         await deps.notificationsService.send(tenantId, {
           recipientUserId: recipient.id,
           type,
@@ -253,6 +262,8 @@ async function notifyByTypeImpl(
               : metadata,
           severity: definition.severity,
           channelDelaysMs,
+          // In-app off → the row exists only to carry the other mediums; hidden from the inbox.
+          showInApp: isShownInApp ? enabled.inApp : true,
         });
       }),
     );

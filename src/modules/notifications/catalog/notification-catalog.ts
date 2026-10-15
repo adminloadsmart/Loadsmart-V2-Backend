@@ -7,12 +7,7 @@ import {
   MASTERS_APPROVE,
   PAYMENTS_MANAGE,
 } from '../../../shared/constants/permissions';
-import {
-  ORG_ADMIN_ROLE,
-  DISPATCH_ROLE,
-  DOCUMENTS_OPS_ROLE,
-  FINANCE_ACCOUNTS_ROLE,
-} from '../../../shared/constants/roles';
+import { ORG_ADMIN_ROLE, DISPATCH_ROLE, DOCUMENTS_OPS_ROLE } from '../../../shared/constants/roles';
 import { env } from '../../../config/env';
 import { toInternationalIndianNumber } from '../../../shared/utils/phone-number';
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
@@ -468,19 +463,10 @@ function podExceptionSentenceOf(context: PodUploadedContext): string {
   }
 }
 
-type NoContext = Record<string, never>;
-
 /** First word of the recipient's name for "Hi {{first_name}}" copy — the org-signup user's
  *  fullName is optional (saved in the onboarding user-details step), hence the fallback. */
 function firstNameOf(fullName: string | null): string {
   return fullName?.trim().split(/\s+/)[0] || 'there';
-}
-
-function stub(
-  label: string,
-  description: string,
-): NotificationTypeDefinition<NoContext>['buildContent'] {
-  return () => ({ title: label, body: description });
 }
 
 export const NOTIFICATION_CATALOG = {
@@ -498,6 +484,9 @@ export const NOTIFICATION_CATALOG = {
     severity: 'p2_action',
     frequency: 'once_per_tenant',
     requiresWhatsappOptIn: true,
+    // LS_N_0001's channels are WhatsApp, SMS and Email only — stored (once_per_tenant needs the
+    // row) but never shown in the bell.
+    inApp: false,
     templates: {
       whatsapp: {
         templateName: env.msg91WhatsappTemplateOrgApproved,
@@ -1595,11 +1584,14 @@ export const NOTIFICATION_CATALOG = {
     category: 'money',
     description: "A transporter's advance can be released for a load in transit.",
     ctaStyle: 'primary',
-    recipientRoles: [],
+    // LS_N_0042: payments approvers plus org admin, P1 (the truck is held), In app/Push/Email/SMS,
+    // reminder at 4 hours while still unpaid (the resolver drops it once the advance is paid).
+    recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
-    channels: [...ALL_CHANNELS],
+    channels: ['push', 'email', 'sms'],
     defaultChannels: ['push'],
-    severity: 'p2_action',
+    severity: 'p1_critical',
+    reminderAfterMs: 4 * 60 * 60 * 1000,
     dedupeKey: (context: AdvanceDueContext) => context.loadId,
     buildContent: (context: AdvanceDueContext) => {
       const amountLabel = context.amount ?? 'The';
@@ -1613,7 +1605,7 @@ export const NOTIFICATION_CATALOG = {
         .filter(Boolean)
         .join(' ');
       return {
-        title: `${amountLabel} advance due for ${context.loadCode}`,
+        title: `Advance of ${amountLabel} requested on ${context.loadCode}`,
         body: `${context.transporterName ?? 'The transporter'} is due ${advanceShareLabel} advance${
           context.route ? ` on ${context.route}` : ''
         }${context.vehicleNo ? ` (${context.vehicleNo})` : ''}. Loading is confirmed.${
@@ -1628,14 +1620,12 @@ export const NOTIFICATION_CATALOG = {
           advance_amount: context.amount ?? '',
           bank_name: context.bankName ?? '',
           bank_account_last4: context.accountLast4 ?? '',
-          cta_label: 'Release advance',
+          cta_label: 'Approve advance',
           cta_path: `/loads/${context.loadId}`,
         },
       };
     },
   },
-
-  // --- Placeholders below: settings-screen metadata only, no trigger built yet. ---
 
   'driver.link_requested': {
     label: 'Driver join request',
@@ -1689,58 +1679,6 @@ export const NOTIFICATION_CATALOG = {
       title: t(locale, 'notifications.driverAccountDeleted.title'),
       body: t(locale, 'notifications.driverAccountDeleted.body', { driverName, phoneNumber }),
     }),
-  },
-  'load.trip_delay_exception': {
-    label: 'Trip delay & Exception',
-    category: 'trip_execution',
-    description: 'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',
-    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push', 'sms'],
-    severity: 'p2_action',
-    buildContent: stub(
-      'Trip delay & Exception',
-      'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',
-    ),
-  },
-  'tracking.geofence_breach': {
-    label: 'Geofence breach',
-    category: 'trip_execution',
-    description: 'Vehicle deviates from corridor > 5km or unapproved geofence exit.',
-    recipientRoles: [DISPATCH_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push'],
-    severity: 'p1_critical',
-    buildContent: stub(
-      'Geofence breach',
-      'Vehicle deviates from corridor > 5km or unapproved geofence exit.',
-    ),
-  },
-  'payments.due_settlement': {
-    label: 'Payment due & Settlement',
-    category: 'money',
-    description: 'Pending transporter balance, detention approval, and overdue ledger alerts.',
-    recipientRoles: [FINANCE_ACCOUNTS_ROLE, ORG_ADMIN_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push', 'sms', 'email'],
-    severity: 'p2_action',
-    buildContent: stub(
-      'Payment due & Settlement',
-      'Pending transporter balance, detention approval, and overdue ledger alerts.',
-    ),
-  },
-  'maintenance.compliance_due': {
-    label: 'Maintenance & Compliance due',
-    category: 'compliance',
-    description: 'Odometer threshold reached, scheduled servicing alert, oil changes.',
-    recipientRoles: [DOCUMENTS_OPS_ROLE, ORG_ADMIN_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['email'],
-    severity: 'p2_action',
-    buildContent: stub(
-      'Maintenance & Compliance due',
-      'Odometer threshold reached, scheduled servicing alert, oil changes.',
-    ),
   },
 } satisfies Record<string, NotificationTypeDefinition<any>>;
 

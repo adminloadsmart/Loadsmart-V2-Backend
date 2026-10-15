@@ -5,13 +5,29 @@ import {
   NotificationPreferencesService,
   UpdateNotificationPreferenceInput,
 } from './notification-preferences.service';
-import { QuietHoursSetting } from './notifications.interface';
+import { QuietHoursSetting, UpdateMyNotificationPreferenceInput } from './notifications.interface';
 
-/** Org-wide settings ("Choose how your team gets alerted") — scoped by tenant, not by the
- *  calling user. GET is open to any authenticated org member; PUT/reset are org_admin-only,
- *  enforced in the service via the caller's role. */
+/** Settings → Notifications. The *My* handlers act on the calling user only; the organisation
+ *  handlers (getPreferences/updatePreferences/resetToDefault, quiet hours) act on the caller's
+ *  tenant — GET open to any org member, writes org_admin-only (enforced in the service). */
 export class NotificationPreferencesController {
   constructor(private readonly service: NotificationPreferencesService) {}
+
+  getMyPreferences = async (req: Request, res: Response) =>
+    respond(res, await this.service.getMyPreferences(requireTenantId(req), req.user!.id));
+
+  updateMyPreferences = async (req: Request, res: Response) => {
+    const tenantId = requireTenantId(req);
+    const { items } = req.body as { items: UpdateMyNotificationPreferenceInput[] };
+    await this.service.updateMyPreferences(tenantId, req.user!.id, items);
+    respond(res, await this.service.getMyPreferences(tenantId, req.user!.id));
+  };
+
+  resetMyPreferences = async (req: Request, res: Response) => {
+    const tenantId = requireTenantId(req);
+    await this.service.resetMyPreferences(tenantId, req.user!.id);
+    respond(res, await this.service.getMyPreferences(tenantId, req.user!.id));
+  };
 
   getPreferences = async (req: Request, res: Response) =>
     respond(res, await this.service.getPreferences(requireTenantId(req)));

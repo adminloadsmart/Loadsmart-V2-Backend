@@ -70,6 +70,7 @@ export class NotificationsService {
           channels,
           metadata: input.metadata ?? null,
           severity: input.severity ?? DEFAULT_NOTIFICATION_SEVERITY,
+          showInApp: input.showInApp ?? true,
         },
         destinations,
       );

@@ -14,9 +14,23 @@ export const notificationPreferencesValidators = {
   updateQuietHours: z.object({
     body: z.object({ enabled: z.boolean(), startTime: hhmm, endTime: hhmm }),
   }),
+  // The organisation's setting (org_admin) — external channels only; in-app isn't org-level.
   update: z.object({
     body: z.object({
       items: z.array(z.object({ key: z.string().min(1), channels: channelsBody })).min(1),
+    }),
+  }),
+  // The caller's own preferences — also in-app; omitted inApp keeps its current value.
+  updateMine: z.object({
+    body: z.object({
+      items: z
+        .array(
+          z.object({
+            key: z.string().min(1),
+            channels: channelsBody.extend({ inApp: z.boolean().optional() }),
+          }),
+        )
+        .min(1),
     }),
   }),
 };
