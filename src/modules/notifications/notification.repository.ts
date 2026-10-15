@@ -1,7 +1,12 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Not, Repository } from 'typeorm';
 import { NotificationEntity } from './notifications.entity';
 import { NotificationDeliveryEntity } from './notification-delivery.entity';
-import { NotificationChannelName, DeliveryStatus, NotificationStatus } from './notifications.types';
+import {
+  NotificationChannelName,
+  DeliveryStatus,
+  NotificationSeverity,
+  NotificationStatus,
+} from './notifications.types';
 import { ListNotificationsInput } from './notifications.interface';
 
 export interface CreateNotificationData {
@@ -12,6 +17,7 @@ export interface CreateNotificationData {
   body: string;
   channels: NotificationChannelName[];
   metadata: Record<string, unknown> | null;
+  severity: NotificationSeverity;
 }
 
 // Postgres error codes worth retrying the whole transaction for — both are about lock
@@ -74,6 +80,10 @@ export class NotificationRepository {
     return this.repo.save(entity);
   }
 
+  existsForTenantAndType(tenantId: string, type: string): Promise<boolean> {
+    return this.repo.existsBy({ tenantId, type });
+  }
+
   findById(id: string): Promise<NotificationEntity | null> {
     return this.repo.findOneBy({ id });
   }
@@ -98,6 +108,7 @@ export class NotificationRepository {
           body: data.body,
           channels: data.channels,
           metadata: data.metadata,
+          severity: data.severity,
           status: data.channels.length ? 'pending' : 'sent',
           readAt: null,
         }),
@@ -127,14 +138,22 @@ export class NotificationRepository {
     tenantId: string,
     recipientUserId: string,
     input: ListNotificationsInput,
+    hiddenTypes: string[] = [],
   ): Promise<[NotificationEntity[], number]> {
     const qb = this.repo
       .createQueryBuilder('notification')
       .where('notification.tenant_id = :tenantId', { tenantId })
       .andWhere('notification.recipient_user_id = :recipientUserId', { recipientUserId });
 
+    if (hiddenTypes.length) {
+      qb.andWhere('notification.type NOT IN (:...hiddenTypes)', { hiddenTypes });
+    }
+
     if (input.unreadOnly) {
       qb.andWhere('notification.read_at IS NULL');
+    }
+    if (input.severity) {
+      qb.andWhere('notification.severity = :severity', { severity: input.severity });
     }
 
     return qb
@@ -145,14 +164,20 @@ export class NotificationRepository {
   }
 
   /** Scoped to (tenantId, recipientUserId) — returns null for a notification that doesn't exist
-   *  OR belongs to someone else, so the controller 404s either way rather than leaking existence
-   *  of another user's notification. */
+   *  OR belongs to someone else (or is of a `hiddenTypes` type), so the controller 404s either way
+   *  rather than leaking existence of another user's notification. */
   findByIdForRecipient(
     tenantId: string,
     recipientUserId: string,
     id: string,
+    hiddenTypes: string[] = [],
   ): Promise<NotificationEntity | null> {
-    return this.repo.findOneBy({ id, tenantId, recipientUserId });
+    return this.repo.findOneBy({
+      id,
+      tenantId,
+      recipientUserId,
+      ...(hiddenTypes.length ? { type: Not(In(hiddenTypes)) } : {}),
+    });
   }
 
   /**
@@ -249,8 +274,14 @@ export class NotificationRepository {
     tenantId: string,
     recipientUserId: string,
     id: string,
+    hiddenTypes: string[] = [],
   ): Promise<NotificationEntity | null> {
-    const notification = await this.findByIdForRecipient(tenantId, recipientUserId, id);
+    const notification = await this.findByIdForRecipient(
+      tenantId,
+      recipientUserId,
+      id,
+      hiddenTypes,
+    );
     if (!notification) return null;
     if (!notification.readAt) {
       notification.readAt = new Date();

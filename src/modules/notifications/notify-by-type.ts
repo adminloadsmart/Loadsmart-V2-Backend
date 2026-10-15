@@ -1,11 +1,14 @@
 import { AuthRepository } from '../auth/auth.repository';
 import { AuthService } from '../auth/auth.service';
+import { UserEntity } from '../auth/entities/user.entity';
 import { NotificationsService } from './notifications.service';
 import { NotificationDestinations } from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
 import { NotificationTypeDefinition } from './catalog/notification-catalog.types';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
 import { rethrow } from '../../shared/errors';
+import { redisManager } from '../../db/redis';
+import { NotificationTriggers } from './notification-triggers';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 
 export interface NotifyByTypeDeps {
@@ -13,6 +16,9 @@ export interface NotifyByTypeDeps {
   authRepository: AuthRepository; // role-based recipient lookup
   authService: AuthService; // getActiveDeviceTokensForUser, for the 'push' channel
   notificationPreferencesRepository: NotificationPreferencesRepository; // org-wide channel opt-in
+  // For catalog types with recipientRateLimit — queues the overflow summary. Optional so callers
+  // without it (no rate-limited types) are unaffected.
+  notificationTriggers?: NotificationTriggers;
 }
 
 /**
@@ -21,7 +27,7 @@ export interface NotifyByTypeDeps {
  * `context`'s required shape per call from `C[K]`'s own `buildContent` parameter, the same way it
  * would if each notification type still lived in its own separately-typed catalog file. Passing
  * `NOTIFICATION_CATALOG` and the literal key `'vehicle.compliance_expired'` requires `context` to
- * be exactly `VehicleComplianceContext`; passing a mismatched context for that key is a compile
+ * be exactly `VehicleDocumentExpiredContext`; passing a mismatched context for that key is a compile
  * error, same as passing `'some.unknown.key'` not present in the catalog at all.
  */
 export interface NotifyByType {
@@ -44,11 +50,11 @@ export interface NotifyByType {
  * defaultChannels (see notification-catalog.ts and NotificationPreferencesRepository).
  *
  * A dispatch failure is rethrown, not swallowed: the current (and so far only) caller is
- * vehicle-compliance-alerts.worker.ts's BullMQ job handler, which relies on the throw propagating
+ * notification-trigger.worker.ts's BullMQ job handler, which relies on the throw propagating
  * so a transient failure (e.g. Redis/DB hiccup) retries per the queue's defaultJobOptions instead
  * of silently dropping the alert. A future caller invoked directly from a request path (not via a
  * queue) must wrap its own call in try/catch if it wants best-effort, fire-and-forget semantics —
- * see vehicle.service.ts's scheduleComplianceAlerts for that pattern.
+ * see admin.service.ts's notifyAccountApproved for that pattern.
  *
  * Implemented with loose internal typing deliberately: TypeScript can't resolve a conditional
  * type depending on its own not-yet-instantiated generic parameters (`C`/`K`, see `NotifyByType`
@@ -68,11 +74,49 @@ async function notifyByTypeImpl(
 ): Promise<void> {
   const definition = catalog[type];
   try {
-    const recipients = await deps.authRepository.listUsersByRole(
-      tenantId,
-      definition.recipientRoles,
+    if (
+      definition.frequency === 'once_per_tenant' &&
+      (await deps.notificationsService.hasNotificationOfType(tenantId, type))
+    ) {
+      return;
+    }
+
+    const targetUserId = definition.recipientUserId?.(context);
+    const byPermission = definition.recipientPermission?.(context);
+    const excludedUserId = definition.excludeUserId?.(context);
+    const alsoNotifyUserId = definition.alsoNotifyUserId?.(context);
+    const excludedPermissionRoles = definition.excludeRolesFromPermission?.(context) ?? [];
+    const roles = [
+      ...definition.recipientRoles,
+      ...(definition.extraRecipientRoles?.(context) ?? []),
+    ];
+    const audience = (
+      targetUserId
+        ? await findTenantUser(deps.authRepository, tenantId, targetUserId)
+        : byPermission
+          ? // Holders of ANY of the listed permissions, plus anyone in recipientRoles (e.g.
+            // LS_N_0048: compliance.manage + dispatch.planning.manage holders + org admins).
+            (
+              await Promise.all(
+                (Array.isArray(byPermission) ? byPermission : [byPermission]).map((p) =>
+                  deps.authRepository.listUsersWithPermission(tenantId, p.permission, p.role),
+                ),
+              )
+            )
+              .flat()
+              .filter((user) => !excludedPermissionRoles.includes(user.role?.name))
+              .concat(
+                roles.length ? await deps.authRepository.listUsersByRole(tenantId, roles) : [],
+              )
+          : await deps.authRepository.listUsersByRole(tenantId, roles)
+    ).concat(
+      alsoNotifyUserId ? await findTenantUser(deps.authRepository, tenantId, alsoNotifyUserId) : [],
     );
-    const { title, body, metadata } = definition.buildContent(context, locale);
+    const recipients = audience.filter(
+      (recipient, index) =>
+        recipient.id !== excludedUserId &&
+        audience.findIndex((other) => other.id === recipient.id) === index,
+    );
 
     // One row per (tenant, type) — org-wide, so every recipient in this dispatch shares the same
     // preference (see NotificationPreferencesRepository). No saved row falls back to the type's
@@ -108,6 +152,23 @@ async function notifyByTypeImpl(
 
     await Promise.all(
       recipients.map(async (recipient) => {
+        const limit = definition.recipientRateLimit;
+        if (
+          limit &&
+          (await isOverRecipientLimit(type, recipient.id, limit.max, limit.windowSeconds))
+        ) {
+          // Over this recipient's cap for the window: no individual notification — queue the
+          // (debounced) summary instead, so they get one "N waiting" message.
+          await deps.notificationTriggers?.enqueue(limit.overflowType as never, tenantId, {
+            userId: recipient.id,
+          } as never);
+          return;
+        }
+        const { title, body, metadata } = definition.buildContent(
+          context,
+          { id: recipient.id, fullName: recipient.fullName },
+          locale,
+        );
         const channels: NotificationChannelName[] = [];
         const destinations: NotificationDestinations = {};
 
@@ -115,7 +176,27 @@ async function notifyByTypeImpl(
           channels.push('email');
           destinations.email = recipient.email;
         }
-        if (definition.channels.includes('whatsapp') && recipient.phoneNumber && enabled.whatsapp) {
+        // SMS needs a per-type DLT-approved template (India's DLT rules register exact message
+        // text), so only types declaring `templates.sms` are texted — the generic env template
+        // was never real, and before this no type was dispatched over SMS at all.
+        if (
+          definition.channels.includes('sms') &&
+          definition.templates?.sms &&
+          recipient.phoneNumber &&
+          enabled.sms
+        ) {
+          channels.push('sms');
+          destinations.phoneNumber = recipient.phoneNumber;
+        }
+        // Types with requiresWhatsappOptIn only WhatsApp recipients who opted in
+        // (users.whatsapp_opt_in — captured at signup or at first login); null (never captured)
+        // or false → no WhatsApp, SMS only. Other types are unaffected by opt-in.
+        if (
+          definition.channels.includes('whatsapp') &&
+          recipient.phoneNumber &&
+          (!definition.requiresWhatsappOptIn || recipient.whatsappOptIn === true) &&
+          enabled.whatsapp
+        ) {
           channels.push('whatsapp');
           destinations.whatsappNumber = recipient.phoneNumber;
         }
@@ -143,6 +224,7 @@ async function notifyByTypeImpl(
           channels,
           destinations,
           metadata,
+          severity: definition.severity,
         });
       }),
     );
@@ -151,10 +233,35 @@ async function notifyByTypeImpl(
   }
 }
 
+/** Counts this recipient's notifications of this type in a fixed window (see recipientRateLimit). */
+async function isOverRecipientLimit(
+  type: string,
+  userId: string,
+  max: number,
+  windowSeconds: number,
+): Promise<boolean> {
+  const count = await redisManager.incrInFixedWindow(
+    `notifications:recipient-limit:${type}:${userId}`,
+    windowSeconds,
+  );
+  return count > max;
+}
+
+/** A single named recipient — only if they still exist (not deleted) and belong to this tenant,
+ *  so a context can never direct a notification into another tenant. */
+async function findTenantUser(
+  authRepository: AuthRepository,
+  tenantId: string,
+  userId: string,
+): Promise<UserEntity[]> {
+  const user = await authRepository.findUserById(userId);
+  return user && user.tenantId === tenantId ? [user] : [];
+}
+
 /**
  * The typed factory every composition-root caller uses — the cast here is the one place this
  * module trusts `notifyByTypeImpl`'s internals; every actual call site (e.g.
- * vehicle-compliance-alerts.worker.ts) goes through the precise `NotifyByType` signature above
+ * notification-trigger.worker.ts) goes through the precise `NotifyByType` signature above
  * and gets full compile-time checking of `type`/`context` against whatever catalog it passes.
  */
 export function createNotifyByType(deps: NotifyByTypeDeps): NotifyByType {

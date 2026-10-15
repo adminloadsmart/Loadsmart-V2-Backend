@@ -1,5 +1,5 @@
 import { PaginationInput } from '../../shared/utils/pagination';
-import { NotificationChannelName } from './notifications.types';
+import { NotificationChannelName, NotificationSeverity } from './notifications.types';
 
 /** Destination the caller supplies for each requested channel — this module owns no
  *  contact/token registry of its own, so these are taken as-is (see notifications.service.ts). */
@@ -23,8 +23,11 @@ export interface CreateNotificationInput {
   channels?: NotificationChannelName[];
   destinations?: NotificationDestinations;
   metadata?: Record<string, unknown> | null;
+  /** Defaults to p3_info when omitted (catalog-driven sends always pass their type's severity). */
+  severity?: NotificationSeverity;
 }
 
 export interface ListNotificationsInput extends PaginationInput {
   unreadOnly?: boolean;
+  severity?: NotificationSeverity;
 }

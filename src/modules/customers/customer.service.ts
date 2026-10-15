@@ -3,6 +3,7 @@ import { AuditService } from '../audit/audit.service';
 import { ORG_ADMIN_ROLE, SALES_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { paginate } from '../admin/utils/admin.types';
 import { CustomerRepository } from './customer.repository';
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { CodeSequenceRepository } from '../loads/code-sequence.repository';
 import { formatCustomerCode } from '../loads/utils/code.util';
 import { CreateCustomerInput, ListCustomersInput, UpdateCustomerInput } from './customer.types';
@@ -17,6 +18,9 @@ export class CustomerService {
     private readonly dataSource: import('typeorm').DataSource,
     private readonly audit: AuditService,
     private readonly codeSequences: CodeSequenceRepository,
+    // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
+    // throws (see notifications/master-approvals.ts).
+    private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
   private assertRole(role: string, allowed: string[]) {
     if (!allowed.includes(role)) throw new AuthorizationError('Not authorized to manage customers');
@@ -54,6 +58,14 @@ export class CustomerService {
           name: customer.name,
           source,
         },
+      });
+      await this.approvalNotifier?.requested({
+        kind: 'customer',
+        tenantId,
+        recordId: customer.id,
+        masterValue: customer.name,
+        createdBy: customer.createdBy,
+        pending: customer.status === 'pending',
       });
       return customer;
     } catch (error) {
@@ -158,6 +170,14 @@ export class CustomerService {
         oldData: { id, status: 'pending' },
         newData: { id, status: 'active', approvedBy: actorId },
       });
+      await this.approvalNotifier?.approved({
+        kind: 'customer',
+        tenantId,
+        recordId: id,
+        masterValue: existing.name,
+        createdBy: existing.createdBy,
+        approvedBy: actorId,
+      });
       return value;
     } catch (error) {
       rethrow(error, 'Failed to approve customer');
@@ -179,6 +199,15 @@ export class CustomerService {
         resourceType: 'customer',
         oldData: { id, status: 'pending' },
         newData: { id, status: 'rejected', rejectionReason: reason },
+      });
+      await this.approvalNotifier?.rejected({
+        kind: 'customer',
+        tenantId,
+        recordId: existing.id,
+        masterValue: existing.name,
+        createdBy: existing.createdBy,
+        rejectedBy: actorId,
+        reason,
       });
       return value;
     } catch (error) {

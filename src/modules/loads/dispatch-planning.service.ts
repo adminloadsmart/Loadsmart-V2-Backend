@@ -271,6 +271,7 @@ export class DispatchPlanningService {
                 channels: ['push'],
                 destinations: { pushToken: session.fcmToken! },
                 metadata: { loadIds: assignedLoads.map((load) => load.id) },
+                severity: 'p2_action',
               }),
             ),
           );

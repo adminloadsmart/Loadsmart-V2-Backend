@@ -1,4 +1,7 @@
 import { env } from '../config/env';
+import { toIndianMsisdn } from '../shared/utils/phone-number';
+
+const OTP_EXPIRY_MINUTES = 10;
 
 interface Msg91Response {
   type?: string; // 'success' | 'error'
@@ -6,6 +9,9 @@ interface Msg91Response {
 }
 
 /**
+ * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
+ * numbers, and they're stored without the country code.
+ *
  * Wraps MSG91's OTP API (`/api/v5/otp` + `/api/v5/otp/verify`) — unlike a generic SMS gateway,
  * MSG91 both generates the OTP and verifies it: we never see or store the code ourselves.
  * `sendOtp` requires a DLT-approved `template_id` to be configured on the MSG91 dashboard first;
@@ -16,11 +22,19 @@ interface Msg91Response {
  * by the callers in auth.service.ts, keeping this a pure MSG91 wrapper.
  */
 export class Msg91Client {
-  async sendOtp(phoneNumber: string): Promise<void> {
+  /** `otp`: our own generated code (LS_N_0008) — MSG91 sends and later verifies exactly this code
+   *  instead of generating one, so the same code can also go out over WhatsApp. Omitted = MSG91
+   *  generates it, as before. */
+  async sendOtp(phoneNumber: string, otp?: string): Promise<void> {
     const url = new URL(`${env.msg91BaseUrl}/api/v5/otp`);
-    url.searchParams.set('template_id', env.msg91TemplateId!);
-    url.searchParams.set('mobile', phoneNumber);
+    url.searchParams.set('template_id', (env.msg91SmsTemplateOtp ?? env.msg91TemplateId)!);
+    url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
     url.searchParams.set('authkey', env.msg91AuthKey!);
+    if (otp) {
+      url.searchParams.set('otp', otp);
+      // Minutes — matches the LS_OTP text ("valid for 10 minutes") and the signup/login tokens.
+      url.searchParams.set('otp_expiry', String(OTP_EXPIRY_MINUTES));
+    }
 
     const response = await fetch(url.toString(), {
       method: 'POST',
@@ -39,7 +53,7 @@ export class Msg91Client {
   async verifyOtp(phoneNumber: string, otp: string): Promise<boolean> {
     const url = new URL(`${env.msg91BaseUrl}/api/v5/otp/verify`);
     url.searchParams.set('otp', otp);
-    url.searchParams.set('mobile', phoneNumber);
+    url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
 
     const response = await fetch(url.toString(), {
       method: 'POST',
@@ -60,8 +74,12 @@ export class Msg91Client {
    * variable names it expects are template-defined, so `variables`' keys here (currently `title`/
    * `body`) are provisional until a real template exists to verify against.
    */
-  async sendTransactional(phoneNumber: string, variables: Record<string, string>): Promise<void> {
-    if (!env.msg91AuthKey || !env.msg91NotificationTemplateId) {
+  async sendTransactional(
+    phoneNumber: string,
+    variables: Record<string, string>,
+    templateId: string | undefined = env.msg91NotificationTemplateId,
+  ): Promise<void> {
+    if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
       );
@@ -71,8 +89,8 @@ export class Msg91Client {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authkey: env.msg91AuthKey },
       body: JSON.stringify({
-        template_id: env.msg91NotificationTemplateId,
-        recipients: [{ mobiles: phoneNumber, ...variables }],
+        template_id: templateId,
+        recipients: [{ mobiles: toIndianMsisdn(phoneNumber), ...variables }],
       }),
     });
     const body = (await response.json().catch(() => null)) as Msg91Response | null;
@@ -95,8 +113,12 @@ export class Msg91Client {
    * send API lives on a different host from the rest of their v5 API, confirmed against
    * https://msg91.com/help/whatsapp/send-whatsapp.
    */
-  async sendWhatsapp(phoneNumber: string, variables: string[]): Promise<void> {
-    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !env.msg91WhatsappTemplateName) {
+  async sendWhatsapp(
+    phoneNumber: string,
+    variables: string[],
+    templateName: string | undefined = env.msg91WhatsappTemplateName,
+  ): Promise<void> {
+    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',
       );
@@ -118,10 +140,10 @@ export class Msg91Client {
             messaging_product: 'whatsapp',
             type: 'template',
             template: {
-              name: env.msg91WhatsappTemplateName,
+              name: templateName,
               language: { code: 'en', policy: 'deterministic' },
               namespace: env.msg91WhatsappNamespace,
-              to_and_components: [{ to: [phoneNumber], components }],
+              to_and_components: [{ to: [toIndianMsisdn(phoneNumber)], components }],
             },
           },
         }),
@@ -131,6 +153,56 @@ export class Msg91Client {
 
     if (body?.type !== 'success') {
       throw new Error(`MSG91 send WhatsApp message failed: ${body?.message ?? response.status}`);
+    }
+  }
+
+  /**
+   * Transactional email via MSG91's Email API — used by the notifications module's EmailChannel.
+   * Same "template lives on the MSG91 dashboard" model as sendWhatsapp: the subject and body are
+   * authored there (against a domain verified on the dashboard); this only forwards the
+   * template's variables. Request/response shape per MSG91's v5 email/send API — the response
+   * carries `status`/`hasError`, not the `type` field the SMS/OTP APIs use.
+   */
+  async sendEmail(
+    to: { email: string; name?: string | null },
+    variables: Record<string, string>,
+    templateId: string | undefined,
+  ): Promise<void> {
+    if (!env.msg91AuthKey || !env.msg91EmailDomain || !env.msg91EmailFrom || !templateId) {
+      throw new Error(
+        'MSG91_AUTH_KEY / MSG91_EMAIL_DOMAIN / MSG91_EMAIL_FROM / email template id not configured — cannot send email',
+      );
+    }
+
+    const response = await fetch(`${env.msg91BaseUrl}/api/v5/email/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        authkey: env.msg91AuthKey,
+      },
+      body: JSON.stringify({
+        recipients: [
+          {
+            to: [{ email: to.email, ...(to.name ? { name: to.name } : {}) }],
+            variables,
+          },
+        ],
+        from: { email: env.msg91EmailFrom, name: env.msg91EmailFromName },
+        // Only when configured — otherwise the request body is exactly as before.
+        ...(env.msg91EmailReplyTo ? { reply_to: [{ email: env.msg91EmailReplyTo }] } : {}),
+        domain: env.msg91EmailDomain,
+        template_id: templateId,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      status?: string;
+      hasError?: boolean;
+      message?: string;
+    } | null;
+
+    if (!response.ok || body?.hasError || body?.status !== 'success') {
+      throw new Error(`MSG91 send email failed: ${body?.message ?? response.status}`);
     }
   }
 }

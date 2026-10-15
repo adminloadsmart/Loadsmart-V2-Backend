@@ -233,6 +233,7 @@ export class MaintenanceService {
       const startedAt =
         input.startDate && input.startDate < endDate ? startOfIstDate(input.startDate) : loggedAt;
 
+      let finishedVisitId: string | null = null;
       const job = await this.dataSource.transaction(async (manager) => {
         const open = await this.jobRepository.findOpenJob(tenantId, vehicle.id, manager);
 
@@ -258,6 +259,7 @@ export class MaintenanceService {
             },
             'MAINTENANCE_SERVICE_LOGGED',
           );
+          finishedVisitId = open.id;
           return this.jobRepository.findById(tenantId, open.id, manager);
         }
 
@@ -303,6 +305,9 @@ export class MaintenanceService {
         );
         return this.jobRepository.findById(tenantId, created.id, manager);
       });
+      if (finishedVisitId) {
+        await this.notificationsGateway.vehicleBackInService({ tenantId, jobId: finishedVisitId });
+      }
 
       return toJobView(job!, canSeeCosts);
     } catch (error) {
@@ -411,6 +416,7 @@ export class MaintenanceService {
         );
         return this.jobRepository.findById(tenantId, jobId, manager);
       });
+      await this.notificationsGateway.vehicleBackInService({ tenantId, jobId });
 
       return toJobView(closed!, canSeeCosts);
     } catch (error) {
@@ -577,6 +583,7 @@ export class MaintenanceService {
         );
         return this.jobRepository.findById(tenantId, jobId, manager);
       });
+      await this.notificationsGateway.vehicleBackInService({ tenantId, jobId });
 
       return toJobView(released!, canSeeCosts);
     } catch (error) {
@@ -842,6 +849,7 @@ export class MaintenanceService {
         );
         return this.jobRepository.findById(tenantId, jobId, manager);
       });
+      await this.notificationsGateway.vehicleBackInService({ tenantId, jobId });
 
       return toJobView(closed!, canSeeCosts);
     } catch (error) {

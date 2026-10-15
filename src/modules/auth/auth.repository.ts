@@ -43,6 +43,37 @@ export class AuthRepository {
     return this.users.findOne({ where: { id, deletedAt: IsNull() }, relations: { role: true } });
   }
 
+  /** This tenant's active users holding `permissionKey` — through their role's permissions or a
+   *  direct grant — optionally limited to one role. Backs notifications addressed to "whoever can
+   *  do X" (e.g. approve a master record, LS_N_0009). */
+  listUsersWithPermission(
+    tenantId: string,
+    permissionKey: string,
+    roleName?: string,
+  ): Promise<UserEntity[]> {
+    const query = this.users
+      .createQueryBuilder('user')
+      .innerJoinAndSelect('user.role', 'role')
+      .where('user.tenant_id = :tenantId', { tenantId })
+      .andWhere('user.deleted_at IS NULL')
+      .andWhere(
+        `(EXISTS (SELECT 1 FROM auth.role_permissions rp JOIN auth.permissions p ON p.id = rp.permission_id
+                  WHERE rp.role_id = user.role_id AND p.key = :permissionKey)
+          OR EXISTS (SELECT 1 FROM auth.user_permissions up JOIN auth.permissions p ON p.id = up.permission_id
+                     WHERE up.user_id = user.id AND p.key = :permissionKey))`,
+        { permissionKey },
+      );
+    if (roleName) query.andWhere('role.name = :roleName', { roleName });
+    return query.getMany();
+  }
+
+  /** Whether this user has ever completed a login (OTP or password) — every successful login
+   *  issues a refresh token, and revoked ones are kept, so any row means yes. Backs LS_N_0005's
+   *  "remind the invitee only if they haven't started yet". */
+  hasEverSignedIn(userId: string): Promise<boolean> {
+    return this.refreshTokens.existsBy({ userId });
+  }
+
   // Batched — for resolving many actor ids at once (e.g. a load's audit-trail timeline), not a
   // per-row lookup. Deliberately does NOT filter deletedAt like the finders above: a historical
   // audit-trail row should still show the actor's name even if that staff member has since been
@@ -61,6 +92,7 @@ export class AuthRepository {
       passwordHash?: string | null;
       fullName?: string | null;
       coverage?: string | null;
+      whatsappOptIn?: boolean | null;
     },
     manager?: EntityManager,
   ): Promise<UserEntity> {
@@ -73,6 +105,7 @@ export class AuthRepository {
       passwordHash: data.passwordHash ?? null,
       fullName: data.fullName ?? null,
       coverage: data.coverage ?? null,
+      whatsappOptIn: data.whatsappOptIn ?? null,
       deletedAt: null,
     });
     const saved = await users.save(user);
@@ -193,6 +226,10 @@ export class AuthRepository {
     });
     if (!user) throw new NotFoundError(`User ${userId} not found`);
     return user;
+  }
+
+  async setWhatsappOptIn(userId: string, optIn: boolean): Promise<void> {
+    await this.users.update({ id: userId }, { whatsappOptIn: optIn });
   }
 
   async updateUserTenant(userId: string, tenantId: string, manager?: EntityManager): Promise<void> {

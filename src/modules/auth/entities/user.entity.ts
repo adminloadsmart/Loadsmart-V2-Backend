@@ -75,6 +75,13 @@ export class UserEntity {
   @Column({ name: 'permissions_version', type: 'integer', default: 1 })
   permissionsVersion!: number;
 
+  // Consent for WhatsApp Business notifications (see notify-by-type.ts). Captured at signup
+  // (POST /auth/verify-otp); null = never captured → no WhatsApp (SMS only) and the client asks
+  // at first login, saving the answer via PATCH /auth/me/whatsapp-opt-in. Only `true` sends
+  // WhatsApp. SMS/email/in-app aren't gated by this.
+  @Column({ name: 'whatsapp_opt_in', type: 'boolean', nullable: true })
+  whatsappOptIn!: boolean | null;
+
   @Column({ name: 'deleted_at', type: 'timestamp', nullable: true })
   deletedAt!: Date | null;
 

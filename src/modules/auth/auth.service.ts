@@ -26,6 +26,7 @@ import { OtpService } from '../../shared/services/otp.service';
 import {
   isTenantAccessible,
   isTenantWriteAccessible,
+  organizationDisplayName,
 } from '../organization/organization.constants';
 import { AuthRepository } from './auth.repository';
 import { ReferralCodeService } from '../organization/referral-code.service';
@@ -69,6 +70,9 @@ import {
   OrganizationOnboardingProgress,
 } from '../organization/organization.types';
 import { UserEntity } from './entities/user.entity';
+import { OrganizationEntity } from '../organization/entities/organization.entity';
+import { NotificationTriggers } from '../notifications/notification-triggers';
+import { joinCapabilities } from '../notifications/capability-wording';
 
 // Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
 type DeviceContext = {
@@ -87,6 +91,7 @@ type AuthSession = {
     id: string;
     phoneNumber: string;
     hasPassword: boolean;
+    whatsappOptIn: boolean | null;
   };
   onboardingStatus: OnboardingStatus;
   onboardingStep: OnboardingStep;
@@ -108,6 +113,7 @@ export class AuthService {
     private readonly auditService: AuditService,
     private readonly otpService: OtpService,
     private readonly dataSource: DataSource,
+    private readonly notificationTriggers: NotificationTriggers,
   ) {}
 
   async signup(input: SignupInput) {
@@ -122,6 +128,7 @@ export class AuthService {
       phoneNumber,
       purpose: 'signup',
       cooldownSeconds: SIGNUP_RESEND_COOLDOWN_SECONDS,
+      ipAddress: input.ipAddress,
     });
     const signupToken = signToken({ phoneNumber, purpose: 'signup' }, env.signupOtpTtlSeconds);
 
@@ -154,6 +161,7 @@ export class AuthService {
         phoneNumber,
         tenantId: null,
         roleId,
+        whatsappOptIn: input.whatsappOptIn ?? null,
       });
     }
 
@@ -178,6 +186,7 @@ export class AuthService {
       phoneNumber,
       purpose: 'login',
       cooldownSeconds: env.loginOtpResendCooldownSeconds,
+      ipAddress: input.ipAddress,
     });
     const loginToken = signToken(
       { phoneNumber, purpose: 'login', portal: input.portal },
@@ -316,9 +325,32 @@ export class AuthService {
       coverage: user.coverage,
       permissions: await this.roleService.getEffectivePermissions(user.id),
       hasPassword: Boolean(user.passwordHash),
+      whatsappOptIn: user.whatsappOptIn,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  /** WhatsApp notification consent (see user.entity.ts) — the "collect opt-in at first login"
+   *  path for users who didn't give it at signup, and the way to opt out later. */
+  async updateWhatsappOptIn(user: AuthenticatedUser, optIn: boolean) {
+    try {
+      const current = await this.getUserById(user.id);
+      await this.authRepository.setWhatsappOptIn(user.id, optIn);
+
+      await this.auditService.log({
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'USER_WHATSAPP_OPT_IN_UPDATED',
+        resourceType: 'user',
+        oldData: { whatsappOptIn: current.whatsappOptIn },
+        newData: { whatsappOptIn: optIn },
+      });
+
+      return { whatsappOptIn: optIn };
+    } catch (error) {
+      rethrow(error, 'Failed to update WhatsApp opt-in');
+    }
   }
 
   /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
@@ -443,6 +475,8 @@ export class AuthService {
       newData: { id: user.id, fullName, phoneNumber: user.phoneNumber, role: role.name },
     });
 
+    await this.notifyTeamMemberInvited(actingUser, organization, user.id);
+
     return {
       id: user.id,
       fullName: user.fullName,
@@ -452,6 +486,32 @@ export class AuthService {
       permissions: await this.roleService.getEffectivePermissions(user.id),
       createdAt: user.createdAt,
     };
+  }
+
+  /** Best-effort LS_N_0005 "team member invited" to the invitee — says what they can do (their
+   *  effective capabilities, described), never their role or password. Only the enqueue happens
+   *  here (see notification-triggers.ts); even that failing must never fail the invite, so it's
+   *  logged, not rethrown. */
+  private async notifyTeamMemberInvited(
+    actingUser: AuthenticatedUser,
+    organization: OrganizationEntity,
+    invitedUserId: string,
+  ): Promise<void> {
+    try {
+      const [inviter, capabilityKeys] = await Promise.all([
+        this.authRepository.findUserById(actingUser.id),
+        this.roleService.getEffectivePermissions(invitedUserId),
+      ]);
+      const capabilities = await this.roleService.describePermissions([...capabilityKeys].sort());
+      await this.notificationTriggers.enqueue('organization.team_member_invited', organization.id, {
+        userId: invitedUserId,
+        inviterName: inviter?.fullName || 'Your admin',
+        orgName: organizationDisplayName(organization),
+        capabilitySummary: joinCapabilities(capabilities),
+      });
+    } catch (error) {
+      console.warn(`Failed to queue team-invite notification for user ${invitedUserId}`, error);
+    }
   }
 
   async listOrganizationUsers(actingUser: AuthenticatedUser, input: ListOrganizationUsersInput) {
@@ -1204,7 +1264,7 @@ export class AuthService {
       ? (await this.referralCodeService.validateAndResolve(input.referralCode)).id
       : undefined;
 
-    return this.dataSource.transaction(async (manager) => {
+    const { submitted, response } = await this.dataSource.transaction(async (manager) => {
       const organization = await this.organizationService.updateOrganization(
         user.tenantId!,
         {
@@ -1258,8 +1318,39 @@ export class AuthService {
         manager,
       );
 
-      return this.organizationOnboardingService.buildOrganizationResponse(withStage, documents);
+      return {
+        submitted: withStage,
+        response: this.organizationOnboardingService.buildOrganizationResponse(
+          withStage,
+          documents,
+        ),
+      };
     });
+
+    // After commit, so the notification never references a submission that rolled back. First
+    // submission only — a correction resubmission isn't a new signup (the catalog entry's
+    // once_per_tenant frequency also guards against repeats).
+    if (!isCorrectionResubmission) {
+      await this.notifySignupReceived(submitted);
+    }
+
+    return response;
+  }
+
+  /** Best-effort LS_N_0002 "signup received, under review" to the signup contact — only the
+   *  enqueue happens here (see notification-triggers.ts; the trigger worker retries the rest), and
+   *  even that failing must never fail the submission, so it's logged, not rethrown. */
+  private async notifySignupReceived(organization: OrganizationEntity): Promise<void> {
+    try {
+      await this.notificationTriggers.enqueue('organization.signup_received', organization.id, {
+        orgName: organizationDisplayName(organization),
+      });
+    } catch (error) {
+      console.warn(
+        `Failed to queue signup-received notification for org ${organization.id}`,
+        error,
+      );
+    }
   }
 
   private async loginWithPhone(
@@ -1325,6 +1416,8 @@ export class AuthService {
         id: user.id,
         phoneNumber: user.phoneNumber,
         hasPassword: Boolean(user.passwordHash),
+        // null → consent never captured: the client shows the WhatsApp opt-in prompt now.
+        whatsappOptIn: user.whatsappOptIn,
       },
       onboardingStatus: progress.onboardingStatus,
       onboardingStep: progress.onboardingStep,

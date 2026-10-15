@@ -21,6 +21,7 @@ import { Paginated, paginate } from '../../shared/utils/pagination';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
@@ -395,6 +396,9 @@ export class DriverService {
     private readonly idfyClient: IdfyClient,
     private readonly driverAnalyticsRepository: DriverAnalyticsRepository,
     private readonly driverSessionRepository: DriverSessionRepository,
+    // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
+    // throws (see notifications/master-approvals.ts).
+    private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
 
   /**
@@ -1263,9 +1267,19 @@ export class DriverService {
         return driver.id;
       });
 
+      const driver = await this.findFlattenedDriver(tenantId, driverId);
+      await this.approvalNotifier?.requested({
+        kind: 'driver',
+        tenantId,
+        recordId: driver.id,
+        masterValue: driver.fullName,
+        createdBy: driver.createdBy,
+        pending: driver.status === 'pending_staff_review',
+      });
+
       if (invitationId) await this.deliverInvite(tenantId, invitationId, driverId);
 
-      return await this.findFlattenedDriver(tenantId, driverId);
+      return driver;
     } catch (error) {
       rethrow(error, 'Failed to onboard driver');
     }
@@ -1628,6 +1642,14 @@ export class DriverService {
         oldData: { id: driverId, status: 'pending_staff_review' },
         newData: { id: driverId, status: nextStatus, approvedBy: actorId },
       });
+      await this.approvalNotifier?.approved({
+        kind: 'driver',
+        tenantId,
+        recordId: existing.driver.id,
+        masterValue: existing.driver.fullName,
+        createdBy: existing.createdBy,
+        approvedBy: actorId,
+      });
 
       const organization = await this.organizationService.getOrganizationStatus(tenantId);
       if (sendToDriver) {
@@ -1673,6 +1695,15 @@ export class DriverService {
         resourceType: 'driver',
         oldData: { id: driverId, status: 'pending_staff_review' },
         newData: { id: driverId, status: 'rejected', rejectionReason: reason },
+      });
+      await this.approvalNotifier?.rejected({
+        kind: 'driver',
+        tenantId,
+        recordId: existing.driver.id,
+        masterValue: existing.driver.fullName,
+        createdBy: existing.createdBy,
+        rejectedBy: actorId,
+        reason: reason ?? 'Not specified',
       });
 
       if (existing.initiatedBy === 'driver') {

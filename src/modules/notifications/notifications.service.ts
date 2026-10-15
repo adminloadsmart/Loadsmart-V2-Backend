@@ -2,13 +2,18 @@ import { NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { paginate } from '../../shared/utils/pagination';
 import { JobQueue } from '../../jobs/queue-registry';
 import { NotificationRepository } from './notification.repository';
+import { IN_APP_HIDDEN_TYPES } from './catalog/notification-catalog';
 import { NotificationEntity } from './notifications.entity';
 import {
   CreateNotificationInput,
   ListNotificationsInput,
   NotificationDestinations,
 } from './notifications.interface';
-import { NotificationChannelName, DeliveryStatus } from './notifications.types';
+import {
+  DEFAULT_NOTIFICATION_SEVERITY,
+  NotificationChannelName,
+  DeliveryStatus,
+} from './notifications.types';
 
 function resolveDestination(
   channel: NotificationChannelName,
@@ -62,6 +67,7 @@ export class NotificationsService {
           body: input.body,
           channels,
           metadata: input.metadata ?? null,
+          severity: input.severity ?? DEFAULT_NOTIFICATION_SEVERITY,
         },
         destinations,
       );
@@ -76,12 +82,18 @@ export class NotificationsService {
     }
   }
 
+  /** Backs a catalog type's `frequency: 'once_per_tenant'` (see notify-by-type.ts). */
+  hasNotificationOfType(tenantId: string, type: string): Promise<boolean> {
+    return this.repository.existsForTenantAndType(tenantId, type);
+  }
+
   async list(tenantId: string, recipientUserId: string, input: ListNotificationsInput) {
     try {
       const [items, total] = await this.repository.listByRecipient(
         tenantId,
         recipientUserId,
         input,
+        IN_APP_HIDDEN_TYPES,
       );
       return paginate(items, total, input);
     } catch (error) {
@@ -97,6 +109,7 @@ export class NotificationsService {
         tenantId,
         recipientUserId,
         id,
+        IN_APP_HIDDEN_TYPES,
       );
       if (!notification) throw new NotFoundError(`Notification ${id} not found`);
       const deliveries = await this.repository.findDeliveriesByNotificationId(notification.id);
@@ -108,7 +121,12 @@ export class NotificationsService {
 
   async markRead(tenantId: string, recipientUserId: string, id: string) {
     try {
-      const notification = await this.repository.markRead(tenantId, recipientUserId, id);
+      const notification = await this.repository.markRead(
+        tenantId,
+        recipientUserId,
+        id,
+        IN_APP_HIDDEN_TYPES,
+      );
       if (!notification) throw new NotFoundError(`Notification ${id} not found`);
       return notification;
     } catch (error) {

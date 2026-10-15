@@ -1,4 +1,32 @@
-import { OrganizationJourneyStage, OrganizationStatus } from './entities/organization.entity';
+import {
+  OrganizationEntity,
+  OrganizationJourneyStage,
+  OrganizationStatus,
+} from './entities/organization.entity';
+import { OrganizationDocumentType } from './entities/organization-document.entity';
+
+/** Human-readable name of each KYC document type — for user-facing copy that must name the exact
+ *  document (e.g. {{doc_type}} in the "more information needed" notification). */
+export const ORGANIZATION_DOCUMENT_TYPE_LABELS: Record<OrganizationDocumentType, string> = {
+  gst_certificate: 'GST certificate',
+  udyam: 'Udyam registration certificate',
+  cin: 'Certificate of Incorporation (CIN)',
+  shop_establishment: 'Shop and Establishment certificate',
+  shopboard_premises_photo: 'shop-board premises photo',
+};
+
+/** The org's name as shown to its own users (e.g. {{org_name}} in notifications) — first
+ *  non-empty of name / registered business name / legal name. */
+export function organizationDisplayName(
+  organization: Pick<OrganizationEntity, 'name' | 'registeredBusinessName' | 'companyLegalName'>,
+): string {
+  return (
+    organization.name ||
+    organization.registeredBusinessName ||
+    organization.companyLegalName ||
+    'your organisation'
+  );
+}
 
 // Allow-list, not deny-list: onboarding states (pending/partial_pending/draft) must stay
 // accessible — the org still needs to hit POST /auth/organization to finish its profile. Only
