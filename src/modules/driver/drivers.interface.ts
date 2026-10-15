@@ -663,7 +663,6 @@ export type DriverRelationParams = { relationId: string };
 /** One column of the bulk-upload sheet. */
 export interface DriverImportColumn {
   key: string;
-  example?: string | number;
   /** Other headers accepted for this column — matched case/space/punctuation-insensitively. */
   aliases?: string[];
 }
