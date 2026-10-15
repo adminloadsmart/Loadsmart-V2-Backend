@@ -57,7 +57,8 @@ export const TYRE_PAST_LIFE_LEFT_PCT = 12;
 export const LEAST_USED_TRUCKS_LIMIT = 12;
 export const RENEW_THIS_WEEK_LIMIT = 10;
 
-/** Movement stages for "Where the loads are", zero-filled until loads are wired in. */
+/** Movement stages for "Where the loads are". `running_to_loading` and `invoiced` have no
+ *  backing load status yet, so they always read 0. */
 export const LOAD_STAGES = [
   'created',
   'assigned',
@@ -77,3 +78,32 @@ export const LOAD_STAGES = [
 export const NEW_TRUCK_MAX_AGE_YEARS = 2;
 export const MIN_BENCHMARK_TRUCKS = 2;
 export const REPLACEMENT_CANDIDATES_LIMIT = 10;
+
+/** A load is on time if it arrives no more than half an hour after the promised delivery (§6.3). */
+export const ON_TIME_GRACE_MS = 30 * 60 * 1000;
+
+/** Findings: how many plain sentences the Findings section shows. */
+export const FINDINGS_LIMIT = 4;
+
+/**
+ * Figures the spec defines but this build has no source records for. Each tab returns the
+ * entries that apply to it under `unavailable`, so the screen can say why a figure reads 0
+ * instead of presenting the 0 as a measurement.
+ */
+export const UNAVAILABLE_REASONS = {
+  distancePerLoad:
+    'Loads do not carry a distance yet, so tonne-km and lane km cannot be worked out.',
+  fuel: 'No fuel or charging fills are recorded yet, so energy cost and mileage cannot be worked out.',
+  tolls: 'Tolls and FASTag spend are not recorded yet.',
+  driverPay: 'Driver pay and daily allowances are not recorded against trips yet.',
+  onRoadPrice:
+    'Vehicles carry no on-road price, so depreciation (11%) and insurance at 1.7% cannot be worked out; the insurance premium entered on the vehicle is used instead.',
+  permitsAllowance: 'There is no permits and taxes allowance on the vehicle record yet.',
+  hire: 'Hire paid for attached trucks is not recorded yet.',
+  detention: 'Detention needs gate geofence times from tracking, which are not captured yet.',
+  workingDayHours: 'Hours by activity need trip telemetry, which is not captured yet.',
+  emptyRunning: 'Empty running needs the distance of each leg, which is not captured yet.',
+  yard: 'There is no yard model yet, so the yard filter is not applied.',
+  drivers: 'Driver availability and safety scores are on the Driver Analytics screen.',
+} as const;
+export type UnavailableKey = keyof typeof UNAVAILABLE_REASONS;

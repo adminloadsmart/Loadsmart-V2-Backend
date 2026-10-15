@@ -1,5 +1,6 @@
 import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DataSource } from 'typeorm';
+import { UlipClient } from '../../adapters/ulip.client';
 import { VehicleRepository } from './vehicle/vehicle.repository';
 import { VehicleService } from './vehicle/vehicle.service';
 import { VehicleController } from './vehicle/vehicle.controller';
@@ -107,6 +108,7 @@ export function createMastersModule(
     fleetDriverLinkService,
     dataSource,
     deps.auditService,
+    new UlipClient(),
     deps.masterApprovalNotifier,
   );
   const vehicleController = new VehicleController(vehicleService);

@@ -460,6 +460,7 @@ export const vehicleValidators = {
     body: vehicleVerificationBody,
   }),
   listVehicleVerifications: z.object({ params: vehicleParams }),
+  verifyVahan: z.object({ body: z.object({ registrationNumber }) }),
 
   listComplianceAlerts: z.object({
     query: pagination.extend({

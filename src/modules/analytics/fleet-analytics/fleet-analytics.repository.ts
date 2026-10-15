@@ -19,6 +19,8 @@ import { TyreReadingEntity } from '../../maintenance/entities/tyre-reading.entit
 import { BatterySohReadingEntity } from '../../maintenance/entities/battery-soh-reading.entity';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { MAINTAINED_VEHICLE_STATUSES } from '../../maintenance/maintenance.types';
+import { LoadEntity } from '../../loads/entities/load.entity';
+import { RequisitionEntity } from '../../loads/entities/requisition.entity';
 
 // Reads masters/maintenance/driver entities directly via the DataSource, same as
 // AnalyticsRepository (shipper analytics) — a reporting concern spanning several modules, not a
@@ -35,6 +37,8 @@ export class FleetAnalyticsRepository {
   private readonly tyreReadings: Repository<TyreReadingEntity>;
   private readonly batteryReadings: Repository<BatterySohReadingEntity>;
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
+  private readonly loads: Repository<LoadEntity>;
+  private readonly requisitions: Repository<RequisitionEntity>;
 
   constructor(dataSource: DataSource) {
     this.vehicles = dataSource.getRepository(VehicleEntity);
@@ -45,6 +49,8 @@ export class FleetAnalyticsRepository {
     this.tyreReadings = dataSource.getRepository(TyreReadingEntity);
     this.batteryReadings = dataSource.getRepository(BatterySohReadingEntity);
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
+    this.loads = dataSource.getRepository(LoadEntity);
+    this.requisitions = dataSource.getRepository(RequisitionEntity);
   }
 
   /** The running fleet the filter bar selects — onboarded, not retired, narrowed by "Held as"
@@ -52,13 +58,7 @@ export class FleetAnalyticsRepository {
    *  odometer, papers and the VAHAN registration date (for age). */
   listScopedVehicles(tenantId: string, filters: FleetAnalyticsFilters): Promise<VehicleEntity[]> {
     return this.vehicles.find({
-      where: {
-        tenantId,
-        deletedAt: IsNull(),
-        status: In([...MAINTAINED_VEHICLE_STATUSES]),
-        ownershipType: In(HELD_AS_OWNERSHIP[filters.heldAs]),
-        ...(filters.truckTypeId ? { truckTypeId: filters.truckTypeId } : {}),
-      },
+      where: scopedVehicleWhere(tenantId, filters),
       relations: {
         truckType: true,
         telemetryMeta: true,
@@ -66,6 +66,77 @@ export class FleetAnalyticsRepository {
         documents: true,
         verificationSnapshots: true,
       },
+      order: { registrationNumber: 'ASC' },
+    });
+  }
+
+  /** How many vehicles a filter combination selects — used to say which filter emptied a slice. */
+  countScopedVehicles(
+    tenantId: string,
+    filters: Pick<FleetAnalyticsFilters, 'heldAs' | 'truckTypeId' | 'vehicleId'>,
+  ): Promise<number> {
+    return this.vehicles.count({ where: scopedVehicleWhere(tenantId, filters) });
+  }
+
+  /**
+   * Loads these trucks were on during the window: assigned past `created`, started before the
+   * window ends and not delivered before it starts. Narrowed by customer and lane. The exact
+   * overlap is settled in code from the stage timestamps (loadInterval).
+   */
+  listLoadsInWindow(
+    tenantId: string,
+    vehicleIds: string[],
+    range: { from: Date; to: Date },
+    filters: Pick<FleetAnalyticsFilters, 'customerId' | 'laneKey'>,
+  ): Promise<LoadEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    const [loadingPointId, customerDeliveryPointId] = filters.laneKey?.split(':') ?? [];
+    const requisition: FindOptionsWhere<RequisitionEntity> = {
+      ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      ...(filters.laneKey ? { loadingPointId, customerDeliveryPointId } : {}),
+    };
+    const base: FindOptionsWhere<LoadEntity> = {
+      tenantId,
+      vehicleId: In(vehicleIds),
+      status: Not('created'),
+      createdAt: LessThanOrEqual(range.to),
+      ...(Object.keys(requisition).length ? { requisition } : {}),
+    };
+    return this.loads.find({
+      where: [
+        { ...base, deliveredAt: IsNull() },
+        { ...base, deliveredAt: MoreThanOrEqual(range.from) },
+      ],
+      relations: {
+        requisition: { loadingPoint: true, customerDeliveryPoint: true },
+      },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /** Every lane the tenant has raised a requisition on, for the lane filter. */
+  listRequisitionLanes(tenantId: string): Promise<RequisitionEntity[]> {
+    return this.requisitions.find({
+      where: { tenantId },
+      relations: { loadingPoint: true, customerDeliveryPoint: true },
+      select: {
+        id: true,
+        loadingPointId: true,
+        customerDeliveryPointId: true,
+        loadingPoint: { id: true, city: true },
+        customerDeliveryPoint: { id: true, city: true, location: true },
+      },
+    });
+  }
+
+  listVehicleOptions(tenantId: string): Promise<VehicleEntity[]> {
+    return this.vehicles.find({
+      where: {
+        tenantId,
+        deletedAt: IsNull(),
+        status: In([...MAINTAINED_VEHICLE_STATUSES]),
+      },
+      select: { id: true, registrationNumber: true },
       order: { registrationNumber: 'ASC' },
     });
   }
@@ -216,4 +287,18 @@ export class FleetAnalyticsRepository {
       order: { name: 'ASC' },
     });
   }
+}
+
+function scopedVehicleWhere(
+  tenantId: string,
+  filters: Pick<FleetAnalyticsFilters, 'heldAs' | 'truckTypeId' | 'vehicleId'>,
+): FindOptionsWhere<VehicleEntity> {
+  return {
+    tenantId,
+    deletedAt: IsNull(),
+    status: In([...MAINTAINED_VEHICLE_STATUSES]),
+    ownershipType: In(HELD_AS_OWNERSHIP[filters.heldAs]),
+    ...(filters.truckTypeId ? { truckTypeId: filters.truckTypeId } : {}),
+    ...(filters.vehicleId ? { id: filters.vehicleId } : {}),
+  };
 }

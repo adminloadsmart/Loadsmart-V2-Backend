@@ -59,7 +59,18 @@ export class FleetAnalyticsController {
   getCompliance = async (req: Request, res: Response) => {
     respond(
       res,
-      await this.fleetAnalyticsService.getCompliance(requireTenantId(req), filtersOf(req)),
+      await this.fleetAnalyticsService.getCompliance(
+        requireTenantId(req),
+        filtersOf(req),
+        canSeeMaintenanceCosts(req),
+      ),
+    );
+  };
+
+  getFindings = async (req: Request, res: Response) => {
+    respond(
+      res,
+      await this.fleetAnalyticsService.getFindings(requireTenantId(req), filtersOf(req)),
     );
   };
 }
