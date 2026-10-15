@@ -19,6 +19,7 @@ export interface TyreQueueItem {
   vehicle: { id: string; registrationNumber: string };
   position: string;
   nextStep: string;
+  currentTreadMm?: number;
 }
 
 export const TYRE_ACTION_LABELS: Record<string, string> = {
@@ -104,6 +105,7 @@ export function createTyreAlerts(deps: {
                   km,
                   action: TYRE_ACTION_LABELS[tyre.nextStep] ?? tyre.nextStep,
                   cpk: cost?.cost != null && km > 0 ? perKm(Number(cost.cost) / km) : null,
+                  treadMm: tyre.currentTreadMm ?? null,
                 };
               }),
             fleetCpk,

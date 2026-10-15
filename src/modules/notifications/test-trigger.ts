@@ -77,6 +77,13 @@ function sampleContexts(today: string): SampleContexts {
       docType: 'Fitness certificate',
       expiryDate: today,
       affectedTripCount: 2,
+      nextAffectedTrip: {
+        loadId: SAMPLE_ID,
+        loadCode: 'LD-4521',
+        route: 'Ludhiana to Bhiwandi',
+        pickupDate: addDays(today, 1),
+        transporterName: 'Sohal Roadlines',
+      },
       runDate: today,
     },
     'driver.licence_expiry': {
@@ -141,12 +148,201 @@ function sampleContexts(today: string): SampleContexts {
       vehicleId: SAMPLE_ID,
       vehicleNo: 'MH12AB1234',
       tyres: [
-        { tyreId: SAMPLE_ID, position: 'FL', km: 48000, action: 'retread', cpk: '₹0.42' },
-        { tyreId: SAMPLE_ID, position: 'R1L', km: 61000, action: 'replacement', cpk: null },
+        {
+          tyreId: SAMPLE_ID,
+          position: 'FL',
+          km: 48000,
+          action: 'retread',
+          cpk: '₹0.42',
+          treadMm: 4.6,
+        },
+        {
+          tyreId: SAMPLE_ID,
+          position: 'R1L',
+          km: 61000,
+          action: 'replacement',
+          cpk: null,
+          treadMm: 2.1,
+        },
       ],
       fleetCpk: '₹0.38',
       runDate: today,
     },
+  };
+}
+
+/** Sheet ID for every type /in-app-all can create, for the response. */
+const ALL_SHEET_IDS: Partial<Record<NotificationTypeKey, string>> = {
+  ...SHEET_IDS,
+  'organization.account_approved': 'LS_N_0001',
+  'organization.signup_received': 'LS_N_0002',
+  'organization.document_more_info_needed': 'LS_N_0003',
+  'organization.account_not_approved': 'LS_N_0004',
+  'organization.team_member_invited': 'LS_N_0005',
+  'user.access_changed': 'LS_N_0006',
+  'organization.master_approval_requested': 'LS_N_0009',
+  'organization.master_approvals_waiting': 'LS_N_0009 (collapsed)',
+  'organization.master_approved': 'LS_N_0010',
+  'organization.master_rejected': 'LS_N_0011',
+  'vehicle.vahan_unverified': 'LS_N_0012',
+  'vehicle.documents_expiring_rollup': 'LS_N_0047 (weekly roll-up)',
+  'vehicle.back_in_service': 'LS_N_0055',
+  'vehicle.idle_weekly': 'LS_N_0059',
+  'digest.daily_brief': 'LS_N_0060',
+  'load.stage_handoff': 'Trip stage handoff',
+  'load.eway_bill_expiry': 'E-way bill expiry',
+  'load.pod_uploaded': 'POD uploaded',
+  'load.advance_due': 'Advance due',
+};
+
+/** A sample context for EVERY catalog type — the full mapped type makes a newly added catalog
+ *  type a compile error here until it gets a sample, so /in-app-all never silently skips one.
+ *  `callerId` stands in for every "this user" id so per-recipient copy (e.g. LS_N_0055's repair
+ *  cost) renders the way the caller would really see it. */
+function allSampleContexts(
+  today: string,
+  callerId: string,
+): { [K in NotificationTypeKey]: NotificationContextOf<K> } {
+  const driverLink = { driverId: SAMPLE_ID, driverName: 'Ramesh Yadav', phoneNumber: '9876500000' };
+  const sampleLoad = {
+    loadId: SAMPLE_ID,
+    loadCode: 'LD-4521',
+    vehicleNo: 'HR55QL8450',
+    route: 'Ludhiana to Bhiwandi',
+    transporterName: 'Sohal Roadlines',
+    consignee: 'Sundram Buildwell',
+  };
+  return {
+    ...(sampleContexts(today) as Required<SampleContexts>),
+    'organization.account_approved': { orgName: 'Acme Logistics' },
+    'organization.signup_received': { orgName: 'Acme Logistics' },
+    'organization.document_more_info_needed': {
+      orgName: 'Acme Logistics',
+      docType: 'GST certificate',
+      documentId: SAMPLE_ID,
+    },
+    'organization.account_not_approved': {
+      orgName: 'Acme Logistics',
+      reason: 'The GST number could not be verified',
+    },
+    'organization.team_member_invited': {
+      userId: callerId,
+      inviterName: 'Priya Sharma',
+      orgName: 'Acme Logistics',
+      capabilitySummary: 'create loads and manage drivers',
+    },
+    'user.access_changed': {
+      userId: callerId,
+      adminUserId: SAMPLE_ID,
+      baselinePermissions: [],
+      adminName: 'Priya Sharma',
+      orgName: 'Acme Logistics',
+      addedCapabilities: 'approve masters',
+      removedCapabilities: 'view payments',
+      removedCount: 1,
+    },
+    'organization.master_approval_requested': {
+      kind: 'vehicle',
+      recordId: SAMPLE_ID,
+      masterValue: 'MH12AB1234',
+      createdByUserId: SAMPLE_ID,
+      userName: 'Amit Patil',
+    },
+    'organization.master_approvals_waiting': { userId: callerId, waitingCount: 5 },
+    'organization.master_approved': {
+      kind: 'driver',
+      recordId: SAMPLE_ID,
+      masterValue: 'Ramesh Yadav',
+      createdByUserId: callerId,
+      approvedByUserId: SAMPLE_ID,
+      adminName: 'Priya Sharma',
+    },
+    'organization.master_rejected': {
+      kind: 'customer',
+      recordId: SAMPLE_ID,
+      masterValue: 'Shree Traders',
+      createdByUserId: callerId,
+      rejectedByUserId: SAMPLE_ID,
+      reason: 'Duplicate of an existing customer',
+      adminName: 'Priya Sharma',
+    },
+    'vehicle.vahan_unverified': {
+      vehicleId: SAMPLE_ID,
+      vehicleNo: 'MH12AB1234',
+      createdByUserId: callerId,
+    },
+    'vehicle.documents_expiring_rollup': {
+      docCount: 4,
+      docList: 'MH12AB1234 Insurance (7 days), MH14CD5678 PUC (12 days)',
+      runDate: today,
+    },
+    'vehicle.back_in_service': {
+      jobId: SAMPLE_ID,
+      vehicleId: SAMPLE_ID,
+      vehicleNo: 'MH12AB1234',
+      downtimeHours: '18',
+      repairCost: '₹12,500',
+      availableFrom: '14:00 today',
+      loadCount: 2,
+      costViewerIds: [callerId],
+    },
+    'vehicle.idle_weekly': {
+      vehicleId: SAMPLE_ID,
+      vehicleNo: 'MH12AB1234',
+      idleDays: 6,
+      lastTripDate: addDays(today, -6),
+      fixedCostPerDay: '₹2,000',
+      idleCost: '₹12,000',
+      otherIdleCount: 2,
+      runDate: today,
+    },
+    'digest.daily_brief': {
+      userId: callerId,
+      orgName: 'Acme Logistics',
+      tripsRunning: 12,
+      arrivingToday: '4',
+      delayed: '1',
+      podsPending: 3,
+      approvalsPending: 2,
+      vehiclesBlocked: 1,
+      emptyVehicles: 5,
+      idleLocations: 'Bhiwandi, Pune',
+      needsAction: 6,
+      runDate: today,
+    },
+    'load.stage_handoff': {
+      ...sampleLoad,
+      stage: 'reached_delivery_point',
+      at: new Date().toISOString(),
+    },
+    'load.eway_bill_expiry': {
+      ...sampleLoad,
+      generatedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      ewayBillNumber: 'EWB-910291',
+    },
+    'load.pod_uploaded': {
+      ...sampleLoad,
+      uploadedAt: new Date().toISOString(),
+      receiverName: 'Suresh Kumar',
+      quantityReceived: '31.50',
+      tonnesShort: '0.50',
+      shortageOrDamage: 'shortage',
+    },
+    'load.advance_due': {
+      ...sampleLoad,
+      advancePercentage: '70.00',
+      amount: '₹41,797',
+      bankName: 'ICICI Bank',
+      accountLast4: '4091',
+    },
+    'driver.link_requested': driverLink,
+    'driver.link_accepted': driverLink,
+    'driver.account_deleted': driverLink,
+    'load.trip_delay_exception': {},
+    'tracking.geofence_breach': {},
+    'payments.due_settlement': {},
+    'maintenance.compliance_due': {},
   };
 }
 
@@ -188,6 +384,7 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
           title,
           body: text,
           metadata,
+          highlights,
         } = definition.buildContent(context, {
           id: caller.id,
           fullName: caller.fullName,
@@ -221,7 +418,7 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
           body: text,
           channels,
           destinations,
-          metadata: { ...metadata, test: 'true' },
+          metadata: { ...metadata, ...(highlights?.length ? { highlights } : {}), test: 'true' },
           severity: definition.severity,
         });
         results.push({
@@ -243,6 +440,80 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
         note:
           'Delivery is asynchronous — check GET /v1/notifications/:notificationId for per-channel status. ' +
           'LS_N_0008 (login OTP) is not a stored notification: test it via POST /v1/auth/login/otp/request.',
+        results,
+      });
+    }),
+  );
+
+  /**
+   * POST /v1/notifications/test/in-app-all — one IN-APP-ONLY notification per catalog type, to
+   * the caller, for testing the inbox UI in one go: no SMS/WhatsApp/email/push is sent (channels
+   * is []). Types hidden from the inbox (inApp: false) are skipped unless includeHidden is true —
+   * they'd be stored but never visible in GET /notifications anyway.
+   */
+  const inAppBody = z.object({
+    body: z
+      .object({
+        types: z.array(z.string()).optional(),
+        includeHidden: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+  });
+
+  router.post(
+    '/in-app-all',
+    validate(inAppBody),
+    asyncHandler(async (req: Request, res: Response) => {
+      const tenantId = requireTenantId(req);
+      const caller = await deps.authRepository.findUserById(req.user!.id);
+      if (!caller) throw new NotFoundError('User not found');
+
+      const today = new Date().toISOString().slice(0, 10);
+      const wanted: string[] | undefined = req.body?.types;
+      const includeHidden: boolean = req.body?.includeHidden ?? false;
+
+      const results = [];
+      for (const [type, context] of Object.entries(allSampleContexts(today, caller.id))) {
+        if (wanted && !wanted.includes(type)) continue;
+        const shownInApp = !IN_APP_HIDDEN_TYPES.includes(type);
+        if (!shownInApp && !includeHidden) continue;
+
+        const definition = (
+          NOTIFICATION_CATALOG as Record<string, NotificationTypeDefinition<unknown>>
+        )[type];
+        const {
+          title,
+          body: text,
+          metadata,
+          highlights,
+        } = definition.buildContent(context, { id: caller.id, fullName: caller.fullName });
+
+        const notification = await deps.notificationsService.send(tenantId, {
+          recipientUserId: caller.id,
+          type,
+          title,
+          body: text,
+          channels: [],
+          metadata: { ...metadata, ...(highlights?.length ? { highlights } : {}), test: 'true' },
+          severity: definition.severity,
+        });
+        results.push({
+          sheetId: ALL_SHEET_IDS[type as NotificationTypeKey] ?? null,
+          type,
+          notificationId: notification.id,
+          severity: definition.severity,
+          title,
+          body: text,
+          ctaPath: metadata?.cta_path ?? null,
+          shownInApp,
+        });
+      }
+
+      respond(res, {
+        created: results.length,
+        recipient: { id: caller.id, fullName: caller.fullName },
+        note: 'In-app only — nothing was sent over SMS/WhatsApp/email/push. View them via GET /v1/notifications.',
         results,
       });
     }),

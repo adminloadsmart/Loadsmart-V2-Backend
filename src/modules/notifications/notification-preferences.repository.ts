@@ -1,6 +1,8 @@
 import { DataSource, Repository } from 'typeorm';
 import { NotificationTypeEntity } from './entities/notification-type.entity';
 import { NotificationPreferenceEntity } from './entities/notification-preference.entity';
+import { NotificationQuietHoursEntity } from './entities/notification-quiet-hours.entity';
+import { QuietHoursSetting } from './notifications.interface';
 
 export interface UpsertPreferenceInput {
   notificationTypeId: string;
@@ -13,10 +15,12 @@ export interface UpsertPreferenceInput {
 export class NotificationPreferencesRepository {
   private readonly types: Repository<NotificationTypeEntity>;
   private readonly preferences: Repository<NotificationPreferenceEntity>;
+  private readonly quietHours: Repository<NotificationQuietHoursEntity>;
 
   constructor(dataSource: DataSource) {
     this.types = dataSource.getRepository(NotificationTypeEntity);
     this.preferences = dataSource.getRepository(NotificationPreferenceEntity);
+    this.quietHours = dataSource.getRepository(NotificationQuietHoursEntity);
   }
 
   listTypes(): Promise<NotificationTypeEntity[]> {
@@ -84,5 +88,18 @@ export class NotificationPreferencesRepository {
    *  this is exactly "reset to default" with no separate default-state bookkeeping needed. */
   async resetToDefault(tenantId: string): Promise<void> {
     await this.preferences.delete({ tenantId });
+  }
+
+  /** Null = this org never saved quiet hours (treated as off). */
+  findQuietHours(tenantId: string): Promise<NotificationQuietHoursEntity | null> {
+    return this.quietHours.findOneBy({ tenantId });
+  }
+
+  async upsertQuietHours(
+    tenantId: string,
+    setting: QuietHoursSetting,
+    updatedBy: string,
+  ): Promise<void> {
+    await this.quietHours.upsert({ tenantId, ...setting, updatedBy }, ['tenantId']);
   }
 }

@@ -63,4 +63,30 @@ export function registerNotificationPreferencesOpenApi(registry: OpenAPIRegistry
       403: { description: 'Caller is not an org admin', ...errorContent },
     },
   });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/quiet-hours`,
+    tags: [TAGS.NOTIFICATIONS],
+    operationId: 'notifications.getQuietHours',
+    ...authenticated(
+      'The org’s quiet hours `{ enabled, startTime, endTime }` (24-hour HH:MM, India time). ' +
+        'During the window push/SMS/WhatsApp are held until it ends; in-app and email still go ' +
+        'out, and P1 Critical bypasses it. Off (22:00–07:00) until an org admin saves one.',
+    ),
+    responses: { 200: { description: 'Quiet hours' } },
+  });
+  registry.registerPath({
+    method: 'put',
+    path: `${BASE}/quiet-hours`,
+    tags: [TAGS.NOTIFICATIONS],
+    operationId: 'notifications.updateQuietHours',
+    ...authenticated('Save the org’s quiet hours. Org_admin only — any other caller gets 403.'),
+    request: { body: json(notificationPreferencesValidators.updateQuietHours.shape.body) },
+    responses: {
+      200: { description: 'Saved quiet hours, same shape as GET' },
+      400: { description: 'Validation failed', ...errorContent },
+      403: { description: 'Caller is not an org admin', ...errorContent },
+    },
+  });
 }

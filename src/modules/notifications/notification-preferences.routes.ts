@@ -24,6 +24,13 @@ export function createNotificationPreferencesRoutes(
     asyncHandler(controller.updatePreferences),
   );
   router.post('/reset', asyncHandler(controller.resetToDefault));
+  // Org quiet hours — GET for any member, PUT org_admin-only (enforced in the service).
+  router.get('/quiet-hours', asyncHandler(controller.getQuietHours));
+  router.put(
+    '/quiet-hours',
+    validate(notificationPreferencesValidators.updateQuietHours),
+    asyncHandler(controller.updateQuietHours),
+  );
 
   return router;
 }

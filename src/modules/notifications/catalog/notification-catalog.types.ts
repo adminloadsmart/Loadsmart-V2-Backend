@@ -1,5 +1,10 @@
 import type { Locale } from '../../../shared/i18n/locales';
-import { NotificationChannelName, NotificationSeverity } from '../notifications.types';
+import {
+  NotificationCategory,
+  NotificationChannelName,
+  NotificationCtaStyle,
+  NotificationSeverity,
+} from '../notifications.types';
 
 export interface NotificationRecipient {
   /** The recipient's user id — lets a type vary copy by who is reading (e.g. LS_N_0055 shows the
@@ -33,6 +38,10 @@ export interface NotificationTypeDefinition<TContext> {
   label: string;
   /** Optional subtext under the label on the settings screen. */
   description?: string;
+  /** Inbox card chip (e.g. "Compliance"), returned on every notification of this type. */
+  category: NotificationCategory;
+  /** Overrides the severity-based default style of the card's main button. */
+  ctaStyle?: NotificationCtaStyle;
   /** Organization-scope role names (see shared/constants/roles.ts) to fan this notification out to. */
   recipientRoles: string[];
   /** For a notification about one specific person (e.g. the invited teammate, or the user whose
@@ -90,6 +99,10 @@ export interface NotificationTypeDefinition<TContext> {
    *  shown in the app: GET /notifications omits it and GET/PATCH /notifications/:id 404 it — for
    *  types whose recipient has no app access yet (e.g. LS_N_0002). Default true. */
   inApp?: boolean;
+  /** true → GET /notifications shows only the recipient's newest notification of this type;
+   *  older ones are stored but left out of the list and its total (e.g. LS_N_0060's daily brief —
+   *  yesterday's brief is stale once today's exists). Default false. */
+  inAppLatestOnly?: boolean;
   /** Identifies one occurrence of the event (e.g. a document id) for the trigger queue (see
    *  notification-triggers.ts): near-simultaneous triggers with the same key collapse into one
    *  job, and it keys this type's reminder job so a repeat trigger replaces a pending reminder
@@ -131,5 +144,8 @@ export interface NotificationTypeDefinition<TContext> {
     /** Structured variables forwarded as-is to MSG91-templated channels (e.g. whatsapp) — the
      *  channel never composes message text itself, see channels/whatsapp.channel.ts. */
     metadata?: Record<string, string>;
+    /** Exact substrings of `body` the inbox renders bold (e.g. the vehicle number). Stored as
+     *  metadata.highlights; never sent to MSG91 templates. */
+    highlights?: string[];
   };
 }

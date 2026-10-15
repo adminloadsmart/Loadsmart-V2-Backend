@@ -7,8 +7,13 @@ const channelsBody = z.object({
   whatsapp: z.boolean(),
 });
 
-// GET and the reset action take no params/query/body — only the bulk-save PUT needs validation.
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use 24-hour HH:MM');
+
+// GET and the reset action take no params/query/body — only the PUTs need validation.
 export const notificationPreferencesValidators = {
+  updateQuietHours: z.object({
+    body: z.object({ enabled: z.boolean(), startTime: hhmm, endTime: hhmm }),
+  }),
   update: z.object({
     body: z.object({
       items: z.array(z.object({ key: z.string().min(1), channels: channelsBody })).min(1),

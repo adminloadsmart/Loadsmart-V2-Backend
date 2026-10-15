@@ -42,6 +42,10 @@ import {
   createBreakdownResolver,
 } from './modules/notifications/breakdown-alerts';
 import { createBackInServiceResolver } from './modules/notifications/back-in-service';
+import {
+  createLoadAlertResolvers,
+  createLoadEventNotifier,
+} from './modules/notifications/load-alerts';
 import { createServiceAlerts } from './modules/notifications/service-alerts';
 import { createTyreAlerts } from './modules/notifications/tyre-alerts';
 import { createDigests, digestJobs, scheduleDigests } from './modules/notifications/digests';
@@ -261,7 +265,11 @@ export function buildContainer(dataSource: DataSource): Container {
   // LS_N_0047/0048 — the daily 9:00 IST vehicle-document check and the Monday roll-up (see
   // modules/notifications/vehicle-document-alerts.ts). Registering the schedules is idempotent;
   // a failure here is logged, never fatal to boot.
-  const vehicleDocumentAlerts = createVehicleDocumentAlerts(dataSource, notifications.triggers);
+  const vehicleDocumentAlerts = createVehicleDocumentAlerts(
+    dataSource,
+    notifications.triggers,
+    notifications.loadAlertRepository,
+  );
   // LS_N_0056/0057 — service due soon / overdue, swept in the same daily 9:00 IST job.
   const serviceAlerts = createServiceAlerts(dataSource, notifications.triggers);
   // LS_N_0058 — tyres in the maintenance tyres queue, rolled up per vehicle, same daily tick.
@@ -289,6 +297,7 @@ export function buildContainer(dataSource: DataSource): Container {
     console.error('Failed to register digest schedules', error),
   );
 
+  const loadAlertResolvers = createLoadAlertResolvers(notifications.loadAlertRepository);
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,
     notifications.triggersQueue,
@@ -336,6 +345,11 @@ export function buildContainer(dataSource: DataSource): Container {
       }),
       // LS_N_0054 — reads the breakdown report and its trip at send time.
       'load.breakdown_reported': createBreakdownResolver(dataSource),
+      // Load events (load-alerts.ts) — read the load at send time; null once no longer relevant.
+      'load.stage_handoff': loadAlertResolvers.stageHandoff,
+      'load.eway_bill_expiry': loadAlertResolvers.ewayBillExpiry,
+      'load.pod_uploaded': loadAlertResolvers.podUploaded,
+      'load.advance_due': loadAlertResolvers.advanceDue,
       // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
       'vehicle.back_in_service': createBackInServiceResolver({
         dataSource,
@@ -369,6 +383,8 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsService: notifications.service,
     // LS_N_0054 — a driver-reported breakdown alerts maintenance holders and org admins.
     onBreakdownReported: createBreakdownNotifier(notifications.triggers),
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due (notifications/load-alerts.ts).
+    onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
   // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant

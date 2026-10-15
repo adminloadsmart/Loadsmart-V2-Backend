@@ -33,3 +33,28 @@ export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
 // see the notifications module's plan notes.
 export const DELIVERY_STATUSES = ['pending', 'sent', 'failed'] as const;
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+// Inbox card chip — which area of the product a notification is about. Set per type in the
+// notification catalog; `general` is the read-time fallback for a type no longer in the catalog.
+export const NOTIFICATION_CATEGORIES = [
+  'compliance',
+  'trip_execution',
+  'pod_billing',
+  'money',
+  'fleet_asset',
+  'approvals',
+  'drivers',
+  'account',
+  'digest',
+] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+export type NotificationCategoryOrGeneral = NotificationCategory | 'general';
+
+// How prominent an inbox card's main button is — defaults by severity (see
+// notifications.constants.ts), overridable per catalog type.
+export const NOTIFICATION_CTA_STYLES = ['danger', 'warning', 'primary', 'secondary'] as const;
+export type NotificationCtaStyle = (typeof NOTIFICATION_CTA_STYLES)[number];
+
+// Trip stages that send a 'load.stage_handoff' notification (see load-alerts.ts).
+export const LOAD_STAGE_HANDOFF_STAGES = ['in_transit', 'reached_delivery_point'] as const;
+export type LoadStageHandoffStage = (typeof LOAD_STAGE_HANDOFF_STAGES)[number];

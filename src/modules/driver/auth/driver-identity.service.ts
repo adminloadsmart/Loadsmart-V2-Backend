@@ -538,6 +538,7 @@ export class DriverIdentityService {
       });
 
       await this.notifyByType(NOTIFICATION_CATALOG, 'driver.link_requested', input.tenantId, {
+        driverId: driver.id,
         driverName: driver.fullName,
         phoneNumber: driver.phoneNumber,
       }).catch(() => {
@@ -587,6 +588,7 @@ export class DriverIdentityService {
 
       if (input.accept && driver) {
         await this.notifyByType(NOTIFICATION_CATALOG, 'driver.link_accepted', relation.tenantId, {
+          driverId: driver.id,
           driverName: driver.fullName,
           phoneNumber: driver.phoneNumber,
         }).catch(() => {

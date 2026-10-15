@@ -5,6 +5,7 @@ import {
   NotificationPreferencesService,
   UpdateNotificationPreferenceInput,
 } from './notification-preferences.service';
+import { QuietHoursSetting } from './notifications.interface';
 
 /** Org-wide settings ("Choose how your team gets alerted") — scoped by tenant, not by the
  *  calling user. GET is open to any authenticated org member; PUT/reset are org_admin-only,
@@ -27,4 +28,18 @@ export class NotificationPreferencesController {
     await this.service.resetToDefault(tenantId, req.user!.role);
     respond(res, await this.service.getPreferences(tenantId));
   };
+
+  getQuietHours = async (req: Request, res: Response) =>
+    respond(res, await this.service.getQuietHours(requireTenantId(req)));
+
+  updateQuietHours = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.service.updateQuietHours(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        req.body as QuietHoursSetting,
+      ),
+    );
 }

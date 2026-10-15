@@ -10,6 +10,8 @@ import { rethrow } from '../../shared/errors';
 import { redisManager } from '../../db/redis';
 import { NotificationTriggers } from './notification-triggers';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
+import { QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
+import { getQuietHoursDelayMs } from './utils/quiet-hours';
 
 export interface NotifyByTypeDeps {
   notificationsService: NotificationsService;
@@ -135,6 +137,23 @@ async function notifyByTypeImpl(
           notificationType.id,
         )
       : null;
+    // Org quiet hours: hold push/SMS/WhatsApp until the window ends (P1 bypasses — see
+    // quiet-hours.ts). Worked out once per dispatch, like the preference row above.
+    const quietHoursDelayMs = getQuietHoursDelayMs(
+      await deps.notificationPreferencesRepository.findQuietHours(tenantId),
+      definition.severity,
+    );
+    const channelDelaysMs = quietHoursDelayMs
+      ? Object.fromEntries(QUIET_HOURS_HELD_CHANNELS.map((channel) => [channel, quietHoursDelayMs]))
+      : undefined;
+    // When this occurrence's one reminder/escalation is due (if the type schedules one) — lets
+    // the card show "escalates in 1h 40m". Mirrors the trigger worker's scheduling rule.
+    const isReminder = (context as { isReminder?: boolean } | null)?.isReminder === true;
+    const followUpAt =
+      definition.reminderAfterMs && !isReminder && (definition.shouldRemind?.(context) ?? true)
+        ? new Date(Date.now() + definition.reminderAfterMs).toISOString()
+        : undefined;
+
     const enabled = {
       email: preference
         ? preference.emailEnabled
@@ -164,7 +183,7 @@ async function notifyByTypeImpl(
           } as never);
           return;
         }
-        const { title, body, metadata } = definition.buildContent(
+        const { title, body, metadata, highlights } = definition.buildContent(
           context,
           { id: recipient.id, fullName: recipient.fullName },
           locale,
@@ -223,8 +242,17 @@ async function notifyByTypeImpl(
           body,
           channels,
           destinations,
-          metadata,
+          // Unchanged when there's nothing to add — a type without metadata still stores null.
+          metadata:
+            highlights?.length || followUpAt
+              ? {
+                  ...metadata,
+                  ...(highlights?.length ? { highlights } : {}),
+                  ...(followUpAt ? { follow_up_at: followUpAt } : {}),
+                }
+              : metadata,
           severity: definition.severity,
+          channelDelaysMs,
         });
       }),
     );

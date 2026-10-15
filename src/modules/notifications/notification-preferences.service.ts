@@ -1,13 +1,22 @@
 import { AuthorizationError, NotFoundError, rethrow } from '../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
-import { NotificationChannelName, NotificationSeverity } from './notifications.types';
+import {
+  NotificationCategoryOrGeneral,
+  NotificationChannelName,
+  NotificationSeverity,
+} from './notifications.types';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
+import { DEFAULT_QUIET_HOURS } from './notifications.constants';
+import { QuietHoursSetting } from './notifications.interface';
+import { categoryOf } from './utils/notification-presenter';
 
 export interface NotificationPreferenceView {
   key: string;
   label: string;
   description: string | null;
   severity: NotificationSeverity;
+  category: NotificationCategoryOrGeneral;
+  categoryLabel: string;
   supportedChannels: NotificationChannelName[];
   preferences: { email: boolean; sms: boolean; push: boolean; whatsapp: boolean };
 }
@@ -51,6 +60,7 @@ export class NotificationPreferencesService {
         label: type.label,
         description: type.description,
         severity: type.severity,
+        ...categoryOf(type.key),
         supportedChannels: type.channels,
         preferences: preference
           ? {
@@ -106,6 +116,33 @@ export class NotificationPreferencesService {
       await this.repository.resetToDefault(tenantId);
     } catch (error) {
       rethrow(error, 'Failed to reset notification preferences');
+    }
+  }
+
+  /** Any org member can read; DEFAULT_QUIET_HOURS (off) until an org_admin saves one. */
+  async getQuietHours(tenantId: string): Promise<QuietHoursSetting> {
+    try {
+      const row = await this.repository.findQuietHours(tenantId);
+      return row
+        ? { enabled: row.enabled, startTime: row.startTime, endTime: row.endTime }
+        : DEFAULT_QUIET_HOURS;
+    } catch (error) {
+      rethrow(error, 'Failed to fetch quiet hours');
+    }
+  }
+
+  async updateQuietHours(
+    tenantId: string,
+    actorId: string,
+    actorRole: string,
+    setting: QuietHoursSetting,
+  ): Promise<QuietHoursSetting> {
+    try {
+      assertOrgAdmin(actorRole);
+      await this.repository.upsertQuietHours(tenantId, setting, actorId);
+      return this.getQuietHours(tenantId);
+    } catch (error) {
+      rethrow(error, 'Failed to update quiet hours');
     }
   }
 }

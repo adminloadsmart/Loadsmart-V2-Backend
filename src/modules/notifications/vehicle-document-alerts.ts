@@ -8,6 +8,7 @@ import {
   VehicleDocumentTypeWithExpiry,
 } from '../masters/vehicle/vehicle.type';
 import { NotificationTriggers } from './notification-triggers';
+import { LoadAlertRepository } from './load-alert.repository';
 
 /**
  * LS_N_0047 "vehicle document expiring" / LS_N_0048 "vehicle document expired" — replaces the old
@@ -57,6 +58,8 @@ const label = (type: VehicleDocumentTypeWithExpiry) => DOCUMENT_TYPE_LABELS[type
 export function createVehicleDocumentAlerts(
   dataSource: DataSource,
   triggers: NotificationTriggers,
+  // The "cannot be dispatched" card's first affected trip.
+  loadAlertRepository: LoadAlertRepository,
 ) {
   const documents = (today: string, where: string): Promise<DocumentRow[]> =>
     dataSource.query(
@@ -233,6 +236,11 @@ export function createVehicleDocumentAlerts(
           docType: label(row.document_type),
           expiryDate: row.expiry_date,
           affectedTripCount: await plannedTrips(row.tenant_id, row.vehicle_id, today, false),
+          nextAffectedTrip: await loadAlertRepository.findNextPlannedTrip(
+            row.tenant_id,
+            row.vehicle_id,
+            today,
+          ),
           runDate: today,
         });
       }

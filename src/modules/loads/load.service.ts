@@ -39,6 +39,7 @@ import {
   UploadPodInput,
 } from './utils/load.interface';
 import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
+import { LoadEventNotifier } from '../notifications/notifications.interface';
 import {
   buildNextAction,
   buildStepper,
@@ -124,6 +125,9 @@ export class LoadService {
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
     private readonly onBreakdownReported?: BreakdownReportedNotifier,
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due — optional; only queues a
+    // notification after the existing logic and never throws (see notifications/load-alerts.ts).
+    private readonly onLoadEvent?: LoadEventNotifier,
   ) {}
 
   async assertExists(tenantId: string, id: string): Promise<LoadEntity> {
@@ -464,6 +468,20 @@ export class LoadService {
 
       await this.recordDocumentUpload(tenantId, loadId, actorId, input);
 
+      // A (re)generated e-way bill gets its own expiry alert; an older bill's alert drops itself.
+      if (fields.ewayBillGeneratedAt && updated.ewayBillGeneratedAt) {
+        const { expiresAt } = this.getEwayBillExpiry(updated);
+        if (expiresAt) {
+          await this.onLoadEvent?.({
+            kind: 'eway_bill_generated',
+            tenantId,
+            loadId,
+            generatedAt: updated.ewayBillGeneratedAt,
+            expiresAt: new Date(expiresAt),
+          });
+        }
+      }
+
       const isComplete =
         !!updated.invoiceNumber &&
         !!updated.invoiceFileKey &&
@@ -534,6 +552,12 @@ export class LoadService {
               newData: driverOwnerId
                 ? { id: loadId, status: 'in_transit', driverId: actorId }
                 : { id: loadId, status: 'in_transit' },
+            });
+            await this.onLoadEvent?.({
+              kind: 'in_transit',
+              tenantId,
+              loadId,
+              at: inTransit.inTransitAt ?? new Date(),
             });
           }
         } else {
@@ -624,6 +648,9 @@ export class LoadService {
           ? { id: loadId, status: toStatus, driverId: actorId }
           : { id: loadId, status: toStatus },
       });
+      if (toStatus === 'in_transit' || toStatus === 'reached_delivery_point') {
+        await this.onLoadEvent?.({ kind: toStatus, tenantId, loadId, at: new Date() });
+      }
 
       return updated;
     } catch (error) {
@@ -857,6 +884,7 @@ export class LoadService {
 
       // TODO: notify Accounts for balance payment once real notification/queue
       // infra exists — src/jobs/queue-registry.ts is currently a no-op placeholder.
+      await this.onLoadEvent?.({ kind: 'pod_uploaded', tenantId, loadId, at: new Date() });
 
       // No auto-close here — podStatus is 'pending' until staff reviews it via reviewPod below,
       // own-fleet included (own-fleet used to auto-close right here with no review at all; that

@@ -8,6 +8,7 @@ import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { createNotificationsRoutes } from './notifications.routes';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
+import { LoadAlertRepository } from './load-alert.repository';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationPreferencesController } from './notification-preferences.controller';
 import { createNotificationPreferencesRoutes } from './notification-preferences.routes';
@@ -32,6 +33,9 @@ export interface NotificationsModule {
   // notify-by-type.ts lives here too, but it's built in composition-root.ts alongside auth's
   // services, so this repository crosses the same boundary.
   notificationPreferencesRepository: NotificationPreferencesRepository;
+  // Loads read side for the load-event notifications and the "cannot be dispatched" card —
+  // handed to their resolvers/checks, which composition-root.ts wires up.
+  loadAlertRepository: LoadAlertRepository;
   // Queue-backed trigger entry point (see notification-triggers.ts) — only needs this module's
   // own queue, so trigger sites can take it without depending on notifyByType's build order.
   // Its worker is built in composition-root.ts (it runs notifyByType).
@@ -81,5 +85,15 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
   const triggersQueue = createJobQueue(NOTIFICATION_TRIGGERS_QUEUE);
   const triggers = createNotificationTriggers(triggersQueue);
 
-  return { service, router, worker, notificationPreferencesRepository, triggers, triggersQueue };
+  const loadAlertRepository = new LoadAlertRepository(dataSource);
+
+  return {
+    service,
+    router,
+    worker,
+    notificationPreferencesRepository,
+    loadAlertRepository,
+    triggers,
+    triggersQueue,
+  };
 }

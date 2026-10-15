@@ -2,8 +2,10 @@ import {
   COMPLIANCE_MANAGE,
   CUSTOMERS_APPROVE,
   DISPATCH_PLANNING_MANAGE,
+  LOADS_DOCUMENTS_MANAGE,
   MAINTENANCE_MANAGE,
   MASTERS_APPROVE,
+  PAYMENTS_MANAGE,
 } from '../../../shared/constants/permissions';
 import {
   ORG_ADMIN_ROLE,
@@ -12,7 +14,10 @@ import {
   FINANCE_ACCOUNTS_ROLE,
 } from '../../../shared/constants/roles';
 import { env } from '../../../config/env';
+import { toInternationalIndianNumber } from '../../../shared/utils/phone-number';
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
+import { LoadStageHandoffStage } from '../notifications.types';
+import { NextPlannedTrip } from '../notifications.interface';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 
@@ -58,6 +63,8 @@ export interface VehicleDocumentExpiredContext {
   expiryDate: string;
   /** Trips planned on this vehicle from today on, which now need another vehicle. */
   affectedTripCount: number;
+  /** The earliest of those trips, when there is one. */
+  nextAffectedTrip?: NextPlannedTrip | null;
   runDate: string;
 }
 
@@ -214,6 +221,8 @@ export interface TyreAttentionContext {
     action: string;
     /** Formatted cost per km; null when no cost is recorded for this tyre. */
     cpk: string | null;
+    /** Current tread depth in mm (latest reading, else the wear estimate). */
+    treadMm?: number | null;
   }[];
   fleetCpk: string | null;
   runDate: string;
@@ -373,8 +382,90 @@ export interface OrganizationDocumentPendingContext {
 }
 
 export interface DriverLinkContext {
+  /** masters.drivers id — set for join requests and accepted invites (the inbox card links to
+   *  the driver). */
+  driverId?: string;
   driverName: string;
   phoneNumber: string;
+}
+
+/** What load-alerts.ts's resolver reads off a load for every load-event card. Optional because
+ *  the trigger site only queues the ids; the resolver fills the rest before sending. */
+export interface LoadSummary {
+  loadId: string;
+  loadCode?: string;
+  vehicleNo?: string | null;
+  /** "Ludhiana to Bhiwandi"; null when neither end has a city. */
+  route?: string | null;
+  transporterName?: string | null;
+  consignee?: string | null;
+}
+
+export interface LoadStageContext extends LoadSummary {
+  stage: LoadStageHandoffStage;
+  /** When the stage was reached (ISO). */
+  at: string;
+}
+
+export interface EwayBillExpiryContext extends LoadSummary {
+  /** The generation this alert is for — a regenerated bill makes this one stale (ISO). */
+  generatedAt: string;
+  expiresAt: string;
+  ewayBillNumber?: string | null;
+}
+
+export interface PodUploadedContext extends LoadSummary {
+  /** Identifies this upload — a resubmission after rejection is a new alert (ISO). */
+  uploadedAt: string;
+  receiverName?: string | null;
+  quantityReceived?: string | null;
+  tonnesShort?: string | null;
+  shortageOrDamage?: string | null;
+}
+
+export interface AdvanceDueContext extends LoadSummary {
+  advancePercentage?: string | null;
+  /** "₹41,797"; null when the load has no agreed freight yet. */
+  amount?: string | null;
+  bankName?: string | null;
+  accountLast4?: string | null;
+}
+
+/** "HH:MM" in India time. */
+const formatIndiaTime = (iso: string) =>
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(iso));
+
+/** Metadata every load-event card carries. */
+function loadMetadataOf(context: LoadSummary): Record<string, string> {
+  return {
+    load_id: context.loadId,
+    load_code: context.loadCode ?? '',
+    vehicle_no: context.vehicleNo ?? '',
+    route: context.route ?? '',
+    transporter_name: context.transporterName ?? '',
+    consignee: context.consignee ?? '',
+  };
+}
+
+/** " 0.50 t short." / " Damage reported." / "" for the POD card. */
+function podExceptionSentenceOf(context: PodUploadedContext): string {
+  if (context.tonnesShort && Number(context.tonnesShort) > 0) {
+    return ` ${context.tonnesShort} t short.`;
+  }
+  switch (context.shortageOrDamage) {
+    case 'both':
+      return ' Shortage and damage reported.';
+    case 'damage':
+      return ' Damage reported.';
+    case 'shortage':
+      return ' Shortage reported.';
+    default:
+      return '';
+  }
 }
 
 type NoContext = Record<string, never>;
@@ -399,6 +490,7 @@ export const NOTIFICATION_CATALOG = {
   // declined means SMS only (see notify-by-type.ts).
   'organization.account_approved': {
     label: 'Account approved',
+    category: 'account',
     description: 'Your organisation has been approved on Loadsmart.',
     recipientRoles: [ORG_ADMIN_ROLE],
     channels: ['whatsapp', 'sms', 'email'],
@@ -437,6 +529,7 @@ export const NOTIFICATION_CATALOG = {
   // point. SMS/email copy lives in MSG91 templates; this app only sends the variables.
   'organization.signup_received': {
     label: 'Signup received',
+    category: 'account',
     description: 'Your application has been received and is under review.',
     recipientRoles: [ORG_ADMIN_ROLE],
     channels: ['sms', 'email'],
@@ -468,6 +561,7 @@ export const NOTIFICATION_CATALOG = {
   // invalid then (see AdminService.isDocumentReuploadPending), then stop.
   'organization.document_more_info_needed': {
     label: 'More information needed',
+    category: 'account',
     description: 'A KYC document could not be verified and a clear copy is needed.',
     recipientRoles: [ORG_ADMIN_ROLE],
     channels: ['sms', 'email'],
@@ -507,6 +601,7 @@ export const NOTIFICATION_CATALOG = {
   // deny). `reason` is the reviewer's text as typed. Once per organisation.
   'organization.account_not_approved': {
     label: 'Account not approved',
+    category: 'account',
     description: 'Your organisation could not be approved.',
     recipientRoles: [ORG_ADMIN_ROLE],
     channels: ['email'],
@@ -536,6 +631,7 @@ export const NOTIFICATION_CATALOG = {
   // (relevance check in composition-root.ts), then stop.
   'organization.team_member_invited': {
     label: 'Team member invited',
+    category: 'account',
     description: 'You have been added to an organisation on Loadsmart.',
     recipientRoles: [],
     recipientUserId: (context: TeamMemberInvitedContext) => context.userId,
@@ -583,6 +679,7 @@ export const NOTIFICATION_CATALOG = {
   // the net additions/removals; nothing is sent when the net effect is nil.
   'user.access_changed': {
     label: 'Your access changed',
+    category: 'account',
     description: 'What you can do in your organisation was updated.',
     recipientRoles: [],
     recipientUserId: (context: AccessChangedContext) => context.userId,
@@ -632,6 +729,7 @@ export const NOTIFICATION_CATALOG = {
   // ones per hour; beyond that they get one 'organization.master_approvals_waiting' summary.
   'organization.master_approval_requested': {
     label: 'Master addition needs approval',
+    category: 'approvals',
     description:
       'A new vehicle, driver, loading point, product or customer is waiting for approval.',
     recipientRoles: [],
@@ -668,6 +766,7 @@ export const NOTIFICATION_CATALOG = {
   // LS_N_0009's collapsed form — one per approver, debounced, counting what's still pending.
   'organization.master_approvals_waiting': {
     label: 'Master approvals waiting',
+    category: 'approvals',
     description: 'Several master records are waiting for your approval.',
     recipientRoles: [],
     recipientUserId: (context: MasterApprovalsWaitingContext) => context.userId,
@@ -694,6 +793,7 @@ export const NOTIFICATION_CATALOG = {
   // created. In-app only, to the creator; one per record.
   'organization.master_approved': {
     label: 'Master approved',
+    category: 'approvals',
     description: 'A vehicle, driver, loading point, product or customer you added was approved.',
     recipientRoles: [],
     recipientUserId: (context: MasterApprovedContext) => context.createdByUserId,
@@ -728,6 +828,7 @@ export const NOTIFICATION_CATALOG = {
   // after editing — so "send it again" relies on that being built.
   'organization.master_rejected': {
     label: 'Master rejected',
+    category: 'approvals',
     description:
       'A vehicle, driver, loading point, product or customer you added was not approved.',
     recipientRoles: [],
@@ -764,6 +865,7 @@ export const NOTIFICATION_CATALOG = {
   // (relevance check in composition-root.ts). To whoever added it + compliance.manage holders.
   'vehicle.vahan_unverified': {
     label: 'Vehicle could not be verified on Vahan',
+    category: 'compliance',
     description: 'A newly added vehicle registration could not be verified on Vahan.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: COMPLIANCE_MANAGE }),
@@ -778,6 +880,7 @@ export const NOTIFICATION_CATALOG = {
       body: `We could not find ${vehicleNo} on Vahan. Check the registration number. Until it is verified you cannot assign this vehicle to a trip.`,
       metadata: {
         vehicle_no: vehicleNo,
+        vehicle_id: vehicleId,
         record_kind: 'vehicle',
         record_id: vehicleId,
         cta_label: 'Check the number',
@@ -793,6 +896,7 @@ export const NOTIFICATION_CATALOG = {
   // notification settings for "Document expiry" carry over.
   'vehicle.document_expiry': {
     label: 'Vehicle document expiring',
+    category: 'compliance',
     description:
       'Vehicle RC, insurance, permit, PUC and fitness renewals due in 30, 15, 7, 3 and 1 days.',
     recipientRoles: [ORG_ADMIN_ROLE],
@@ -835,6 +939,7 @@ export const NOTIFICATION_CATALOG = {
   // compliance.manage holders + org admins; skipped when nothing expires in the next 30 days.
   'vehicle.documents_expiring_rollup': {
     label: 'Vehicle documents expiring (weekly summary)',
+    category: 'compliance',
     description: 'Weekly email listing vehicle documents that expire in the next 30 days.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: COMPLIANCE_MANAGE }),
@@ -868,6 +973,7 @@ export const NOTIFICATION_CATALOG = {
   // sheet's — note dispatch planning currently only WARNS on expired documents.
   'vehicle.compliance_expired': {
     label: 'Vehicle document expired',
+    category: 'compliance',
     description: 'A vehicle RC, insurance, permit, PUC or fitness certificate has expired.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => [
@@ -894,20 +1000,36 @@ export const NOTIFICATION_CATALOG = {
         },
       },
     },
-    buildContent: (context: VehicleDocumentExpiredContext) => ({
-      title: `${context.vehicleNo} is blocked from dispatch`,
-      body: `${context.docType} expired on ${context.expiryDate}. ${context.vehicleNo} cannot be assigned to a trip until it is renewed. ${context.affectedTripCount} planned trips need another vehicle.`,
-      metadata: {
-        vehicle_no: context.vehicleNo,
-        doc_type: context.docType,
-        expiry_date: context.expiryDate,
-        affected_trip_count: String(context.affectedTripCount),
-        vehicle_id: context.vehicleId,
-        run_date: context.runDate,
-        cta_label: 'Reassign those trips',
-        cta_path: `/loads?vehicleId=${context.vehicleId}`,
-      },
-    }),
+    buildContent: (context: VehicleDocumentExpiredContext) => {
+      const nextTrip = context.nextAffectedTrip;
+      const nextTripSentence = nextTrip
+        ? ` First one is ${nextTrip.loadCode}${nextTrip.route ? `, ${nextTrip.route}` : ''} on ${nextTrip.pickupDate}${
+            nextTrip.transporterName ? ` (${nextTrip.transporterName})` : ''
+          }.`
+        : '';
+      return {
+        title: `${context.vehicleNo} is blocked from dispatch`,
+        body: `${context.docType} expired on ${context.expiryDate}. ${context.vehicleNo} cannot be assigned to a trip until it is renewed. ${context.affectedTripCount} planned trips need another vehicle.${nextTripSentence}`,
+        highlights: [context.vehicleNo, ...(nextTrip ? [nextTrip.loadCode] : [])],
+        metadata: {
+          vehicle_no: context.vehicleNo,
+          doc_type: context.docType,
+          expiry_date: context.expiryDate,
+          affected_trip_count: String(context.affectedTripCount),
+          vehicle_id: context.vehicleId,
+          next_load_id: nextTrip?.loadId ?? '',
+          next_load_code: nextTrip?.loadCode ?? '',
+          next_load_route: nextTrip?.route ?? '',
+          next_load_pickup_date: nextTrip?.pickupDate ?? '',
+          next_load_transporter: nextTrip?.transporterName ?? '',
+          run_date: context.runDate,
+          cta_label: 'Reassign those trips',
+          cta_path: `/loads?vehicleId=${context.vehicleId}`,
+          secondary_cta_label: 'View vehicle',
+          secondary_cta_path: `/masters/vehicles/${context.vehicleId}`,
+        },
+      };
+    },
   },
 
   // LS_N_0049 (expiring) — the daily 9:00 IST check sends this 30, 15 and 7 days before a
@@ -916,6 +1038,7 @@ export const NOTIFICATION_CATALOG = {
   // Reuses the old placeholder's key so saved settings for "Driver licence expiry" carry over.
   'driver.licence_expiry': {
     label: 'Driver licence expiring',
+    category: 'compliance',
     description: 'Driver licence renewals due in 30, 15 and 7 days.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: COMPLIANCE_MANAGE }),
@@ -947,6 +1070,7 @@ export const NOTIFICATION_CATALOG = {
   // at 13:00 — the reminder and escalation only if the licence still hasn't been renewed.
   'driver.licence_expired': {
     label: 'Driver licence expired',
+    category: 'compliance',
     description: 'A driver licence has expired and the driver cannot be assigned.',
     recipientRoles: [],
     recipientPermission: (context: DriverLicenceExpiredContext) =>
@@ -985,6 +1109,7 @@ export const NOTIFICATION_CATALOG = {
   // push + WhatsApp + SMS to maintenance.manage holders and org admins ("trip.track" skipped).
   'load.breakdown_reported': {
     label: 'Driver marked a breakdown',
+    category: 'trip_execution',
     description: 'A driver reported that the vehicle has broken down on a trip.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: MAINTENANCE_MANAGE }),
@@ -1003,7 +1128,8 @@ export const NOTIFICATION_CATALOG = {
           'first_name',
           'vehicle_no',
           'location',
-          'load_id',
+          // The message shows the load code; load_id is the load's UUID (for the inbox card).
+          'load_code',
           'driver_name',
           'driver_phone',
         ],
@@ -1011,6 +1137,7 @@ export const NOTIFICATION_CATALOG = {
     },
     buildContent: (context: BreakdownReportedContext, recipient) => {
       const t = BREAKDOWN_STATIC_TOKENS;
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
       const vehicleNo = context.vehicleNo ?? 'The vehicle';
       return {
         title: `${vehicleNo} has broken down`,
@@ -1025,7 +1152,8 @@ export const NOTIFICATION_CATALOG = {
           report_time: context.reportTime ?? '',
           distance_to_destination: t.distanceToDestinationKm,
           destination: context.destination ?? '',
-          load_id: context.loadCode ?? '',
+          load_id: context.loadId,
+          load_code: context.loadCode ?? '',
           consignee: context.consignee ?? '',
           workshop_name: t.workshopName,
           workshop_distance: t.workshopDistanceKm,
@@ -1033,7 +1161,12 @@ export const NOTIFICATION_CATALOG = {
           issue_id: context.issueId,
           cta_label: 'Call driver',
           cta_path: `/loads/${context.loadId}`,
+          // "+919876500000"; left out when the driver has no valid number.
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+          secondary_cta_label: 'View load details',
+          secondary_cta_path: `/loads/${context.loadId}`,
         },
+        highlights: [vehicleNo, context.breakdownType ?? ''].filter(Boolean),
       };
     },
   },
@@ -1043,6 +1176,7 @@ export const NOTIFICATION_CATALOG = {
   // In-app only, P3. The repair cost is shown only to recipients who can see maintenance costs.
   'vehicle.back_in_service': {
     label: 'Vehicle back in service',
+    category: 'fleet_asset',
     description: 'A vehicle is out of the workshop and available for dispatch again.',
     recipientRoles: [],
     recipientPermission: () => [
@@ -1079,6 +1213,7 @@ export const NOTIFICATION_CATALOG = {
   // vehicle's service interval left, again at 5%. P3, in-app + SMS.
   'vehicle.service_due_soon': {
     label: 'Service due soon',
+    category: 'fleet_asset',
     description: 'A vehicle is close to its service distance, converted into days of running.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: MAINTENANCE_MANAGE }),
@@ -1118,6 +1253,7 @@ export const NOTIFICATION_CATALOG = {
   // + SMS. The cost sentence is dropped when the org has no costed service/breakdown history.
   'vehicle.service_overdue': {
     label: 'Service overdue',
+    category: 'fleet_asset',
     description: 'A vehicle has run past its service distance without a service logged.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: MAINTENANCE_MANAGE }),
@@ -1163,6 +1299,7 @@ export const NOTIFICATION_CATALOG = {
   // P4, in-app only, to dispatch.planning.manage holders and org admins.
   'vehicle.idle_weekly': {
     label: 'Vehicle idle too long',
+    category: 'fleet_asset',
     description: 'Weekly roll-up of owned vehicles that have had no trip for a while.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: DISPATCH_PLANNING_MANAGE }),
@@ -1205,6 +1342,7 @@ export const NOTIFICATION_CATALOG = {
   // in-app + WhatsApp (opted-in users only) + email.
   'digest.daily_brief': {
     label: 'Daily morning brief',
+    category: 'digest',
     description: 'One morning summary of trips, approvals and vehicles that need you.',
     recipientRoles: [],
     recipientUserId: (context: DailyBriefContext) => context.userId,
@@ -1212,6 +1350,7 @@ export const NOTIFICATION_CATALOG = {
     defaultChannels: ['whatsapp', 'email'],
     severity: 'p4_digest',
     requiresWhatsappOptIn: true,
+    inAppLatestOnly: true,
     dedupeKey: (context: DailyBriefContext) => `${context.userId}-${context.runDate}`,
     templates: {
       whatsapp: {
@@ -1275,6 +1414,7 @@ export const NOTIFICATION_CATALOG = {
   // in-app + SMS to maintenance.manage holders.
   'vehicle.tyre_attention': {
     label: 'Tyre needs attention',
+    category: 'fleet_asset',
     description: 'Tyres that have reached their wear threshold, rolled up per vehicle.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: MAINTENANCE_MANAGE }),
@@ -1293,16 +1433,18 @@ export const NOTIFICATION_CATALOG = {
       const actions = [...new Set(context.tyres.map((tyre) => tyre.action))];
       const fleet = context.fleetCpk ? ` against a fleet average of ${context.fleetCpk}` : '';
       let body: string;
+      const treadClauseOf = (tyre: TyreAttentionContext['tyres'][number]) =>
+        tyre.treadMm != null ? `, tread ${tyre.treadMm}mm,` : '';
       if (context.tyres.length === 1) {
         const [tyre] = context.tyres;
-        body = `It has run ${km(tyre.km)} km and is due for ${tyre.action}.${
+        body = `It has run ${km(tyre.km)} km${treadClauseOf(tyre)} and is due for ${tyre.action}.${
           tyre.cpk ? ` Cost per km on this tyre is ${tyre.cpk}${fleet}.` : ''
         }`;
       } else {
         body = `${context.tyres
           .map(
             (tyre) =>
-              `${tyre.position} has run ${km(tyre.km)} km and is due for ${tyre.action}${
+              `${tyre.position} has run ${km(tyre.km)} km${treadClauseOf(tyre)} and is due for ${tyre.action}${
                 tyre.cpk ? ` (cost per km ${tyre.cpk})` : ''
               }.`,
           )
@@ -1323,11 +1465,171 @@ export const NOTIFICATION_CATALOG = {
           tyre_km: context.tyres.map((tyre) => String(tyre.km)).join(','),
           action_type: actions.join(' and '),
           tyre_cpk: context.tyres.map((tyre) => tyre.cpk ?? '').join(','),
+          tyre_tread_mm: context.tyres.map((tyre) => tyre.treadMm ?? '').join(','),
           fleet_tyre_cpk: context.fleetCpk ?? '',
           tyre_ids: context.tyres.map((tyre) => tyre.tyreId).join(','),
           run_date: context.runDate,
           cta_label: 'Plan replacement',
           cta_path: `/maintenance?vehicleId=${context.vehicleId}`,
+          secondary_cta_label: 'View vehicle',
+          secondary_cta_path: `/masters/vehicles/${context.vehicleId}`,
+        },
+        highlights: [context.vehicleNo],
+      };
+    },
+  },
+
+  // Trip stage handoffs — fired by LoadService when a load goes in transit (loading confirmed)
+  // or reaches its delivery point (manual tracking — no GPS geofence exists yet). Label,
+  // description and recipients are the ones the settings screen already showed. See
+  // load-alerts.ts.
+  'load.stage_handoff': {
+    label: 'Stage handoff',
+    category: 'trip_execution',
+    description: 'Dispatched, reached loading point, in-transit, and delivered updates.',
+    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p3_info',
+    dedupeKey: (context: LoadStageContext) => `${context.loadId}-${context.stage}`,
+    buildContent: (context: LoadStageContext) => {
+      const vehicleLabel = context.vehicleNo ?? context.loadCode ?? 'The load';
+      const hasReachedDestination = context.stage === 'reached_delivery_point';
+      const [originCity, destinationCity] = context.route?.split(' to ') ?? [];
+      const placeName = hasReachedDestination
+        ? (destinationCity ?? 'the delivery point')
+        : (originCity ?? 'the plant');
+      return {
+        title: hasReachedDestination
+          ? `${vehicleLabel} reached ${placeName}`
+          : `${vehicleLabel} left ${placeName}`,
+        body: hasReachedDestination
+          ? `Load ${context.loadCode} reached the delivery point at ${formatIndiaTime(context.at)}${
+              context.consignee ? ` for ${context.consignee}` : ''
+            }. E-POD is next.`
+          : `Load ${context.loadCode} is in transit since ${formatIndiaTime(context.at)}${
+              context.route ? `, ${context.route}` : ''
+            }.`,
+        highlights: [vehicleLabel],
+        metadata: {
+          ...loadMetadataOf(context),
+          stage: context.stage,
+          stage_at: context.at,
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // E-way bill expiring on a moving load — queued by LoadService when the bill is generated, to
+  // send EWAY_BILL_ALERT_LEAD_MS before its computed expiry (LoadService.getEwayBillExpiry);
+  // skipped if the load is delivered by then or the bill was regenerated. Label, description and
+  // recipients are the ones the settings screen already showed. See load-alerts.ts.
+  'load.eway_bill_expiry': {
+    label: 'E-way bill expiry',
+    category: 'compliance',
+    description: 'Expiring within 4 hours or breached validity warnings.',
+    recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE, ORG_ADMIN_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'sms', 'email'],
+    severity: 'p1_critical',
+    dedupeKey: (context: EwayBillExpiryContext) => `${context.loadId}-${context.generatedAt}`,
+    buildContent: (context: EwayBillExpiryContext) => {
+      const ewayBillLabel = context.ewayBillNumber ?? 'The e-way bill';
+      return {
+        title: `E-way bill on ${context.loadCode} expires before delivery`,
+        body: `${ewayBillLabel} expires at ${formatIndiaTime(context.expiresAt)}${
+          context.route ? ` on ${context.route}` : ''
+        }. Extend it now to avoid vehicle detention and penalties.`,
+        highlights: [ewayBillLabel],
+        metadata: {
+          ...loadMetadataOf(context),
+          eway_bill_number: context.ewayBillNumber ?? '',
+          eway_bill_expires_at: context.expiresAt,
+          cta_label: 'Extend e-way bill',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // E-POD uploaded (driver app or staff) and waiting for review — fired by LoadService.uploadPod,
+  // including a resubmission after rejection. In-app + push to E-POD reviewers, P2.
+  'load.pod_uploaded': {
+    label: 'POD uploaded',
+    category: 'pod_billing',
+    description: 'An E-POD is waiting for your review.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: LOADS_DOCUMENTS_MANAGE }),
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: PodUploadedContext) => `${context.loadId}-${context.uploadedAt}`,
+    buildContent: (context: PodUploadedContext) => {
+      const receivedSentence = `${context.receiverName ? `Received by ${context.receiverName}` : 'Delivered'}${
+        context.quantityReceived ? `, ${context.quantityReceived} t` : ''
+      }${context.consignee ? ` at ${context.consignee}` : ''}.`;
+      return {
+        title: `POD uploaded for ${context.loadCode}`,
+        body: `${receivedSentence}${podExceptionSentenceOf(context)} Review and accept to close the trip.`,
+        highlights: context.loadCode ? [context.loadCode] : [],
+        metadata: {
+          ...loadMetadataOf(context),
+          receiver_name: context.receiverName ?? '',
+          quantity_received: context.quantityReceived ?? '',
+          tonnes_short: context.tonnesShort ?? '',
+          shortage_or_damage: context.shortageOrDamage ?? '',
+          cta_label: 'Verify POD',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // Transporter advance due — fired when a market/indent load goes in transit (loading
+  // confirmed, which is when an advance can first be recorded) and no advance is paid yet.
+  // In-app + push to payments.manage holders, P2.
+  'load.advance_due': {
+    label: 'Advance payment due',
+    category: 'money',
+    description: "A transporter's advance can be released for a load in transit.",
+    ctaStyle: 'primary',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: AdvanceDueContext) => context.loadId,
+    buildContent: (context: AdvanceDueContext) => {
+      const amountLabel = context.amount ?? 'The';
+      const advanceShareLabel = context.advancePercentage
+        ? `${Number(context.advancePercentage)}%`
+        : 'the';
+      const payeeAccountLabel = [
+        context.bankName,
+        context.accountLast4 ? `••${context.accountLast4}` : null,
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return {
+        title: `${amountLabel} advance due for ${context.loadCode}`,
+        body: `${context.transporterName ?? 'The transporter'} is due ${advanceShareLabel} advance${
+          context.route ? ` on ${context.route}` : ''
+        }${context.vehicleNo ? ` (${context.vehicleNo})` : ''}. Loading is confirmed.${
+          payeeAccountLabel ? ` Pay to ${payeeAccountLabel}.` : ''
+        }`,
+        highlights: [context.amount, context.vehicleNo].filter((highlight): highlight is string =>
+          Boolean(highlight),
+        ),
+        metadata: {
+          ...loadMetadataOf(context),
+          advance_percentage: context.advancePercentage ?? '',
+          advance_amount: context.amount ?? '',
+          bank_name: context.bankName ?? '',
+          bank_account_last4: context.accountLast4 ?? '',
+          cta_label: 'Release advance',
+          cta_path: `/loads/${context.loadId}`,
         },
       };
     },
@@ -1335,65 +1637,45 @@ export const NOTIFICATION_CATALOG = {
 
   // --- Placeholders below: settings-screen metadata only, no trigger built yet. ---
 
-  'load.stage_handoff': {
-    label: 'Stage handoff',
-    description: 'Dispatched, reached loading point, in-transit, and delivered updates.',
-    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push'],
-    severity: 'p3_info',
-    buildContent: stub(
-      'Stage handoff',
-      'Dispatched, reached loading point, in-transit, and delivered updates.',
-    ),
-  },
-  'load.eway_bill_expiry': {
-    label: 'E-way bill expiry',
-    description: 'Expiring within 4 hours or breached validity warnings.',
-    recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE, ORG_ADMIN_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push', 'sms', 'email'],
-    severity: 'p1_critical',
-    buildContent: stub(
-      'E-way bill expiry',
-      'Expiring within 4 hours or breached validity warnings.',
-    ),
-  },
-
   'driver.link_requested': {
     label: 'Driver join request',
+    category: 'drivers',
     description: 'A driver has requested to join your fleet.',
     recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'email'],
     severity: 'p2_action',
     buildContent: (
-      { driverName, phoneNumber }: DriverLinkContext,
+      { driverId, driverName, phoneNumber }: DriverLinkContext,
       _recipient,
       locale = DEFAULT_LOCALE,
     ) => ({
       title: t(locale, 'notifications.driverLinkRequested.title'),
       body: t(locale, 'notifications.driverLinkRequested.body', { driverName, phoneNumber }),
+      ...(driverId ? { metadata: { driver_id: driverId } } : {}),
     }),
   },
   'driver.link_accepted': {
     label: 'Driver invite accepted',
+    category: 'drivers',
     description: 'A driver has accepted your invitation to join your fleet.',
     recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push', 'email'],
     severity: 'p3_info',
     buildContent: (
-      { driverName, phoneNumber }: DriverLinkContext,
+      { driverId, driverName, phoneNumber }: DriverLinkContext,
       _recipient,
       locale = DEFAULT_LOCALE,
     ) => ({
       title: t(locale, 'notifications.driverLinkAccepted.title'),
       body: t(locale, 'notifications.driverLinkAccepted.body', { driverName, phoneNumber }),
+      ...(driverId ? { metadata: { driver_id: driverId } } : {}),
     }),
   },
   'driver.account_deleted': {
     label: 'Driver account deleted',
+    category: 'drivers',
     description: 'A linked driver has deleted their account and been disconnected from your fleet.',
     recipientRoles: [ORG_ADMIN_ROLE, DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
@@ -1410,6 +1692,7 @@ export const NOTIFICATION_CATALOG = {
   },
   'load.trip_delay_exception': {
     label: 'Trip delay & Exception',
+    category: 'trip_execution',
     description: 'Route delay exceeding 2 hours or unscheduled prolonged stoppage.',
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
@@ -1422,6 +1705,7 @@ export const NOTIFICATION_CATALOG = {
   },
   'tracking.geofence_breach': {
     label: 'Geofence breach',
+    category: 'trip_execution',
     description: 'Vehicle deviates from corridor > 5km or unapproved geofence exit.',
     recipientRoles: [DISPATCH_ROLE],
     channels: [...ALL_CHANNELS],
@@ -1434,6 +1718,7 @@ export const NOTIFICATION_CATALOG = {
   },
   'payments.due_settlement': {
     label: 'Payment due & Settlement',
+    category: 'money',
     description: 'Pending transporter balance, detention approval, and overdue ledger alerts.',
     recipientRoles: [FINANCE_ACCOUNTS_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
@@ -1446,6 +1731,7 @@ export const NOTIFICATION_CATALOG = {
   },
   'maintenance.compliance_due': {
     label: 'Maintenance & Compliance due',
+    category: 'compliance',
     description: 'Odometer threshold reached, scheduled servicing alert, oil changes.',
     recipientRoles: [DOCUMENTS_OPS_ROLE, ORG_ADMIN_ROLE],
     channels: [...ALL_CHANNELS],
@@ -1471,6 +1757,13 @@ export const IN_APP_HIDDEN_TYPES: string[] = Object.entries(
   NOTIFICATION_CATALOG as Record<string, { inApp?: boolean }>,
 )
   .filter(([, definition]) => definition.inApp === false)
+  .map(([key]) => key);
+
+/** Types the inbox shows only the newest of, per recipient (see inAppLatestOnly). */
+export const IN_APP_LATEST_ONLY_TYPES: string[] = Object.entries(
+  NOTIFICATION_CATALOG as Record<string, { inAppLatestOnly?: boolean }>,
+)
+  .filter(([, definition]) => definition.inAppLatestOnly === true)
   .map(([key]) => key);
 
 /** Builds a template's `{ templateVar: value }` payload from the notification's metadata. */
