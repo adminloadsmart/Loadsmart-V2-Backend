@@ -87,15 +87,11 @@ export class UlipClient {
 
     let response = await this.postVahan(vehicleNumber, await this.getToken());
     if (response.status === 401 || response.status === 403) {
-      // TODO(ulip-debug): remove once verified on the server.
-      console.log(`[ULIP DEBUG] VAHAN/04 rejected the token (${response.status}) — re-logging in`);
       this.token = undefined;
       response = await this.postVahan(vehicleNumber, await this.getToken());
     }
 
     const { body, text } = await readBody<UlipEnvelope<UlipVahanItem[]>>(response);
-    // TODO(ulip-debug): remove once verified on the server.
-    console.log(`[ULIP DEBUG] VAHAN/04 response status=${response.status} body=${text}`);
 
     if (!response.ok || !body || body.error === 'true') {
       throw new UlipError(
@@ -108,22 +104,11 @@ export class UlipClient {
   }
 
   private postVahan(vehicleNumber: string, token: string): Promise<Response> {
-    // TODO(ulip-debug): remove once verified on the server — prints a live bearer token.
-    console.log(
-      `[ULIP DEBUG] VAHAN/04 request url=${env.ulipBaseUrl}/VAHAN/04 ` +
-        `vehiclenumber=${vehicleNumber} Authorization="Bearer ${token}"`,
-    );
     return this.request('/VAHAN/04', { vehiclenumber: vehicleNumber }, token);
   }
 
   private async getToken(): Promise<string> {
-    if (this.token && Date.now() < this.token.expiresAt) {
-      // TODO(ulip-debug): remove once verified on the server.
-      console.log(
-        `[ULIP DEBUG] using cached token (expires ${new Date(this.token.expiresAt).toISOString()})`,
-      );
-      return this.token.value;
-    }
+    if (this.token && Date.now() < this.token.expiresAt) return this.token.value;
     this.loginInFlight ??= this.login().finally(() => {
       this.loginInFlight = undefined;
     });
@@ -131,12 +116,6 @@ export class UlipClient {
   }
 
   private async login(): Promise<string> {
-    // TODO(ulip-debug): remove once verified on the server. The password itself is never logged.
-    console.log(
-      `[ULIP DEBUG] login request url=${env.ulipBaseUrl}/user/login ` +
-        `username=${env.ulipUsername} passwordSet=${Boolean(env.ulipPassword)} ` +
-        `passwordLength=${env.ulipPassword?.length ?? 0}`,
-    );
     const response = await this.request('/user/login', {
       username: env.ulipUsername,
       password: env.ulipPassword,
@@ -144,8 +123,6 @@ export class UlipClient {
     const { body, text } = await readBody<UlipEnvelope<UlipLoginPayload> & { token?: string }>(
       response,
     );
-    // TODO(ulip-debug): remove once verified on the server — the body carries the token.
-    console.log(`[ULIP DEBUG] login response status=${response.status} body=${text}`);
     const value = body?.response?.id ?? body?.response?.token ?? body?.token;
 
     if (!response.ok || !value) {
