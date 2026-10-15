@@ -377,6 +377,34 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/vehicles/verify-vahan`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyVahan',
+    ...write(
+      'Look a registration number up in VAHAN through ULIP, before the vehicle exists — the ' +
+        '"Add a truck" preflight. Read-only: send the result back through /vehicles/onboard or ' +
+        '/vehicles/{vehicleId}/verifications to persist it. Logs in to ULIP with ULIP_USERNAME/' +
+        'ULIP_PASSWORD (token cached server-side) and calls VAHAN/04. `registrationNumber` has ' +
+        'spaces stripped and is upper-cased first. A registry miss is `status: not_found`, not an ' +
+        'error. Dates are YYYY-MM-DD; registry fields are only present when VAHAN returned them.',
+    ),
+    request: { body: json(vehicleValidators.verifyVahan.shape.body) },
+    responses: {
+      200: {
+        description:
+          '{ status, registrationNumber, registeredName?, registeredOn?, vehicleClass?, ' +
+          'makerModel?, fuelType?, chassisNumber?, engineNumber?, registeringAuthority?, ' +
+          'financierName?, addressLine1?, papers: { insuranceValidTo?, rcValidTo?, ' +
+          'permitValidTo?, pucValidTo?, fitnessValidTo?, roadTaxValidTo?, insuranceProvider? }, ' +
+          'rawResponse }',
+      },
+      400: { description: 'Validation failed', ...errorContent },
+      500: { description: 'ULIP not configured or unavailable', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/vehicles/{vehicleId}/verifications`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.recordVehicleVerification',

@@ -8,18 +8,22 @@ const BASE = `${API_VERSION_PREFIX}/fleet-analytics`;
 const FILTER_NOTE =
   ' Shared filter bar: `period` (last_month | 3_months | 6_months [default] | custom with ' +
   '`from`/`to`) — presets are whole calendar months ending last month; `truckTypeId`; `heldAs` ' +
-  '(owned_and_attached [default] | owned | financed | leased | attached). `yardId` and ' +
-  '`customerId` are accepted but not applied yet. Load/dispatch-derived figures (km, trips, ' +
-  'tonnes, on-time, detention, lanes, fuel, tolls, hire) are 0 or [] until loads are wired in.';
+  '(owned_and_attached [default] | owned | financed | leased | attached); `vehicleId`; ' +
+  '`laneKey` (`loadingPointId:customerDeliveryPointId`) and `customerId` narrow load figures; ' +
+  '`yardId` is accepted but not applied (no yard model). Every response carries `unavailable` ' +
+  '(field → why it reads 0: no fuel fills, tolls, driver pay, per-load distance, detention or ' +
+  'on-road price yet) and `emptyBecause` (the filter that emptied the slice, or null). Every ' +
+  'tab except compliance needs maintenance.costs.view.';
 
 const TABS = [
   {
     path: 'summary',
     key: 'getSummary',
     description:
-      'Header KPIs shown on every tab: cost per km, what the fleet cost to run (on the road = ' +
-      'maintenance; standing = EMI/lease/insurance/fixed cost prorated over the period), cost ' +
-      'per tonne-km and fleet utilisation.',
+      'Header KPIs shown on every tab: all-in cost per km (standing + maintenance over km read ' +
+      'off odometer readings; null when no km could be read), what the fleet cost to run (on ' +
+      'the road = maintenance; standing = EMI/lease/insurance/fixed cost prorated over the ' +
+      'period), tonnes moved and fleet utilisation (days on a load over truck-days).',
   },
   {
     path: 'overview',
@@ -64,14 +68,25 @@ const TABS = [
     path: 'operations',
     key: 'getOperations',
     description:
-      'Operations tab: on-time, turnaround, detention and load pipeline (all 0 for now).',
+      'Operations tab: on-time (no more than 30 min past the promised delivery date), median ' +
+      'lateness, turnaround, loading and unloading hours, on-time by lane, where the loads are ' +
+      'and the load pipeline, from own-fleet loads. Detention needs geofence data and reads 0.',
   },
   {
     path: 'compliance',
     key: 'getCompliance',
     description:
       'Compliance tab (current state): vehicle papers expired / inside 7 days / inside 30 days ' +
-      '/ in order, by document type, what to renew soonest, and driver licences.',
+      '/ in order, by document type, what to renew soonest, and driver licences. ' +
+      '`standingPerDay` on renewals is omitted for a seat without maintenance.costs.view.',
+  },
+  {
+    path: 'findings',
+    key: 'getFindings',
+    description:
+      'Findings: up to four plain sentences naming what is worth acting on (idlest truck, ' +
+      'replacement candidate, trucks blocked on papers, unplanned maintenance share, latest ' +
+      'lane), ranked by money at stake, each with the tab and vehicle/lane holding the evidence.',
   },
 ] as const;
 

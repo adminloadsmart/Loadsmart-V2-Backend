@@ -2,6 +2,7 @@ import { DataSource } from 'typeorm';
 import { Worker } from 'bullmq';
 import { createJobQueue } from '../../jobs/queue-registry';
 import { NotifyByType } from '../notifications/notify-by-type';
+import { UlipClient } from '../../adapters/ulip.client';
 import { VehicleRepository } from './vehicle/vehicle.repository';
 import { VehicleService } from './vehicle/vehicle.service';
 import { VehicleController } from './vehicle/vehicle.controller';
@@ -108,6 +109,7 @@ export function createMastersModule(
     dataSource,
     deps.auditService,
     complianceAlertsQueue,
+    new UlipClient(),
   );
   const vehicleController = new VehicleController(vehicleService);
   const vehicleImportService = new VehicleImportService(vehicleService, deps.auditService);

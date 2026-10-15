@@ -123,6 +123,18 @@ export const env = {
   // Fixed per this account's IDfy workspace setup, not generated per call.
   idfyTaskId: process.env.IDFY_TASK_ID || undefined,
   idfyGroupId: process.env.IDFY_GROUP_ID || undefined,
+  // ULIP (DPIIT) VAHAN vehicle lookup (UlipClient). Optional: POST /vehicles/verify-vahan fails
+  // loudly per-request when the credentials are unset instead of crashing boot. ULIP only accepts
+  // whitelisted server IPs, so this only works from a deployed environment.
+  ulipBaseUrl: process.env.ULIP_BASE_URL || 'https://www.ulip.dpiit.gov.in/ulip/v1.0.0',
+  ulipUsername: process.env.ULIP_USERNAME || undefined,
+  ulipPassword: process.env.ULIP_PASSWORD || undefined,
+  // Throttles POST /vehicles/verify-vahan — each call is a ULIP lookup.
+  vehicleVerifyVahanRateLimitMax: numberWithDefault('VEHICLE_VERIFY_VAHAN_RATE_LIMIT_MAX', 5),
+  vehicleVerifyVahanRateLimitWindowSeconds: numberWithDefault(
+    'VEHICLE_VERIFY_VAHAN_RATE_LIMIT_WINDOW_SECONDS',
+    60,
+  ),
   // MSG91's OTP API (Msg91Client) — generates and verifies signup/login OTPs; we never see the
   // code ourselves. Left optional so the app still boots without them: auth.service.ts falls
   // back to a fixed dev-only OTP outside production when these aren't set (see

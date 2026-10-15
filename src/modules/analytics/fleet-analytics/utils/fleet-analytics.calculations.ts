@@ -3,7 +3,9 @@ import { VehicleDocumentEntity } from '../../../masters/vehicle/entities/vehicle
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../../masters/vehicle/vehicle.type';
 import { MaintenanceJobEntity } from '../../../maintenance/entities/maintenance-job.entity';
 import { SERVICE_CLOCK_TYPES } from '../../../maintenance/maintenance.types';
-import { dailyFixedCost } from '../../../maintenance/calculations/downtime';
+import { dailyFixedCost, money } from '../../../maintenance/calculations/downtime';
+import { LoadEntity } from '../../../loads/entities/load.entity';
+import { RequisitionEntity } from '../../../loads/entities/requisition.entity';
 import { addDays, daysBetween, msToDays, round } from '../../../maintenance/calculations/dates';
 import { endOfIstDate, startOfIstDate, toIstDateString } from '../../../../shared/utils/ist-time';
 import {
@@ -11,7 +13,11 @@ import {
   FleetVehicleSummary,
   TyreConditionLabel,
 } from './fleet-analytics.interface';
-import { EXPIRING_SOON_DAYS, EXPIRING_URGENT_DAYS } from './fleet-analytics.constants';
+import {
+  EXPIRING_SOON_DAYS,
+  EXPIRING_URGENT_DAYS,
+  ON_TIME_GRACE_MS,
+} from './fleet-analytics.constants';
 
 const DAYS_PER_YEAR = 365;
 const DAYS_PER_MONTH = 30;
@@ -134,20 +140,74 @@ export function documentBucket(daysLeft: number): DocumentBucket {
   return 'inOrder';
 }
 
-/** Days inside the window the truck stood blocked because a current paper had lapsed — from the
- *  day after the earliest lapsed paper's expiry until now. */
-export function blockedOnPaperDays(
+/** Days covered by the union of the intervals inside the window — overlapping intervals count
+ *  once, so two loads on the same day are one working day, not two. */
+export function unionDaysInWindow(intervals: TimeWindow[], window: TimeWindow): number {
+  const clipped = intervals
+    .map((interval) => intersect(interval, window))
+    .filter((interval) => interval.to > interval.from)
+    .sort((a, b) => a.from.getTime() - b.from.getTime());
+  let total = 0;
+  let open: { from: number; to: number } | null = null;
+  for (const interval of clipped) {
+    const from = interval.from.getTime();
+    const to = interval.to.getTime();
+    if (open && from <= open.to) {
+      open.to = Math.max(open.to, to);
+      continue;
+    }
+    if (open) total += open.to - open.from;
+    open = { from, to };
+  }
+  if (open) total += open.to - open.from;
+  return msToDays(total);
+}
+
+/** When a paper starts covering the truck: its issue date, else when it was entered. */
+function coverageStart(document: VehicleDocumentEntity): Date {
+  return document.issueDate ? startOfIstDate(document.issueDate) : document.createdAt;
+}
+
+/**
+ * Every stretch a mandatory paper was out — for each document type, from the day after a copy
+ * expired until a later copy started covering the truck (or now, if none has). Reads every copy,
+ * not just the current one, so a paper that lapsed and was renewed inside the period still
+ * counts the days it was out.
+ */
+export function lapsedPaperIntervals(documents: VehicleDocumentEntity[], now: Date): TimeWindow[] {
+  const byType = new Map<string, VehicleDocumentEntity[]>();
+  for (const document of documents) {
+    if (document.deletedAt || !document.expiryDate) continue;
+    if (
+      !(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY as readonly string[]).includes(document.documentType)
+    ) {
+      continue;
+    }
+    byType.set(document.documentType, [...(byType.get(document.documentType) ?? []), document]);
+  }
+
+  const intervals: TimeWindow[] = [];
+  for (const copies of byType.values()) {
+    const sorted = [...copies].sort((a, b) => a.expiryDate!.localeCompare(b.expiryDate!));
+    sorted.forEach((copy, index) => {
+      const lapsedFrom = startOfIstDate(addDays(copy.expiryDate!, 1));
+      if (lapsedFrom >= now) return;
+      const renewal = sorted.slice(index + 1).find((next) => next.expiryDate! > copy.expiryDate!);
+      const renewedAt = renewal ? coverageStart(renewal) : now;
+      const to = renewedAt < now ? renewedAt : now;
+      if (to > lapsedFrom) intervals.push({ from: lapsedFrom, to });
+    });
+  }
+  return intervals;
+}
+
+/** Days inside the window the truck stood blocked because a mandatory paper had lapsed (§6.9). */
+export function blockedDaysInWindow(
   documents: VehicleDocumentEntity[],
   window: TimeWindow,
-  today: string,
   now: Date,
 ): number {
-  const lapsed = documents
-    .map((document) => document.expiryDate!)
-    .filter((expiry) => expiry < today)
-    .sort();
-  if (lapsed.length === 0) return 0;
-  return overlapDays(startOfIstDate(addDays(lapsed[0], 1)), now, window);
+  return unionDaysInWindow(lapsedPaperIntervals(documents, now), window);
 }
 
 /** Age in years from the VAHAN registration date, else from when the truck was onboarded. */
@@ -321,4 +381,66 @@ export function replacementCandidates<T>(
       ];
     })
     .sort((a, b) => b.extraPerKm - a.extraPerKm);
+}
+
+/** Cost per km, or null when no km could be read — a ratio over nothing is not a measurement. */
+export function perKm(cost: number, km: number): number | null {
+  return km > 0 ? money(cost / km) : null;
+}
+
+/** When the truck was first committed to the load at the plant. */
+export function loadStart(load: LoadEntity): Date | null {
+  return load.atPlantAt ?? load.loadingConfirmedAt ?? load.inTransitAt ?? null;
+}
+
+/** The stretch the truck was on the load: from the plant until delivery (or now, if still
+ *  running). Null for a load the truck has not reached yet. */
+export function loadInterval(load: LoadEntity, now: Date): TimeWindow | null {
+  const from = loadStart(load);
+  if (!from) return null;
+  const to = load.deliveredAt ?? load.closedAt ?? now;
+  return { from, to: to > from ? to : from };
+}
+
+/** The promised delivery: the end of the requisition's expected delivery date (IST). */
+export function promisedBy(load: LoadEntity): Date | null {
+  const date = load.requisition?.expectedDeliveryDate;
+  return date ? endOfIstDate(date) : null;
+}
+
+/** On time if delivered no more than half an hour past the promise (§6.3). */
+export function isOnTime(deliveredAt: Date, promised: Date): boolean {
+  return deliveredAt.getTime() <= promised.getTime() + ON_TIME_GRACE_MS;
+}
+
+/** Days late past the promise, 0 when on time. */
+export function lateDays(deliveredAt: Date, promised: Date): number {
+  return Math.max(0, msToDays(deliveredAt.getTime() - promised.getTime()));
+}
+
+export function hoursBetween(from: Date | null, to: Date | null): number | null {
+  if (!from || !to || to <= from) return null;
+  return (to.getTime() - from.getTime()) / 3_600_000;
+}
+
+export interface Lane {
+  /** `${loadingPointId}:${customerDeliveryPointId}` — the value the lane filter takes. */
+  key: string;
+  label: string;
+}
+
+/** The lane a requisition runs: loading point city to delivery point city. */
+export function laneOfRequisition(requisition: RequisitionEntity | null | undefined): Lane | null {
+  if (!requisition) return null;
+  const from = requisition.loadingPoint?.city ?? 'Unknown';
+  const delivery = requisition.customerDeliveryPoint;
+  const to = delivery?.city ?? delivery?.location ?? 'Unknown';
+  return {
+    key: `${requisition.loadingPointId}:${requisition.customerDeliveryPointId}`,
+    label: `${from} → ${to}`,
+  };
+}
+
+export function laneOf(load: LoadEntity): Lane | null {
+  return laneOfRequisition(load.requisition);
 }
