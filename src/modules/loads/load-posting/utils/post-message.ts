@@ -14,6 +14,7 @@ export interface PostMessageInput {
   truckLabels: string[];
   advancePercentage: string | null;
   note: string | null;
+  title?: string | null;
 }
 
 const IST_FORMAT = new Intl.DateTimeFormat('en-IN', {
@@ -37,6 +38,7 @@ function place(address: PostAddress): string {
 export function buildPostMessage(input: PostMessageInput): string {
   const lines = [
     input.mode === 'indent' ? 'Loadsmart indent' : 'New load on Loadsmart',
+    ...(input.title ? [`Title: ${input.title}`] : []),
     input.loadCodes.length === 1
       ? `Load: ${input.loadCodes[0]}`
       : `Loads: ${input.loadCodes.join(', ')}`,
