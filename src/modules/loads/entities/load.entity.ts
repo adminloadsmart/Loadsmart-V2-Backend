@@ -151,6 +151,10 @@ export class LoadEntity {
   @JoinColumn({ name: 'transporter_id' })
   transporter!: TransporterEntity | null;
 
+  /** Optional title given when the load was posted (Post a load) — searchable, null otherwise. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  title!: string | null;
+
   @Column({ name: 'freight_type', type: 'enum', enum: [...FREIGHT_TYPES], nullable: true })
   freightType!: FreightType | null;
 

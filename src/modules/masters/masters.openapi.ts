@@ -3,6 +3,7 @@ import { registerTruckTypeOpenApi } from './truck-type/truck-type.openapi';
 import { registerProductOpenApi } from './product/product.openapi';
 import { registerLoadingPointOpenApi } from './loading-point/loading-point.openapi';
 import { registerTransporterOpenApi } from './transporter/transporter.openapi';
+import { registerTransporterContractOpenApi } from './transporter-contract/transporter-contract.openapi';
 import { registerVehicleOpenApi } from './vehicle/vehicle.openapi';
 import { registerDriverOpenApi } from '../driver/driver.openapi';
 import { registerFleetDriverLinkOpenApi } from './fleet-driver-link/fleet-driver-link.openapi';
@@ -22,6 +23,7 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   registerProductOpenApi(registry);
   registerLoadingPointOpenApi(registry);
   registerTransporterOpenApi(registry);
+  registerTransporterContractOpenApi(registry);
   registerVehicleOpenApi(registry);
   registerDriverOpenApi(registry);
   registerFleetDriverLinkOpenApi(registry);

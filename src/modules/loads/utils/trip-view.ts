@@ -64,6 +64,8 @@ export interface TripListRow {
   id: string;
   /** Display code `LOAD-nnnn` — see load.entity.ts's doc comment. */
   code: string;
+  /** Title given when the load was posted; null if none. */
+  title: string | null;
   status: LoadStatus;
   /** Null for loads posted straight from Post a load (no requisition). */
   requisitionId: string | null;
@@ -180,6 +182,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
   return {
     id: load.id,
     code: load.code,
+    title: load.title,
     status: load.status,
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,

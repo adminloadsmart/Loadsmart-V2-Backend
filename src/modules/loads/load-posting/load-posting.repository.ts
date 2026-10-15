@@ -13,7 +13,6 @@ import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
 import { LoadDraftEntity } from './entities/load-draft.entity';
-import { CustomerContractEntity } from './entities/customer-contract.entity';
 import { MessageStatus, RecipientType } from './utils/load-posting.types';
 
 /** ILIKE pattern with the user's own `%`, `_` and `\\` escaped so they match literally. */
@@ -46,7 +45,6 @@ export class LoadPostingRepository {
   private readonly maintenanceJobs: Repository<MaintenanceJobEntity>;
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
-  private readonly contracts: Repository<CustomerContractEntity>;
   private readonly customers: Repository<CustomerEntity>;
   private readonly deliveryPoints: Repository<CustomerDeliveryPointEntity>;
   private readonly loadingPoints: Repository<LoadingPointEntity>;
@@ -63,7 +61,6 @@ export class LoadPostingRepository {
     this.maintenanceJobs = dataSource.getRepository(MaintenanceJobEntity);
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
-    this.contracts = dataSource.getRepository(CustomerContractEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
     this.deliveryPoints = dataSource.getRepository(CustomerDeliveryPointEntity);
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
@@ -355,38 +352,6 @@ export class LoadPostingRepository {
   findTruckTypes(tenantId: string, ids: string[]) {
     if (!ids.length) return Promise.resolve([] as TruckTypeEntity[]);
     return this.truckTypes.find({ where: { tenantId, id: In(ids), deletedAt: IsNull() } });
-  }
-
-  // --- Contracts ---
-
-  async createContract(
-    data: Omit<
-      CustomerContractEntity,
-      'id' | 'createdAt' | 'updatedAt' | 'customer' | 'transporter'
-    >,
-  ) {
-    return this.contracts.save(this.contracts.create(data));
-  }
-
-  findContractByNumber(tenantId: string, contractNumber: string) {
-    return this.contracts.findOneBy({ tenantId, contractNumber, deletedAt: IsNull() });
-  }
-
-  findContract(tenantId: string, id: string) {
-    return this.contracts.findOne({
-      where: { id, tenantId, deletedAt: IsNull() },
-      relations: { transporter: true },
-    });
-  }
-
-  /** Every contract of the customer — callers compute lane/validity flags so non-matching ones
-   *  can still be shown disabled (PL-21). */
-  listContracts(tenantId: string, customerId: string) {
-    return this.contracts.find({
-      where: { tenantId, customerId, deletedAt: IsNull() },
-      relations: { transporter: true },
-      order: { validTo: 'DESC' },
-    });
   }
 
   // --- Drafts ---

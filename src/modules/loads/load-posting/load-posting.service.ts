@@ -8,6 +8,8 @@ import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-d
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 import { ProductEntity } from '../../masters/product/entities/product.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
+import { TransporterContractService } from '../../masters/transporter-contract/transporter-contract.service';
+import { ContractUnit } from '../../masters/transporter-contract/transporter-contract.types';
 import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { VehicleService, resolveDocumentStatus } from '../../masters/vehicle/vehicle.service';
@@ -92,6 +94,7 @@ export class LoadPostingService {
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
     private readonly truckTypeService: TruckTypeService,
+    private readonly transporterContractService: TransporterContractService,
   ) {}
 
   async post(
@@ -132,6 +135,7 @@ export class LoadPostingService {
       let transporters: TransporterEntity[] = [];
       let contractRate: string | null = null;
       let contractId: string | null = null;
+      let contractUnit: ContractUnit | null = null;
       let vehicleLoadDefaults: Partial<CreateLoadData> = {};
       let assignedDriverName: string | null = null;
 
@@ -146,6 +150,10 @@ export class LoadPostingService {
         transporters = [contract.transporter];
         contractRate = contract.rate;
         contractId = contract.id;
+        contractUnit = contract.unit;
+        if (contract.unit === 'per_tonne' && !input.weightTonnes) {
+          throw new ValidationError('Weight is required to price a per-tonne contract');
+        }
       } else {
         const own = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!, input.driverId);
         vehicleLoadDefaults = own.defaults;
@@ -169,7 +177,7 @@ export class LoadPostingService {
 
         const rate =
           contractRate ?? (input.price?.rate !== undefined ? String(input.price.rate) : null);
-        const freightTotal = this.freightTotal(input, rate);
+        const freightTotal = this.freightTotal(input, rate, contractUnit);
         const advance =
           input.mode === 'own_fleet'
             ? null
@@ -193,6 +201,7 @@ export class LoadPostingService {
                 truckLabels: trucks.labels,
                 advancePercentage: advance,
                 note: input.note ?? null,
+                title: input.title || null,
               });
 
         const posting = await this.repository.createPosting(
@@ -219,13 +228,21 @@ export class LoadPostingService {
             acceptedTruckTypeIds: trucks.acceptedIds,
             vehicleId: input.vehicleId ?? null,
             priceMode: input.mode === 'market_fleet' ? input.price!.mode : null,
-            priceBasis: input.mode === 'market_fleet' ? (input.price!.basis ?? null) : null,
+            priceBasis:
+              input.mode === 'market_fleet'
+                ? (input.price!.basis ?? null)
+                : contractUnit
+                  ? contractUnit === 'per_tonne'
+                    ? 'per_tonne'
+                    : 'per_trip'
+                  : null,
             rate,
             freightTotal,
             contractId,
             advancePercentage: advance,
             balancePaidBy: input.mode === 'own_fleet' ? null : (input.balancePaidBy ?? 'shipper'),
             note: input.note ?? null,
+            title: input.title || null,
             messageText,
             idempotencyKey: idempotencyKey ?? null,
             postedBy: actorId,
@@ -241,6 +258,7 @@ export class LoadPostingService {
           tenantId,
           code,
           postingId: posting.id,
+          title: input.title || null,
           sourceType:
             input.mode === 'market_fleet'
               ? 'market'
@@ -254,7 +272,7 @@ export class LoadPostingService {
           freightType:
             input.mode === 'own_fleet'
               ? null
-              : input.price?.basis === 'per_tonne'
+              : (contractUnit ? contractUnit === 'per_tonne' : input.price?.basis === 'per_tonne')
                 ? 'per_ton'
                 : 'flat',
           freightMode:
@@ -516,8 +534,8 @@ export class LoadPostingService {
     };
   }
 
-  /** PL-21 — only a transporter with a contract valid today on this lane can be indented; the
-   *  rate is the contract's. */
+  /** PL-21 — only a transporter with a contract valid today on this lane (city + state) can be
+   *  indented; the rate and its unit are the contract's. */
   private async assertIndentContract(
     tenantId: string,
     customer: CustomerEntity | null,
@@ -526,20 +544,23 @@ export class LoadPostingService {
     input: PostLoadInput,
   ) {
     if (!customer) throw new ValidationError('Indent needs a customer with a contract');
-    const contracts = await this.repository.listContracts(tenantId, customer.id);
-    const today = new Date().toISOString().slice(0, 10);
-    const match = contracts.find(
-      (contract) =>
-        contract.transporterId === input.transporterId &&
-        contract.validFrom <= today &&
-        contract.validTo >= today &&
-        contract.pickupCity.toLowerCase() === (pickup.address.city ?? '').toLowerCase() &&
-        contract.dropCity.toLowerCase() === (drop.address.city ?? '').toLowerCase(),
+    const options = await this.transporterContractService.indentOptions(tenantId, customer.id, {
+      pickupCity: pickup.address.city ?? '',
+      pickupState: pickup.address.state ?? '',
+      dropCity: drop.address.city ?? '',
+      dropState: drop.address.state ?? '',
+    });
+    const forTransporter = options.filter(
+      (option) =>
+        option.contract.transporterId === input.transporterId &&
+        (option.selectable || option.reason === 'transporter_inactive'),
     );
-    if (!match) {
+    if (!forTransporter.length) {
       throw new ValidationError('This transporter has no valid contract on this lane');
     }
-    if (match.transporter.status !== 'active') {
+    // Several windows can overlap only across lanes, so at most one is valid today on this one.
+    const match = forTransporter[0].contract;
+    if (!forTransporter[0].selectable) {
       throw new ConflictError('This transporter is not active');
     }
     return match;
@@ -628,9 +649,17 @@ export class LoadPostingService {
 
   // --- Writes ---
 
-  private freightTotal(input: PostLoadInput, rate: string | null): string | null {
+  private freightTotal(
+    input: PostLoadInput,
+    rate: string | null,
+    contractUnit: ContractUnit | null,
+  ): string | null {
     if (rate === null) return null;
-    if (input.mode === 'indent') return String(Number(rate) * input.truckCount);
+    if (input.mode === 'indent') {
+      return contractUnit === 'per_tonne'
+        ? String(Number(rate) * (input.weightTonnes ?? 0))
+        : String(Number(rate) * input.truckCount);
+    }
     if (input.price?.basis === 'per_tonne') return String(Number(rate) * (input.weightTonnes ?? 0));
     return String(Number(rate) * input.truckCount);
   }

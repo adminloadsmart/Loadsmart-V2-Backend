@@ -3,6 +3,7 @@ import { AuditService } from '../../audit/audit.service';
 import { CustomerService } from '../../customers/customer.service';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
 import { DriverAuthService } from '../../driver/auth/driver-auth.service';
+import { TransporterContractService } from '../../masters/transporter-contract/transporter-contract.service';
 import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { CodeSequenceRepository } from '../code-sequence.repository';
@@ -29,6 +30,7 @@ export function createLoadPostingModule(
     driverAuthService: DriverAuthService;
     notificationsService: NotificationsService;
     truckTypeService: TruckTypeService;
+    transporterContractService: TransporterContractService;
     /** Swap in the real WhatsApp sender here once it exists. */
     notifier?: LoadDispatchNotifier;
   },
@@ -48,6 +50,7 @@ export function createLoadPostingModule(
     deps.driverAuthService,
     deps.notificationsService,
     deps.truckTypeService,
+    deps.transporterContractService,
   );
   const lookupService = new LoadPostingLookupService(
     dataSource,
@@ -57,7 +60,7 @@ export function createLoadPostingModule(
     deps.vehicleService,
     postingService,
   );
-  const contractService = new CustomerContractService(repository, deps.auditService);
+  const contractService = new CustomerContractService(deps.transporterContractService);
   const draftService = new LoadDraftService(repository);
 
   const controller = new LoadPostingController(

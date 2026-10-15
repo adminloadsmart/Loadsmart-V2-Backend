@@ -11,6 +11,9 @@ import { LoadingPointImportController } from './loading-point/loading-point-impo
 import { createTransporterRoutes } from './transporter/transporter.routes';
 import { TransporterController } from './transporter/transporter.controller';
 import { TransporterImportController } from './transporter/transporter-import.controller';
+import { createTransporterContractRoutes } from './transporter-contract/transporter-contract.routes';
+import { TransporterContractController } from './transporter-contract/transporter-contract.controller';
+import { TransporterContractImportController } from './transporter-contract/transporter-contract-import.controller';
 import { createVehicleRoutes } from './vehicle/vehicle.routes';
 import { VehicleController } from './vehicle/vehicle.controller';
 import { VehicleImportController } from './vehicle/vehicle-import.controller';
@@ -27,6 +30,8 @@ export function createMastersProtectedRoutes(
   loadingPointImportController: LoadingPointImportController,
   transporterController: TransporterController,
   transporterImportController: TransporterImportController,
+  transporterContractController: TransporterContractController,
+  transporterContractImportController: TransporterContractImportController,
   vehicleController: VehicleController,
   vehicleImportController: VehicleImportController,
   driverController: DriverController,
@@ -42,6 +47,12 @@ export function createMastersProtectedRoutes(
   router.use(createProductRoutes(productController, productImportController));
   router.use(createLoadingPointRoutes(loadingPointController, loadingPointImportController));
   router.use(createTransporterRoutes(transporterController, transporterImportController));
+  router.use(
+    createTransporterContractRoutes(
+      transporterContractController,
+      transporterContractImportController,
+    ),
+  );
   router.use(createVehicleRoutes(vehicleController, vehicleImportController));
   router.use(createDriverRoutes(driverController));
   router.use(createFleetDriverLinkRoutes(fleetDriverLinkController));

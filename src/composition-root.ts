@@ -221,6 +221,7 @@ export function buildContainer(dataSource: DataSource): Container {
     customerService: customers.service,
     vehicleService: masters.vehicleService,
     transporterService: masters.transporterService,
+    transporterContractService: masters.transporterContractService,
     truckTypeService: masters.truckTypeService,
     loadingPointService: masters.loadingPointService,
     productService: masters.productService,

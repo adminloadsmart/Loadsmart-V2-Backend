@@ -7,7 +7,6 @@ import { CustomerContractService } from './customer-contract.service';
 import { LoadDraftService } from './load-draft.service';
 import {
   ContractsQueryInput,
-  CreateContractInput,
   PostLoadInput,
   TruckOptionsInput,
 } from './utils/load-posting.interface';
@@ -141,17 +140,6 @@ export class LoadPostingController {
         requireTenantId(req),
         req.validatedQuery as ContractsQueryInput,
       ),
-    );
-
-  createContract = async (req: Request, res: Response) =>
-    respond(
-      res,
-      await this.contractService.create(
-        requireTenantId(req),
-        req.user!.id,
-        req.body as CreateContractInput,
-      ),
-      201,
     );
 
   createDraft = async (req: Request, res: Response) =>

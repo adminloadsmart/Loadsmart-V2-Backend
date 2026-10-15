@@ -42,6 +42,7 @@ export interface CreateLoadData {
   code?: string;
   requisitionId?: string | null;
   postingId?: string | null;
+  title?: string | null;
   sourceType: LoadSourceType;
   status?: LoadStatus; // own-fleet lands 'assigned' directly (R-35); market defaults to 'created'
   plannedCapacityTonnes: string;
@@ -249,12 +250,13 @@ export class LoadRepository {
             : LessThanOrEqual(to);
     }
 
-    // Matches the load's own LOAD-nnnn code or its requisition's customer name — a dispatcher
+    // Matches the load's own LOAD-nnnn code, its title or its requisition's customer name — a dispatcher
     // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS
     // for the same convention on the requisition side).
     const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
       ? [
           { ...base, code: ILike(`%${search}%`) },
+          { ...base, title: ILike(`%${search}%`) },
           {
             ...base,
             requisition: { ...requisitionWhere, customer: { name: ILike(`%${search}%`) } },
@@ -303,6 +305,7 @@ export class LoadRepository {
     const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = filters.search
       ? [
           { ...base, code: ILike(`%${filters.search}%`) },
+          { ...base, title: ILike(`%${filters.search}%`) },
           { ...base, requisition: { customer: { name: ILike(`%${filters.search}%`) } } },
         ]
       : base;

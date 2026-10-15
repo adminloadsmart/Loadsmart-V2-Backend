@@ -5,6 +5,7 @@ import { StorageService } from '../storage/storage.service';
 import { CustomerService } from '../customers/customer.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
+import { TransporterContractService } from '../masters/transporter-contract/transporter-contract.service';
 import { TruckTypeService } from '../masters/truck-type/truck-type.service';
 import { LoadingPointService } from '../masters/loading-point/loading-point.service';
 import { ProductService } from '../masters/product/product.service';
@@ -35,6 +36,7 @@ export function createLoadsModule(
     customerService: CustomerService;
     vehicleService: VehicleService;
     transporterService: TransporterService;
+    transporterContractService: TransporterContractService;
     truckTypeService: TruckTypeService;
     loadingPointService: LoadingPointService;
     productService: ProductService;
@@ -116,6 +118,7 @@ export function createLoadsModule(
     driverAuthService: deps.driverAuthService,
     notificationsService: deps.notificationsService,
     truckTypeService: deps.truckTypeService,
+    transporterContractService: deps.transporterContractService,
   });
   protectedRouter.use('/post', loadPosting.router);
 

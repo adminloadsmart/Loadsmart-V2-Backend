@@ -81,6 +81,8 @@ export interface PostLoadInput {
   advancePercentage?: number;
   balancePaidBy?: BalancePaidBy;
   note?: string;
+  /** Optional load title; blank is stored as none. */
+  title?: string;
 }
 
 export interface PostLoadParams {
@@ -114,19 +116,11 @@ export interface TransportersInput {
 
 export interface ContractsQueryInput {
   customerId: string;
+  /** The posted lane — all four or none. With none, nothing is marked off-lane. */
   pickupCity?: string;
+  pickupState?: string;
   dropCity?: string;
-}
-
-export interface CreateContractInput {
-  customerId: string;
-  transporterId: string;
-  contractNumber: string;
-  pickupCity: string;
-  dropCity: string;
-  rate: number;
-  validFrom: string;
-  validTo: string;
+  dropState?: string;
 }
 
 export interface TruckOptionsInput {

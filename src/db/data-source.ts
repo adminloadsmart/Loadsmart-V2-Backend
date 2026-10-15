@@ -44,6 +44,7 @@ import { TruckTypeEntity } from '../modules/masters/truck-type/entities/truck-ty
 import { TruckTypeCatalogEntity } from '../modules/masters/truck-type-catalog/entities/truck-type-catalog.entity';
 import { LoadingPointEntity } from '../modules/masters/loading-point/entities/loading-point.entity';
 import { TransporterEntity } from '../modules/masters/transporter/entities/transporter.entity';
+import { TransporterContractEntity } from '../modules/masters/transporter-contract/entities/transporter-contract.entity';
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
 import { FileEntity } from '../modules/storage/entities/file.entity';
@@ -60,7 +61,6 @@ import { CodeSequenceEntity } from '../modules/loads/entities/code-sequence.enti
 import { LoadPostingEntity } from '../modules/loads/load-posting/entities/load-posting.entity';
 import { LoadRecipientEntity } from '../modules/loads/load-posting/entities/load-recipient.entity';
 import { LoadDraftEntity } from '../modules/loads/load-posting/entities/load-draft.entity';
-import { CustomerContractEntity } from '../modules/loads/load-posting/entities/customer-contract.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -113,6 +113,7 @@ export const AppDataSource = new DataSource({
     TruckTypeCatalogEntity,
     LoadingPointEntity,
     TransporterEntity,
+    TransporterContractEntity,
     CustomerEntity,
     CustomerDeliveryPointEntity,
     FileEntity,
@@ -130,7 +131,6 @@ export const AppDataSource = new DataSource({
     LoadPostingEntity,
     LoadRecipientEntity,
     LoadDraftEntity,
-    CustomerContractEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,

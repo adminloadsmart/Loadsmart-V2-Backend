@@ -81,18 +81,12 @@ export function createLoadPostingRoutes(controller: LoadPostingController): Rout
     asyncHandler(controller.availableDrivers),
   );
 
-  // --- Indent contracts ---
+  // --- Indent contracts (created under /v1/masters/transporter-contracts) ---
   router.get(
     '/contracts',
     canPost,
     validate(loadPostingValidators.listContracts),
     asyncHandler(controller.listContracts),
-  );
-  router.post(
-    '/contracts',
-    canPost,
-    validate(loadPostingValidators.createContract),
-    asyncHandler(controller.createContract),
   );
 
   // --- Drafts ---

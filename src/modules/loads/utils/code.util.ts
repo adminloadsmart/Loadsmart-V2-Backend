@@ -23,3 +23,10 @@ const CUSTOMER_CODE_OFFSET = 1000;
 export function formatCustomerCode(sequenceValue: number): string {
   return `CUS-${CUSTOMER_CODE_OFFSET + sequenceValue}`;
 }
+
+const CONTRACT_CODE_OFFSET = 1000;
+
+/** `CON-nnnn` — tenant-wide transporter-contract display code, same offset scheme as REQ/LOAD. */
+export function formatContractCode(sequenceValue: number): string {
+  return `CON-${CONTRACT_CODE_OFFSET + sequenceValue}`;
+}

@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { isoDateSchema } from '../../../shared/utils/date';
 import {
   BALANCE_PAID_BY,
   NOTE_MAX_LENGTH,
+  TITLE_MAX_LENGTH,
   POST_MODES,
   PRICE_BASES,
   PRICE_MODES,
@@ -110,6 +110,7 @@ export const postLoadBody = z
     advancePercentage: advancePercentage.optional(),
     balancePaidBy: z.enum(BALANCE_PAID_BY).optional(),
     note: z.string().trim().max(NOTE_MAX_LENGTH).optional(),
+    title: z.string().trim().max(TITLE_MAX_LENGTH).optional(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -206,26 +207,18 @@ export const loadPostingValidators = {
   availableDrivers: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   fleetOptions: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   listContracts: z.object({
-    query: z.object({
-      customerId: uuid,
-      pickupCity: z.string().trim().min(1).optional(),
-      dropCity: z.string().trim().min(1).optional(),
-    }),
-  }),
-  createContract: z.object({
-    body: z
+    query: z
       .object({
         customerId: uuid,
-        transporterId: uuid,
-        contractNumber: z.string().trim().min(1).max(50),
-        pickupCity: z.string().trim().min(1).max(100),
-        dropCity: z.string().trim().min(1).max(100),
-        rate: z.number().positive(),
-        validFrom: isoDateSchema,
-        validTo: isoDateSchema,
+        pickupCity: z.string().trim().min(1).optional(),
+        pickupState: z.string().trim().min(1).optional(),
+        dropCity: z.string().trim().min(1).optional(),
+        dropState: z.string().trim().min(1).optional(),
       })
-      .strict()
-      .refine((c) => c.validTo >= c.validFrom, 'Contract end date must not be before its start'),
+      .refine((q) => {
+        const given = [q.pickupCity, q.pickupState, q.dropCity, q.dropState].filter(Boolean);
+        return given.length === 0 || given.length === 4;
+      }, 'Give the full lane (pickup and drop, city and state) or none of it'),
   }),
   draftBody: z.object({ body: z.object({ payload: z.record(z.string(), z.unknown()) }).strict() }),
   draftParams: z.object({ params: z.object({ draftId: uuid }) }),

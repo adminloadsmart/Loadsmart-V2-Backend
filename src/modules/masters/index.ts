@@ -30,6 +30,12 @@ import { TransporterService } from './transporter/transporter.service';
 import { TransporterController } from './transporter/transporter.controller';
 import { TransporterImportService } from './transporter/transporter-import.service';
 import { TransporterImportController } from './transporter/transporter-import.controller';
+import { TransporterContractRepository } from './transporter-contract/transporter-contract.repository';
+import { TransporterContractService } from './transporter-contract/transporter-contract.service';
+import { TransporterContractController } from './transporter-contract/transporter-contract.controller';
+import { TransporterContractImportService } from './transporter-contract/transporter-contract-import.service';
+import { TransporterContractImportController } from './transporter-contract/transporter-contract-import.controller';
+import { CodeSequenceRepository } from '../loads/code-sequence.repository';
 import { StorageService } from '../storage/storage.service';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
@@ -68,6 +74,27 @@ export function createMastersModule(
     deps.auditService,
   );
   const transporterImportController = new TransporterImportController(transporterImportService);
+
+  const transporterContractRepository = new TransporterContractRepository(dataSource);
+  const transporterContractService = new TransporterContractService(
+    transporterContractRepository,
+    transporterService,
+    new CodeSequenceRepository(dataSource),
+    dataSource,
+    deps.auditService,
+  );
+  const transporterContractController = new TransporterContractController(
+    transporterContractService,
+  );
+  const transporterContractImportService = new TransporterContractImportService(
+    transporterContractService,
+    transporterContractRepository,
+    transporterRepository,
+    deps.auditService,
+  );
+  const transporterContractImportController = new TransporterContractImportController(
+    transporterContractImportService,
+  );
 
   const loadingPointRepository = new LoadingPointRepository(dataSource);
   const loadingPointService = new LoadingPointService(loadingPointRepository, deps.auditService);
@@ -125,6 +152,8 @@ export function createMastersModule(
     loadingPointImportController,
     transporterController,
     transporterImportController,
+    transporterContractController,
+    transporterContractImportController,
     vehicleController,
     vehicleImportController,
     deps.driverController,
@@ -138,6 +167,7 @@ export function createMastersModule(
     truckTypeCatalogService,
     loadingPointService,
     transporterService,
+    transporterContractService,
     productService,
     protectedRouter,
     vehicleComplianceAlertsWorker,
