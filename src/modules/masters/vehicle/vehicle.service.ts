@@ -1,5 +1,12 @@
 import { DataSource, EntityManager } from 'typeorm';
-import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
+import {
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  rethrow,
+  ValidationError,
+} from '../../../shared/errors';
+import { UlipClient, UlipError, UlipVahanResult } from '../../../adapters/ulip.client';
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { toDateString } from '../../../shared/utils/date';
 import { toIstDateString } from '../../../shared/utils/ist-time';
@@ -117,6 +124,7 @@ export class VehicleService {
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    private readonly ulipClient: UlipClient,
     // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
     // throws (see notifications/master-approvals.ts).
     private readonly approvalNotifier?: MasterApprovalNotifier,
@@ -779,6 +787,25 @@ export class VehicleService {
       return snapshot;
     } catch (error) {
       rethrow(error, 'Failed to record vehicle verification');
+    }
+  }
+
+  /**
+   * "Add a truck" preflight: looks a registration number up in VAHAN through ULIP before the
+   * vehicle exists. Read-only — the client sends the result back through /vehicles/onboard or
+   * /vehicles/:vehicleId/verifications to persist it. A registry miss is a normal
+   * `status: 'not_found'` result, not an error.
+   */
+  async checkVahan(registrationNumber: string): Promise<UlipVahanResult> {
+    try {
+      return await this.ulipClient.lookupVehicle(registrationNumber);
+    } catch (error) {
+      if (error instanceof UlipError) {
+        // ULIP's own wording is for our logs, not the client (same as places.service.ts).
+        console.error(error.message);
+        throw new InternalError('VAHAN lookup is currently unavailable');
+      }
+      rethrow(error, 'Failed to check vehicle against VAHAN');
     }
   }
 

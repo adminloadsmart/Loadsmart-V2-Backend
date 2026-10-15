@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { kmInWindow, median, replacementCandidates } from './fleet-analytics.calculations';
+import {
+  blockedDaysInWindow,
+  isOnTime,
+  kmInWindow,
+  lateDays,
+  loadInterval,
+  median,
+  perKm,
+  replacementCandidates,
+  unionDaysInWindow,
+} from './fleet-analytics.calculations';
+import { VehicleDocumentEntity } from '../../../masters/vehicle/entities/vehicle-document.entity';
+import { LoadEntity } from '../../../loads/entities/load.entity';
 
 const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const window = { from: d('2026-03-01'), to: d('2026-09-01') };
@@ -96,5 +108,105 @@ describe('replacementCandidates', () => {
     expect(
       replacementCandidates([{ row: 'x', truckTypeId: 'A', ageYears: 9, perKm: 99 }], 2, 2),
     ).toEqual([]);
+  });
+});
+
+describe('unionDaysInWindow', () => {
+  it('counts overlapping loads once and clips to the window', () => {
+    const days = unionDaysInWindow(
+      [
+        { from: d('2026-02-25'), to: d('2026-03-05') }, // 4 days inside
+        { from: d('2026-03-03'), to: d('2026-03-08') }, // overlaps: +3 days
+        { from: d('2026-04-01'), to: d('2026-04-03') }, // separate: +2 days
+      ],
+      window,
+    );
+    expect(days).toBeCloseTo(9);
+  });
+
+  it('reads nothing outside the window', () => {
+    expect(unionDaysInWindow([{ from: d('2026-01-01'), to: d('2026-02-01') }], window)).toBe(0);
+  });
+});
+
+describe('blockedDaysInWindow', () => {
+  const doc = (
+    documentType: string,
+    expiryDate: string,
+    issueDate: string | null,
+  ): VehicleDocumentEntity =>
+    ({
+      documentType,
+      expiryDate,
+      issueDate,
+      deletedAt: null,
+      createdAt: d(issueDate ?? '2025-01-01'),
+    }) as VehicleDocumentEntity;
+  const now = d('2026-09-01');
+
+  it('counts a lapse that was renewed inside the window', () => {
+    // Insurance out from 1 Apr (day after 31 Mar) until the new copy starts on 11 Apr.
+    const days = blockedDaysInWindow(
+      [doc('insurance', '2026-03-31', '2025-04-01'), doc('insurance', '2027-04-10', '2026-04-11')],
+      window,
+      now,
+    );
+    expect(days).toBeGreaterThan(9.5);
+    expect(days).toBeLessThan(10.5);
+  });
+
+  it('counts nothing when the paper was renewed before it ran out', () => {
+    const days = blockedDaysInWindow(
+      [doc('insurance', '2026-03-31', '2025-04-01'), doc('insurance', '2027-03-31', '2026-03-20')],
+      window,
+      now,
+    );
+    expect(days).toBe(0);
+  });
+
+  it('runs to now when the paper was never renewed', () => {
+    const days = blockedDaysInWindow([doc('insurance', '2026-08-21', '2025-08-22')], window, now);
+    expect(days).toBeGreaterThan(9.5);
+    expect(days).toBeLessThan(10.5);
+  });
+});
+
+describe('isOnTime', () => {
+  const promised = new Date('2026-03-10T18:29:59.999Z');
+  it('allows exactly half an hour late', () => {
+    expect(isOnTime(new Date(promised.getTime() + 30 * 60 * 1000), promised)).toBe(true);
+  });
+  it('calls anything beyond half an hour late', () => {
+    expect(isOnTime(new Date(promised.getTime() + 31 * 60 * 1000), promised)).toBe(false);
+  });
+  it('measures lateness in days, 0 when early', () => {
+    expect(lateDays(new Date(promised.getTime() - 1000), promised)).toBe(0);
+    expect(lateDays(new Date(promised.getTime() + 2 * 86_400_000), promised)).toBeCloseTo(2);
+  });
+});
+
+describe('loadInterval', () => {
+  const now = d('2026-05-01');
+  it('runs from the plant to delivery', () => {
+    const load = { atPlantAt: d('2026-03-01'), deliveredAt: d('2026-03-04') } as LoadEntity;
+    expect(loadInterval(load, now)).toEqual({ from: d('2026-03-01'), to: d('2026-03-04') });
+  });
+  it('runs to now while the load is on the road', () => {
+    const load = {
+      atPlantAt: null,
+      loadingConfirmedAt: d('2026-04-20'),
+      deliveredAt: null,
+    } as LoadEntity;
+    expect(loadInterval(load, now)).toEqual({ from: d('2026-04-20'), to: now });
+  });
+  it('is null before the truck reaches the plant', () => {
+    expect(loadInterval({} as LoadEntity, now)).toBeNull();
+  });
+});
+
+describe('perKm', () => {
+  it('divides cost by km and is null without km', () => {
+    expect(perKm(1000, 400)).toBe(2.5);
+    expect(perKm(1000, 0)).toBeNull();
   });
 });

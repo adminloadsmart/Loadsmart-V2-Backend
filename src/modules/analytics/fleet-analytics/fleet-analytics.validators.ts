@@ -8,9 +8,10 @@ import {
 const uuid = z.string().uuid();
 
 /**
- * The filter bar every Fleet Analytics tab shares. `yardId` and `customerId` are accepted so the
- * frontend can send the whole bar unchanged, but neither filters anything yet: there is no yard
- * model, and customer only narrows load metrics, which are all 0 until loads are wired in.
+ * The filter bar every Fleet Analytics tab shares (§5.14: period, vehicle, class, lane).
+ * `customerId` and `laneKey` narrow the load figures. `yardId` is accepted so the frontend can
+ * send the whole bar unchanged, but there is no yard model yet, so it filters nothing and the
+ * response says so under `unavailable`.
  */
 const fleetAnalyticsQuery = z
   .object({
@@ -19,6 +20,14 @@ const fleetAnalyticsQuery = z
     to: isoDate.optional(),
     truckTypeId: uuid.optional(),
     heldAs: z.enum(FLEET_ANALYTICS_HELD_AS).default('owned_and_attached'),
+    vehicleId: uuid.optional(),
+    laneKey: z
+      .string()
+      .regex(
+        /^[0-9a-f-]{36}:[0-9a-f-]{36}$/i,
+        'laneKey is `${loadingPointId}:${customerDeliveryPointId}`',
+      )
+      .optional(),
     yardId: uuid.optional(),
     customerId: uuid.optional(),
   })
@@ -47,4 +56,5 @@ export const fleetAnalyticsValidators = {
   getMaintenance: tabQuery,
   getOperations: tabQuery,
   getCompliance: tabQuery,
+  getFindings: tabQuery,
 };

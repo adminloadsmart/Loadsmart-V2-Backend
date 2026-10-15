@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
+import { createIpRateLimit } from '../../../shared/middleware/rate-limit.middleware';
+import { env } from '../../../config/env';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
 import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
 import { VehicleController } from './vehicle.controller';
@@ -16,6 +18,23 @@ export function createVehicleRoutes(
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
+  // Throttles POST /vehicles/verify-vahan — each call is a ULIP lookup. Same createIpRateLimit +
+  // env-driven limit/window pattern as driver.routes.ts's verify-dl.
+  const verifyVahanRateLimit = createIpRateLimit({
+    keyPrefix: 'verify-vahan',
+    limit: env.vehicleVerifyVahanRateLimitMax,
+    windowSeconds: env.vehicleVerifyVahanRateLimitWindowSeconds,
+  });
+
+  // "Add a truck" preflight — checks a registration number before the vehicle exists, so it has
+  // no :vehicleId param. Declared before '/vehicles/:vehicleId' like '/vehicles/onboard'.
+  router.post(
+    '/vehicles/verify-vahan',
+    verifyVahanRateLimit,
+    canWrite,
+    validate(vehicleValidators.verifyVahan),
+    asyncHandler(controller.verifyVahan),
+  );
 
   // Backs the single "Save vehicle" button — whole form, one transaction. Declared before
   // '/vehicles/:vehicleId' so the literal segment isn't captured as an id.

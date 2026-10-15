@@ -196,6 +196,11 @@ export class VehicleController {
     respond(res, snapshot, 201);
   };
 
+  verifyVahan = async (req: Request, res: Response) => {
+    const result = await this.vehicleService.checkVahan(req.body.registrationNumber);
+    respond(res, result);
+  };
+
   listVehicleVerifications = async (req: Request<VehicleParams>, res: Response) => {
     const snapshots = await this.vehicleService.listVerifications(
       requireTenantId(req),
