@@ -215,7 +215,10 @@ export class UlipClient {
         Number.isFinite(unladenWeight) && unladenWeight > 0 ? unladenWeight : undefined,
       papers: {
         insuranceValidTo: date('rc_insurance_upto'),
-        rcValidTo: date('rc_regn_upto'),
+        // A goods vehicle's RC stays valid only while its fitness certificate does, and ULIP's
+        // VAHAN/04 has no separate registration-validity field for them — so fitness is the
+        // fallback when no dedicated rc_regn_upto is returned.
+        rcValidTo: date('rc_regn_upto', 'rc_fit_upto'),
         permitValidTo: date('rc_permit_valid_upto', 'rc_np_upto'),
         pucValidTo: date('rc_pucc_upto'),
         fitnessValidTo: date('rc_fit_upto'),
