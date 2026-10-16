@@ -1,11 +1,11 @@
 import { rethrow } from '../../../shared/errors';
-import { endOfIstDate, startOfIstDate, toIstDateString } from '../../../shared/utils/ist-time';
+import { startOfIstDate, toIstDateString } from '../../../shared/utils/ist-time';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { LoadEntity } from '../../loads/entities/load.entity';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { downtimeDaysInWindow, money } from '../../maintenance/calculations/downtime';
-import { daysBetween, msToDays, round } from '../../maintenance/calculations/dates';
-import { computeTyreWear } from '../../maintenance/calculations/tyre-wear';
+import { daysBetween, round } from '../../maintenance/calculations/dates';
 import { FleetAnalyticsRepository } from './fleet-analytics.repository';
 import {
   FleetAnalyticsCompliance,
@@ -22,94 +22,119 @@ import {
   FleetAnalyticsSummary,
   FleetAnalyticsUtilisation,
   FleetCostHead,
+  FleetDayBucket,
   FleetDocumentCounts,
   FleetEmptyBecause,
   FleetFinding,
   FleetLaneAmount,
   FleetLaneOnTimeRow,
-  FleetTruckUtilisationRow,
+  FleetTruckTypeCost,
   FleetVehicleSummary,
+  TyreConditionLabel,
 } from './utils/fleet-analytics.interface';
 import {
+  COMPLIANCE_DOCUMENT_TYPES,
+  DAYS_PER_MONTH,
   DOCUMENT_LABELS,
   FINDINGS_LIMIT,
   FLEET_ANALYTICS_HELD_AS,
   HELD_AS_LABELS,
+  IDLE_TRUCKS_LIMIT,
   LEAST_USED_TRUCKS_LIMIT,
   LOAD_STAGES,
+  MAINTENANCE_BY_VEHICLE_LIMIT,
   MIN_BENCHMARK_TRUCKS,
   NEW_TRUCK_MAX_AGE_YEARS,
+  ON_TIME_BY_LANE_LIMIT,
+  ON_TIME_WINDOW_MS,
   RENEW_THIS_WEEK_LIMIT,
   REPLACEMENT_CANDIDATES_LIMIT,
-  TYRE_PAST_LIFE_LEFT_PCT,
+  TOP_LANES_BY_COST,
+  TRUCKS_BY_COST_LIMIT,
+  TYRE_REPLACE_NOW_MM,
+  TYRE_WORN_MM,
   UNAVAILABLE_REASONS,
   UnavailableKey,
 } from './utils/fleet-analytics.constants';
-import { FleetPeriod, resolveFleetPeriod } from './utils/fleet-analytics.period';
+import { FleetPeriod, MonthWindow, resolveFleetPeriod } from './utils/fleet-analytics.period';
 import {
-  StandingCost,
+  DayBuckets,
+  FixedCostParts,
+  Lane,
+  OdometerPoint,
+  PeriodDay,
   TimeWindow,
-  activeWindow,
-  blockedDaysInWindow,
+  TruckTypeKey,
+  ZERO_FIXED_COST,
+  addFixedCost,
+  average,
+  bodyTypeOf,
   currentDatedDocuments,
+  dailyFixedCost,
+  dayBuckets,
   documentBucket,
-  hoursBetween,
+  dueAt,
+  fixedCostOver,
+  hadExpiredDocumentAt,
   intersect,
+  isAttached,
   isCountedJob,
+  isDelivered,
   isOnTime,
+  isServiceOrBreakdown,
   istMonth,
   jobCategory,
   jobCost,
+  jobInterval,
   kmInWindow,
   laneOf,
   laneOfRequisition,
   lateDays,
-  loadInterval,
-  loadStart,
+  loadArrival,
+  loadDeparture,
+  loadingHours,
   median,
   monthlyEmiAndLease,
-  OdometerPoint,
+  newTreadMm,
+  onLoadInterval,
   overlapDays,
   pct,
   perKm,
-  promisedBy,
+  periodDays,
   replacementCandidates,
-  standingCostIn,
+  sizeOf,
   toFleetVehicleSummary,
-  tyreCondition,
-  unionDaysInWindow,
+  turnaroundDays,
+  tyreBand,
+  tyreLifeLeft,
+  unloadingHours,
   vehicleAgeYears,
 } from './utils/fleet-analytics.calculations';
-import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
 
 /** One truck's figures over the period — every tab builds from these rows. */
 interface VehicleStats {
   vehicle: VehicleEntity;
   summary: FleetVehicleSummary;
-  active: TimeWindow;
-  activeDays: number;
-  /**
-   * The active days split by why (§6.9): on a load first, then the workshop, then blocked on an
-   * expired paper; whatever is left the truck stood. The four always add up to activeDays.
-   */
-  onLoadDays: number;
-  workshopDays: number;
-  blockedDays: number;
-  standingDays: number;
-  /** Days jobs kept the truck off the road, whether or not it was also on a load. */
-  downtimeDays: number;
-  /** Standing cost over the active window, by head. */
-  standing: StandingCost;
-  /** Average standing cost per active day — what each idle/workshop/blocked day carried. */
-  perDay: number;
-  /** Standing cost per day as of today — for "what it costs while the paper is out". */
-  currentPerDay: number;
-  /** Counted jobs opened inside the period. */
+  body: TruckTypeKey;
+  size: TruckTypeKey | null;
+  /** Monthly fixed salary of the driver assigned to the truck (0 when none, or not fixed). */
+  driverSalary: number;
+  /** Day status (§8): on a load + workshop + idle = days in period. */
+  buckets: DayBuckets;
+  /** Fixed cost over the period, by part (§7). */
+  fixed: FixedCostParts;
+  /** Average daily fixed cost over the period — what each idle or workshop day carried. */
+  dailyFixed: number;
+  /** Daily fixed cost as of today — for "what it costs while the paper is out". */
+  currentDailyFixed: number;
+  /** Counted maintenance jobs opened inside the period. */
   jobs: MaintenanceJobEntity[];
-  /** All counted job cost, tyres included. */
+  /** Running cost: maintenance only until fuel, tolls, trip expenses and hire are recorded. */
   maintenanceCost: number;
+  /** Days jobs kept the truck off the road inside the period (workshop + breakdown days). */
+  downtimeDays: number;
   ageYears: number | null;
-  /** Loads the truck was on during the period. */
+  /** Loads on the truck overlapping the period, before the customer / lane filters. */
   loads: LoadEntity[];
   points: OdometerPoint[];
   km: { km: number; estimated: boolean };
@@ -119,26 +144,46 @@ interface FleetContext {
   filters: FleetAnalyticsFilters;
   period: FleetPeriod;
   periodView: FleetAnalyticsPeriodView;
+  /** Days in period (§1): start to today, or to the period end if earlier. */
+  days: PeriodDay[];
+  /** The period cut at now. */
+  window: TimeWindow;
   now: Date;
   today: string;
   stats: VehicleStats[];
-  /** Every load in `stats`, flattened. */
+  /** Loads that started in the period, after the customer / lane filters (§1). */
+  loadsStarted: LoadEntity[];
+  /** Every load overlapping the period, after the customer / lane filters. */
   loads: LoadEntity[];
+  drivers: DriverTenantRelationEntity[];
+  /** Salaries of drivers with no truck, charged to the fleet (§7), over the period. */
+  unassignedSalaryCost: number;
+  /** The same, a month. */
+  unassignedMonthlySalary: number;
   emptyBecause: FleetEmptyBecause | null;
 }
 
-const ON_THE_ROAD_STATUSES = ['in_transit'];
-
 const PARTIAL_COST_NOTE =
-  'Built from standing and maintenance cost only. ' +
-  [UNAVAILABLE_REASONS.fuel, UNAVAILABLE_REASONS.tolls, UNAVAILABLE_REASONS.driverPay].join(' ');
+  'Fleet cost counts maintenance, EMI and lease, insurance, National Permit and driver salaries. ' +
+  [
+    UNAVAILABLE_REASONS.fuel,
+    UNAVAILABLE_REASONS.tolls,
+    UNAVAILABLE_REASONS.tripExpenses,
+    UNAVAILABLE_REASONS.eChallans,
+    UNAVAILABLE_REASONS.hire,
+    UNAVAILABLE_REASONS.truckPrice,
+  ].join(' ');
+
+const TYRE_BAND_RANK: Record<TyreConditionLabel, number> = {
+  very_worn: 0,
+  worn: 1,
+  fair: 2,
+  good: 3,
+  new_like: 4,
+};
 
 function sum<T>(rows: T[], pick: (row: T) => number): number {
   return rows.reduce((total, row) => total + pick(row), 0);
-}
-
-function average(values: number[]): number {
-  return values.length ? sum(values, (value) => value) / values.length : 0;
 }
 
 function roundOrNull(value: number | null, digits = 1): number | null {
@@ -149,49 +194,60 @@ function inr(amount: number): string {
   return `₹${Math.round(amount).toLocaleString('en-IN')}`;
 }
 
-/** What a truck cost over the period: standing plus maintenance. */
-function vehicleCost(s: VehicleStats): number {
-  return s.standing.total + s.maintenanceCost;
-}
-
-/** Total cost and km over the trucks whose km could be read — the per-km figures divide one by
- *  the other, so a truck with no km never inflates the cost side. */
-function costOverKm(rows: VehicleStats[], cost: (s: VehicleStats) => number) {
-  const running = rows.filter((s) => s.km.km > 0);
-  const km = sum(running, (s) => s.km.km);
-  return {
-    perKm: perKm(sum(running, cost), km),
-    km,
-    vehicles: running.length,
-    estimated: running.some((s) => s.km.estimated),
-  };
-}
-
 function isWithin(at: Date | null, window: TimeWindow): at is Date {
   return at !== null && at >= window.from && at <= window.to;
 }
 
-/** Loads loaded in the period — the base of loads moved, tonnes and trips (§6.3). */
-function loadedInPeriod(context: FleetContext): LoadEntity[] {
-  return context.loads.filter((load) => isWithin(loadStart(load), context.period));
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) groups.set(key(row), [...(groups.get(key(row)) ?? []), row]);
+  return groups;
 }
 
-/** Loads delivered in the period with a promise to judge them against. */
-function deliveredInPeriod(loads: LoadEntity[], period: TimeWindow) {
+/** Running + fixed cost of one truck over the period. */
+function truckCost(s: VehicleStats): number {
+  return s.maintenanceCost + s.fixed.total;
+}
+
+/** Fleet-level totals (§7): running + fixed, where fixed includes drivers with no truck. */
+function fleetTotals(context: FleetContext) {
+  const running = sum(context.stats, (s) => s.maintenanceCost);
+  const fixed = sum(context.stats, (s) => s.fixed.total) + context.unassignedSalaryCost;
+  const withKm = context.stats.filter((s) => s.km.km > 0);
+  return {
+    running,
+    fixed,
+    total: running + fixed,
+    km: sum(withKm, (s) => s.km.km),
+    trucksWithKm: withKm.length,
+    estimated: context.stats.some((s) => s.km.estimated),
+  };
+}
+
+/** Cost and km of a group of trucks (no fleet-level salaries). */
+function groupCost(rows: VehicleStats[]) {
+  const cost = sum(rows, truckCost);
+  const km = sum(rows, (s) => s.km.km);
+  return { cost, km, perKm: perKm(cost, km) };
+}
+
+/** Delivered loads (§1) with a due time to judge them against, and their arrival. */
+function deliveredWithDue(loads: LoadEntity[]) {
   return loads.flatMap((load) => {
-    const promised = promisedBy(load);
-    if (!isWithin(load.deliveredAt, period) || !promised) return [];
-    return [{ load, deliveredAt: load.deliveredAt, promised }];
+    const due = dueAt(load);
+    const arrival = loadArrival(load);
+    if (!isDelivered(load) || !due || !arrival) return [];
+    return [{ load, arrival, due }];
   });
 }
 
-function onTimeOf(delivered: ReturnType<typeof deliveredInPeriod>) {
-  const late = delivered.filter((row) => !isOnTime(row.deliveredAt, row.promised));
+function onTimeOf(delivered: ReturnType<typeof deliveredWithDue>) {
+  const late = delivered.filter((row) => !isOnTime(row.arrival, row.due));
   return {
     pct: pct(delivered.length - late.length, delivered.length),
     late: late.length,
     delivered: delivered.length,
-    medianLateDays: roundOrNull(median(late.map((row) => lateDays(row.deliveredAt, row.promised)))),
+    medianLateDays: roundOrNull(median(late.map((row) => lateDays(row.arrival, row.due)))),
   };
 }
 
@@ -199,31 +255,16 @@ function tonnesOf(loads: LoadEntity[]): number {
   return sum(loads, (load) => Number(load.plannedCapacityTonnes ?? 0));
 }
 
-/** Days from the plant to delivery, per delivered load. */
-function turnaroundDaysOf(loads: LoadEntity[]): number[] {
-  return loads.flatMap((load) => {
-    const start = loadStart(load);
-    return start && load.deliveredAt && load.deliveredAt > start
-      ? [msToDays(load.deliveredAt.getTime() - start.getTime())]
-      : [];
+/** Average of a per-load measure over the loads that have it. */
+function averageOf(loads: LoadEntity[], pick: (load: LoadEntity) => number | null): number {
+  const values = loads.flatMap((load) => {
+    const value = pick(load);
+    return value === null ? [] : [value];
   });
+  return round(average(values) ?? 0, 1);
 }
 
-function loadingHoursOf(loads: LoadEntity[]): number[] {
-  return loads.flatMap((load) => {
-    const hours = hoursBetween(load.atPlantAt, load.inTransitAt ?? load.loadingConfirmedAt);
-    return hours === null ? [] : [hours];
-  });
-}
-
-function unloadingHoursOf(loads: LoadEntity[]): number[] {
-  return loads.flatMap((load) => {
-    const hours = hoursBetween(load.reachedDeliveryPointAt, load.deliveredAt);
-    return hours === null ? [] : [hours];
-  });
-}
-
-/** Where a load sits on the "Where the loads are" chart. */
+/** Where a load sits on the "Where the loads are" chart (§17). */
 function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] {
   switch (load.status) {
     case 'created':
@@ -239,29 +280,53 @@ function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] {
     case 'reached_delivery_point':
       return 'reached_delivery';
     case 'delivered':
-      return load.podStatus === 'accepted' ? 'pod_received' : 'unloaded';
+      return load.podFileKey ? 'pod_received' : 'unloaded';
     case 'closed':
       return 'closed';
   }
 }
 
-/** Standing cost of the truck-days spent on each lane's loads in the period. */
+/** A lane's cost (§12): daily fixed cost × the days its loads held the truck, in the period. */
 function costByLaneOf(context: FleetContext): FleetLaneAmount[] {
+  const statsById = new Map(context.stats.map((s) => [s.vehicle.id, s]));
   const lanes = new Map<string, FleetLaneAmount>();
-  for (const s of context.stats) {
-    for (const load of s.loads) {
-      const lane = laneOf(load);
-      const interval = loadInterval(load, context.now);
-      if (!lane || !interval || !isWithin(loadStart(load), context.period)) continue;
-      const row = lanes.get(lane.key) ?? { lane: lane.label, laneKey: lane.key, loads: 0, cost: 0 };
-      row.loads += 1;
-      row.cost += overlapDays(interval.from, interval.to, s.active) * s.perDay;
-      lanes.set(lane.key, row);
-    }
+  for (const load of context.loadsStarted) {
+    const lane = laneOf(load);
+    const interval = onLoadInterval(load, context.now);
+    const s = statsById.get(load.vehicleId ?? '');
+    if (!lane || !interval || !s) continue;
+    const row = lanes.get(lane.key) ?? { lane: lane.label, laneKey: lane.key, loads: 0, cost: 0 };
+    row.loads += 1;
+    row.cost += overlapDays(interval.from, interval.to, context.window) * s.dailyFixed;
+    lanes.set(lane.key, row);
   }
   return [...lanes.values()]
     .map((row) => ({ ...row, cost: money(row.cost) }))
     .sort((a, b) => b.cost - a.cost);
+}
+
+/** Fixed cost of the trucks over the days of one month, plus fleet-level salaries. */
+function monthFixed(context: FleetContext, month: MonthWindow) {
+  const days = context.days.filter((day) => day.date.startsWith(month.month));
+  const parts = context.stats.reduce(
+    (total, s) => addFixedCost(total, fixedCostOver(s.vehicle, s.driverSalary, days)),
+    ZERO_FIXED_COST,
+  );
+  const unassigned = (context.unassignedMonthlySalary / DAYS_PER_MONTH) * days.length;
+  return { parts, unassigned, total: parts.total + unassigned };
+}
+
+function bucketOf(
+  stats: VehicleStats[],
+  truckDays: number,
+  pick: (s: VehicleStats) => number,
+): FleetDayBucket {
+  const days = sum(stats, pick);
+  return {
+    days,
+    pct: pct(days, truckDays),
+    fixedCost: money(sum(stats, (s) => pick(s) * s.dailyFixed)),
+  };
 }
 
 function unavailable(
@@ -273,8 +338,31 @@ function unavailable(
     reasons[field] =
       reason in UNAVAILABLE_REASONS ? UNAVAILABLE_REASONS[reason as UnavailableKey] : reason;
   }
-  if (context.filters.yardId) reasons.yardId = UNAVAILABLE_REASONS.yard;
   return { unavailable: reasons, emptyBecause: context.emptyBecause };
+}
+
+/** Monthly salary of a driver on a fixed salary (§7); per-trip and per-km pay isn't fixed cost. */
+function fixedMonthlySalary(relation: DriverTenantRelationEntity): number {
+  const driver = relation.driver;
+  return driver.salaryType === 'fixed' ? Number(driver.salaryAmount ?? 0) : 0;
+}
+
+/** The truck a driver is assigned to right now: their active primary link. */
+function assignedVehicleId(relation: DriverTenantRelationEntity): string | null {
+  return (
+    (relation.vehicleLinks ?? []).find(
+      (link) => link.isPrimary && link.status === 'active' && !link.deletedAt,
+    )?.vehicleId ?? null
+  );
+}
+
+/** A driver's licence valid-to: the profile's, else the latest verification's. */
+function licenceValidTo(relation: DriverTenantRelationEntity): string | null {
+  const verification = (relation.driver.verifications ?? [])
+    .filter((v) => !v.deletedAt)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .at(0);
+  return relation.driver.licenseExpiry ?? verification?.validUntil ?? null;
 }
 
 export class FleetAnalyticsService {
@@ -282,17 +370,28 @@ export class FleetAnalyticsService {
 
   async getFilters(tenantId: string): Promise<FleetAnalyticsFilterOptions> {
     try {
-      const [truckTypes, customers, vehicles, requisitions] = await Promise.all([
-        this.repository.listTruckTypes(tenantId),
-        this.repository.listCustomers(tenantId),
+      const [customers, vehicles, requisitions] = await Promise.all([
+        this.repository.listCustomersWithLoads(tenantId),
         this.repository.listVehicleOptions(tenantId),
         this.repository.listRequisitionLanes(tenantId),
       ]);
+
+      const bodyTypes = new Map<string, { name: string; sizes: Map<string, string> }>();
+      for (const vehicle of vehicles) {
+        const body = bodyTypeOf(vehicle);
+        const entry = bodyTypes.get(body.key) ?? { name: body.label, sizes: new Map() };
+        const size = sizeOf(vehicle);
+        if (size) entry.sizes.set(size.key, size.label);
+        bodyTypes.set(body.key, entry);
+      }
+
       const lanes = new Map<string, string>();
       for (const requisition of requisitions) {
         const lane = laneOfRequisition(requisition);
         if (lane) lanes.set(lane.key, lane.label);
       }
+      const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+
       return {
         periods: [
           { value: 'last_month', label: 'Last month' },
@@ -300,14 +399,17 @@ export class FleetAnalyticsService {
           { value: '6_months', label: '6 months' },
           { value: 'custom', label: 'Custom Range' },
         ],
-        truckClasses: truckTypes.map((type) => ({ id: type.id, name: type.name })),
+        bodyTypes: [...bodyTypes.entries()]
+          .map(([id, entry]) => ({
+            id,
+            name: entry.name,
+            sizes: [...entry.sizes.entries()].map(([sizeId, name]) => ({ id: sizeId, name })),
+          }))
+          .sort(byName),
         heldAs: FLEET_ANALYTICS_HELD_AS.map((value) => ({ value, label: HELD_AS_LABELS[value] })),
-        yards: [],
         customers: customers.map((customer) => ({ id: customer.id, name: customer.name })),
         vehicles: vehicles.map((vehicle) => ({ id: vehicle.id, name: vehicle.registrationNumber })),
-        lanes: [...lanes.entries()]
-          .map(([id, name]) => ({ id, name }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+        lanes: [...lanes.entries()].map(([id, name]) => ({ id, name })).sort(byName),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch fleet analytics filters');
@@ -320,40 +422,39 @@ export class FleetAnalyticsService {
   ): Promise<FleetAnalyticsSummary> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { periodView, stats } = context;
-      const onRoad = sum(stats, (s) => s.maintenanceCost);
-      const standing = sum(stats, (s) => s.standing.total);
-      const truckDays = sum(stats, (s) => s.activeDays);
-      const workingDays = sum(stats, (s) => s.onLoadDays);
-      const allIn = costOverKm(stats, vehicleCost);
+      const { periodView, stats, days } = context;
+      const totals = fleetTotals(context);
+      const truckDays = stats.length * days.length;
+      const workingDays = sum(stats, (s) => s.buckets.onLoad);
 
       return {
         period: periodView,
         vehicles: stats.length,
         costPerKm: {
-          value: allIn.perKm,
-          distanceKm: allIn.km,
-          vehicles: allIn.vehicles,
-          estimated: allIn.estimated,
+          value: perKm(totals.total, totals.km),
+          distanceKm: totals.km,
+          vehicles: totals.trucksWithKm,
+          estimated: totals.estimated,
         },
         fleetCost: {
-          total: money(onRoad + standing),
-          onRoad: money(onRoad),
-          standing: money(standing),
+          total: money(totals.total),
+          onRoad: money(totals.running),
+          standing: money(totals.fixed),
         },
         costPerTonneKm: {
           value: 0,
-          tonnes: round(tonnesOf(loadedInPeriod(context)), 1),
+          tonnes: round(tonnesOf(context.loadsStarted), 1),
           distanceKm: 0,
         },
         utilisation: {
           pct: pct(workingDays, truckDays),
-          workingDays: Math.round(workingDays),
-          truckDays: Math.round(truckDays),
+          workingDays,
+          truckDays,
         },
         ...unavailable(context, {
           costPerKm: PARTIAL_COST_NOTE,
-          costPerTonneKm: 'distancePerLoad',
+          costPerTonneKm: 'gps',
+          'costPerTonneKm.tonnes': 'weight',
         }),
       };
     } catch (error) {
@@ -367,24 +468,20 @@ export class FleetAnalyticsService {
   ): Promise<FleetAnalyticsOverview> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { period, periodView, stats, today } = context;
+      const { period, periodView, stats, today, loadsStarted } = context;
       const openJobs = await this.repository.listOpenJobs(
         tenantId,
         stats.map((s) => s.vehicle.id),
       );
 
-      const expiredVehicles = new Set(
-        stats
-          .filter((s) =>
-            currentDatedDocuments(s.vehicle).some((d) => daysBetween(today, d.expiryDate!) < 0),
-          )
-          .map((s) => s.vehicle.id),
+      const expiredVehicles = stats.filter((s) =>
+        currentDatedDocuments(s.vehicle).some((d) => daysBetween(today, d.expiryDate!) < 0),
       );
       const inWorkshop = new Set(openJobs.map((job) => job.vehicleId));
-      const outOfService = new Set([...expiredVehicles, ...inWorkshop]);
 
-      const standingDays = sum(stats, (s) => s.standingDays);
-      const idleCost = sum(stats, (s) => s.standingDays * s.perDay);
+      const notWorking = (s: VehicleStats) => s.buckets.idle + s.buckets.workshop;
+      const notWorkingDays = sum(stats, notWorking);
+      const idleCost = sum(stats, (s) => notWorking(s) * s.dailyFixed);
 
       const costBuildUp = period.months.map((month) => {
         const maintenance = sum(stats, (s) =>
@@ -393,82 +490,86 @@ export class FleetAnalyticsService {
             jobCost,
           ),
         );
-        const fixed = sum(
-          stats,
-          (s) => standingCostIn(s.vehicle, intersect(s.active, month)).total,
-        );
-        const km = sum(stats, (s) => kmInWindow(s.points, intersect(s.active, month)).km);
+        const fixed = monthFixed(context, month);
+        const km = sum(stats, (s) => kmInWindow(s.points, intersect(month, context.window)).km);
+        const total = maintenance + fixed.total;
         return {
-          month: month.month,
-          fuelAndEnergy: 0,
-          tolls: 0,
-          driver: 0,
-          maintenance: money(maintenance),
-          otherHireAndChallans: 0,
-          fixed: money(fixed),
-          total: money(maintenance + fixed),
-          km,
+          point: {
+            month: month.month,
+            fuelAndEnergy: 0,
+            tolls: 0,
+            driver: money(fixed.parts.driverSalary + fixed.unassigned),
+            maintenance: money(maintenance),
+            otherTripExpensesAndChallans: 0,
+            fixedAndHire: money(
+              fixed.parts.emiAndLease + fixed.parts.insurance + fixed.parts.permit,
+            ),
+            total: money(total),
+          },
+          costPerKm: perKm(total, km),
         };
       });
 
-      const loaded = loadedInPeriod(context);
-      const tonnes = tonnesOf(loaded);
-      const fleetCost = sum(stats, vehicleCost);
-      const onTime = onTimeOf(deliveredInPeriod(context.loads, period));
-
-      const own = stats.filter((s) => s.vehicle.ownershipType !== 'attached');
-      const attached = stats.filter((s) => s.vehicle.ownershipType === 'attached');
+      const totals = fleetTotals(context);
+      const tonnes = tonnesOf(loadsStarted);
+      const onTime = onTimeOf(deliveredWithDue(loadsStarted));
       const ownershipCost = (rows: VehicleStats[]) => {
-        const over = costOverKm(rows, vehicleCost);
-        return { cost: money(sum(rows, vehicleCost)), distanceKm: over.km, perKm: over.perKm };
+        const group = groupCost(rows);
+        return { cost: money(group.cost), distanceKm: group.km, perKm: group.perKm };
       };
 
       return {
         period: periodView,
         loads: {
-          carried: loaded.length,
-          perMonth: round(loaded.length / Math.max(1, period.months.length), 1),
+          carried: loadsStarted.length,
+          perMonth: round(loadsStarted.length / Math.max(1, period.months.length), 1),
         },
         tonnes: {
           moved: round(tonnes, 1),
-          costPerTonne: tonnes > 0 ? money(fleetCost / tonnes) : 0,
+          costPerTonne: tonnes > 0 ? money(totals.total / tonnes) : 0,
         },
         tripsPerVehicle: {
-          value: stats.length ? round(loaded.length / stats.length, 1) : 0,
+          value: stats.length ? round(loadsStarted.length / stats.length, 1) : 0,
           vehicles: stats.length,
         },
         onTime: { pct: onTime.pct, late: onTime.late, delivered: onTime.delivered },
-        complianceExpired: { vehicles: expiredVehicles.size },
-        trucksInService: { count: stats.length - outOfService.size, of: stats.length },
+        complianceExpired: { vehicles: expiredVehicles.length },
+        trucksInWorkshop: { count: inWorkshop.size, of: stats.length },
         openBreakdowns: { count: openJobs.filter((job) => job.jobType === 'breakdown').length },
         idleStandingCost: {
           amount: money(idleCost),
-          idleDays: Math.round(standingDays),
-          perDay: standingDays > 0 ? money(idleCost / standingDays) : 0,
+          idleDays: notWorkingDays,
+          perDay: notWorkingDays > 0 ? money(idleCost / notWorkingDays) : 0,
         },
-        monthlyCost: costBuildUp.map((point) => ({
+        monthlyCost: costBuildUp.map(({ point, costPerKm }) => ({
           month: point.month,
           totalCost: point.total,
-          costPerKm: perKm(point.total, point.km),
+          costPerKm,
         })),
-        costBuildUp: costBuildUp.map(({ km: _km, ...point }) => point),
+        costBuildUp: costBuildUp.map(({ point }) => point),
         ownedVsAttached: {
-          own: ownershipCost(own),
-          attached: ownershipCost(attached),
+          own: ownershipCost(stats.filter((s) => !isAttached(s.vehicle))),
+          attached: ownershipCost(stats.filter((s) => isAttached(s.vehicle))),
           hirePaidOut: { amount: 0, vendors: 0 },
           tripsOverClassRate: { count: 0, total: 0, pct: 0 },
         },
-        costByLane: costByLaneOf(context),
+        costByLane: costByLaneOf(context).slice(0, TOP_LANES_BY_COST),
         ...unavailable(context, {
+          'tonnes.moved': 'weight',
+          onTime: 'promisedTime',
           'costBuildUp.fuelAndEnergy': 'fuel',
           'costBuildUp.tolls': 'tolls',
-          'costBuildUp.driver': 'driverPay',
-          'costBuildUp.otherHireAndChallans': 'hire',
+          'costBuildUp.driver': 'Driver salaries only. ' + UNAVAILABLE_REASONS.tripExpenses,
+          'costBuildUp.otherTripExpensesAndChallans': 'tripExpenses',
+          'costBuildUp.fixedAndHire':
+            'EMI, lease, insurance and National Permit only. ' +
+            [UNAVAILABLE_REASONS.truckPrice, UNAVAILABLE_REASONS.hire].join(' '),
           'monthlyCost.costPerKm': PARTIAL_COST_NOTE,
           'ownedVsAttached.hirePaidOut': 'hire',
-          'ownedVsAttached.tripsOverClassRate': 'hire',
+          'ownedVsAttached.tripsOverClassRate': 'gps',
           costByLane:
-            'Standing cost of the truck-days spent on each lane only. ' + UNAVAILABLE_REASONS.fuel,
+            'Fixed cost of the days each load held the truck only. ' +
+            [UNAVAILABLE_REASONS.fuel, UNAVAILABLE_REASONS.tripExpenses].join(' '),
         }),
       };
     } catch (error) {
@@ -482,102 +583,81 @@ export class FleetAnalyticsService {
   ): Promise<FleetAnalyticsUtilisation> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { period, periodView, stats } = context;
-      const truckDays = sum(stats, (s) => s.activeDays);
-      const bucket = (pick: (s: VehicleStats) => number) => {
-        const days = sum(stats, pick);
-        const fixedCost = sum(stats, (s) => pick(s) * s.perDay);
-        return { days: Math.round(days), pct: pct(days, truckDays), fixedCost: money(fixedCost) };
-      };
-      const onLoad = bucket((s) => s.onLoadDays);
-      const standing = bucket((s) => s.standingDays);
-      const workshop = bucket((s) => s.workshopDays);
-      const blocked = bucket((s) => s.blockedDays);
+      const { period, periodView, stats, days, loadsStarted } = context;
+      const truckDays = stats.length * days.length;
+      const onLoad = bucketOf(stats, truckDays, (s) => s.buckets.onLoad);
+      const workshop = bucketOf(stats, truckDays, (s) => s.buckets.workshop);
+      const idle = bucketOf(stats, truckDays, (s) => s.buckets.idle);
 
-      const loaded = loadedInPeriod(context);
-      const loadedIds = new Set(loaded.map((load) => load.id));
-      const tripsOf = (s: VehicleStats) => s.loads.filter((load) => loadedIds.has(load.id)).length;
-      const capacityOf = new Map(
-        stats.map((s) => [s.vehicle.id, Number(s.vehicle.capacityTons ?? 0)]),
-      );
-      const withCapacity = loaded.filter((load) => (capacityOf.get(load.vehicleId!) ?? 0) > 0);
-      const tonnes = tonnesOf(loaded);
-      const delivered = loaded.filter((load) => isWithin(load.deliveredAt, period));
-
-      const fleetUtilisation = pct(
-        sum(stats, (s) => s.onLoadDays),
-        truckDays,
-      );
-      const utilisationOf = (s: VehicleStats) => pct(s.onLoadDays, s.activeDays);
-
-      const leastUsedTrucks: FleetTruckUtilisationRow[] = stats
-        .map((s) => ({
-          vehicle: s.summary,
-          onLoadDays: Math.round(s.onLoadDays),
-          idleDays: Math.round(s.standingDays),
-          workshopDays: Math.round(s.workshopDays),
-          blockedDays: Math.round(s.blockedDays),
-          utilisationPct: utilisationOf(s),
-          idleCost: money(s.standingDays * s.perDay),
-          workshopCost: money(s.workshopDays * s.perDay),
-          blockedCost: money(s.blockedDays * s.perDay),
-        }))
-        .sort((a, b) => a.utilisationPct - b.utilisationPct || b.idleCost - a.idleCost)
-        .slice(0, LEAST_USED_TRUCKS_LIMIT);
-
-      const loadingHours = median(loadingHoursOf(delivered));
-      const unloadingHours = median(unloadingHoursOf(delivered));
+      const tripsOf = new Map<string, number>();
+      for (const load of loadsStarted) {
+        tripsOf.set(load.vehicleId!, (tripsOf.get(load.vehicleId!) ?? 0) + 1);
+      }
+      const truckUtilisation = (s: VehicleStats) => pct(s.buckets.onLoad, days.length);
+      const fleetUtilisation = pct(onLoad.days, truckDays);
+      const tonnes = tonnesOf(loadsStarted);
 
       return {
         period: periodView,
-        capacityUsed: {
-          pct: pct(
-            tonnesOf(withCapacity),
-            sum(withCapacity, (load) => capacityOf.get(load.vehicleId!) ?? 0),
-          ),
-          standingTruckDays: standing.days + workshop.days + blocked.days,
+        loadUtilisation: {
+          pct: fleetUtilisation,
+          standingTruckDays: idle.days + workshop.days,
         },
         loadedShareOfDistance: { pct: 0, emptyKm: 0 },
         deadRunningCost: { amount: 0, pctOfVariable: 0 },
         trucksBelowHalfAverage: {
           count:
             fleetUtilisation > 0
-              ? stats.filter((s) => utilisationOf(s) < fleetUtilisation / 2).length
+              ? stats.filter((s) => truckUtilisation(s) < fleetUtilisation / 2).length
               : 0,
         },
-        tripsPerVehicle: stats.length ? round(loaded.length / stats.length, 1) : 0,
+        tripsPerVehicle: stats.length ? round(loadsStarted.length / stats.length, 1) : 0,
         tonnesMoved: {
           tonnes: round(tonnes, 1),
-          perLoad: loaded.length ? round(tonnes / loaded.length, 1) : 0,
+          perLoad: loadsStarted.length ? round(tonnes / loadsStarted.length, 1) : 0,
         },
-        turnaroundDays: round(median(turnaroundDaysOf(delivered)) ?? 0, 1),
-        loadingPlusUnloadingHours: round((loadingHours ?? 0) + (unloadingHours ?? 0), 1),
+        turnaroundDays: averageOf(loadsStarted, turnaroundDays),
+        loadingPlusUnloadingHours: averageOf(loadsStarted, (load) => {
+          const loading = loadingHours(load);
+          const unloading = unloadingHours(load);
+          return loading === null && unloading === null ? null : (loading ?? 0) + (unloading ?? 0);
+        }),
         days: {
-          truckDays: Math.round(truckDays),
+          truckDays,
           onLoad,
-          standing,
           workshop,
-          blockedOnPaper: blocked,
+          idle,
+          lostOnLoads: { days: 0, pct: 0, fixedCost: 0 },
         },
-        leastUsedTrucks,
-        workingDayHours: {
+        leastUsedTrucks: stats
+          .map((s) => ({
+            vehicle: s.summary,
+            onLoadDays: s.buckets.onLoad,
+            idleDays: s.buckets.idle,
+            workshopDays: s.buckets.workshop,
+            utilisationPct: truckUtilisation(s),
+            idleCost: money((s.buckets.idle + s.buckets.workshop) * s.dailyFixed),
+          }))
+          .sort((a, b) => a.utilisationPct - b.utilisationPct || b.idleCost - a.idleCost)
+          .slice(0, LEAST_USED_TRUCKS_LIMIT),
+        loadDayHours: {
           moving: 0,
-          atGate: 0,
-          heldPastFreeHours: 0,
-          waitingCityNoEntry: 0,
-          driverResting: 0,
-          stoppedBrokenDown: 0,
+          atGates: 0,
+          detention: 0,
+          cityNoEntry: 0,
+          unplannedHalts: 0,
+          normalStops: 0,
         },
         idleDaysByTrips: stats
           .map((s) => ({
             vehicle: s.summary,
-            trips: tripsOf(s),
+            trips: tripsOf.get(s.vehicle.id) ?? 0,
             distanceKm: s.km.km,
             downtimeDays: round(s.downtimeDays, 1),
             net: null,
           }))
           .sort((a, b) => a.trips - b.trips || b.downtimeDays - a.downtimeDays)
-          .slice(0, LEAST_USED_TRUCKS_LIMIT),
+          .slice(0, IDLE_TRUCKS_LIMIT),
         emptyRunningByLane: [],
         plannedVsActual: {
           months: period.months.map((month) => ({ month: month.month, overPct: 0 })),
@@ -587,11 +667,14 @@ export class FleetAnalyticsService {
           extraEnergyCost: 0,
         },
         ...unavailable(context, {
-          loadedShareOfDistance: 'emptyRunning',
-          deadRunningCost: 'emptyRunning',
-          emptyRunningByLane: 'emptyRunning',
-          workingDayHours: 'workingDayHours',
-          plannedVsActual: 'distancePerLoad',
+          loadedShareOfDistance: 'gps',
+          deadRunningCost: 'gps',
+          'days.lostOnLoads': 'gps',
+          loadDayHours: 'gps',
+          emptyRunningByLane: 'gps',
+          plannedVsActual: 'plannedDistance',
+          'tonnesMoved.tonnes': 'weight',
+          idleDaysByTrips: 'perTripHire',
           'idleDaysByTrips.net': 'No revenue per load is recorded yet.',
         }),
       };
@@ -603,80 +686,74 @@ export class FleetAnalyticsService {
   async getCost(tenantId: string, filters: FleetAnalyticsFilters): Promise<FleetAnalyticsCost> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { periodView, stats, today } = context;
+      const { periodView, stats, today, loadsStarted } = context;
+      const totals = fleetTotals(context);
+      const fixedPart = (pick: (parts: FixedCostParts) => number) =>
+        money(sum(stats, (s) => pick(s.fixed)));
 
-      const standingOf = (pick: (standing: StandingCost) => number) =>
-        money(sum(stats, (s) => pick(s.standing)));
-      const standing = sum(stats, (s) => s.standing.total);
-      const otherFixed = standingOf((p) => p.otherFixed);
-
-      // The heads the screen lists. Other fixed cost (fixed_cost_monthly as entered, which
-      // already bundles EMI and insurance) only appears when some truck carries it — without it
-      // the heads would not add up to the headline.
       const heads: { head: FleetCostHead; label: string; amount: number }[] = [
         { head: 'fuel_and_energy', label: 'Fuel and energy', amount: 0 },
-        { head: 'attached_truck_hire', label: 'Attached-truck hire', amount: 0 },
-        { head: 'emi_and_lease', label: 'EMI and lease', amount: standingOf((p) => p.emiAndLease) },
+        { head: 'hire_and_rental', label: 'Hire and rental', amount: 0 },
+        { head: 'emi_and_lease', label: 'EMI and lease', amount: fixedPart((p) => p.emiAndLease) },
         { head: 'depreciation', label: 'Depreciation', amount: 0 },
-        { head: 'empty_running', label: 'Empty running', amount: 0 },
         {
           head: 'maintenance_and_tyres',
           label: 'Maintenance and tyres',
-          amount: money(sum(stats, (s) => s.maintenanceCost)),
+          amount: money(totals.running),
         },
-        { head: 'tolls_and_fastag', label: 'Tolls and FASTag', amount: 0 },
+        { head: 'tolls', label: 'Tolls', amount: 0 },
+        { head: 'insurance', label: 'Insurance', amount: fixedPart((p) => p.insurance) },
+        { head: 'permits', label: 'Permits', amount: fixedPart((p) => p.permit) },
         {
-          head: 'insurance_and_permits',
-          label: 'Insurance and permits',
-          amount: standingOf((p) => p.insurance),
+          head: 'driver_salary_and_bhatta',
+          label: 'Driver salary and bhatta',
+          amount: money(sum(stats, (s) => s.fixed.driverSalary) + context.unassignedSalaryCost),
         },
-        { head: 'driver_wages_and_bhatta', label: 'Driver wages and bhatta', amount: 0 },
-        ...(otherFixed > 0
-          ? [{ head: 'other_fixed_cost' as const, label: 'Other fixed cost', amount: otherFixed }]
-          : []),
+        { head: 'other_trip_expenses', label: 'Other trip expenses', amount: 0 },
+        { head: 'e_challans', label: 'E-challans', amount: 0 },
       ];
       const costByHead = heads.sort((a, b) => b.amount - a.amount);
-      const headsTotal = money(sum(costByHead, (head) => head.amount));
-      const headlineTotal = money(sum(stats, vehicleCost));
-      const standingOnLoads = sum(stats, (s) => s.onLoadDays * s.perDay);
-      const idleTruckDays = sum(stats, (s) => s.standingDays + s.workshopDays + s.blockedDays);
 
-      const byClass = new Map<
-        string,
-        { truckTypeId: string | null; name: string; rows: VehicleStats[] }
-      >();
-      for (const s of stats) {
-        const key = s.vehicle.truckTypeId ?? 'unclassified';
-        const group = byClass.get(key) ?? {
-          truckTypeId: s.vehicle.truckTypeId,
-          name: s.vehicle.truckType?.name ?? 'Unclassified',
-          rows: [],
-        };
-        group.rows.push(s);
-        byClass.set(key, group);
-      }
-
-      const basis = { fixedCostMonthly: 0, emiLeaseInsurance: 0, none: 0 };
-      for (const { vehicle } of stats) {
-        const meta = vehicle.telemetryMeta;
-        if (vehicle.ownershipType === 'attached' || !meta || meta.deletedAt) basis.none += 1;
-        else if (meta.fixedCostMonthly !== null) basis.fixedCostMonthly += 1;
-        else basis.emiLeaseInsurance += 1;
-      }
+      const byBody = groupBy(stats, (s) => s.body.key);
+      const costByTruckType: FleetTruckTypeCost[] = [...byBody.entries()]
+        .map(([bodyType, rows]) => {
+          const group = groupCost(rows);
+          return {
+            bodyType,
+            name: rows[0].body.label,
+            vehicles: rows.length,
+            cost: money(group.cost),
+            distanceKm: group.km,
+            perKm: group.perKm,
+            sizes: [...groupBy(rows, (s) => s.size?.key ?? 'Unknown size').entries()].map(
+              ([size, sizeRows]) => {
+                const ofSize = groupCost(sizeRows);
+                return {
+                  size,
+                  vehicles: sizeRows.length,
+                  cost: money(ofSize.cost),
+                  distanceKm: ofSize.km,
+                  perKm: ofSize.perKm,
+                };
+              },
+            ),
+          };
+        })
+        .sort((a, b) => (b.perKm ?? -1) - (a.perKm ?? -1));
 
       const emiTrucks = stats.filter((s) => monthlyEmiAndLease(s.vehicle, today) > 0);
-      const allIn = costOverKm(stats, vehicleCost);
-      const loaded = loadedInPeriod(context);
 
       return {
         period: periodView,
-        costPerKm: allIn.perKm,
-        onRoadPerKm: costOverKm(stats, (s) => s.maintenanceCost).perKm,
-        standingPerKm: costOverKm(stats, (s) => s.standing.total).perKm,
-        distanceKm: allIn.km,
+        costPerKm: perKm(totals.total, totals.km),
+        onRoadPerKm: perKm(totals.running, totals.km),
+        standingPerKm: perKm(totals.fixed, totals.km),
+        distanceKm: totals.km,
         costPerTonneKm: {
           value: 0,
-          avgLoadTonnes: loaded.length ? round(tonnesOf(loaded) / loaded.length, 1) : 0,
+          avgLoadTonnes: loadsStarted.length
+            ? round(tonnesOf(loadsStarted) / loadsStarted.length, 1)
+            : 0,
         },
         energyPerKm: { value: 0, spent: 0 },
         tollsPerKm: { value: 0, spent: 0 },
@@ -685,59 +762,34 @@ export class FleetAnalyticsService {
           trucks: emiTrucks.length,
         },
         costByHead,
-        standingBreakdown: {
-          emiAndLease: standingOf((p) => p.emiAndLease),
-          insurance: standingOf((p) => p.insurance),
-          otherFixed,
-        },
-        fixedCostBasis: basis,
-        totalCost: headsTotal,
-        reconciliation: {
-          headsTotal,
-          headlineTotal,
-          difference: money(headlineTotal - headsTotal),
-          note:
-            `Standing cost covers every truck for every day of the period, including ` +
-            `${Math.round(idleTruckDays)} truck-days spent idle, in the workshop or blocked on ` +
-            `papers. Only ${inr(standingOnLoads)} of the ${inr(standing)} standing cost fell on ` +
-            `days a truck was on a load; the rest is the cost of not working.`,
-        },
+        totalCost: money(sum(costByHead, (head) => head.amount)),
         costByLane: costByLaneOf(context).map((row) => ({ ...row, perKm: null })),
-        costByClass: [...byClass.values()]
-          .map((group) => {
-            const over = costOverKm(group.rows, vehicleCost);
-            return {
-              truckTypeId: group.truckTypeId,
-              name: group.name,
-              vehicles: group.rows.length,
-              cost: money(sum(group.rows, vehicleCost)),
-              distanceKm: over.km,
-              perKm: over.perKm,
-            };
-          })
-          .sort((a, b) => b.cost - a.cost),
+        costByTruckType,
         costByTruck: stats
           .map((s) => ({
             vehicle: s.summary,
-            cost: money(vehicleCost(s)),
+            cost: money(truckCost(s)),
             distanceKm: s.km.km,
             kmEstimated: s.km.estimated,
-            perKm: perKm(vehicleCost(s), s.km.km),
+            perKm: perKm(truckCost(s), s.km.km),
           }))
-          .sort((a, b) => b.cost - a.cost),
+          .sort((a, b) => (b.perKm ?? -1) - (a.perKm ?? -1))
+          .slice(0, TRUCKS_BY_COST_LIMIT),
         ...unavailable(context, {
           costPerKm: PARTIAL_COST_NOTE,
           'costByHead.fuel_and_energy': 'fuel',
-          'costByHead.attached_truck_hire': 'hire',
-          'costByHead.depreciation': 'onRoadPrice',
-          'costByHead.empty_running': 'emptyRunning',
-          'costByHead.tolls_and_fastag': 'tolls',
-          'costByHead.driver_wages_and_bhatta': 'driverPay',
-          'costByHead.insurance_and_permits': 'permitsAllowance',
+          'costByHead.hire_and_rental': 'hire',
+          'costByHead.depreciation': 'truckPrice',
+          'costByHead.tolls': 'tolls',
+          'costByHead.permits': 'statePermitFee',
+          'costByHead.driver_salary_and_bhatta':
+            'Fixed salaries only. ' + UNAVAILABLE_REASONS.tripExpenses,
+          'costByHead.other_trip_expenses': 'tripExpenses',
+          'costByHead.e_challans': 'eChallans',
           energyPerKm: 'fuel',
           tollsPerKm: 'tolls',
-          costPerTonneKm: 'distancePerLoad',
-          'costByLane.perKm': 'distancePerLoad',
+          costPerTonneKm: 'gps',
+          'costByLane.perKm': 'gps',
         }),
       };
     } catch (error) {
@@ -750,14 +802,6 @@ export class FleetAnalyticsService {
       const context = await this.loadContext(tenantId, filters);
       const { periodView, stats } = context;
 
-      const countBy = (key: (s: VehicleStats) => string) => {
-        const counts = new Map<string, VehicleStats[]>();
-        for (const s of stats) counts.set(key(s), [...(counts.get(key(s)) ?? []), s]);
-        return counts;
-      };
-      const byFuel = countBy((s) => s.vehicle.fuelType ?? 'unknown');
-      const byClass = countBy((s) => s.vehicle.truckTypeId ?? 'unclassified');
-
       return {
         period: periodView,
         dieselMileage: { kmPerLitre: 0, km: 0, spend: 0 },
@@ -768,20 +812,18 @@ export class FleetAnalyticsService {
         cngPerKm: { value: 0, km: 0, spend: 0 },
         vehiclesOffBenchmark: { count: 0 },
         avoidableSpend: { amount: 0 },
-        byPowertrain: [...byFuel.entries()].map(([fuelType, rows]) => ({
-          fuelType,
-          vehicles: rows.length,
-          costPerKm: 0,
-        })),
+        byPowertrain: [...groupBy(stats, (s) => s.vehicle.fuelType ?? 'unknown').entries()].map(
+          ([fuelType, rows]) => ({ fuelType, vehicles: rows.length, costPerKm: 0 }),
+        ),
         offBenchmark: [],
-        byClass: [...byClass.values()].map((rows) => ({
-          truckTypeId: rows[0].vehicle.truckTypeId,
-          name: rows[0].vehicle.truckType?.name ?? 'Unclassified',
+        byTruckType: [...groupBy(stats, (s) => s.body.key).entries()].map(([bodyType, rows]) => ({
+          bodyType,
+          name: rows[0].body.label,
           vehicles: rows.length,
           costPerKm: 0,
         })),
         byLane: [],
-        ...unavailable(context, { '*': 'fuel', byLane: 'distancePerLoad' }),
+        ...unavailable(context, { '*': 'fuel', byLane: 'gps' }),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch fleet energy');
@@ -795,51 +837,44 @@ export class FleetAnalyticsService {
   ): Promise<FleetAnalyticsMaintenance> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { period, periodView, stats, today } = context;
+      const { period, periodView, stats } = context;
       const tyres = await this.repository.listFittedTyres(
         tenantId,
         stats.map((s) => s.vehicle.id),
       );
+      const totals = fleetTotals(context);
 
       const jobs = stats.flatMap((s) => s.jobs);
       const planned = jobs.filter((job) => jobCategory(job) === 'preventive').length;
+      const serviceAndBreakdowns = jobs.filter(isServiceOrBreakdown).length;
       const breakdowns = jobs.filter((job) => job.jobType === 'breakdown').length;
       const spend = sum(jobs, jobCost);
 
-      const aged = stats.filter((s) => s.ageYears !== null);
+      const owned = stats.filter((s) => !isAttached(s.vehicle) && s.ageYears !== null);
       const withOdometer = stats.filter((s) => s.vehicle.serviceUsage?.odometerKm != null);
-
       const running = stats.filter((s) => s.km.km > 0);
-      const totalKm = sum(running, (s) => s.km.km);
       const perKmOf = (s: VehicleStats) => (s.km.km > 0 ? s.maintenanceCost / s.km.km : 0);
 
-      const statsById = new Map(stats.map((s) => [s.vehicle.id, s]));
-      const tyreLeft = new Map<string, number[]>();
-      let tyresPastLife = 0;
-      for (const { tyre, reading } of tyres) {
-        const wear = computeTyreWear({
-          originalTreadMm: Number(tyre.originalTreadMm),
-          fittedAt: tyre.fittedAt,
-          fittedOdometerKm: tyre.fittedOdometerKm,
-          vehicleOdometerKm:
-            statsById.get(tyre.vehicleId)?.vehicle.serviceUsage?.odometerKm ?? null,
-          latestReading: reading
-            ? {
-                treadMm: Number(reading.treadMm),
-                readingDate: reading.readingDate,
-                odometerKm: reading.odometerKm,
-              }
-            : null,
-          retreadCount: tyre.retreadCount,
-          maxRetreads: tyre.maxRetreads,
-          casingCondition: tyre.casingCondition,
-          today,
-        });
-        if (wear.usableTreadLeftPct <= TYRE_PAST_LIFE_LEFT_PCT) tyresPastLife += 1;
-        tyreLeft.set(tyre.vehicleId, [
-          ...(tyreLeft.get(tyre.vehicleId) ?? []),
-          wear.usableTreadLeftPct,
-        ]);
+      // Tyres (§16): judged on the last gauged tread; a position with no reading has no rated
+      // life to fall back on yet, so it is left out.
+      const gauged = tyres.flatMap(({ tyre, reading }) => {
+        if (!reading) return [];
+        const tread = Number(reading.treadMm);
+        const lifeLeft = tyreLifeLeft(tread, newTreadMm(tyre));
+        return [{ vehicleId: tyre.vehicleId, tread, lifeLeft, band: tyreBand(tread, lifeLeft) }];
+      });
+      const worstTyre = new Map<string, (typeof gauged)[number]>();
+      const tyreCount = new Map<string, number>();
+      for (const row of gauged) {
+        tyreCount.set(row.vehicleId, (tyreCount.get(row.vehicleId) ?? 0) + 1);
+        const worst = worstTyre.get(row.vehicleId);
+        if (
+          !worst ||
+          TYRE_BAND_RANK[row.band] < TYRE_BAND_RANK[worst.band] ||
+          (row.band === worst.band && row.lifeLeft < worst.lifeLeft)
+        ) {
+          worstTyre.set(row.vehicleId, row);
+        }
       }
 
       // Money per truck is only built for a seat that may see it; the km stay for everybody.
@@ -851,10 +886,8 @@ export class FleetAnalyticsService {
       const plannedVsUnplanned = period.months.map((month) => {
         const inMonth = jobs.filter((job) => istMonth(job.openedAt) === month.month);
         const rowsOf = (category: string) => inMonth.filter((job) => jobCategory(job) === category);
-        const valueOf = (category: string) => {
-          const rows = rowsOf(category);
-          return canSeeCosts ? money(sum(rows, jobCost)) : rows.length;
-        };
+        const valueOf = (category: string) =>
+          canSeeCosts ? money(sum(rowsOf(category), jobCost)) : rowsOf(category).length;
         const preventive = valueOf('preventive');
         const unplannedRepair = valueOf('unplannedRepair');
         const roadsideBreakdown = valueOf('roadsideBreakdown');
@@ -875,11 +908,15 @@ export class FleetAnalyticsService {
       const workshop = {
         period: periodView,
         distance: {
-          km: totalKm,
+          km: totals.km,
           vehicles: running.length,
           estimated: running.some((s) => s.km.estimated),
         },
-        preventiveShare: { pct: pct(planned, jobs.length), planned, total: jobs.length },
+        preventiveShare: {
+          pct: pct(planned, serviceAndBreakdowns),
+          planned,
+          total: serviceAndBreakdowns,
+        },
         downtime: {
           days: round(
             sum(stats, (s) => s.downtimeDays),
@@ -888,23 +925,27 @@ export class FleetAnalyticsService {
           trucks: stats.filter((s) => s.downtimeDays > 0).length,
         },
         meanDistanceBetweenFailures: {
-          km: breakdowns > 0 ? Math.round(totalKm / breakdowns) : null,
+          km: breakdowns > 0 ? Math.round(totals.km / breakdowns) : null,
           breakdowns,
         },
         averageFleetAge: {
-          years: aged.length ? round(sum(aged, (s) => s.ageYears!) / aged.length, 1) : 0,
-          vehicles: aged.length,
+          years: owned.length ? round(sum(owned, (s) => s.ageYears!) / owned.length, 1) : 0,
+          vehicles: owned.length,
         },
         lifetimeDistance: {
           km: sum(withOdometer, (s) => s.vehicle.serviceUsage!.odometerKm!),
           vehicles: withOdometer.length,
         },
-        tyresPastLife: { positions: tyresPastLife, thresholdPct: 100 - TYRE_PAST_LIFE_LEFT_PCT },
+        tyresToReplace: {
+          positions: gauged.filter((row) => row.tread <= TYRE_WORN_MM).length,
+          replaceNow: gauged.filter((row) => row.tread <= TYRE_REPLACE_NOW_MM).length,
+        },
         plannedVsUnplannedUnit: canSeeCosts ? ('amount' as const) : ('count' as const),
         plannedVsUnplanned,
         byVehicle: running
           .filter((s) => s.maintenanceCost > 0)
           .sort(worstPerKmFirst)
+          .slice(0, MAINTENANCE_BY_VEHICLE_LIMIT)
           .map((s) => ({
             vehicle: s.summary,
             ageYears: s.ageYears,
@@ -913,26 +954,28 @@ export class FleetAnalyticsService {
             ...costFields(s),
           })),
         tyresByVehicle: stats
-          .filter((s) => tyreLeft.has(s.vehicle.id))
-          .sort(
-            (a, b) =>
-              worstPerKmFirst(a, b) ||
-              average(tyreLeft.get(a.vehicle.id)!) - average(tyreLeft.get(b.vehicle.id)!),
-          )
+          .filter((s) => worstTyre.has(s.vehicle.id))
+          .sort(worstPerKmFirst)
+          .slice(0, MAINTENANCE_BY_VEHICLE_LIMIT)
           .map((s) => {
-            const avg = round(average(tyreLeft.get(s.vehicle.id)!), 1);
+            const worst = worstTyre.get(s.vehicle.id)!;
             return {
               vehicle: s.summary,
               ageYears: s.ageYears,
-              tyres: tyreLeft.get(s.vehicle.id)!.length,
-              avgTreadLeftPct: avg,
-              condition: tyreCondition(avg),
+              tyres: tyreCount.get(s.vehicle.id) ?? 0,
+              treadLeftPct: round(worst.lifeLeft * 100, 1),
+              condition: worst.band,
               kmRun: s.km.km,
               kmEstimated: s.km.estimated,
               ...costFields(s),
             };
           }),
-        ...unavailable(context, { writtenDownValue: 'onRoadPrice' }),
+        ...unavailable(context, {
+          writtenDownValue: 'truckPrice',
+          averageFleetAge: 'registrationAge',
+          tyresToReplace: 'tyreRatedLife',
+          replacementCandidates: 'replacementFormula',
+        }),
       };
 
       if (!canSeeCosts) return workshop;
@@ -941,18 +984,18 @@ export class FleetAnalyticsService {
         ...workshop,
         downtime: {
           ...workshop.downtime,
-          cost: money(sum(stats, (s) => s.downtimeDays * s.perDay)),
+          cost: money(sum(stats, (s) => s.downtimeDays * s.dailyFixed)),
         },
         spend: {
           total: money(spend),
-          perKm: totalKm > 0 ? money(spend / totalKm) : 0,
+          perKm: totals.km > 0 ? money(spend / totals.km) : 0,
           jobs: jobs.length,
         },
         writtenDownValue: { value: null, onRoadValue: null },
         replacementCandidates: replacementCandidates(
           running.map((s) => ({
             row: s,
-            truckTypeId: s.vehicle.truckTypeId,
+            truckTypeKey: `${s.body.key}|${s.size?.key ?? ''}`,
             ageYears: s.ageYears,
             perKm: perKmOf(s),
           })),
@@ -981,60 +1024,90 @@ export class FleetAnalyticsService {
   ): Promise<FleetAnalyticsOperations> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { period, periodView, now, loads } = context;
-      const delivered = deliveredInPeriod(loads, period);
-      const deliveredLoads = delivered.map((row) => row.load);
+      const { periodView, now, today, loadsStarted, loads, stats, drivers } = context;
+      const delivered = deliveredWithDue(loadsStarted);
       const onTime = onTimeOf(delivered);
 
-      const onTheRoad = loads.filter((load) => ON_THE_ROAD_STATUSES.includes(load.status));
+      const onTheRoad = this.applyLoadFilters(
+        await this.repository.listLoadsOnTheRoad(
+          tenantId,
+          stats.map((s) => s.vehicle.id),
+        ),
+        filters,
+      );
       const runningBehind = onTheRoad.filter((load) => {
-        const promised = promisedBy(load);
-        return promised !== null && promised < now;
+        const due = dueAt(load);
+        return due !== null && due.getTime() + ON_TIME_WINDOW_MS < now.getTime();
       });
 
+      const staged = new Map([...loads, ...onTheRoad].map((load) => [load.id, load]));
       const stageCounts = new Map<string, number>(LOAD_STAGES.map((stage) => [stage, 0]));
-      for (const load of loads) {
+      for (const load of staged.values()) {
         const stage = stageOf(load);
         stageCounts.set(stage, (stageCounts.get(stage) ?? 0) + 1);
       }
 
-      const lanes = new Map<string, { label: string; rows: typeof delivered }>();
+      const byLane = new Map<string, { lane: Lane; rows: typeof delivered }>();
       for (const row of delivered) {
         const lane = laneOf(row.load);
         if (!lane) continue;
-        const group = lanes.get(lane.key) ?? { label: lane.label, rows: [] };
+        const group = byLane.get(lane.key) ?? { lane, rows: [] };
         group.rows.push(row);
-        lanes.set(lane.key, group);
+        byLane.set(lane.key, group);
       }
-      const onTimeByLane: FleetLaneOnTimeRow[] = [...lanes.entries()]
-        .map(([laneKey, group]) => {
-          const committed = group.rows.flatMap(({ load }) => {
+      const onTimeByLane: FleetLaneOnTimeRow[] = [...byLane.values()]
+        .map(({ lane, rows }) => {
+          const committed = rows.flatMap(({ load }) => {
             const requisition = load.requisition;
             return requisition?.pickupDate && requisition.expectedDeliveryDate
               ? [daysBetween(requisition.pickupDate, requisition.expectedDeliveryDate)]
               : [];
           });
-          const turnaround = turnaroundDaysOf(group.rows.map((row) => row.load));
+          const turnaround = rows.flatMap(({ load }) => {
+            const days = turnaroundDays(load);
+            return days === null ? [] : [days];
+          });
           return {
-            lane: group.label,
-            laneKey,
-            loads: group.rows.length,
+            lane: lane.label,
+            laneKey: lane.key,
+            loads: rows.length,
             transitCommittedDays: roundOrNull(median(committed)),
-            onTimePct: onTimeOf(group.rows).pct,
-            averageTurnaroundDays: turnaround.length ? round(average(turnaround), 1) : null,
+            onTimePct: onTimeOf(rows).pct,
+            averageTurnaroundDays: roundOrNull(average(turnaround)),
           };
         })
-        .sort((a, b) => a.onTimePct - b.onTimePct);
+        .sort((a, b) => a.onTimePct - b.onTimePct)
+        .slice(0, ON_TIME_BY_LANE_LIMIT);
+
+      // Who is driving (§17): today's position.
+      const onTripDrivers = new Set(onTheRoad.map((load) => load.driverId).filter(Boolean));
+      const away = (relation: DriverTenantRelationEntity) =>
+        ['on_leave', 'medically_unfit', 'inactive'].includes(
+          relation.operationalStatus?.operationalStatus ?? 'active',
+        );
+      const available = drivers.filter((relation) => {
+        const validTo = licenceValidTo(relation);
+        return (
+          !away(relation) &&
+          relation.operationalStatus?.operationalStatus !== 'on_trip' &&
+          !onTripDrivers.has(relation.driverId) &&
+          validTo !== null &&
+          validTo >= today
+        );
+      });
+      const driverOnTime = [...groupBy(delivered, (row) => row.load.driverId ?? '').entries()]
+        .filter(([driverId]) => driverId !== '')
+        .map(([, rows]) => onTimeOf(rows).pct);
 
       return {
         period: periodView,
         onTime: { pct: onTime.pct, late: onTime.late, delivered: onTime.delivered },
         medianLateDays: onTime.medianLateDays,
-        turnaroundDays: round(median(turnaroundDaysOf(deliveredLoads)) ?? 0, 1),
+        turnaroundDays: averageOf(loadsStarted, turnaroundDays),
         detention: { hours: 0, loadsPastFreeHours: 0 },
         recoverableDetention: { amount: 0 },
-        loadingHours: round(median(loadingHoursOf(deliveredLoads)) ?? 0, 1),
-        unloadingHours: round(median(unloadingHoursOf(deliveredLoads)) ?? 0, 1),
+        loadingHours: averageOf(loadsStarted, loadingHours),
+        unloadingHours: averageOf(loadsStarted, unloadingHours),
         durationAgainstPlan: { pct: 0, extraKm: 0 },
         onTheRoad: { count: onTheRoad.length, runningBehind: runningBehind.length },
         detentionByConsignor: [],
@@ -1043,28 +1116,35 @@ export class FleetAnalyticsService {
         loadPipeline: {
           onTheRoad: onTheRoad.length,
           runningBehind: runningBehind.length,
-          deliveredPodNotIn: loads.filter(
-            (load) => load.status === 'delivered' && load.podStatus !== 'accepted',
+          deliveredPodPending: [...staged.values()].filter(
+            (load) => load.status === 'delivered' && !load.podFileKey,
           ).length,
-          podInNotInvoiced: loads.filter(
-            (load) => load.podStatus === 'accepted' && load.status !== 'closed',
+          podInExpensesNotSettled: [...staged.values()].filter(
+            (load) => load.podFileKey && load.status !== 'closed',
           ).length,
         },
         drivers: {
-          availableToDispatch: 0,
-          awayOrOffRoll: 0,
+          availableToDispatch: available.length,
+          awayOrOffRoll: drivers.filter(away).length,
           medianSafetyScore: 0,
           needCoaching: 0,
-          onTimePct: 0,
+          onTimePct: round(average(driverOnTime) ?? 0, 1),
         },
         ...unavailable(context, {
-          detention: 'detention',
-          recoverableDetention: 'detention',
-          detentionByConsignor: 'detention',
-          durationAgainstPlan: 'distancePerLoad',
-          drivers: 'drivers',
+          onTime: 'promisedTime',
+          detention: 'gps',
+          recoverableDetention: 'tripExpenses',
+          detentionByConsignor: 'freeHours',
+          durationAgainstPlan: 'plannedDistance',
+          'onTheRoad.runningBehind':
+            'Counts loads already past their delivery window; ' +
+            UNAVAILABLE_REASONS.gps.charAt(0).toLowerCase() +
+            UNAVAILABLE_REASONS.gps.slice(1),
           'loadStages.running_to_loading': 'No load status marks the run to the loading point yet.',
-          'loadStages.invoiced': 'No load status marks the goods invoice yet.',
+          'loadPipeline.podInExpensesNotSettled':
+            'Trip expense settlement is not recorded yet, so every load with a POD that is not closed is counted.',
+          'drivers.medianSafetyScore': 'drivingEvents',
+          'drivers.needCoaching': 'drivingEvents',
         }),
       };
     } catch (error) {
@@ -1072,7 +1152,8 @@ export class FleetAnalyticsService {
     }
   }
 
-  /** Current state of every paper and licence — the period only echoes back. */
+  /** Today's position for every document and licence (§18) — the period doesn't apply, except to
+   *  "loads carried on expired documents" and "drivers who ran a load". */
   async getCompliance(
     tenantId: string,
     filters: FleetAnalyticsFilters,
@@ -1080,15 +1161,7 @@ export class FleetAnalyticsService {
   ): Promise<FleetAnalyticsCompliance> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { periodView, stats, today, loads } = context;
-      const [openJobs, drivers] = await Promise.all([
-        this.repository.listOpenJobs(
-          tenantId,
-          stats.map((s) => s.vehicle.id),
-        ),
-        this.repository.listActiveDrivers(tenantId),
-      ]);
-      const inWorkshop = new Set(openJobs.map((job) => job.vehicleId));
+      const { periodView, stats, today, now, loadsStarted, drivers } = context;
 
       const emptyCounts = (): FleetDocumentCounts => ({
         expired: 0,
@@ -1098,7 +1171,7 @@ export class FleetAnalyticsService {
       });
       const position = emptyCounts();
       const byType = new Map(
-        VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY.map((type) => [type as string, emptyCounts()]),
+        COMPLIANCE_DOCUMENT_TYPES.map((type) => [type as string, emptyCounts()]),
       );
       const renew: FleetAnalyticsCompliance['renewThisWeek'] = [];
       const expiredVehicles = new Set<string>();
@@ -1119,26 +1192,34 @@ export class FleetAnalyticsService {
             urgent.documents += 1;
             urgent.vehicles.add(s.vehicle.id);
           }
-          if (bucket === 'inside7Days' || bucket === 'inside30Days') {
+          if (bucket === 'inside30Days') {
             soon.documents += 1;
             soon.vehicles.add(s.vehicle.id);
           }
-          if (bucket !== 'inOrder') {
+          if (bucket === 'expired' || bucket === 'inside7Days') {
             renew.push({
               vehicle: s.summary,
               documentType: document.documentType,
               label: DOCUMENT_LABELS[document.documentType] ?? document.documentType,
               expiryDate: document.expiryDate!,
               daysLeft,
-              ...(canSeeCosts ? { standingPerDay: money(s.currentPerDay) } : {}),
+              ...(canSeeCosts ? { standingPerDay: money(s.currentDailyFixed) } : {}),
             });
           }
         }
         if (allInOrder) vehiclesInOrder += 1;
       }
-      const blocked = new Set([...expiredVehicles, ...inWorkshop]);
 
-      const driversOnLoads = new Set(loads.map((load) => load.driverId).filter(Boolean));
+      const documentsOf = new Map(stats.map((s) => [s.vehicle.id, s.vehicle.documents ?? []]));
+      const loadsOnExpired = loadsStarted.filter((load) => {
+        const departure = loadDeparture(load);
+        return (
+          departure !== null &&
+          hadExpiredDocumentAt(documentsOf.get(load.vehicleId ?? '') ?? [], departure, now)
+        );
+      });
+
+      const driversOnLoads = new Set(loadsStarted.map((load) => load.driverId).filter(Boolean));
       const driverItems = drivers
         .map((relation) => {
           const driver = relation.driver;
@@ -1146,7 +1227,7 @@ export class FleetAnalyticsService {
             .filter((v) => !v.deletedAt)
             .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
             .at(0);
-          const validTo = driver.licenseExpiry ?? verification?.validUntil ?? null;
+          const validTo = licenceValidTo(relation);
           const daysLeft = validTo ? daysBetween(today, validTo) : null;
           const status: 'expired' | 'expiring' | 'valid' | 'unknown' =
             daysLeft === null
@@ -1161,7 +1242,7 @@ export class FleetAnalyticsService {
             name: driver.fullName,
             licenceNumber: driver.licenseNumber ?? verification?.licenseNumber ?? null,
             licenceClass: verification?.licenseClass ?? null,
-            hazmat: false,
+            hazmat: (driver.licenseEndorsements ?? []).includes('hazmat'),
             validTo,
             daysLeft,
             status,
@@ -1175,13 +1256,12 @@ export class FleetAnalyticsService {
         period: periodView,
         vehicles: stats.length,
         documentsInOrder: { vehicles: vehiclesInOrder, of: stats.length },
-        blockedFromDispatch: {
-          vehicles: blocked.size,
-          expiredPaper: expiredVehicles.size,
-          inWorkshop: inWorkshop.size,
+        trucksWithExpiredDocuments: {
+          vehicles: expiredVehicles.size,
+          loadsCarried: loadsOnExpired.length,
         },
         expiringIn7Days: { documents: urgent.documents, vehicles: urgent.vehicles.size },
-        expiringIn30Days: { documents: soon.documents, vehicles: soon.vehicles.size },
+        expiringIn8To30Days: { documents: soon.documents, vehicles: soon.vehicles.size },
         licences: {
           expiredOrExpiring: licencesExpired + licencesExpiring,
           expired: licencesExpired,
@@ -1200,7 +1280,7 @@ export class FleetAnalyticsService {
           .slice(0, RENEW_THIS_WEEK_LIMIT),
         drivers: {
           onRoll: driverItems.length,
-          hazmatEndorsed: 0,
+          hazmatEndorsed: driverItems.filter((d) => d.hazmat).length,
           licencesExpired,
           expiringIn30Days: licencesExpiring,
           ranALoadPct: pct(
@@ -1209,40 +1289,36 @@ export class FleetAnalyticsService {
           ),
           items: driverItems,
         },
-        ...unavailable(context, {
-          'drivers.hazmatEndorsed':
-            'Hazmat endorsements are not read from the licence register yet.',
-        }),
+        ...unavailable(context, {}),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch fleet compliance');
     }
   }
 
-  /**
-   * The three or four things worth acting on (§5.14 Findings), each a plain sentence with the
-   * tab holding the evidence, ranked by money at stake over the period.
-   */
+  /** The three or four things worth acting on, each a plain sentence with the tab holding the
+   *  evidence, ranked by money at stake over the period. */
   async getFindings(
     tenantId: string,
     filters: FleetAnalyticsFilters,
   ): Promise<FleetAnalyticsFindings> {
     try {
       const context = await this.loadContext(tenantId, filters);
-      const { periodView, stats, period, loads, today } = context;
+      const { periodView, stats, today, loadsStarted } = context;
       const findings: FleetFinding[] = [];
 
+      const notWorking = (s: VehicleStats) => s.buckets.idle + s.buckets.workshop;
       const idlest = [...stats]
-        .filter((s) => s.standingDays * s.perDay > 0)
-        .sort((a, b) => b.standingDays * b.perDay - a.standingDays * a.perDay)
+        .filter((s) => notWorking(s) * s.dailyFixed > 0)
+        .sort((a, b) => notWorking(b) * b.dailyFixed - notWorking(a) * a.dailyFixed)
         .at(0);
       if (idlest) {
-        const amount = idlest.standingDays * idlest.perDay;
+        const amount = notWorking(idlest) * idlest.dailyFixed;
         findings.push({
           id: 'idle_truck',
           text:
-            `${idlest.summary.registrationNumber} stood idle ${Math.round(idlest.standingDays)} ` +
-            `of ${Math.round(idlest.activeDays)} days and still cost ${inr(amount)} in fixed cost.`,
+            `${idlest.summary.registrationNumber} did not work ${notWorking(idlest)} of ` +
+            `${context.days.length} days and still cost ${inr(amount)} in fixed cost.`,
           amount: money(amount),
           tab: 'utilisation',
           vehicleId: idlest.vehicle.id,
@@ -1254,7 +1330,7 @@ export class FleetAnalyticsService {
       const replace = replacementCandidates(
         running.map((s) => ({
           row: s,
-          truckTypeId: s.vehicle.truckTypeId,
+          truckTypeKey: `${s.body.key}|${s.size?.key ?? ''}`,
           ageYears: s.ageYears,
           perKm: s.maintenanceCost / s.km.km,
         })),
@@ -1267,7 +1343,7 @@ export class FleetAnalyticsService {
           id: 'replacement_candidate',
           text:
             `${replace.row.summary.registrationNumber} costs ${inr(replace.extraPerKm)} more per ` +
-            `km to maintain than a new truck of its ${replace.benchmarkScope}, ` +
+            `km to maintain than the youngest trucks of its type, ` +
             `${inr(amount)} over the ${replace.row.km.km.toLocaleString('en-IN')} km it ran.`,
           amount: money(amount),
           tab: 'maintenance',
@@ -1276,19 +1352,18 @@ export class FleetAnalyticsService {
         });
       }
 
-      const blockedNow = stats.filter((s) =>
+      const expiredNow = stats.filter((s) =>
         currentDatedDocuments(s.vehicle).some((d) => daysBetween(today, d.expiryDate!) < 0),
       );
-      if (blockedNow.length > 0) {
-        const perDay = sum(blockedNow, (s) => s.currentPerDay);
+      if (expiredNow.length > 0) {
         findings.push({
-          id: 'blocked_on_papers',
+          id: 'expired_documents',
           text:
-            `${blockedNow.length} ${blockedNow.length === 1 ? 'truck is' : 'trucks are'} blocked ` +
-            `from dispatch by an expired paper, standing at ${inr(perDay)} a day between them.`,
-          amount: money(sum(blockedNow, (s) => s.blockedDays * s.perDay)),
+            `${expiredNow.length} ${expiredNow.length === 1 ? 'truck has' : 'trucks have'} an ` +
+            `expired document. They can still be dispatched; renew soon.`,
+          amount: null,
           tab: 'compliance',
-          vehicleId: blockedNow.length === 1 ? blockedNow[0].vehicle.id : null,
+          vehicleId: expiredNow.length === 1 ? expiredNow[0].vehicle.id : null,
           laneKey: null,
         });
       }
@@ -1313,11 +1388,8 @@ export class FleetAnalyticsService {
         });
       }
 
-      const lanes = new Map<
-        string,
-        { label: string; rows: ReturnType<typeof deliveredInPeriod> }
-      >();
-      for (const row of deliveredInPeriod(loads, period)) {
+      const lanes = new Map<string, { label: string; rows: ReturnType<typeof deliveredWithDue> }>();
+      for (const row of deliveredWithDue(loadsStarted)) {
         const lane = laneOf(row.load);
         if (!lane) continue;
         const group = lanes.get(lane.key) ?? { label: lane.label, rows: [] };
@@ -1327,7 +1399,7 @@ export class FleetAnalyticsService {
       const worstLane = [...lanes.entries()]
         .filter(([, group]) => group.rows.length >= 2)
         .map(([laneKey, group]) => ({ laneKey, label: group.label, ...onTimeOf(group.rows) }))
-        .filter((lane) => lane.pct < 80)
+        .filter((lane) => lane.pct < 75)
         .sort((a, b) => a.pct - b.pct)
         .at(0);
       if (worstLane) {
@@ -1355,6 +1427,16 @@ export class FleetAnalyticsService {
     }
   }
 
+  /** Customer and lane narrow loads only (§10); truck-level numbers don't change. */
+  private applyLoadFilters(loads: LoadEntity[], filters: FleetAnalyticsFilters): LoadEntity[] {
+    return loads.filter((load) => {
+      const requisition = load.requisition;
+      if (filters.customerId && requisition?.customerId !== filters.customerId) return false;
+      if (filters.laneKey && laneOf(load)?.key !== filters.laneKey) return false;
+      return true;
+    });
+  }
+
   /** The filtered fleet with its per-truck figures over the period, read once per request. */
   private async loadContext(
     tenantId: string,
@@ -1363,46 +1445,48 @@ export class FleetAnalyticsService {
     const now = new Date();
     const today = toIstDateString(now);
     const period = resolveFleetPeriod(filters.period, filters.from, filters.to, now);
+    const days = periodDays(period.fromDate, period.toDate, today);
+    const window: TimeWindow = {
+      from: period.from,
+      to: new Date(Math.min(period.to.getTime(), now.getTime())),
+    };
 
-    const vehicles = await this.repository.listScopedVehicles(tenantId, filters);
+    const scoped = await this.repository.listScopedVehicles(tenantId, filters);
+    const vehicles = scoped.filter(
+      (vehicle) =>
+        (!filters.bodyType || bodyTypeOf(vehicle).key === filters.bodyType) &&
+        (!filters.size || sizeOf(vehicle)?.key === filters.size),
+    );
     const vehicleIds = vehicles.map((vehicle) => vehicle.id);
-    const [jobs, loads, points] = await Promise.all([
+    const [jobs, allLoads, points, drivers] = await Promise.all([
       this.repository.listJobsOverlapping(tenantId, vehicleIds, period),
-      this.repository.listLoadsInWindow(tenantId, vehicleIds, period, filters),
+      this.repository.listLoadsInWindow(tenantId, vehicleIds, period, {}),
       this.odometerPoints(tenantId, vehicles, now),
+      this.repository.listActiveDrivers(tenantId),
     ]);
+
+    // Driver salaries (§7): charged to the assigned truck; drivers with no truck to the fleet.
+    const salaryByVehicle = new Map<string, number>();
+    let unassignedMonthlySalary = 0;
+    for (const relation of drivers) {
+      const salary = fixedMonthlySalary(relation);
+      const vehicleId = assignedVehicleId(relation);
+      if (vehicleId) salaryByVehicle.set(vehicleId, (salaryByVehicle.get(vehicleId) ?? 0) + salary);
+      else unassignedMonthlySalary += salary;
+    }
+
+    const loadsInPeriod = allLoads.filter((load) => {
+      const interval = onLoadInterval(load, now);
+      return interval !== null && overlapDays(interval.from, interval.to, window) > 0;
+    });
     const jobsByVehicle = groupBy(jobs, (job) => job.vehicleId);
-    const loadsByVehicle = groupBy(loads, (load) => load.vehicleId!);
+    const loadsByVehicle = groupBy(loadsInPeriod, (load) => load.vehicleId!);
 
-    const todayWindow = { from: startOfIstDate(today), to: endOfIstDate(today) };
     const stats = vehicles.map((vehicle): VehicleStats => {
-      const active = activeWindow(vehicle, period, now);
-      const activeDays = overlapDays(active.from, active.to, active);
       const vehicleJobs = jobsByVehicle.get(vehicle.id) ?? [];
-      const vehicleLoads = (loadsByVehicle.get(vehicle.id) ?? []).filter((load) => {
-        const interval = loadInterval(load, now);
-        return interval !== null && overlapDays(interval.from, interval.to, period) > 0;
-      });
-
-      const onLoadDays = Math.min(
-        activeDays,
-        unionDaysInWindow(
-          vehicleLoads.flatMap((load) => loadInterval(load, now) ?? []),
-          active,
-        ),
-      );
-      const downtimeDays = Math.min(
-        activeDays,
-        sum(vehicleJobs, (job) => downtimeDaysInWindow(job.openedAt, job.closedAt, active, now)),
-      );
-      const workshopDays = Math.min(activeDays - onLoadDays, downtimeDays);
-      const blockedDays = Math.min(
-        activeDays - onLoadDays - workshopDays,
-        blockedDaysInWindow(vehicle.documents ?? [], active, now),
-      );
-      const standingDays = Math.max(0, activeDays - onLoadDays - workshopDays - blockedDays);
-
-      const standing = standingCostIn(vehicle, active);
+      const vehicleLoads = loadsByVehicle.get(vehicle.id) ?? [];
+      const driverSalary = salaryByVehicle.get(vehicle.id) ?? 0;
+      const fixed = fixedCostOver(vehicle, driverSalary, days);
       const periodJobs = vehicleJobs.filter(
         (job) => job.openedAt >= period.from && job.openedAt <= period.to && isCountedJob(job),
       );
@@ -1411,73 +1495,81 @@ export class FleetAnalyticsService {
       return {
         vehicle,
         summary: toFleetVehicleSummary(vehicle),
-        active,
-        activeDays,
-        onLoadDays,
-        workshopDays,
-        blockedDays,
-        standingDays,
-        downtimeDays,
-        standing,
-        perDay: activeDays > 0 ? standing.total / activeDays : 0,
-        currentPerDay: standingCostIn(vehicle, todayWindow).total,
+        body: bodyTypeOf(vehicle),
+        size: sizeOf(vehicle),
+        driverSalary,
+        buckets: dayBuckets(
+          days,
+          vehicleLoads.flatMap((load) => onLoadInterval(load, now) ?? []),
+          vehicleJobs.map((job) => jobInterval(job, now)),
+        ),
+        fixed,
+        dailyFixed: days.length ? fixed.total / days.length : 0,
+        currentDailyFixed: dailyFixedCost(vehicle, driverSalary, today).total,
         jobs: periodJobs,
         maintenanceCost: sum(periodJobs, jobCost),
+        downtimeDays: sum(vehicleJobs, (job) =>
+          downtimeDaysInWindow(job.openedAt, job.closedAt, window, now),
+        ),
         ageYears: vehicleAgeYears(vehicle, today),
         loads: vehicleLoads,
         points: vehiclePoints,
-        km: kmInWindow(vehiclePoints, active),
+        km: kmInWindow(vehiclePoints, window),
       };
     });
 
+    const loads = this.applyLoadFilters(loadsInPeriod, filters);
     const context: FleetContext = {
       filters,
       period,
-      periodView: toPeriodView(period),
+      periodView: {
+        from: period.fromDate,
+        to: period.toDate,
+        days: days.length,
+        label: period.label,
+      },
+      days,
+      window,
       now,
       today,
       stats,
-      loads: stats.flatMap((s) => s.loads),
+      loads,
+      loadsStarted: loads.filter((load) => isWithin(loadDeparture(load), window)),
+      drivers,
+      unassignedMonthlySalary,
+      unassignedSalaryCost: (unassignedMonthlySalary / DAYS_PER_MONTH) * days.length,
       emptyBecause: null,
     };
-    context.emptyBecause = await this.emptyBecause(tenantId, context);
+    context.emptyBecause = await this.emptyBecause(tenantId, context, scoped);
     return context;
   }
 
   /**
-   * §5.14: an empty slice is an answer, not an error — but say which filter emptied it. For an
-   * empty fleet, the narrowest vehicle filter whose removal brings trucks back; for trucks with
-   * no loads under a lane or customer filter, that filter.
+   * An empty slice is an answer, not an error — but say which filter emptied it. For an empty
+   * fleet, the narrowest vehicle filter whose removal brings trucks back; for trucks with no
+   * loads under a lane or customer filter, that filter.
    */
   private async emptyBecause(
     tenantId: string,
     context: FleetContext,
+    scoped: VehicleEntity[],
   ): Promise<FleetEmptyBecause | null> {
     const { filters } = context;
     if (context.stats.length === 0) {
-      const scope = {
-        heldAs: filters.heldAs,
-        truckTypeId: filters.truckTypeId,
-        vehicleId: filters.vehicleId,
-      };
+      if (filters.size && scoped.some((v) => bodyTypeOf(v).key === filters.bodyType)) {
+        return 'size';
+      }
+      if ((filters.bodyType || filters.size) && scoped.length > 0) return 'bodyType';
       if (filters.vehicleId) {
         const count = await this.repository.countScopedVehicles(tenantId, {
-          ...scope,
-          vehicleId: undefined,
+          heldAs: filters.heldAs,
         });
         if (count > 0) return 'vehicleId';
       }
-      if (filters.truckTypeId) {
-        const count = await this.repository.countScopedVehicles(tenantId, {
-          ...scope,
-          truckTypeId: undefined,
-        });
-        if (count > 0) return 'truckTypeId';
-      }
       if (filters.heldAs !== 'owned_and_attached') {
         const count = await this.repository.countScopedVehicles(tenantId, {
-          ...scope,
           heldAs: 'owned_and_attached',
+          vehicleId: filters.vehicleId,
         });
         if (count > 0) return 'heldAs';
       }
@@ -1491,7 +1583,7 @@ export class FleetAnalyticsService {
   }
 
   /** Every dated odometer reading per truck, plus the last service and the current odometer on
-   *  the truck record — km run in any window is read off these. */
+   *  the truck record — km run in any window is read off these (§3, recorded readings). */
   private async odometerPoints(
     tenantId: string,
     vehicles: VehicleEntity[],
@@ -1519,14 +1611,4 @@ export class FleetAnalyticsService {
     }
     return points;
   }
-}
-
-function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
-  const groups = new Map<string, T[]>();
-  for (const row of rows) groups.set(key(row), [...(groups.get(key(row)) ?? []), row]);
-  return groups;
-}
-
-function toPeriodView(period: FleetPeriod): FleetAnalyticsPeriodView {
-  return { from: period.fromDate, to: period.toDate, days: period.days, label: period.label };
 }

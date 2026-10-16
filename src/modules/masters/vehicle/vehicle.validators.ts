@@ -273,6 +273,7 @@ const vehicleVerificationBody = z.object({
       fitnessValidTo: isoDate.optional(),
       roadTaxValidTo: isoDate.optional(),
       insuranceProvider: z.string().min(1).max(150).optional(),
+      hasNationalPermit: z.boolean().optional(),
     })
     .optional(),
   responsePayload: z.record(z.string(), z.unknown()).optional(),

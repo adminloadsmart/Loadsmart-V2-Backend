@@ -67,6 +67,7 @@ describe('UlipClient.lookupVehicle', () => {
         pucValidTo: '2027-06-29',
         fitnessValidTo: '2027-11-10',
         roadTaxValidTo: '2027-06-30',
+        hasNationalPermit: false,
       },
     });
     expect(result.addressLine1).toBeUndefined();
@@ -92,6 +93,28 @@ describe('UlipClient.lookupVehicle', () => {
       status: 'verified',
       makerModel: 'SIGNA 3118.T',
       papers: { fitnessValidTo: '2026-10-17' },
+    });
+  });
+
+  it('flags a National Permit from the rc_np_* fields', async () => {
+    stubFetch({
+      response: [
+        {
+          responseStatus: 'SUCCESS',
+          response: {
+            rcRegnNo: 'PB65AB1234',
+            rcNpNo: 'NP/PB/2025/001234',
+            rcNpUpto: '31-Mar-2027',
+          },
+        },
+      ],
+    });
+
+    const result = await new UlipClient().lookupVehicle('PB65AB1234');
+
+    expect(result.papers).toMatchObject({
+      hasNationalPermit: true,
+      permitValidTo: '2027-03-31',
     });
   });
 

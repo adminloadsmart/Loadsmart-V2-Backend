@@ -119,6 +119,7 @@ export interface CreateVehicleData {
 }
 
 export interface UpdateVehicleData {
+  hasNationalPermit?: boolean | null;
   truckTypeId?: string | null;
   fuelType?: VehicleFuelType | null;
   bodyType?: VehicleBodyType | null;
@@ -265,6 +266,8 @@ export interface VehicleVerificationPapersInput {
   roadTaxValidTo?: string;
   /** The insurer, written onto the insurance document. */
   insuranceProvider?: string;
+  /** Whether VAHAN lists a National Permit — written onto the vehicle. */
+  hasNationalPermit?: boolean;
 }
 
 export interface RecordVehicleVerificationInput {

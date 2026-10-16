@@ -1,35 +1,38 @@
 import { FleetAnalyticsHeldAs, FleetAnalyticsPeriod } from './fleet-analytics.constants';
 
 /**
- * Fleet Analytics responses (spec §5.14, figures per §6.9). Vehicle, maintenance, tyre, paper,
- * driver and own-fleet load figures are real; km run is read off odometer readings. Figures with
- * no source records yet (fuel, tolls, driver pay, per-load distance, detention, on-road price)
- * stay 0 so the screen keeps its shape, and every tab names them under `unavailable` with the
- * reason, so a 0 is never read as a measurement.
+ * Fleet Analytics responses, per the Fleet Analytics Metric Guide (v1.0, October 2026).
+ *
+ * Fleet cost = running cost + fixed cost. Running cost is maintenance (service jobs, breakdowns,
+ * tyre jobs) until fuel, tolls, trip expenses, e-challans and hire are recorded; fixed cost is
+ * EMI or lease, insurance, National Permit and driver salaries per day. Km come from recorded
+ * odometer readings. Every figure whose source isn't recorded yet stays 0 and is named under
+ * `unavailable` with the reason, so a 0 is never read as a measurement.
  */
 
 export interface FleetAnalyticsFilters {
   period: FleetAnalyticsPeriod;
   from?: string;
   to?: string;
-  truckTypeId?: string;
+  /** Body type key: an axle type for containers sold by axle, else the truck type master's. */
+  bodyType?: string;
+  /** Size label, e.g. "18T, 32 ft" — only meaningful with a body type. */
+  size?: string;
   heldAs: FleetAnalyticsHeldAs;
   vehicleId?: string;
   /** `${loadingPointId}:${customerDeliveryPointId}` — narrows load figures to one lane. */
   laneKey?: string;
-  /** Accepted, not applied — there is no yard model yet. */
-  yardId?: string;
-  /** Narrows load figures to one customer's loads. */
+  /** Narrows load figures to one customer's loads; truck-level numbers are unchanged. */
   customerId?: string;
 }
 
 /** The filter whose removal brings rows back, when a filter combination returns nothing. */
 export type FleetEmptyBecause =
-  'vehicleId' | 'truckTypeId' | 'heldAs' | 'laneKey' | 'customerId' | 'period';
+  'vehicleId' | 'bodyType' | 'size' | 'heldAs' | 'laneKey' | 'customerId';
 
 /** Carried on every tab response. */
 export interface FleetAnalyticsMeta {
-  /** Field (or field prefix) → why it reads 0. */
+  /** Field (or field prefix) → why it reads 0 or is approximated. */
   unavailable: Record<string, string>;
   /** Set when the fleet or the loads came back empty: the filter that emptied it. */
   emptyBecause: FleetEmptyBecause | null;
@@ -38,6 +41,7 @@ export interface FleetAnalyticsMeta {
 export interface FleetAnalyticsPeriodView {
   from: string;
   to: string;
+  /** Days in period: start to today, or to the period end if earlier. */
   days: number;
   label: string;
 }
@@ -45,7 +49,10 @@ export interface FleetAnalyticsPeriodView {
 export interface FleetVehicleSummary {
   id: string;
   registrationNumber: string;
-  truckTypeName: string | null;
+  /** "Body type · Size", e.g. "Multi Axle · 18T, 32 ft". */
+  truckTypeName: string;
+  bodyType: string;
+  size: string | null;
   ownershipType: string;
 }
 
@@ -58,9 +65,10 @@ export interface FleetAnalyticsOption {
 
 export interface FleetAnalyticsFilterOptions {
   periods: { value: FleetAnalyticsPeriod; label: string }[];
-  truckClasses: FleetAnalyticsOption[];
+  /** Body types in the fleet, each with the sizes its trucks come in. */
+  bodyTypes: (FleetAnalyticsOption & { sizes: FleetAnalyticsOption[] })[];
   heldAs: { value: FleetAnalyticsHeldAs; label: string }[];
-  yards: FleetAnalyticsOption[];
+  /** Customers with at least one load. */
   customers: FleetAnalyticsOption[];
   vehicles: FleetAnalyticsOption[];
   /** id is the laneKey. */
@@ -72,10 +80,12 @@ export interface FleetAnalyticsFilterOptions {
 export interface FleetAnalyticsSummary extends FleetAnalyticsMeta {
   period: FleetAnalyticsPeriodView;
   vehicles: number;
-  /** All-in cost per km over the trucks whose km could be read; null when none could. */
+  /** Fleet cost ÷ km driven by all trucks; null when no km could be read. */
   costPerKm: { value: number | null; distanceKm: number; vehicles: number; estimated: boolean };
+  /** on the road = running cost; standing = fixed cost. */
   fleetCost: { total: number; onRoad: number; standing: number };
   costPerTonneKm: { value: number; tonnes: number; distanceKm: number };
+  /** Load days ÷ (trucks × days in period). */
   utilisation: { pct: number; workingDays: number; truckDays: number };
 }
 
@@ -91,10 +101,12 @@ export interface FleetCostBuildUpPoint {
   month: string;
   fuelAndEnergy: number;
   tolls: number;
+  /** Bhatta + driver salary. */
   driver: number;
   maintenance: number;
-  otherHireAndChallans: number;
-  fixed: number;
+  otherTripExpensesAndChallans: number;
+  /** EMI, lease, insurance, permit, depreciation, rental and per-trip hire. */
+  fixedAndHire: number;
   total: number;
 }
 
@@ -104,7 +116,8 @@ export interface FleetOwnershipCost {
   perKm: number | null;
 }
 
-/** Standing cost of the truck-days spent on that lane's loads (no variable cost recorded yet). */
+/** A lane's cost: daily fixed cost × the days its loads held the truck (trip costs aren't
+ *  recorded yet). */
 export interface FleetLaneAmount {
   lane: string;
   laneKey: string;
@@ -118,10 +131,12 @@ export interface FleetAnalyticsOverview extends FleetAnalyticsMeta {
   tonnes: { moved: number; costPerTonne: number };
   tripsPerVehicle: { value: number; vehicles: number };
   onTime: { pct: number; late: number; delivered: number };
+  /** Trucks with an expired document. They can still be dispatched. */
   complianceExpired: { vehicles: number };
-  /** Running trucks not in the workshop and not blocked on papers. */
-  trucksInService: { count: number; of: number };
+  /** Trucks with an open service job or breakdown right now. */
+  trucksInWorkshop: { count: number; of: number };
   openBreakdowns: { count: number };
+  /** Daily fixed cost × (idle + workshop days). */
   idleStandingCost: { amount: number; idleDays: number; perDay: number };
   monthlyCost: FleetMonthlyCostPoint[];
   costBuildUp: FleetCostBuildUpPoint[];
@@ -131,6 +146,7 @@ export interface FleetAnalyticsOverview extends FleetAnalyticsMeta {
     hirePaidOut: { amount: number; vendors: number };
     tripsOverClassRate: { count: number; total: number; pct: number };
   };
+  /** Top 8 lanes by cost. */
   costByLane: FleetLaneAmount[];
 }
 
@@ -147,12 +163,10 @@ export interface FleetTruckUtilisationRow {
   onLoadDays: number;
   idleDays: number;
   workshopDays: number;
-  blockedDays: number;
+  /** On-a-load days ÷ days in period. */
   utilisationPct: number;
-  /** Fixed cost per day × standing days — the same definition as the overview. */
+  /** Daily fixed cost × (idle + workshop days). */
   idleCost: number;
-  workshopCost: number;
-  blockedCost: number;
 }
 
 export interface FleetIdleTruckRow {
@@ -166,29 +180,34 @@ export interface FleetIdleTruckRow {
 
 export interface FleetAnalyticsUtilisation extends FleetAnalyticsMeta {
   period: FleetAnalyticsPeriodView;
-  capacityUsed: { pct: number; standingTruckDays: number };
+  /** Load days ÷ (trucks × days in period); standing = idle + workshop truck-days. */
+  loadUtilisation: { pct: number; standingTruckDays: number };
   loadedShareOfDistance: { pct: number; emptyKm: number };
   deadRunningCost: { amount: number; pctOfVariable: number };
   trucksBelowHalfAverage: { count: number };
   tripsPerVehicle: number;
   tonnesMoved: { tonnes: number; perLoad: number };
+  /** Average days from first loading gate-in to last unloading gate-out. */
   turnaroundDays: number;
+  /** Average hours at loading and unloading points per load. */
   loadingPlusUnloadingHours: number;
   days: {
     truckDays: number;
     onLoad: FleetDayBucket;
-    standing: FleetDayBucket;
     workshop: FleetDayBucket;
-    blockedOnPaper: FleetDayBucket;
+    idle: FleetDayBucket;
+    /** Detention, no-entry and unplanned halts on loads — needs GPS. */
+    lostOnLoads: FleetDayBucket;
   };
   leastUsedTrucks: FleetTruckUtilisationRow[];
-  workingDayHours: {
+  /** "What a load day is spent doing", in hours — needs GPS. */
+  loadDayHours: {
     moving: number;
-    atGate: number;
-    heldPastFreeHours: number;
-    waitingCityNoEntry: number;
-    driverResting: number;
-    stoppedBrokenDown: number;
+    atGates: number;
+    detention: number;
+    cityNoEntry: number;
+    unplannedHalts: number;
+    normalStops: number;
   };
   idleDaysByTrips: FleetIdleTruckRow[];
   emptyRunningByLane: { lane: string; pct: number }[];
@@ -203,24 +222,45 @@ export interface FleetAnalyticsUtilisation extends FleetAnalyticsMeta {
 
 // ─── Cost ──────────────────────────────────────────────────────────────────
 
-/** The cost heads the Cost tab lists; `other_fixed_cost` only appears when some truck has a
- *  fixed_cost_monthly entered. */
+/** The heads of "Operating cost by head" (§14). They add up to fleet cost. */
 export type FleetCostHead =
   | 'fuel_and_energy'
-  | 'attached_truck_hire'
+  | 'hire_and_rental'
   | 'emi_and_lease'
   | 'depreciation'
-  | 'empty_running'
   | 'maintenance_and_tyres'
-  | 'tolls_and_fastag'
-  | 'insurance_and_permits'
-  | 'driver_wages_and_bhatta'
-  | 'other_fixed_cost';
+  | 'tolls'
+  | 'insurance'
+  | 'permits'
+  | 'driver_salary_and_bhatta'
+  | 'other_trip_expenses'
+  | 'e_challans';
+
+export interface FleetTruckTypeCost {
+  /** Body type key. */
+  bodyType: string;
+  name: string;
+  vehicles: number;
+  cost: number;
+  distanceKm: number;
+  perKm: number | null;
+  /** The same split by size, for the table. */
+  sizes: {
+    size: string;
+    vehicles: number;
+    cost: number;
+    distanceKm: number;
+    perKm: number | null;
+  }[];
+}
 
 export interface FleetAnalyticsCost extends FleetAnalyticsMeta {
   period: FleetAnalyticsPeriodView;
+  /** Fleet cost ÷ km driven. */
   costPerKm: number | null;
+  /** Running cost ÷ km driven. */
   onRoadPerKm: number | null;
+  /** Fixed cost ÷ km driven. */
   standingPerKm: number | null;
   distanceKm: number;
   costPerTonneKm: { value: number; avgLoadTonnes: number };
@@ -228,15 +268,9 @@ export interface FleetAnalyticsCost extends FleetAnalyticsMeta {
   tollsPerKm: { value: number; spent: number };
   emiAndLease: { monthly: number; trucks: number };
   costByHead: { head: FleetCostHead; label: string; amount: number }[];
-  /** The standing head split by what makes it up. */
-  standingBreakdown: { emiAndLease: number; insurance: number; otherFixed: number };
-  /** Which inputs the standing cost was built from across the fleet. */
-  fixedCostBasis: { fixedCostMonthly: number; emiLeaseInsurance: number; none: number };
+  /** Equals fleet cost. */
   totalCost: number;
-  /** The heads must add up to the headline; the note says why standing is bigger than what
-   *  trips carried. */
-  reconciliation: { headsTotal: number; headlineTotal: number; difference: number; note: string };
-  /** perKm is null until loads carry a distance. */
+  /** Every lane, dearest first; perKm is null until loads carry a distance. */
   costByLane: {
     lane: string;
     laneKey: string;
@@ -244,14 +278,9 @@ export interface FleetAnalyticsCost extends FleetAnalyticsMeta {
     cost: number;
     perKm: number | null;
   }[];
-  costByClass: {
-    truckTypeId: string | null;
-    name: string;
-    vehicles: number;
-    cost: number;
-    distanceKm: number;
-    perKm: number | null;
-  }[];
+  /** One row per body type. */
+  costByTruckType: FleetTruckTypeCost[];
+  /** The 14 dearest trucks per km. */
   costByTruck: {
     vehicle: FleetVehicleSummary;
     cost: number;
@@ -275,7 +304,7 @@ export interface FleetAnalyticsEnergy extends FleetAnalyticsMeta {
   avoidableSpend: { amount: number };
   byPowertrain: { fuelType: string; vehicles: number; costPerKm: number }[];
   offBenchmark: { vehicle: FleetVehicleSummary; costOverClassAverage: number }[];
-  byClass: { truckTypeId: string | null; name: string; vehicles: number; costPerKm: number }[];
+  byTruckType: { bodyType: string; name: string; vehicles: number; costPerKm: number }[];
   byLane: { lane: string; costPerKm: number }[];
 }
 
@@ -289,20 +318,22 @@ export type TyreConditionLabel = 'new_like' | 'good' | 'fair' | 'worn' | 'very_w
  */
 export interface FleetAnalyticsMaintenance extends FleetAnalyticsMeta {
   period: FleetAnalyticsPeriodView;
-  /** perKm is spend over km read off odometer readings; 0 when no km could be read. */
+  /** perKm = spend ÷ km driven by all trucks. */
   spend?: { total: number; perKm: number; jobs: number };
-  /** Distance the trucks ran in the period, from odometer readings. */
   distance: { km: number; vehicles: number; estimated: boolean };
+  /** Preventive service jobs ÷ (service jobs + breakdowns). */
   preventiveShare: { pct: number; planned: number; total: number };
-  /** cost = days off the road × each truck's own fixed cost per day (cost seats only). */
+  /** Workshop days + breakdown days; cost = days × each truck's daily fixed cost (cost seats). */
   downtime: { days: number; trucks: number; cost?: number };
   /** km is null when there were no breakdowns in the period. */
   meanDistanceBetweenFailures: { km: number | null; breakdowns: number };
+  /** Owned trucks only. */
   averageFleetAge: { years: number; vehicles: number };
   lifetimeDistance: { km: number; vehicles: number };
-  /** null until vehicles carry a purchase price. */
+  /** null until trucks carry a price and purchase date. */
   writtenDownValue?: { value: number | null; onRoadValue: number | null };
-  tyresPastLife: { positions: number; thresholdPct: number };
+  /** Positions at or below 4 mm of tread; replaceNow at or below 2 mm. */
+  tyresToReplace: { positions: number; replaceNow: number };
   /** `amount` in rupees for a seat that can see cost, else `count` of jobs. */
   plannedVsUnplannedUnit: 'amount' | 'count';
   plannedVsUnplanned: {
@@ -311,10 +342,9 @@ export interface FleetAnalyticsMaintenance extends FleetAnalyticsMeta {
     unplannedRepair: number;
     roadsideBreakdown: number;
     total: number;
-    /** Job counts, always present — §6.9 compares planned and unplanned by count and by cost. */
     counts: { preventive: number; unplannedRepair: number; roadsideBreakdown: number };
   }[];
-  /** Worst per km first; trucks with no km read in the period are left out. */
+  /** The 12 trucks with the highest maintenance per km. */
   byVehicle: {
     vehicle: FleetVehicleSummary;
     ageYears: number | null;
@@ -333,11 +363,13 @@ export interface FleetAnalyticsMaintenance extends FleetAnalyticsMeta {
     /** Same as extraPerKm — the name the screen reads. */
     overNewPerKm: number;
   }[];
+  /** Each truck's condition is its worst tyre. */
   tyresByVehicle: {
     vehicle: FleetVehicleSummary;
     ageYears: number | null;
     tyres: number;
-    avgTreadLeftPct: number;
+    /** Life left of the worst tyre, %. */
+    treadLeftPct: number;
     condition: TyreConditionLabel;
     kmRun: number;
     kmEstimated: boolean;
@@ -361,24 +393,27 @@ export interface FleetLaneOnTimeRow {
 export interface FleetAnalyticsOperations extends FleetAnalyticsMeta {
   period: FleetAnalyticsPeriodView;
   onTime: { pct: number; late: number; delivered: number };
+  /** Median days late past the window close, across late loads. */
+  medianLateDays: number | null;
   turnaroundDays: number;
   detention: { hours: number; loadsPastFreeHours: number };
   recoverableDetention: { amount: number };
   loadingHours: number;
   unloadingHours: number;
   durationAgainstPlan: { pct: number; extraKm: number };
-  /** Median days late across late loads (§6.3: median, not average). */
-  medianLateDays: number | null;
+  /** Today's position, not filtered by period. */
   onTheRoad: { count: number; runningBehind: number };
   detentionByConsignor: { consignor: string; amount: number }[];
+  /** The 12 lanes with the lowest on-time %. */
   onTimeByLane: FleetLaneOnTimeRow[];
   loadStages: { stage: string; count: number }[];
   loadPipeline: {
     onTheRoad: number;
     runningBehind: number;
-    deliveredPodNotIn: number;
-    podInNotInvoiced: number;
+    deliveredPodPending: number;
+    podInExpensesNotSettled: number;
   };
+  /** Today's position, not filtered by period. */
   drivers: {
     availableToDispatch: number;
     awayOrOffRoll: number;
@@ -402,10 +437,15 @@ export interface FleetDocumentCounts {
 export interface FleetAnalyticsCompliance extends FleetAnalyticsMeta {
   period: FleetAnalyticsPeriodView;
   vehicles: number;
+  /** Trucks with every document valid for more than 30 days. */
   documentsInOrder: { vehicles: number; of: number };
-  blockedFromDispatch: { vehicles: number; expiredPaper: number; inWorkshop: number };
+  /** Trucks with an expired document (they can still be dispatched); loadsCarried = loads in the
+   *  period that started while the truck had an expired document. */
+  trucksWithExpiredDocuments: { vehicles: number; loadsCarried: number };
+  /** Documents with 0–7 days left. */
   expiringIn7Days: { documents: number; vehicles: number };
-  expiringIn30Days: { documents: number; vehicles: number };
+  /** Documents with 8–30 days left. */
+  expiringIn8To30Days: { documents: number; vehicles: number };
   licences: { expiredOrExpiring: number; expired: number };
   position: FleetDocumentCounts & { total: number };
   byDocumentType: (FleetDocumentCounts & { documentType: string; label: string })[];
@@ -415,7 +455,7 @@ export interface FleetAnalyticsCompliance extends FleetAnalyticsMeta {
     label: string;
     expiryDate: string;
     daysLeft: number;
-    /** What the truck costs standing per day while the paper is out — cost seats only. */
+    /** The truck's daily fixed cost — cost seats only. */
     standingPerDay?: number;
   }[];
   drivers: {

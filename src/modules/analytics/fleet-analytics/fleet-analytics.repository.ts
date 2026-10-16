@@ -9,9 +9,8 @@ import {
   Repository,
 } from 'typeorm';
 import { FleetAnalyticsFilters } from './utils/fleet-analytics.interface';
-import { HELD_AS_OWNERSHIP } from './utils/fleet-analytics.constants';
+import { HELD_AS_OWNERSHIP, ON_THE_ROAD_STATUSES } from './utils/fleet-analytics.constants';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
-import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { TyreEntity } from '../../maintenance/entities/tyre.entity';
@@ -30,7 +29,6 @@ import { RequisitionEntity } from '../../loads/entities/requisition.entity';
 // so aggregation happens in application code instead of in the query.
 export class FleetAnalyticsRepository {
   private readonly vehicles: Repository<VehicleEntity>;
-  private readonly truckTypes: Repository<TruckTypeEntity>;
   private readonly customers: Repository<CustomerEntity>;
   private readonly jobs: Repository<MaintenanceJobEntity>;
   private readonly tyres: Repository<TyreEntity>;
@@ -42,7 +40,6 @@ export class FleetAnalyticsRepository {
 
   constructor(dataSource: DataSource) {
     this.vehicles = dataSource.getRepository(VehicleEntity);
-    this.truckTypes = dataSource.getRepository(TruckTypeEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
     this.jobs = dataSource.getRepository(MaintenanceJobEntity);
     this.tyres = dataSource.getRepository(TyreEntity);
@@ -53,10 +50,11 @@ export class FleetAnalyticsRepository {
     this.requisitions = dataSource.getRepository(RequisitionEntity);
   }
 
-  /** The running fleet the filter bar selects — onboarded, not retired, narrowed by "Held as"
-   *  and "Truck class". Carries everything the tabs read off a vehicle: class, fixed costs,
-   *  odometer, papers and the VAHAN registration date (for age). */
-  listScopedVehicles(tenantId: string, filters: FleetAnalyticsFilters): Promise<VehicleEntity[]> {
+  /** The running fleet narrowed by "Held as" (and a single vehicle). Body type and size are
+   *  derived (axle type, truck type master, length), so the service narrows by them in code.
+   *  Carries everything the tabs read off a vehicle: truck type, fixed costs, odometer, papers
+   *  and the VAHAN registration date (for age). */
+  listScopedVehicles(tenantId: string, filters: VehicleScope): Promise<VehicleEntity[]> {
     return this.vehicles.find({
       where: scopedVehicleWhere(tenantId, filters),
       relations: {
@@ -71,10 +69,7 @@ export class FleetAnalyticsRepository {
   }
 
   /** How many vehicles a filter combination selects — used to say which filter emptied a slice. */
-  countScopedVehicles(
-    tenantId: string,
-    filters: Pick<FleetAnalyticsFilters, 'heldAs' | 'truckTypeId' | 'vehicleId'>,
-  ): Promise<number> {
+  countScopedVehicles(tenantId: string, filters: VehicleScope): Promise<number> {
     return this.vehicles.count({ where: scopedVehicleWhere(tenantId, filters) });
   }
 
@@ -129,6 +124,7 @@ export class FleetAnalyticsRepository {
     });
   }
 
+  /** Every running vehicle with its truck type — the Vehicle, Body type and Size options. */
   listVehicleOptions(tenantId: string): Promise<VehicleEntity[]> {
     return this.vehicles.find({
       where: {
@@ -136,7 +132,7 @@ export class FleetAnalyticsRepository {
         deletedAt: IsNull(),
         status: In([...MAINTAINED_VEHICLE_STATUSES]),
       },
-      select: { id: true, registrationNumber: true },
+      relations: { truckType: true },
       order: { registrationNumber: 'ASC' },
     });
   }
@@ -268,37 +264,51 @@ export class FleetAnalyticsRepository {
   listActiveDrivers(tenantId: string): Promise<DriverTenantRelationEntity[]> {
     return this.driverRelations.find({
       where: { tenantId, status: 'active', deletedAt: IsNull(), driver: { deletedAt: IsNull() } },
-      relations: { driver: { verifications: true } },
+      relations: {
+        driver: { verifications: true },
+        operationalStatus: true,
+        vehicleLinks: true,
+      },
     });
   }
 
-  listTruckTypes(tenantId: string): Promise<TruckTypeEntity[]> {
-    return this.truckTypes.find({
-      where: { tenantId, deletedAt: IsNull() },
-      select: { id: true, name: true },
-      order: { name: 'ASC' },
+  /** Loads on the road right now — assigned and not yet unloaded — whatever the period. */
+  listLoadsOnTheRoad(tenantId: string, vehicleIds: string[]): Promise<LoadEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    return this.loads.find({
+      where: { tenantId, vehicleId: In(vehicleIds), status: In([...ON_THE_ROAD_STATUSES]) },
+      relations: { requisition: true },
     });
   }
 
-  listCustomers(tenantId: string): Promise<CustomerEntity[]> {
+  /** Customers with at least one requisition — the Customer filter's options. */
+  async listCustomersWithLoads(tenantId: string): Promise<CustomerEntity[]> {
+    const requisitions = await this.requisitions.find({
+      where: { tenantId },
+      select: { id: true, customerId: true },
+    });
+    const ids = [...new Set(requisitions.map((requisition) => requisition.customerId))];
+    if (ids.length === 0) return [];
     return this.customers.find({
-      where: { tenantId, deletedAt: IsNull() },
+      where: { tenantId, id: In(ids), deletedAt: IsNull() },
       select: { id: true, name: true },
       order: { name: 'ASC' },
     });
   }
 }
 
+/** The vehicle filters the database applies; body type and size are applied in code. */
+export type VehicleScope = Pick<FleetAnalyticsFilters, 'heldAs' | 'vehicleId'>;
+
 function scopedVehicleWhere(
   tenantId: string,
-  filters: Pick<FleetAnalyticsFilters, 'heldAs' | 'truckTypeId' | 'vehicleId'>,
+  filters: VehicleScope,
 ): FindOptionsWhere<VehicleEntity> {
   return {
     tenantId,
     deletedAt: IsNull(),
     status: In([...MAINTAINED_VEHICLE_STATUSES]),
     ownershipType: In(HELD_AS_OWNERSHIP[filters.heldAs]),
-    ...(filters.truckTypeId ? { truckTypeId: filters.truckTypeId } : {}),
     ...(filters.vehicleId ? { id: filters.vehicleId } : {}),
   };
 }

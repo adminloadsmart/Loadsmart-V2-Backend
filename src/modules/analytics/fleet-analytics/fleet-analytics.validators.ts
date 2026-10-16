@@ -8,17 +8,17 @@ import {
 const uuid = z.string().uuid();
 
 /**
- * The filter bar every Fleet Analytics tab shares (§5.14: period, vehicle, class, lane).
- * `customerId` and `laneKey` narrow the load figures. `yardId` is accepted so the frontend can
- * send the whole bar unchanged, but there is no yard model yet, so it filters nothing and the
- * response says so under `unavailable`.
+ * The filter bar every Fleet Analytics tab shares (Metric Guide §10): period, body type, size,
+ * held as and customer. Customer (and the lane) narrow the load figures only; compliance, on the
+ * road now and the driver numbers show today's position whatever the period.
  */
 const fleetAnalyticsQuery = z
   .object({
     period: z.enum(FLEET_ANALYTICS_PERIODS).default('6_months'),
     from: isoDate.optional(),
     to: isoDate.optional(),
-    truckTypeId: uuid.optional(),
+    bodyType: z.string().min(1).max(40).optional(),
+    size: z.string().min(1).max(40).optional(),
     heldAs: z.enum(FLEET_ANALYTICS_HELD_AS).default('owned_and_attached'),
     vehicleId: uuid.optional(),
     laneKey: z
@@ -28,7 +28,6 @@ const fleetAnalyticsQuery = z
         'laneKey is `${loadingPointId}:${customerDeliveryPointId}`',
       )
       .optional(),
-    yardId: uuid.optional(),
     customerId: uuid.optional(),
   })
   .superRefine((data, ctx) => {
