@@ -2,6 +2,13 @@ import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { ProductEntity } from './entities/product.entity';
 import { ProductSubItemEntity } from './entities/product-sub-item.entity';
 import { ListProductsInput } from './product.interface';
+import { UserEntity } from '../../auth/entities/user.entity';
+import { LoadCargoItemEntity } from '../../loads/entities/load-cargo-item.entity';
+
+/** A product plus its creator's name ("entered by Ritu · unverified"). */
+export type ProductWithCreator = ProductEntity & {
+  createdByUser?: Pick<UserEntity, 'id' | 'fullName'> | null;
+};
 
 export class ProductRepository {
   private readonly products: Repository<ProductEntity>;
@@ -39,10 +46,16 @@ export class ProductRepository {
       relations: { subItems: true },
     });
   }
-  async list(tenantId: string, input: ListProductsInput): Promise<[ProductEntity[], number]> {
+  async list(tenantId: string, input: ListProductsInput): Promise<[ProductWithCreator[], number]> {
     const qb = this.products
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.subItems', 'subItem', 'subItem.deleted_at IS NULL')
+      .leftJoinAndMapOne(
+        'product.createdByUser',
+        UserEntity,
+        'creator',
+        'creator.id = product.created_by',
+      )
       .where('product.tenant_id = :tenantId AND product.deleted_at IS NULL', { tenantId });
     if (input.status) qb.andWhere('product.status = :status', { status: input.status });
     if (input.approvalStatus)
@@ -59,6 +72,28 @@ export class ProductRepository {
       .take(input.limit)
       .distinct(true);
     return qb.getManyAndCount();
+  }
+  /** "Moved (6 mo)" — tonnes loaded per product over the last six months, keyed by product id. */
+  async movedTonnesSince(
+    tenantId: string,
+    productIds: string[],
+    since: Date,
+  ): Promise<Map<string, string>> {
+    if (!productIds.length) return new Map();
+    const rows = await this.dataSource
+      .getRepository(LoadCargoItemEntity)
+      .createQueryBuilder('item')
+      .innerJoin('item.load', 'load')
+      .select('item.product_id', 'productId')
+      .addSelect('COALESCE(SUM(item.tonnes_per_truck), 0)', 'tonnes')
+      .where('item.tenant_id = :tenantId AND item.product_id IN (:...productIds)', {
+        tenantId,
+        productIds,
+      })
+      .andWhere('load.created_at >= :since', { since })
+      .groupBy('item.product_id')
+      .getRawMany<{ productId: string; tonnes: string }>();
+    return new Map(rows.map((row) => [row.productId, Number(row.tonnes).toFixed(2)]));
   }
   async update(
     tenantId: string,

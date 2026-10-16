@@ -39,6 +39,15 @@ export class AdminController {
     respond(res, organization);
   };
 
+  updateOrganizationSeatLimit = async (req: Request<OrganizationParams>, res: Response) => {
+    const organization = await this.adminService.updateOrganizationSeatLimit(
+      req.user!,
+      req.params.organizationId,
+      (req.body as { seatLimit: number | null }).seatLimit,
+    );
+    respond(res, organization);
+  };
+
   updateOrganization = async (req: Request<OrganizationParams>, res: Response) => {
     const organization = await this.adminService.updateOrganization(
       req.user!,

@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { OrganizationEntity } from '../../organization/entities/organization.entity';
 import { RoleEntity } from '../../roles/entities/role.entity';
+import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 
 @Entity({ schema: 'auth', name: 'users' })
 @Index('users_email_active_unique', ['email'], { unique: true, where: '"deleted_at" IS NULL' })
@@ -81,6 +82,19 @@ export class UserEntity {
   // WhatsApp. SMS/email/in-app aren't gated by this.
   @Column({ name: 'whatsapp_opt_in', type: 'boolean', nullable: true })
   whatsappOptIn!: boolean | null;
+
+  // Settings → Users & Roles "Based at" — the loading point/site an org teammate works from.
+  @Column({ name: 'based_at_loading_point_id', type: 'uuid', nullable: true })
+  basedAtLoadingPointId!: string | null;
+
+  @ManyToOne(() => LoadingPointEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'based_at_loading_point_id' })
+  basedAtLoadingPoint!: LoadingPointEntity | null;
+
+  // Stamped on every successful login (AuthService.buildAuthSession / verifyOtp). Null = invited
+  // but never signed in — the "Invited" state on Settings → Users & Roles.
+  @Column({ name: 'last_signed_in_at', type: 'timestamptz', nullable: true })
+  lastSignedInAt!: Date | null;
 
   @Column({ name: 'deleted_at', type: 'timestamp', nullable: true })
   deletedAt!: Date | null;

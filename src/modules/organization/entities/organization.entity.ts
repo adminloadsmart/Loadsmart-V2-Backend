@@ -119,6 +119,11 @@ export class OrganizationEntity {
   @Column({ name: 'has_own_fleet', type: 'boolean', nullable: true })
   hasOwnFleet!: boolean | null;
 
+  // "Seats on the plan" (Settings → Users & Roles). Null → DEFAULT_ORG_SEAT_LIMIT. Set by a
+  // platform admin (PATCH /admin/organizations/:id/seat-limit).
+  @Column({ name: 'seat_limit', type: 'integer', nullable: true })
+  seatLimit!: number | null;
+
   @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
   documents!: OrganizationDocumentEntity[];
 

@@ -52,6 +52,36 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
     validate(organizationValidators.listOrganizationUsers),
     asyncHandler(controller.listUsers),
   );
+  // Literal segments — declared before '/organization/users/:userId'.
+  router.get(
+    '/organization/users/summary',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    asyncHandler(controller.usersSummary),
+  );
+  router.get(
+    '/organization/users/export',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    validate(organizationValidators.exportOrganizationUsers),
+    asyncHandler(controller.exportUsers),
+  );
+  router.patch(
+    '/organization/users/:userId/seat',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    validate(organizationValidators.changeOrganizationUserSeat),
+    asyncHandler(controller.changeUserSeat),
+  );
+  router.delete(
+    '/organization/users/:userId',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    validate(organizationValidators.removeOrganizationUser),
+    asyncHandler(controller.removeUser),
+  );
+  // "What each seat opens" table + the seat dropdown's screen summary.
+  router.get(
+    '/organization/seats',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    asyncHandler(controller.listSeats),
+  );
 
   // Backs the "Invite a teammate" role dropdown — exactly the 4 assignable roles (sales_cs,
   // dispatch, documents_ops, finance_accounts), not the full organization-scope catalog GET

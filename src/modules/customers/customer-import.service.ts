@@ -39,10 +39,11 @@ export class CustomerImportService {
   }> {
     const errors: ImportRowError[] = [];
     const valid: { row: number; input: CreateCustomerInput }[] = [];
-    const mobiles = new Set<string>();
+    // Dedupe within the file on whichever identifier a row carries (mobile and/or GSTIN).
+    const seen = new Set<string>();
     let skipped = 0;
     for (const item of parsed.rows) {
-      const result = customerValidators.create.safeParse({ body: item.input });
+      const result = customerValidators.importRow.safeParse({ body: item.input });
       if (!result.success) {
         for (const issue of result.error.issues) {
           errors.push({
@@ -54,16 +55,19 @@ export class CustomerImportService {
         continue;
       }
       const input = result.data.body as CreateCustomerInput;
-      const mobile = (input.mobile ?? '').replace(/[\s-]/g, '');
-      if (mobiles.has(mobile)) {
+      const keys = [
+        input.mobile ? `mobile:${input.mobile}` : null,
+        input.gstin ? `gstin:${input.gstin}` : null,
+      ].filter((key): key is string => Boolean(key));
+      if (keys.some((key) => seen.has(key))) {
         errors.push({
           row: item.row,
-          field: 'mobile',
-          message: 'Duplicate mobile number in this file',
+          field: input.mobile ? 'mobile' : 'gstin',
+          message: 'Duplicate mobile number or GSTIN in this file',
         });
         continue;
       }
-      mobiles.add(mobile);
+      keys.forEach((key) => seen.add(key));
       const existing = await this.findExisting(tenantId, input);
       if (existing) {
         skipped += 1;
@@ -81,11 +85,13 @@ export class CustomerImportService {
       .where('customer.tenant_id = :tenantId', { tenantId })
       .andWhere('customer.deleted_at IS NULL');
 
-    if (input.gstin) {
+    if (input.gstin && input.mobile) {
       query.andWhere('(customer.mobile = :mobile OR customer.gstin = :gstin)', {
         mobile: input.mobile,
         gstin: input.gstin,
       });
+    } else if (input.gstin) {
+      query.andWhere('customer.gstin = :gstin', { gstin: input.gstin });
     } else {
       query.andWhere('customer.mobile = :mobile', { mobile: input.mobile });
     }

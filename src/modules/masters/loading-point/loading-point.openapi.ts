@@ -163,4 +163,25 @@ export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
       404: { description: 'Loading point not found', ...errorContent },
     },
   });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loading-points/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportLoadingPoints',
+    ...authenticated('Loading points "Export CSV" — same filters as the list, up to 5000 rows.'),
+    request: { query: loadingPointValidators.export.shape.query },
+    responses: { 200: { description: 'text/csv file' } },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loading-points/{loadingPointId}/usage`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.loadingPointUsage',
+    ...authenticated(
+      '`{ inUse, activeLoads }` for the Retire drawer. Retiring (PATCH status inactive) or ' +
+        'deleting while inUse → 409 with the same activeLoads.',
+    ),
+    request: { params: loadingPointValidators.get.shape.params },
+    responses: { 200: { description: 'Usage' } },
+  });
 }

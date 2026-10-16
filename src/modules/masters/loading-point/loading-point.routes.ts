@@ -43,6 +43,16 @@ export function createLoadingPointRoutes(
     asyncHandler(controller.listLoadingPointCities),
   );
   router.get(
+    '/loading-points/export',
+    validate(loadingPointValidators.export),
+    asyncHandler(controller.exportLoadingPoints),
+  );
+  router.get(
+    '/loading-points/:loadingPointId/usage',
+    validate(loadingPointValidators.get),
+    asyncHandler(controller.loadingPointUsage),
+  );
+  router.get(
     '/loading-points/:loadingPointId',
     validate(loadingPointValidators.get),
     asyncHandler(controller.getLoadingPoint),

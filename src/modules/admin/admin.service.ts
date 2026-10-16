@@ -171,6 +171,31 @@ export class AdminService {
     }
   }
 
+  async updateOrganizationSeatLimit(
+    actingUser: AuthenticatedUser,
+    organizationId: string,
+    seatLimit: number | null,
+  ) {
+    try {
+      const before = await this.organizationService.getOrganizationStatus(organizationId);
+      this.assertOrgAccessible(actingUser, before);
+      const organization = await this.organizationService.updateOrganization(organizationId, {
+        seatLimit,
+      });
+      await this.auditService.log({
+        tenantId: organizationId,
+        userId: actingUser.id,
+        action: 'ORGANIZATION_SEAT_LIMIT_UPDATED',
+        resourceType: 'organization',
+        oldData: { seatLimit: before.seatLimit },
+        newData: { seatLimit: organization.seatLimit },
+      });
+      return organization;
+    } catch (error) {
+      rethrow(error, 'Failed to update organization seat limit');
+    }
+  }
+
   async updateOrganization(
     actingUser: AuthenticatedUser,
     organizationId: string,

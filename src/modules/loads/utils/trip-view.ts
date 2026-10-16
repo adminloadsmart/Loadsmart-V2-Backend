@@ -264,7 +264,7 @@ export interface TripDoneDetail {
   podQuantityReceived: string | null;
   pickup: {
     title: string;
-    addressLine1: string;
+    addressLine1: string | null;
     addressLine2: string | null;
     city: string;
     state: string;

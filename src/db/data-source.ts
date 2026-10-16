@@ -46,8 +46,13 @@ import { TruckTypeEntity } from '../modules/masters/truck-type/entities/truck-ty
 import { TruckTypeCatalogEntity } from '../modules/masters/truck-type-catalog/entities/truck-type-catalog.entity';
 import { LoadingPointEntity } from '../modules/masters/loading-point/entities/loading-point.entity';
 import { TransporterEntity } from '../modules/masters/transporter/entities/transporter.entity';
+import { TransporterContactEntity } from '../modules/masters/transporter/entities/transporter-contact.entity';
+import { TransporterLaneEntity } from '../modules/masters/transporter/entities/transporter-lane.entity';
+import { TransporterContractEntity } from '../modules/masters/contract/entities/transporter-contract.entity';
 import { CustomerEntity } from '../modules/customers/entities/customer.entity';
 import { CustomerDeliveryPointEntity } from '../modules/customers/entities/customer-delivery-point.entity';
+import { CustomerContactEntity } from '../modules/customers/entities/customer-contact.entity';
+import { GstVerificationEntity } from '../modules/masters/gst/entities/gst-verification.entity';
 import { FileEntity } from '../modules/storage/entities/file.entity';
 import { ProductEntity } from '../modules/masters/product/entities/product.entity';
 import { ProductSubItemEntity } from '../modules/masters/product/entities/product-sub-item.entity';
@@ -117,8 +122,13 @@ export const AppDataSource = new DataSource({
     TruckTypeCatalogEntity,
     LoadingPointEntity,
     TransporterEntity,
+    TransporterContactEntity,
+    TransporterLaneEntity,
+    TransporterContractEntity,
     CustomerEntity,
     CustomerDeliveryPointEntity,
+    CustomerContactEntity,
+    GstVerificationEntity,
     FileEntity,
     ProductEntity,
     ProductSubItemEntity,

@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { paginationQuery } from '../../../shared/validators/pagination';
-import { PRODUCT_APPROVAL_STATUSES, PRODUCT_STATUSES } from './product.types';
+import {
+  PRODUCT_APPROVAL_STATUSES,
+  PRODUCT_CLASSIFICATIONS,
+  PRODUCT_CONVERSION_MODELS,
+  PRODUCT_DIMENSION_UNITS,
+  PRODUCT_PACKAGINGS,
+  PRODUCT_STATUSES,
+} from './product.types';
 
 const uuid = z.string().uuid();
 const fields = {
@@ -9,12 +16,17 @@ const fields = {
     .string()
     .trim()
     .regex(/^\d{4,8}$/, 'HSN code must contain 4 to 8 digits'),
-  packaging: z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']),
+  packaging: z.enum(PRODUCT_PACKAGINGS),
   invoiceValue: z.number().nonnegative(),
   billingUnit: z.string().trim().max(30),
   dimensions: z.string().trim().max(100),
   weight: z.number().nonnegative(),
   weightUnit: z.string().trim().max(30),
+  length: z.number().positive().max(100000),
+  width: z.number().positive().max(100000),
+  height: z.number().positive().max(100000),
+  dimensionUnit: z.enum(PRODUCT_DIMENSION_UNITS),
+  conversionModel: z.enum(PRODUCT_CONVERSION_MODELS),
 };
 const subItem = z.object({ name: z.string().trim().min(1).max(255) }).strict();
 const params = z.object({ productId: uuid });
@@ -27,6 +39,13 @@ export const productValidators = {
     }),
   }),
   get: z.object({ params }),
+  export: z.object({
+    query: z.object({
+      search: z.string().trim().min(1).optional(),
+      status: z.enum(PRODUCT_STATUSES).optional(),
+      approvalStatus: z.enum(PRODUCT_APPROVAL_STATUSES).optional(),
+    }),
+  }),
   create: z.object({
     body: z
       .object({
@@ -38,6 +57,12 @@ export const productValidators = {
         dimensions: fields.dimensions.optional(),
         weight: fields.weight.optional(),
         weightUnit: fields.weightUnit.optional(),
+        classification: z.enum(PRODUCT_CLASSIFICATIONS).optional(),
+        length: fields.length.optional(),
+        width: fields.width.optional(),
+        height: fields.height.optional(),
+        dimensionUnit: fields.dimensionUnit.optional(),
+        conversionModel: fields.conversionModel.optional(),
         subItems: z.array(subItem).max(100).optional(),
       })
       .strict(),
@@ -49,6 +74,7 @@ export const productValidators = {
         ...Object.fromEntries(
           Object.entries(fields).map(([key, value]) => [key, value.nullable().optional()]),
         ),
+        classification: z.enum(PRODUCT_CLASSIFICATIONS).optional(),
         status: z.enum(PRODUCT_STATUSES).optional(),
         subItems: z
           .object({

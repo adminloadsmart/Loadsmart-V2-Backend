@@ -23,3 +23,10 @@ const CUSTOMER_CODE_OFFSET = 1000;
 export function formatCustomerCode(sequenceValue: number): string {
   return `CUS-${CUSTOMER_CODE_OFFSET + sequenceValue}`;
 }
+
+const TRANSPORTER_CODE_OFFSET = 1000;
+
+/** `TRP-nnnn` — tenant-wide transporter display code, same offset scheme as CUS. */
+export function formatTransporterCode(sequenceValue: number): string {
+  return `TRP-${TRANSPORTER_CODE_OFFSET + sequenceValue}`;
+}

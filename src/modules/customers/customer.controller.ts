@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
 import { CustomerService } from './customer.service';
+import { sendCsv } from '../../shared/utils/csv';
 import { CustomerParams, DeleteCustomerParams, ListCustomersInput } from './customer.types';
 
 export class CustomerController {
@@ -19,6 +20,35 @@ export class CustomerController {
         requireTenantId(req),
         req.user!.role,
         req.validatedQuery as ListCustomersInput,
+      ),
+    );
+  export = async (req: Request, res: Response) =>
+    sendCsv(
+      res,
+      'customers',
+      await this.service.export(
+        requireTenantId(req),
+        req.user!.role,
+        req.validatedQuery as Omit<ListCustomersInput, 'page' | 'limit'>,
+      ),
+    );
+  listLoads = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.service.listLoads(
+        requireTenantId(req),
+        req.user!.role,
+        (req.params as unknown as CustomerParams).customerId,
+        req.validatedQuery as { page: number; limit: number },
+      ),
+    );
+  usage = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.service.usageOf(
+        requireTenantId(req),
+        req.user!.role,
+        (req.params as unknown as CustomerParams).customerId,
       ),
     );
   get = async (req: Request, res: Response) =>

@@ -53,6 +53,7 @@ import {
   UpdateStaffInput,
   InviteOrganizationUserInput,
   ListOrganizationUsersInput,
+  ChangeOrganizationUserSeatInput,
   LoginInput,
   RefreshInput,
   LogoutInput,
@@ -70,6 +71,13 @@ import {
   OrganizationOnboardingProgress,
 } from '../organization/organization.types';
 import { UserEntity } from './entities/user.entity';
+import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
+import {
+  DEFAULT_ORG_SEAT_LIMIT,
+  SEAT_SCREEN_CATALOG,
+  seatLabel,
+} from '../../shared/constants/seat-screens';
+import { buildCsv, CSV_EXPORT_MAX_ROWS } from '../../shared/utils/csv';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { NotificationTriggers } from '../notifications/notification-triggers';
 import { joinCapabilities } from '../notifications/capability-wording';
@@ -165,6 +173,7 @@ export class AuthService {
       });
     }
 
+    await this.authRepository.touchLastSignedIn(user.id);
     return this.issueTokenPairForUser(user, 'organization', {
       fcmToken: input.fcmToken,
       deviceType: input.deviceType,
@@ -443,6 +452,7 @@ export class AuthService {
     }
 
     const { fullName, phoneNumber, roleId } = input;
+    const email = input.email.trim().toLowerCase();
 
     const role = await this.roleService.getRoleById(roleId);
     if (!ORG_ASSIGNABLE_ROLES.includes(role.name)) {
@@ -454,33 +464,54 @@ export class AuthService {
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const existingByPhone = await this.authRepository.findUserByPhone(normalizedPhone);
     if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
+    if (await this.authRepository.findUserByEmail(email))
+      throw new ConflictError('A user with this email already exists');
+
+    const { active, invited } = await this.authRepository.countOrganizationUsersByState(
+      actingUser.tenantId,
+    );
+    const seatsOnPlan = organization.seatLimit ?? DEFAULT_ORG_SEAT_LIMIT;
+    if (active + invited >= seatsOnPlan)
+      throw new ConflictError('No seats free on your plan', { seatsOnPlan });
+    const basedAtLoadingPointId = await this.resolveBasedAt(
+      actingUser.tenantId,
+      input.basedAtLoadingPointId,
+    );
 
     const password = this.generatePassword();
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await this.authRepository.createUser({
+    const created = await this.authRepository.createUser({
       phoneNumber: normalizedPhone,
       tenantId: actingUser.tenantId,
       roleId,
-      email: null,
+      email,
       passwordHash,
       fullName,
       coverage: null,
     });
+    if (basedAtLoadingPointId)
+      await this.authRepository.setBasedAt(created.id, basedAtLoadingPointId);
+    const user = (await this.authRepository.findOrganizationUser(actingUser.tenantId, created.id))!;
 
     await this.auditService.log({
       tenantId: actingUser.tenantId,
       userId: actingUser.id,
       action: 'ORG_USER_INVITED',
       resourceType: 'user',
-      newData: { id: user.id, fullName, phoneNumber: user.phoneNumber, role: role.name },
+      newData: {
+        id: user.id,
+        fullName,
+        email,
+        phoneNumber: user.phoneNumber,
+        role: role.name,
+        basedAtLoadingPointId,
+      },
     });
 
     await this.notifyTeamMemberInvited(actingUser, organization, user.id);
 
     return {
-      id: user.id,
-      fullName: user.fullName,
-      phoneNumber: user.phoneNumber,
+      ...this.toOrganizationUserRow(user),
       role: user.role.name,
       temporaryPassword: password,
       permissions: await this.roleService.getEffectivePermissions(user.id),
@@ -515,26 +546,214 @@ export class AuthService {
   }
 
   async listOrganizationUsers(actingUser: AuthenticatedUser, input: ListOrganizationUsersInput) {
-    if (!actingUser.tenantId) {
-      throw new AuthorizationError('This resource requires an organization context');
-    }
-    const { items, total } = await this.authRepository.listOrganizationUsers(
-      actingUser.tenantId,
-      input,
-    );
+    const tenantId = this.requireOrgContext(actingUser);
+    const { items, total } = await this.authRepository.listOrganizationUsers(tenantId, input);
     return {
       items: items.map((user) => ({
-        id: user.id,
-        fullName: user.fullName,
-        phoneNumber: user.phoneNumber,
+        ...this.toOrganizationUserRow(user),
+        // Kept for older clients of this endpoint.
         role: user.role.name,
-        createdAt: user.createdAt,
       })),
       page: input.page,
       limit: input.limit,
       total,
       totalPages: Math.ceil(total / input.limit),
     };
+  }
+
+  /** Settings → Users & Roles row: seat, "Based at", Active/Invited and last sign-in. */
+  private toOrganizationUserRow(user: UserEntity) {
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      seat: { roleId: user.role.id, name: user.role.name, label: seatLabel(user.role.name) },
+      basedAt: user.basedAtLoadingPoint
+        ? {
+            loadingPointId: user.basedAtLoadingPoint.id,
+            title: user.basedAtLoadingPoint.title,
+            city: user.basedAtLoadingPoint.city,
+          }
+        : null,
+      state: (user.lastSignedInAt ? 'active' : 'invited') as 'active' | 'invited',
+      lastSignedInAt: user.lastSignedInAt,
+      createdAt: user.createdAt,
+    };
+  }
+
+  private requireOrgContext(actingUser: AuthenticatedUser): string {
+    if (!actingUser.tenantId) {
+      throw new AuthorizationError('This resource requires an organization context');
+    }
+    return actingUser.tenantId;
+  }
+
+  /** "Based at" must be a live, non-rejected loading point of the same tenant (or cleared). */
+  private async resolveBasedAt(
+    tenantId: string,
+    loadingPointId: string | null | undefined,
+  ): Promise<string | null> {
+    if (!loadingPointId) return null;
+    const point = await this.dataSource.getRepository(LoadingPointEntity).findOneBy({
+      id: loadingPointId,
+      tenantId,
+      deletedAt: IsNull(),
+    });
+    if (!point || point.status === 'rejected' || point.status === 'inactive')
+      throw new ValidationError(`Loading point ${loadingPointId} is not an active site`);
+    return point.id;
+  }
+
+  /** KPI tiles: active users, invited, seats on the plan, seats free. */
+  async organizationUsersSummary(actingUser: AuthenticatedUser) {
+    const tenantId = this.requireOrgContext(actingUser);
+    const [{ active, invited }, organization] = await Promise.all([
+      this.authRepository.countOrganizationUsersByState(tenantId),
+      this.organizationService.getOrganizationStatus(tenantId),
+    ]);
+    const seatsOnPlan = organization.seatLimit ?? DEFAULT_ORG_SEAT_LIMIT;
+    return {
+      activeUsers: active,
+      invitedUsers: invited,
+      seatsOnPlan,
+      seatsFree: Math.max(0, seatsOnPlan - active - invited),
+    };
+  }
+
+  /** "What each seat opens" — every organization seat (org_admin included) with its user count,
+   *  screen count, groups and summary line (SEAT_SCREEN_CATALOG). */
+  async listOrganizationSeats(actingUser: AuthenticatedUser) {
+    const tenantId = this.requireOrgContext(actingUser);
+    const [roles, counts] = await Promise.all([
+      this.roleService.listRoles(actingUser, { scope: 'organization' }),
+      this.authRepository.countOrganizationUsersByRole(tenantId),
+    ]);
+    return roles
+      .filter((role) => SEAT_SCREEN_CATALOG[role.name])
+      .map((role) => {
+        const seat = SEAT_SCREEN_CATALOG[role.name];
+        return {
+          roleId: role.id,
+          name: role.name,
+          label: seat.label,
+          assignable: ORG_ASSIGNABLE_ROLES.includes(role.name),
+          userCount: counts.get(role.name) ?? 0,
+          screenCount: seat.screens.length,
+          screens: seat.screens,
+          groups: seat.groups,
+          summary: seat.summary,
+        };
+      });
+  }
+
+  /** "Change Seat": new seat (an ORG_ASSIGNABLE_ROLES role) and/or "Based at". An org_admin's
+   *  seat itself is never changed here — only their Based at. Role changes go through
+   *  RoleService.assignRole, which bumps permissionsVersion and forces re-auth. */
+  async changeOrganizationUserSeat(
+    actingUser: AuthenticatedUser,
+    userId: string,
+    input: ChangeOrganizationUserSeatInput,
+  ) {
+    if (actingUser.role !== ORG_ADMIN_ROLE) {
+      throw new AuthorizationError('Only an org admin can change seats');
+    }
+    const tenantId = this.requireOrgContext(actingUser);
+    const target = await this.authRepository.findOrganizationUser(tenantId, userId);
+    if (!target) throw new NotFoundError(`User ${userId} not found`);
+
+    const oldData = {
+      role: target.role.name,
+      basedAtLoadingPointId: target.basedAtLoadingPointId,
+    };
+    if (input.roleId && input.roleId !== target.roleId) {
+      if (target.role.name === ORG_ADMIN_ROLE)
+        throw new ValidationError("An org admin's seat cannot be changed");
+      const role = await this.roleService.getRoleById(input.roleId);
+      if (!ORG_ASSIGNABLE_ROLES.includes(role.name))
+        throw new ValidationError(
+          `Seat "${role.name}" cannot be assigned — must be one of: ${ORG_ASSIGNABLE_ROLES.join(', ')}`,
+        );
+      await this.roleService.assignRole(actingUser, userId, input.roleId);
+    }
+    if (input.basedAtLoadingPointId !== undefined) {
+      await this.authRepository.setBasedAt(
+        userId,
+        await this.resolveBasedAt(tenantId, input.basedAtLoadingPointId),
+      );
+    }
+    const updated = (await this.authRepository.findOrganizationUser(tenantId, userId))!;
+    await this.auditService.log({
+      tenantId,
+      userId: actingUser.id,
+      action: 'ORG_USER_SEAT_CHANGED',
+      resourceType: 'user',
+      oldData: { id: userId, ...oldData },
+      newData: {
+        id: userId,
+        role: updated.role.name,
+        basedAtLoadingPointId: updated.basedAtLoadingPointId,
+      },
+    });
+    return this.toOrganizationUserRow(updated);
+  }
+
+  /** "Remove User — access ends at once. Everything they recorded keeps their name on it."
+   *  Soft-deletes the user and revokes every session (same mechanics as deleteStaff). */
+  async removeOrganizationUser(actingUser: AuthenticatedUser, userId: string) {
+    if (actingUser.role !== ORG_ADMIN_ROLE) {
+      throw new AuthorizationError('Only an org admin can remove teammates');
+    }
+    const tenantId = this.requireOrgContext(actingUser);
+    if (userId === actingUser.id) throw new AuthorizationError('You cannot remove yourself');
+    const target = await this.authRepository.findOrganizationUser(tenantId, userId);
+    if (!target) throw new NotFoundError(`User ${userId} not found`);
+    if (target.role.name === ORG_ADMIN_ROLE)
+      throw new ValidationError('An org admin cannot be removed here');
+
+    await this.authRepository.softDeleteUser(userId);
+    await this.authRepository.revokeAllRefreshTokensForUser(userId);
+    await invalidateUserExistsCache(userId);
+
+    await this.auditService.log({
+      tenantId,
+      userId: actingUser.id,
+      action: 'ORG_USER_REMOVED',
+      resourceType: 'user',
+      oldData: {
+        id: target.id,
+        fullName: target.fullName,
+        email: target.email,
+        phoneNumber: target.phoneNumber,
+        role: target.role.name,
+      },
+    });
+  }
+
+  /** Users table "Export CSV". */
+  async exportOrganizationUsers(
+    actingUser: AuthenticatedUser,
+    filters: Omit<ListOrganizationUsersInput, 'page' | 'limit'>,
+  ): Promise<string> {
+    const tenantId = this.requireOrgContext(actingUser);
+    const { items } = await this.authRepository.listOrganizationUsers(tenantId, {
+      ...filters,
+      page: 1,
+      limit: CSV_EXPORT_MAX_ROWS,
+    });
+    return buildCsv(
+      [
+        { header: 'Name', value: (row) => row.fullName },
+        { header: 'Email', value: (row) => row.email },
+        { header: 'Phone', value: (row) => row.phoneNumber },
+        { header: 'Seat', value: (row) => row.seat.label },
+        { header: 'Based At', value: (row) => row.basedAt?.title },
+        { header: 'State', value: (row) => row.state },
+        { header: 'Last Signed In', value: (row) => row.lastSignedInAt?.toISOString() },
+        { header: 'Added On', value: (row) => row.createdAt.toISOString().slice(0, 10) },
+      ],
+      items.map((user) => this.toOrganizationUserRow(user)),
+    );
   }
 
   /** Backs the "Invite a teammate" role dropdown — see role.service.ts's
@@ -1395,6 +1614,7 @@ export class AuthService {
   ): Promise<AuthSession> {
     this.assertPortalAccess(user, portal);
     await this.assertOrganizationActiveForLogin(user);
+    await this.authRepository.touchLastSignedIn(user.id);
 
     const permissions = await this.roleService.getEffectivePermissions(user.id);
     const tokens = await this.issueTokenPair(

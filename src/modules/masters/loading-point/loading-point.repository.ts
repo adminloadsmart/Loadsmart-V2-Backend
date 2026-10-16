@@ -1,5 +1,6 @@
-import { DataSource, EntityManager, FindOptionsWhere, ILike, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, IsNull, Repository } from 'typeorm';
 import { LoadingPointEntity } from './entities/loading-point.entity';
+import { UserEntity } from '../../auth/entities/user.entity';
 import {
   CreateLoadingPointData,
   ListLoadingPointCitiesInput,
@@ -7,18 +8,23 @@ import {
   UpdateLoadingPointData,
 } from './loading-point.interface';
 
-/** Fields the loading-points search box matches against, OR'd together. */
-const SEARCH_FIELDS: (keyof LoadingPointEntity)[] = [
+/** Columns the loading-points search box ("Name, city or PIN…") matches against, OR'd. */
+const SEARCH_COLUMNS = [
   'title',
   'city',
   'state',
-  'pinCode',
-  'areaLocality',
+  'pin_code',
+  'area_locality',
   'landmark',
-  'contactPersonName',
-  'contactPersonNumber',
-  'contactPersonEmail',
+  'contact_person_name',
+  'contact_person_number',
+  'contact_person_email',
 ];
+
+/** A loading point plus its creator's name ("entered by Harjit · unverified"). */
+export type LoadingPointWithCreator = LoadingPointEntity & {
+  createdByUser?: Pick<UserEntity, 'id' | 'fullName'> | null;
+};
 
 export class LoadingPointRepository {
   private readonly loadingPoints: Repository<LoadingPointEntity>;
@@ -42,27 +48,47 @@ export class LoadingPointRepository {
     return repo.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
+  private filteredQuery(
+    tenantId: string,
+    filters: Omit<ListLoadingPointsFilters, 'page' | 'limit'>,
+  ) {
+    const { search, city, status } = filters;
+    const query = this.loadingPoints
+      .createQueryBuilder('lp')
+      .leftJoinAndMapOne('lp.createdByUser', UserEntity, 'creator', 'creator.id = lp.created_by')
+      .where('lp.tenant_id = :tenantId AND lp.deleted_at IS NULL', { tenantId });
+    if (city) query.andWhere('lp.city = :city', { city });
+    if (status) query.andWhere('lp.status = :status', { status });
+    if (search)
+      query.andWhere(
+        `(${SEARCH_COLUMNS.map((column) => `lp.${column} ILIKE :search`).join(' OR ')})`,
+        {
+          search: `%${search}%`,
+        },
+      );
+    return query.orderBy('lp.created_at', 'DESC');
+  }
+
   async list(
     tenantId: string,
     filters: ListLoadingPointsFilters,
-  ): Promise<[LoadingPointEntity[], number]> {
-    const { page, limit, search, city, status } = filters;
+  ): Promise<[LoadingPointWithCreator[], number]> {
+    return this.filteredQuery(tenantId, filters)
+      .skip((filters.page - 1) * filters.limit)
+      .take(filters.limit)
+      .getManyAndCount();
+  }
 
-    const base: FindOptionsWhere<LoadingPointEntity> = { tenantId, deletedAt: IsNull() };
-    if (city) base.city = city;
-    if (status) base.status = status;
+  listForExport(
+    tenantId: string,
+    filters: Omit<ListLoadingPointsFilters, 'page' | 'limit'>,
+    max: number,
+  ): Promise<LoadingPointWithCreator[]> {
+    return this.filteredQuery(tenantId, filters).take(max).getMany();
+  }
 
-    // One OR'd where-clause per searchable field — TypeORM ORs entries of a where array, same
-    // way findAndCount interprets a where array everywhere else in this codebase.
-    const where: FindOptionsWhere<LoadingPointEntity>[] | FindOptionsWhere<LoadingPointEntity> =
-      search ? SEARCH_FIELDS.map((field) => ({ ...base, [field]: ILike(`%${search}%`) })) : base;
-
-    return this.loadingPoints.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+  findWithCreator(tenantId: string, id: string): Promise<LoadingPointWithCreator | null> {
+    return this.filteredQuery(tenantId, {}).andWhere('lp.id = :id', { id }).getOne();
   }
 
   /** Distinct cities with at least one loading point — feeds the city filter dropdown, which

@@ -13,7 +13,7 @@ export interface ParsedProductExcel {
   mapping: Record<string, string>;
 }
 
-const aliases: Record<keyof CreateProductInput, string[]> = {
+const aliases: Partial<Record<keyof CreateProductInput, string[]>> = {
   productDetails: ['productdetails', 'product', 'productname', 'name'],
   hsnCode: ['hsncode', 'hsn', 'hsnnumber'],
   packaging: ['packaging', 'package', 'packagetype'],
@@ -23,7 +23,15 @@ const aliases: Record<keyof CreateProductInput, string[]> = {
   weight: ['weight'],
   weightUnit: ['weightunit', 'weightmeasurementunit'],
   subItems: ['subitems', 'subitem', 'variants', 'variant'],
+  classification: ['classification', 'hazardclass', 'hazardous'],
+  length: ['length'],
+  width: ['width'],
+  height: ['height'],
+  dimensionUnit: ['dimensionunit', 'scaleunit'],
+  conversionModel: ['conversionmodel'],
 };
+
+const NUMERIC_FIELDS = new Set<string>(['invoiceValue', 'weight', 'length', 'width', 'height']);
 
 function normalizeHeader(value: string): string {
   return value
@@ -70,7 +78,7 @@ export async function parseProductExcel(buffer: Buffer): Promise<ParsedProductEx
   const mapping: Record<string, string> = {};
   for (const header of Object.keys(records[0])) {
     const field = (Object.keys(aliases) as (keyof CreateProductInput)[]).find((key) =>
-      aliases[key].includes(normalizeHeader(header)),
+      aliases[key]?.includes(normalizeHeader(header)),
     );
     if (field) {
       if (Object.values(mapping).includes(field))
@@ -86,9 +94,12 @@ export async function parseProductExcel(buffer: Buffer): Promise<ParsedProductEx
     for (const [header, field] of Object.entries(mapping)) {
       const raw = record[header]?.trim();
       if (!raw) continue;
-      if (field === 'invoiceValue' || field === 'weight')
-        (input as Record<string, unknown>)[field] = parseNumber(raw);
+      if (NUMERIC_FIELDS.has(field)) (input as Record<string, unknown>)[field] = parseNumber(raw);
       else if (field === 'subItems') input.subItems = parseSubItems(raw);
+      else if (field === 'classification')
+        input.classification = raw
+          .toLowerCase()
+          .replace(/[\s-]+/g, '_') as CreateProductInput['classification'];
       else (input as Record<string, unknown>)[field] = raw;
     }
     return { row: index + 2, input };

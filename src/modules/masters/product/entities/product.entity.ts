@@ -10,8 +10,14 @@ import {
 import { ProductSubItemEntity } from './product-sub-item.entity';
 import {
   PRODUCT_APPROVAL_STATUSES,
+  PRODUCT_CLASSIFICATIONS,
+  PRODUCT_CONVERSION_MODELS,
+  PRODUCT_DIMENSION_UNITS,
   PRODUCT_STATUSES,
   ProductApprovalStatus,
+  ProductClassification,
+  ProductConversionModel,
+  ProductDimensionUnit,
   ProductStatus,
 } from '../product.types';
 
@@ -34,6 +40,40 @@ export class ProductEntity {
   @Column({ type: 'numeric', precision: 12, scale: 3, nullable: true }) weight!: string | null;
   @Column({ name: 'weight_unit', type: 'varchar', length: 30, nullable: true }) weightUnit!:
     string | null;
+  @Column({
+    type: 'enum',
+    enum: [...PRODUCT_CLASSIFICATIONS],
+    default: 'non_hazardous',
+  })
+  classification!: ProductClassification;
+  // "Dimensions & volumetric weight" — volume/weight are computed server-side on save.
+  @Column({ type: 'numeric', precision: 10, scale: 3, nullable: true }) length!: string | null;
+  @Column({ type: 'numeric', precision: 10, scale: 3, nullable: true }) width!: string | null;
+  @Column({ type: 'numeric', precision: 10, scale: 3, nullable: true }) height!: string | null;
+  @Column({
+    name: 'dimension_unit',
+    type: 'enum',
+    enum: [...PRODUCT_DIMENSION_UNITS],
+    nullable: true,
+  })
+  dimensionUnit!: ProductDimensionUnit | null;
+  @Column({
+    name: 'conversion_model',
+    type: 'enum',
+    enum: [...PRODUCT_CONVERSION_MODELS],
+    nullable: true,
+  })
+  conversionModel!: ProductConversionModel | null;
+  @Column({ name: 'volume_cbm', type: 'numeric', precision: 12, scale: 3, nullable: true })
+  volumeCbm!: string | null;
+  @Column({
+    name: 'volumetric_weight_kg',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  volumetricWeightKg!: string | null;
   @Column({
     name: 'approval_status',
     type: 'enum',

@@ -31,6 +31,27 @@ export function createTransporterRoutes(
     validate(transporterValidators.listTransporters),
     asyncHandler(controller.listTransporters),
   );
+  // Literal segment — declared before '/transporters/:transporterId'.
+  router.get(
+    '/transporters/export',
+    validate(transporterValidators.exportTransporters),
+    asyncHandler(controller.exportTransporters),
+  );
+  router.get(
+    '/transporters/:transporterId/loads',
+    validate(transporterValidators.transporterLoads),
+    asyncHandler(controller.listTransporterLoads),
+  );
+  router.get(
+    '/transporters/:transporterId/usage',
+    validate(transporterValidators.getTransporter),
+    asyncHandler(controller.transporterUsage),
+  );
+  router.patch(
+    '/transporters/:transporterId/status',
+    validate(transporterValidators.updateStatus),
+    asyncHandler(controller.updateTransporterStatus),
+  );
   router.get(
     '/transporters/:transporterId',
     validate(transporterValidators.getTransporter),

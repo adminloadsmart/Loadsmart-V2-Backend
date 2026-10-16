@@ -1,10 +1,87 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { AuditService } from '../../audit/audit.service';
-import { ProductRepository } from './product.repository';
+import { ProductRepository, ProductWithCreator } from './product.repository';
+import {
+  CFT_PER_CBM,
+  KG_PER_CBM,
+  METRES_PER_DIMENSION_UNIT,
+  ProductConversionModel,
+  ProductDimensionUnit,
+} from './product.types';
+import { ProductEntity } from './entities/product.entity';
+import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../../shared/utils/csv';
 import { CreateProductInput, ListProductsInput, UpdateProductInput } from './product.interface';
 import { MasterApprovalNotifier } from '../../notifications/master-approvals';
 import { paginate } from '../../../shared/utils/pagination';
+
+const MOVED_WINDOW_MONTHS = 6;
+
+/**
+ * "Total calculated volume" and "Volumetric weight" for the Add a Product drawer — L × W × H in the
+ * chosen scale unit, converted to m³, times the conversion model's kg/m³ (surface 250, air 167).
+ * Null unless all three dimensions are known. 12 × 2.4 × 2.5 m, surface → 72 m³ → 18,000 kg.
+ */
+export function computeVolumetrics(dimensions: {
+  length?: number | string | null;
+  width?: number | string | null;
+  height?: number | string | null;
+  dimensionUnit?: ProductDimensionUnit | null;
+  conversionModel?: ProductConversionModel | null;
+}): { volumeCbm: string | null; volumetricWeightKg: string | null } {
+  const { length, width, height } = dimensions;
+  if (length == null || width == null || height == null)
+    return { volumeCbm: null, volumetricWeightKg: null };
+  const metres = METRES_PER_DIMENSION_UNIT[dimensions.dimensionUnit ?? 'm'];
+  const volume = Number(length) * Number(width) * Number(height) * metres ** 3;
+  const kgPerCbm = KG_PER_CBM[dimensions.conversionModel ?? 'surface_road'];
+  return { volumeCbm: volume.toFixed(3), volumetricWeightKg: (volume * kgPerCbm).toFixed(2) };
+}
+
+/** A product as Settings → Products reads it: every column plus the creator's name, the cubic-feet
+ *  volume and "Moved (6 mo)" tonnes. */
+export function toProductView(product: ProductWithCreator, movedTonnes?: string) {
+  const { createdByUser, ...rest } = product;
+  return {
+    ...rest,
+    createdByUser: createdByUser
+      ? { id: createdByUser.id, fullName: createdByUser.fullName }
+      : null,
+    volumeCft:
+      product.volumeCbm == null ? null : (Number(product.volumeCbm) * CFT_PER_CBM).toFixed(2),
+    movedLast6MonthsTonnes: movedTonnes ?? '0.00',
+  };
+}
+
+const PRODUCT_EXPORT_COLUMNS: CsvColumn<ReturnType<typeof toProductView>>[] = [
+  { header: 'productDetails', value: (p) => p.productDetails },
+  { header: 'hsnCode', value: (p) => p.hsnCode },
+  { header: 'billingUnit', value: (p) => p.billingUnit },
+  { header: 'packaging', value: (p) => p.packaging },
+  { header: 'classification', value: (p) => p.classification },
+  { header: 'length', value: (p) => p.length },
+  { header: 'width', value: (p) => p.width },
+  { header: 'height', value: (p) => p.height },
+  { header: 'dimensionUnit', value: (p) => p.dimensionUnit },
+  { header: 'conversionModel', value: (p) => p.conversionModel },
+  { header: 'volumeCbm', value: (p) => p.volumeCbm },
+  { header: 'volumetricWeightKg', value: (p) => p.volumetricWeightKg },
+  { header: 'invoiceValue', value: (p) => p.invoiceValue },
+  {
+    header: 'subItems',
+    value: (p) => (p.subItems ?? []).map((item) => item.name).join(' | '),
+  },
+  { header: 'movedLast6MonthsTonnes', value: (p) => p.movedLast6MonthsTonnes },
+  { header: 'status', value: (p) => p.status },
+];
+
+const sixMonthsAgo = () => {
+  const since = new Date();
+  since.setMonth(since.getMonth() - MOVED_WINDOW_MONTHS);
+  return since;
+};
+
+const numericOrNull = (value: number | null | undefined) => (value == null ? null : String(value));
 
 export class ProductService {
   constructor(
@@ -29,6 +106,13 @@ export class ProductService {
           dimensions: input.dimensions?.trim() ?? null,
           weight: input.weight == null ? null : String(input.weight),
           weightUnit: input.weightUnit?.trim() ?? null,
+          classification: input.classification ?? 'non_hazardous',
+          length: numericOrNull(input.length),
+          width: numericOrNull(input.width),
+          height: numericOrNull(input.height),
+          dimensionUnit: input.dimensionUnit ?? (input.length != null ? 'm' : null),
+          conversionModel: input.conversionModel ?? (input.length != null ? 'surface_road' : null),
+          ...computeVolumetrics(input),
           approvalStatus: autoApproved ? 'approved' : 'pending_approval',
           status: autoApproved ? 'active' : 'inactive',
           createdBy: actorId,
@@ -69,10 +153,42 @@ export class ProductService {
   }
   async list(tenantId: string, input: ListProductsInput) {
     try {
-      const result = await this.repository.list(tenantId, input);
-      return paginate(result[0], result[1], input);
+      const [items, total] = await this.repository.list(tenantId, input);
+      const moved = await this.repository.movedTonnesSince(
+        tenantId,
+        items.map((item) => item.id),
+        sixMonthsAgo(),
+      );
+      return paginate(
+        items.map((item) => toProductView(item, moved.get(item.id))),
+        total,
+        input,
+      );
     } catch (error) {
       rethrow(error, 'Failed to list products');
+    }
+  }
+  async export(
+    tenantId: string,
+    filters: Omit<ListProductsInput, 'page' | 'limit'>,
+  ): Promise<string> {
+    try {
+      const [items] = await this.repository.list(tenantId, {
+        ...filters,
+        page: 1,
+        limit: CSV_EXPORT_MAX_ROWS,
+      });
+      const moved = await this.repository.movedTonnesSince(
+        tenantId,
+        items.map((item) => item.id),
+        sixMonthsAgo(),
+      );
+      return buildCsv(
+        PRODUCT_EXPORT_COLUMNS,
+        items.map((item) => toProductView(item, moved.get(item.id))),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to export products');
     }
   }
   async get(tenantId: string, id: string) {
@@ -80,7 +196,8 @@ export class ProductService {
       const product = await this.repository.findById(tenantId, id);
       if (!product) throw new NotFoundError(`Product ${id} not found`);
       product.subItems = product.subItems.filter((item) => !item.deletedAt);
-      return product;
+      const moved = await this.repository.movedTonnesSince(tenantId, [id], sixMonthsAgo());
+      return toProductView(product, moved.get(id));
     } catch (error) {
       rethrow(error, 'Failed to fetch product');
     }
@@ -107,6 +224,15 @@ export class ProductService {
       if ('invoiceValue' in data)
         data.invoiceValue = data.invoiceValue == null ? null : String(data.invoiceValue);
       if ('weight' in data) data.weight = data.weight == null ? null : String(data.weight);
+      const dimensionKeys = ['length', 'width', 'height', 'dimensionUnit', 'conversionModel'];
+      if (dimensionKeys.some((key) => key in data)) {
+        for (const key of ['length', 'width', 'height'])
+          if (key in data) data[key] = data[key] == null ? null : String(data[key]);
+        const merged = { ...existing, ...data } as ProductEntity;
+        if (merged.length != null && !merged.dimensionUnit) data.dimensionUnit = 'm';
+        if (merged.length != null && !merged.conversionModel) data.conversionModel = 'surface_road';
+        Object.assign(data, computeVolumetrics({ ...merged, ...data } as ProductEntity));
+      }
       const result = await this.repository.update(
         tenantId,
         id,

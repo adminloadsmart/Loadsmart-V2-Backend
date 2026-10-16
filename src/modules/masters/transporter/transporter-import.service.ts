@@ -72,7 +72,9 @@ export class TransporterImportService {
 
     for (const item of valid) {
       try {
-        await this.transporters.create(tenantId, actorId, role, item.input);
+        // No per-row penny drop: each IDfy bank check can take ~15s. Imported accounts stay
+        // unverified until the transporter is next edited.
+        await this.transporters.create(tenantId, actorId, role, item.input, { verifyBank: false });
         report.created += 1;
       } catch (error) {
         report.failed += 1;

@@ -26,7 +26,14 @@ function value(row: Record<string, string>, header: string): string | undefined 
 }
 
 /** Fields stored as a number on `CreateLoadingPointInput` — parsed from the raw CSV string. */
-const NUMERIC_FIELDS = new Set<keyof CreateLoadingPointInput>(['latitude', 'longitude']);
+const NUMERIC_FIELDS = new Set<keyof CreateLoadingPointInput>([
+  'latitude',
+  'longitude',
+  'geofenceRadiusM',
+]);
+
+/** Columns the export writes that are derived/read-only — accepted and ignored on re-upload. */
+const IGNORED_HEADERS = new Set(['status', 'source']);
 
 /** Normalized header (see `normalizeHeader`) → `CreateLoadingPointInput` field it maps to. */
 const FIELD_BY_HEADER: Record<string, keyof CreateLoadingPointInput> = {
@@ -58,6 +65,17 @@ const FIELD_BY_HEADER: Record<string, keyof CreateLoadingPointInput> = {
   contactphone: 'contactPersonNumber',
   contactpersonemail: 'contactPersonEmail',
   contactemail: 'contactPersonEmail',
+  geofenceradiusm: 'geofenceRadiusM',
+  geofenceradius: 'geofenceRadiusM',
+  geofence: 'geofenceRadiusM',
+  gateopensat: 'gateOpensAt',
+  gateopen: 'gateOpensAt',
+  gateclosesat: 'gateClosesAt',
+  gateclose: 'gateClosesAt',
+  googleplaceid: 'googlePlaceId',
+  placeid: 'googlePlaceId',
+  notes: 'notes',
+  remarks: 'notes',
 };
 
 export async function parseLoadingPointExcel(buffer: Buffer): Promise<ParsedLoadingPointExcel> {
@@ -72,6 +90,7 @@ export async function parseLoadingPointExcel(buffer: Buffer): Promise<ParsedLoad
   const mapping: Record<string, keyof CreateLoadingPointInput> = {};
   for (const header of headers) {
     const normalized = normalizeHeader(header);
+    if (IGNORED_HEADERS.has(normalized)) continue;
     const field = FIELD_BY_HEADER[normalized];
     if (!field) throw new Error(`Unexpected column "${header}"`);
     if (Object.values(mapping).includes(field))
@@ -79,7 +98,7 @@ export async function parseLoadingPointExcel(buffer: Buffer): Promise<ParsedLoad
     mapping[header] = field;
   }
 
-  for (const required of ['title', 'addressLine1', 'city', 'state', 'pinCode'] as const) {
+  for (const required of ['title', 'city', 'state', 'pinCode'] as const) {
     if (!Object.values(mapping).includes(required))
       throw new Error(`Missing required column "${required}"`);
   }

@@ -81,6 +81,12 @@ export function createAdminRoutes(controller: AdminController): Router {
   // Assignment/dispatch stays platform_admin-only — online_kyc_desk/offline_kyc_desk don't pick
   // their own cases or hand off to a specific colleague, they just act once assigned.
   router.patch(
+    '/organizations/:organizationId/seat-limit',
+    requirePermission(...adminOnly),
+    validate(adminValidators.updateOrganizationSeatLimit),
+    asyncHandler(controller.updateOrganizationSeatLimit),
+  );
+  router.patch(
     '/organizations/:organizationId/online-verifier',
     requirePermission(...adminOnly),
     validate(adminValidators.assignOnlineVerifier),

@@ -47,6 +47,12 @@ export const adminValidators = {
   }),
   getOrganization: z.object({ params: organizationParams }),
 
+  // Settings → Users & Roles "Seats on the plan". null resets to DEFAULT_ORG_SEAT_LIMIT.
+  updateOrganizationSeatLimit: z.object({
+    params: organizationParams,
+    body: z.object({ seatLimit: z.number().int().min(1).max(10000).nullable() }).strict(),
+  }),
+
   updateOrganization: z.object({
     params: organizationParams,
     body: z.object({

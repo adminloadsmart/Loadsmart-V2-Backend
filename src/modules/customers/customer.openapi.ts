@@ -80,7 +80,11 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     ...permissionGated(
       [CUSTOMERS_CREATE],
       'Create a customer. org_admin creates an active customer; sales/sales_cs/dispatch/' +
-        'documents_ops/finance_accounts create a pending one awaiting org_admin approval.',
+        'documents_ops/finance_accounts create a pending one awaiting org_admin approval. ' +
+        'Requires gstin, name (legal business name), registeredAddress and at least one contact ' +
+        '(phone + email). Send `gstVerificationId` from POST /masters/gst/verify to store the ' +
+        'customer as GST-verified; without it the GSTIN is saved as an unverified manual entry. ' +
+        'Legacy single-contact/billing fields are still accepted (deprecated).',
     ),
     request: { body: json(customerValidators.create.shape.body) },
     responses: {
@@ -194,6 +198,57 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     request: { params: customerValidators.delete.shape.params },
     responses: {
       200: { description: 'Customer deleted', ...json(SuccessResponseSchema) },
+      404: { description: 'Customer not found', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/export`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.export',
+    ...permissionGated(
+      [CUSTOMERS_READ],
+      'Settings → Customers "Export CSV" — same filters as the list (no paging), up to 5000 rows. ' +
+        'ORG_ADMIN only.',
+    ),
+    request: { query: customerValidators.export.shape.query },
+    responses: {
+      200: { description: 'text/csv file' },
+      403: { description: 'Forbidden', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/{customerId}/loads`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.listLoads',
+    ...permissionGated(
+      [CUSTOMERS_READ],
+      'Customer detail drawer "LOADS": the customer\'s loads newest first (via requisition or ' +
+        'posting) with tonnes, fleet type, stage label and progress (0–1). ORG_ADMIN only.',
+    ),
+    request: {
+      params: customerValidators.loads.shape.params,
+      query: customerValidators.loads.shape.query,
+    },
+    responses: {
+      200: { description: 'Paginated load rows' },
+      404: { description: 'Customer not found', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/{customerId}/usage`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.usage',
+    ...permissionGated(
+      [CUSTOMERS_READ],
+      '`{ inUse, activeLoads: [{ id, code, status }] }` — loads not yet closed for this customer. ' +
+        'Make inactive and delete return 409 with the same `activeLoads` while inUse is true.',
+    ),
+    request: { params: customerValidators.get.shape.params },
+    responses: {
+      200: { description: 'Usage' },
       404: { description: 'Customer not found', ...errorContent },
     },
   });

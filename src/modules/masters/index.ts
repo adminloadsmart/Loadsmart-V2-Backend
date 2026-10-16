@@ -34,6 +34,18 @@ import { ProductService } from './product/product.service';
 import { ProductController } from './product/product.controller';
 import { ProductImportService } from './product/product-import.service';
 import { ProductImportController } from './product/product-import.controller';
+import { IdfyClient } from '../../adapters/idfy.client';
+import { GstVerificationRepository } from './gst/gst.repository';
+import { GstVerificationService } from './gst/gst.service';
+import { GstController } from './gst/gst.controller';
+import { MasterUsageRepository } from './masters.usage';
+import { CodeSequenceRepository } from '../loads/code-sequence.repository';
+import { ContractRepository } from './contract/contract.repository';
+import { ContractService } from './contract/contract.service';
+import { ContractImportService } from './contract/contract-import.service';
+import { ContractController } from './contract/contract.controller';
+import { MastersSummaryService } from './summary/summary.service';
+import { MastersSummaryController } from './summary/summary.controller';
 
 export function createMastersModule(
   dataSource: DataSource,
@@ -57,8 +69,25 @@ export function createMastersModule(
   const truckTypeService = new TruckTypeService(truckTypeRepository, truckTypeCatalogRepository);
   const truckTypeController = new TruckTypeController(truckTypeService, truckTypeCatalogService);
 
+  // Settings → Masters "Verify GST" — also handed to the customers module (composition-root).
+  const idfyClient = new IdfyClient();
+  const masterUsageRepository = new MasterUsageRepository(dataSource);
+  const gstVerificationService = new GstVerificationService(
+    new GstVerificationRepository(dataSource),
+    idfyClient,
+    deps.auditService,
+  );
+  const gstController = new GstController(gstVerificationService);
+
   const transporterRepository = new TransporterRepository(dataSource);
-  const transporterService = new TransporterService(transporterRepository, deps.auditService);
+  const transporterService = new TransporterService(
+    transporterRepository,
+    deps.auditService,
+    new CodeSequenceRepository(dataSource),
+    gstVerificationService,
+    masterUsageRepository,
+    idfyClient,
+  );
   const transporterController = new TransporterController(transporterService);
   const transporterImportService = new TransporterImportService(
     transporterService,
@@ -66,10 +95,25 @@ export function createMastersModule(
   );
   const transporterImportController = new TransporterImportController(transporterImportService);
 
+  // Settings → Masters → Contracts — built on the transporter service (active-transporter check).
+  const contractService = new ContractService(
+    new ContractRepository(dataSource),
+    transporterService,
+    deps.auditService,
+  );
+  const contractController = new ContractController(
+    contractService,
+    new ContractImportService(dataSource, contractService, deps.auditService),
+  );
+  const mastersSummaryController = new MastersSummaryController(
+    new MastersSummaryService(dataSource),
+  );
+
   const loadingPointRepository = new LoadingPointRepository(dataSource);
   const loadingPointService = new LoadingPointService(
     loadingPointRepository,
     deps.auditService,
+    masterUsageRepository,
     deps.masterApprovalNotifier,
   );
   const loadingPointController = new LoadingPointController(loadingPointService);
@@ -127,9 +171,14 @@ export function createMastersModule(
     vehicleImportController,
     deps.driverController,
     fleetDriverLinkController,
+    gstController,
+    contractController,
+    mastersSummaryController,
   );
 
   return {
+    gstVerificationService,
+    contractService,
     vehicleService,
     fleetDriverLinkService,
     truckTypeService,

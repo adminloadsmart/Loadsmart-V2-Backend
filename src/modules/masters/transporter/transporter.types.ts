@@ -20,3 +20,17 @@ export type TransporterCompanyType = (typeof TRANSPORTER_COMPANY_TYPES)[number];
  *  approval state to model here — just a simple active/inactive toggle. */
 export const TRANSPORTER_STATUSES = ['active', 'inactive'] as const;
 export type TransporterStatus = (typeof TRANSPORTER_STATUSES)[number];
+
+/** Add Transporter → "GST Treatment": forward charge (registered GTA charging GST) or reverse
+ *  charge (the shipper pays GST under RCM). */
+export const TRANSPORTER_GST_TREATMENTS = ['forward_charge', 'reverse_charge'] as const;
+export type TransporterGstTreatment = (typeof TRANSPORTER_GST_TREATMENTS)[number];
+
+/** Penny-drop result for the settlement account — same vocabulary as driver_bank_details
+ *  (IdfyClient.verifyBankAccount / toBankVerificationColumns). */
+export const TRANSPORTER_BANK_VERIFICATION_STATUSES = ['verified', 'rejected', 'pending'] as const;
+export type TransporterBankVerificationStatus =
+  (typeof TRANSPORTER_BANK_VERIFICATION_STATUSES)[number];
+
+/** "Shared master" (verified against the GST register) vs "Own record" (typed in, unverified). */
+export type MasterRecordSource = 'shared_master' | 'own_record';

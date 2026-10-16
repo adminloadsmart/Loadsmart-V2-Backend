@@ -2,7 +2,12 @@ import { Request, Response } from 'express';
 import { AuthorizationError } from '../../shared/errors';
 import { respond } from '../../shared/responses/respond';
 import { AuthService } from '../auth/auth.service';
-import { InviteOrganizationUserInput, ListOrganizationUsersInput } from '../auth/auth.types';
+import {
+  ChangeOrganizationUserSeatInput,
+  InviteOrganizationUserInput,
+  ListOrganizationUsersInput,
+} from '../auth/auth.types';
+import { sendCsv } from '../../shared/utils/csv';
 
 // The org onboarding endpoints — GET/POST /auth/organization, POST /auth/organization/business,
 // POST /auth/organization/submit. Kept mounted under /auth (see modules/organization/index.ts's
@@ -76,6 +81,37 @@ export class OrganizationController {
     );
     respond(res, users);
   };
+
+  usersSummary = async (req: Request, res: Response) =>
+    respond(res, await this.authService.organizationUsersSummary(req.user!));
+
+  exportUsers = async (req: Request, res: Response) =>
+    sendCsv(
+      res,
+      'users',
+      await this.authService.exportOrganizationUsers(
+        req.user!,
+        req.validatedQuery as Omit<ListOrganizationUsersInput, 'page' | 'limit'>,
+      ),
+    );
+
+  changeUserSeat = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.authService.changeOrganizationUserSeat(
+        req.user!,
+        String(req.params.userId),
+        req.body as ChangeOrganizationUserSeatInput,
+      ),
+    );
+
+  removeUser = async (req: Request, res: Response) => {
+    await this.authService.removeOrganizationUser(req.user!, String(req.params.userId));
+    respond(res, { success: true });
+  };
+
+  listSeats = async (req: Request, res: Response) =>
+    respond(res, await this.authService.listOrganizationSeats(req.user!));
 
   listAssignableRoles = async (_req: Request, res: Response) => {
     const roles = await this.authService.listAssignableOrganizationRoles();
