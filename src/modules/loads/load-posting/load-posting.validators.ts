@@ -3,6 +3,7 @@ import { isoDateSchema } from '../../../shared/utils/date';
 import {
   BALANCE_PAID_BY,
   NOTE_MAX_LENGTH,
+  TITLE_MAX_LENGTH,
   POST_MODES,
   PRICE_BASES,
   PRICE_MODES,
@@ -110,6 +111,7 @@ export const postLoadBody = z
     advancePercentage: advancePercentage.optional(),
     balancePaidBy: z.enum(BALANCE_PAID_BY).optional(),
     note: z.string().trim().max(NOTE_MAX_LENGTH).optional(),
+    title: z.string().trim().max(TITLE_MAX_LENGTH).optional(),
   })
   .strict()
   .superRefine((body, ctx) => {

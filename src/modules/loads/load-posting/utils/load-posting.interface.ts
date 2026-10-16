@@ -81,6 +81,8 @@ export interface PostLoadInput {
   advancePercentage?: number;
   balancePaidBy?: BalancePaidBy;
   note?: string;
+  /** Optional load title; blank is stored as none. */
+  title?: string;
 }
 
 export interface PostLoadParams {

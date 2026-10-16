@@ -193,6 +193,7 @@ export class LoadPostingService {
                 truckLabels: trucks.labels,
                 advancePercentage: advance,
                 note: input.note ?? null,
+                title: input.title || null,
               });
 
         const posting = await this.repository.createPosting(
@@ -226,6 +227,7 @@ export class LoadPostingService {
             advancePercentage: advance,
             balancePaidBy: input.mode === 'own_fleet' ? null : (input.balancePaidBy ?? 'shipper'),
             note: input.note ?? null,
+            title: input.title || null,
             messageText,
             idempotencyKey: idempotencyKey ?? null,
             postedBy: actorId,
@@ -241,6 +243,7 @@ export class LoadPostingService {
           tenantId,
           code,
           postingId: posting.id,
+          title: input.title || null,
           sourceType:
             input.mode === 'market_fleet'
               ? 'market'
