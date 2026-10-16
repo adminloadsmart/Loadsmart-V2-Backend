@@ -18,6 +18,7 @@ import {
   inviteSendColumns,
 } from './driver-tenant-relation.repository';
 import { Paginated, paginate } from '../../shared/utils/pagination';
+import { humanizeStatus } from '../../shared/utils/humanize';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
@@ -212,6 +213,16 @@ function assertCanReinvite(relation: DriverTenantRelationEntity): void {
   }
 }
 
+/** Fleet-operational writes (availability, trip metrics) need a driver who has actually joined —
+ *  same rule as linking to a vehicle (fleet-driver-link.service.ts). */
+function assertRelationActive(relation: DriverTenantRelationEntity, action: string): void {
+  if (relation.status !== 'active') {
+    throw new ValidationError(
+      `Driver is ${humanizeStatus(relation.status)} for this tenant and ${action}`,
+    );
+  }
+}
+
 /** Sequential invite number → the drawer's "Req ID", e.g. 42 → INV-00042. */
 function formatInviteRequestId(inviteNumber: string): string {
   return `INV-${inviteNumber.padStart(5, '0')}`;
@@ -359,7 +370,6 @@ function toDriverDetailSections(
       homeBase: driver.homeBase,
     },
     availability: {
-      operationalStatus,
       activeLoad: activeLoad
         ? { id: activeLoad.id, code: activeLoad.code, status: activeLoad.status }
         : null,
@@ -1089,45 +1099,58 @@ export class DriverService {
     }
   }
 
-  /** One row per driver-tenant relation, so the first call inserts and later calls overwrite it. */
+  /** Availability (active / on leave / medically unfit …) only means something once the driver has
+   *  joined, so a pending relation is refused. Onboarding seeds the first row via
+   *  writeOperationalStatus instead, since that relation is still pending. */
   async setOperationalStatus(
     tenantId: string,
     actorId: string,
     driverId: string,
     input: SetDriverOperationalStatusInput,
-    manager?: EntityManager,
   ): Promise<DriverOperationalStatusEntity> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId, manager);
-
-      const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
-      const existing = await this.driverRepository.findOperationalStatus(relation.id);
-
-      if (!existing) {
-        return await this.driverRepository.createOperationalStatus(
-          {
-            tenantId,
-            driverTenantRelationId: relation.id,
-            operationalStatus: input.operationalStatus,
-            reason: input.reason ?? null,
-            effectiveAt,
-            createdBy: actorId,
-          },
-          manager,
-        );
-      }
-
-      const status = await this.driverRepository.updateOperationalStatus(relation.id, {
-        operationalStatus: input.operationalStatus,
-        reason: input.reason ?? null,
-        effectiveAt,
-        updatedBy: actorId,
-      });
-      if (!status) throw new NotFoundError(`Driver ${driverId} has no operational status yet`);
-      return status;
+      const relation = await this.assertDriverExists(tenantId, driverId);
+      assertRelationActive(relation, 'cannot have its availability changed');
+      return await this.writeOperationalStatus(tenantId, actorId, relation.id, input);
     } catch (error) {
       rethrow(error, 'Failed to set driver operational status');
     }
+  }
+
+  /** One row per driver-tenant relation, so the first call inserts and later calls overwrite it. */
+  private async writeOperationalStatus(
+    tenantId: string,
+    actorId: string,
+    relationId: string,
+    input: SetDriverOperationalStatusInput,
+    manager?: EntityManager,
+  ): Promise<DriverOperationalStatusEntity> {
+    const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
+    const existing = await this.driverRepository.findOperationalStatus(relationId);
+
+    if (!existing) {
+      return await this.driverRepository.createOperationalStatus(
+        {
+          tenantId,
+          driverTenantRelationId: relationId,
+          operationalStatus: input.operationalStatus,
+          reason: input.reason ?? null,
+          effectiveAt,
+          createdBy: actorId,
+        },
+        manager,
+      );
+    }
+
+    const status = await this.driverRepository.updateOperationalStatus(relationId, {
+      operationalStatus: input.operationalStatus,
+      reason: input.reason ?? null,
+      effectiveAt,
+      updatedBy: actorId,
+    });
+    if (!status)
+      throw new NotFoundError(`Driver relation ${relationId} has no operational status yet`);
+    return status;
   }
 
   /** Metrics are unique per reporting period, so re-reporting a period overwrites it. */
@@ -1139,6 +1162,7 @@ export class DriverService {
   ): Promise<DriverTripMetricsEntity> {
     try {
       const relation = await this.assertDriverExists(tenantId, driverId);
+      assertRelationActive(relation, 'cannot have trip metrics recorded');
 
       if (input.periodEnd < input.periodStart) {
         throw new ValidationError('periodEnd must not be earlier than periodStart');
@@ -1284,10 +1308,10 @@ export class DriverService {
           );
         }
 
-        await this.setOperationalStatus(
+        await this.writeOperationalStatus(
           tenantId,
           actorId,
-          driver.id,
+          relation.id,
           {
             operationalStatus: operationalStatus?.operationalStatus ?? 'active',
             reason: operationalStatus?.reason,

@@ -267,9 +267,9 @@ export interface DriverActiveLoadSummary {
 }
 
 /** Driver detail → "Availability" card (also a roster row's Availability column). */
+/** The stored operational status isn't repeated here — read the top-level
+ *  `operationalStatus.operationalStatus` (with its `reason` / `effectiveAt`). */
 export interface DriverAvailabilitySection {
-  /** Stored company status; can lag reality since load assignment doesn't update it. */
-  operationalStatus: DriverOperationalStatus | null;
   /** Live check — the driver's newest non-closed load. */
   activeLoad: DriverActiveLoadSummary | null;
   dispatchable: boolean;

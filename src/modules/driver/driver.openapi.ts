@@ -63,7 +63,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'validTo, daysLeft, registry, eligibleToDrive }, `contact` { primaryMobile, bloodGroup, ' +
         'emergencyContact, engagementType, dateOfJoining, tenureYears, advanceOutstanding, ' +
         'compensation { salaryType, salaryAmount, bhattaPerDay } }, `assignment` { vehicle, ' +
-        'homeBase }, `availability` { operationalStatus, activeLoad, dispatchable }, ' +
+        'homeBase }, `availability` { activeLoad, dispatchable } (the operational status is the ' +
+        'top-level `operationalStatus` object), ' +
         '`performance` { totalTrips, onTimePercentage, driverScore, scoreStatus }, `knownLanes`, ' +
         '`behaviour`, `slaBreachTrips`. `scoreStatus` (new | strong | watch) is the score badge — ' +
         '`new` until the driver has 5 trips and a score, so a just-added driver is neutral. ' +
@@ -599,7 +600,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.updateDriverStatus',
     ...write(
       'Set the operational status backing the My Drivers status dropdown (On trip / Active / On ' +
-        'leave). One row per driver — first call inserts, later calls overwrite.',
+        'leave). One row per driver — first call inserts, later calls overwrite. Only for drivers ' +
+        'who have joined (relation status `active`); pending drivers get a 400.',
     ),
     request: {
       params: driverValidators.setDriverOperationalStatus.shape.params,
@@ -607,7 +609,12 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Operational status' },
-      400: { description: 'Validation failed', ...errorContent },
+      400: {
+        description:
+          'Validation failed, or the driver has not joined yet (pending_driver_review / ' +
+          'pending_staff_review)',
+        ...errorContent,
+      },
       404: { description: 'Driver not found', ...errorContent },
     },
   });
@@ -620,7 +627,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.recordDriverTripMetrics',
     ...write(
-      'Record trip count and on-time percentage for a period. Re-reporting a period overwrites it.',
+      'Record trip count and on-time percentage for a period. Re-reporting a period overwrites it. ' +
+        'Only for drivers who have joined (relation status `active`).',
     ),
     request: {
       params: driverValidators.recordDriverTripMetrics.shape.params,
@@ -628,7 +636,11 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Trip metrics for the period' },
-      400: { description: 'Validation failed, or periodEnd before periodStart', ...errorContent },
+      400: {
+        description:
+          'Validation failed, periodEnd before periodStart, or the driver has not joined yet',
+        ...errorContent,
+      },
       404: { description: 'Driver not found', ...errorContent },
     },
   });
