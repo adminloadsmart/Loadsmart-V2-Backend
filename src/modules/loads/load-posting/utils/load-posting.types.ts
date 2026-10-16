@@ -30,6 +30,8 @@ export const DEFAULT_ADVANCE_PERCENTAGE = 80;
 /** Earliest allowed pickup is this far after posting, rounded up to the next half hour. */
 export const MIN_PICKUP_LEAD_HOURS = 3;
 export const NOTE_MAX_LENGTH = 300;
+/** Optional shipper-given name for a posting, e.g. "Cement to Surat - Oct". */
+export const TITLE_MAX_LENGTH = 100;
 
 /** Where a typed address came from — only 'master' rows already exist in a master table. */
 export const ADDRESS_SOURCES = ['master', 'google', 'pincode'] as const;

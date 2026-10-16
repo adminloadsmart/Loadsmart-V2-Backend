@@ -135,6 +135,10 @@ export class LoadPostingEntity {
   @Column({ type: 'varchar', length: 300, nullable: true })
   note!: string | null;
 
+  /** Optional shipper-given title; copied onto every Load the posting creates. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  title!: string | null;
+
   /** Exact text that goes out on WhatsApp — never contains the target price. */
   @Column({ name: 'message_text', type: 'text', nullable: true })
   messageText!: string | null;
