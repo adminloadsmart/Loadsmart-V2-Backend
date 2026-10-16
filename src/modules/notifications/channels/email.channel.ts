@@ -1,16 +1,33 @@
+import { Msg91Client } from '../../../adapters/msg91.client';
 import { NotificationEntity } from '../notifications.entity';
 import { NotificationChannel } from './notification-channel.interface';
+import { getNotificationTemplates, mapTemplateVariables } from '../catalog/notification-catalog';
 
 /**
- * Placeholder — no email provider has been chosen yet (SES/SendGrid/SMTP are all candidates).
- * Logs instead of actually sending, so the rest of the dispatch pipeline (queue, retries,
- * delivery-status tracking) is exercisable end-to-end today. Swap this one file for a real
- * provider later — NotificationChannel's interface and how it's wired in index.ts don't change.
+ * MSG91 Email API — the subject/body live in an MSG91 dashboard template, so only types with a
+ * `templates.email` entry in the notification catalog are actually emailed. Any other type keeps
+ * this channel's original placeholder behavior (log only) until it gets a template of its own.
  */
 export class EmailChannel implements NotificationChannel {
+  constructor(private readonly msg91Client: Msg91Client) {}
+
   async send(notification: NotificationEntity, destination: string): Promise<void> {
-    console.log(
-      `[EmailChannel] (no provider configured — logging only) would send "${notification.title}" to ${destination}`,
+    const template = getNotificationTemplates(notification.type)?.email;
+    if (!template) {
+      console.log(
+        `[EmailChannel] (no email template for "${notification.type}" — logging only) would send "${notification.title}" to ${destination}`,
+      );
+      return;
+    }
+    if (!template.templateId) {
+      throw new Error(
+        `No email template configured for notification type "${notification.type}" — set its MSG91_EMAIL_TEMPLATE_* env var`,
+      );
+    }
+    await this.msg91Client.sendEmail(
+      { email: destination },
+      mapTemplateVariables(template.variables, notification.metadata),
+      template.templateId,
     );
   }
 }

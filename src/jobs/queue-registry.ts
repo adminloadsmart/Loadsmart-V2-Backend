@@ -1,12 +1,25 @@
-import { Queue, JobsOptions } from 'bullmq';
+import { Queue, JobsOptions, DeduplicationOptions } from 'bullmq';
 import { getQueueConnection } from './queue-connection';
 
+// Optional per-job settings. `deduplication` (BullMQ's own) collapses adds sharing an id while
+// the job is pending, releasing the id once it completes or fails — unlike a fixed `jobId`, a
+// permanently failed job never blocks a later genuine re-add. See notification-triggers.ts.
+export interface EnqueueOptions {
+  delay?: number;
+  jobId?: string;
+  deduplication?: DeduplicationOptions;
+}
+
 export interface JobQueue {
-  enqueue(jobName: string, payload: unknown, options?: JobsOptions): Promise<void>;
+  enqueue(jobName: string, payload: unknown, options?: EnqueueOptions): Promise<void>;
   // Removes a still-delayed/waiting job by its jobId — a no-op if it's already run, already
   // removed, or was never scheduled. Lets a caller reschedule a one-time delayed job (e.g. vehicle
   // compliance alerts) by cancelling the stale one before enqueuing the new one.
   cancel(jobId: string): Promise<void>;
+  // Creates or updates a cron-style repeating job (BullMQ job scheduler) — idempotent, so calling
+  // it on every boot (or from several instances) never duplicates the schedule. `tz` is an IANA
+  // zone, e.g. 'Asia/Kolkata'. Used by the notifications module's daily/weekly checks.
+  upsertSchedule(schedulerId: string, pattern: string, tz: string, jobName: string): Promise<void>;
 }
 
 // One BullMQ Queue instance per name, reused across calls — BullMQ recommends against creating a
@@ -36,8 +49,20 @@ export function createJobQueue(name: string): JobQueue {
   const resolvedQueue = queue;
 
   return {
-    async enqueue(jobName: string, payload: unknown, options?: JobsOptions): Promise<void> {
+    async enqueue(jobName: string, payload: unknown, options?: EnqueueOptions): Promise<void> {
       await resolvedQueue.add(jobName, payload, options);
+    },
+    async upsertSchedule(
+      schedulerId: string,
+      pattern: string,
+      tz: string,
+      jobName: string,
+    ): Promise<void> {
+      await resolvedQueue.upsertJobScheduler(
+        schedulerId,
+        { pattern, tz },
+        { name: jobName, data: {} },
+      );
     },
     async cancel(jobId: string): Promise<void> {
       const job = await resolvedQueue.getJob(jobId);

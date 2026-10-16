@@ -5,13 +5,17 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { NotificationChannelName } from '../notifications.types';
+import {
+  NOTIFICATION_SEVERITIES,
+  NotificationChannelName,
+  NotificationSeverity,
+} from '../notifications.types';
 
 /**
  * App-wide catalog of notification types (no tenantId — same "fixed, seeded catalog" shape as
  * auth.roles), seeded from the in-code catalog (see catalog/notification-catalog.ts and
  * src/db/seed-notification-types.ts) rather than hand-maintained here. `key` matches the string
- * key producers already pass to notify-by-type.ts (e.g. 'vehicle.compliance_expiring_soon') — the
+ * key producers already pass to notify-by-type.ts (e.g. 'vehicle.document_expiry') — the
  * code catalog stays the source of truth for recipients/content; this table only exists so the
  * settings screen (notification-preferences.*) has something to query.
  */
@@ -40,6 +44,10 @@ export class NotificationTypeEntity {
   // (notification-preferences.service.ts) puts a tenant back to exactly this.
   @Column({ name: 'default_channels', type: 'jsonb' })
   defaultChannels!: NotificationChannelName[];
+
+  // Mirrors the catalog entry's severity (seeded) — shown on the settings screen.
+  @Column({ type: 'enum', enum: NOTIFICATION_SEVERITIES, default: 'p3_info' })
+  severity!: NotificationSeverity;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

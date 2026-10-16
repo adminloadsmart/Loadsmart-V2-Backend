@@ -273,6 +273,7 @@ const vehicleVerificationBody = z.object({
       fitnessValidTo: isoDate.optional(),
       roadTaxValidTo: isoDate.optional(),
       insuranceProvider: z.string().min(1).max(150).optional(),
+      hasNationalPermit: z.boolean().optional(),
     })
     .optional(),
   responsePayload: z.record(z.string(), z.unknown()).optional(),
@@ -460,6 +461,7 @@ export const vehicleValidators = {
     body: vehicleVerificationBody,
   }),
   listVehicleVerifications: z.object({ params: vehicleParams }),
+  verifyVahan: z.object({ body: z.object({ registrationNumber }) }),
 
   listComplianceAlerts: z.object({
     query: pagination.extend({

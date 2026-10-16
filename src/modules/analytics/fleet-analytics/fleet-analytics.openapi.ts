@@ -6,20 +6,26 @@ import { authenticated, errorContent, TAGS } from '../../../shared/openapi/core'
 const BASE = `${API_VERSION_PREFIX}/fleet-analytics`;
 
 const FILTER_NOTE =
-  ' Shared filter bar: `period` (last_month | 3_months | 6_months [default] | custom with ' +
-  '`from`/`to`) — presets are whole calendar months ending last month; `truckTypeId`; `heldAs` ' +
-  '(owned_and_attached [default] | owned | financed | leased | attached). `yardId` and ' +
-  '`customerId` are accepted but not applied yet. Load/dispatch-derived figures (km, trips, ' +
-  'tonnes, on-time, detention, lanes, fuel, tolls, hire) are 0 or [] until loads are wired in.';
+  ' Follows the Fleet Analytics Metric Guide (v1.0). Shared filter bar: `period` (last_month | ' +
+  '3_months | 6_months [default] | custom with `from`/`to`) — presets are whole calendar months ' +
+  'ending last month, and days in period run to today if earlier; `bodyType` and `size` (keys ' +
+  'from /fleet/filters); `heldAs` (owned_and_attached [default] | owned | financed | leased | ' +
+  'attached); `vehicleId`; `laneKey` and `customerId` narrow load figures only. Fleet cost = ' +
+  'running (maintenance) + fixed (EMI or lease, insurance, National Permit, driver salaries). ' +
+  'Every response carries `unavailable` (field → why it reads 0 or is approximated: no GPS, ' +
+  'fuel, tolls, trip expenses, e-challans, hire, truck price, state permit fee yet) and ' +
+  '`emptyBecause` (the filter that emptied the slice, or null). Every tab except operations ' +
+  'and compliance needs maintenance.costs.view.';
 
 const TABS = [
   {
     path: 'summary',
     key: 'getSummary',
     description:
-      'Header KPIs shown on every tab: cost per km, what the fleet cost to run (on the road = ' +
-      'maintenance; standing = EMI/lease/insurance/fixed cost prorated over the period), cost ' +
-      'per tonne-km and fleet utilisation.',
+      'Header KPIs shown on every tab: all-in cost per km (fleet cost ÷ km driven by all ' +
+      'trucks, from odometer readings; null when no km could be read), what the fleet cost to ' +
+      'run (on the road = running cost; standing = fixed cost), tonnes moved and load ' +
+      'utilisation (load days ÷ trucks × days in period).',
   },
   {
     path: 'overview',
@@ -64,14 +70,27 @@ const TABS = [
     path: 'operations',
     key: 'getOperations',
     description:
-      'Operations tab: on-time, turnaround, detention and load pipeline (all 0 for now).',
+      'Operations tab: on-time (arrived within 4 hours of the due time), average turnaround, ' +
+      'loading and unloading hours, the 12 worst lanes on time, where the loads are and the load ' +
+      'pipeline. On the road now and the driver numbers are today’s position. Detention needs ' +
+      'GPS and reads 0.',
   },
   {
     path: 'compliance',
     key: 'getCompliance',
     description:
-      'Compliance tab (current state): vehicle papers expired / inside 7 days / inside 30 days ' +
-      '/ in order, by document type, what to renew soonest, and driver licences.',
+      'Compliance tab (today’s position): insurance, fitness, PUC, permit and road tax expired ' +
+      '/ 0–7 days / 8–30 days / in order, trucks with expired documents (they can still be ' +
+      'dispatched), what to renew this week, and driver licences. ' +
+      '`standingPerDay` on renewals is omitted for a seat without maintenance.costs.view.',
+  },
+  {
+    path: 'findings',
+    key: 'getFindings',
+    description:
+      'Findings: up to four plain sentences naming what is worth acting on (idlest truck, ' +
+      'replacement candidate, trucks with expired documents, unplanned maintenance share, latest ' +
+      'lane), ranked by money at stake, each with the tab and vehicle/lane holding the evidence.',
   },
 ] as const;
 

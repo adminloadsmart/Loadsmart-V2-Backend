@@ -23,7 +23,39 @@ import {
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createNotificationsModule } from './modules/notifications';
+import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
+import { env } from './config/env';
 import { createNotifyByType } from './modules/notifications/notify-by-type';
+import { createNotificationTriggerWorker } from './modules/notifications/workers/notification-trigger.worker';
+import {
+  createAccessChangeRecorder,
+  createAccessChangeResolver,
+} from './modules/notifications/access-change';
+import {
+  createNotificationScheduleWorker,
+  createVehicleDocumentAlerts,
+  NOTIFICATION_SCHEDULES_QUEUE,
+  scheduleVehicleDocumentChecks,
+} from './modules/notifications/vehicle-document-alerts';
+import {
+  createBreakdownNotifier,
+  createBreakdownResolver,
+} from './modules/notifications/breakdown-alerts';
+import { createBackInServiceResolver } from './modules/notifications/back-in-service';
+import {
+  createLoadAlertResolvers,
+  createLoadEventNotifier,
+} from './modules/notifications/load-alerts';
+import { createServiceAlerts } from './modules/notifications/service-alerts';
+import { createTyreAlerts } from './modules/notifications/tyre-alerts';
+import { createDigests, digestJobs, scheduleDigests } from './modules/notifications/digests';
+import { createJobQueue } from './jobs/queue-registry';
+import {
+  createMasterApprovalNotifier,
+  createMasterApprovalResolvers,
+  createVahanStillUnverifiedCheck,
+} from './modules/notifications/master-approvals';
+import { organizationDisplayName } from './modules/organization/organization.constants';
 import { createPaymentsModule } from './modules/payments';
 import { createMaintenanceModule } from './modules/maintenance';
 import { createAuditModule } from './modules/audit';
@@ -69,6 +101,14 @@ export function buildContainer(dataSource: DataSource): Container {
   const audit = createAuditModule(dataSource);
   const auditMiddleware = createAudit(audit.service);
 
+  // Producer — no cross-module deps of its own beyond dataSource, so it can be built first: roles
+  // (LS_N_0006), auth (LS_N_0002/0005) and admin (LS_N_0001/0003/0004) enqueue notifications
+  // through its `triggers`; notifyByType below needs its service.
+  const notifications = createNotificationsModule(dataSource);
+  // LS_N_0009/0010 — handed to the masters, driver and customers modules (see
+  // modules/notifications/master-approvals.ts).
+  const masterApprovalNotifier = createMasterApprovalNotifier(notifications.triggers);
+
   // Built before auth: auth.service.ts needs roles's roleService injected directly to build the
   // JWT's `permissions` claim (see modules/auth/index.ts and modules/roles/index.ts). That same
   // build order means roles can't take a typed dependency on auth's AuthService/AuthRepository
@@ -82,6 +122,8 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     revokeRefreshTokensForUser: (userId) =>
       earlyAuthRepository.revokeAllRefreshTokensForUser(userId),
+    // LS_N_0006 "your access changed" — see modules/notifications/access-change.ts.
+    onCapabilitiesChanged: createAccessChangeRecorder(notifications.triggers),
   });
 
   // Standalone — built before auth because the post-submission organization photo endpoint
@@ -112,6 +154,7 @@ export function buildContainer(dataSource: DataSource): Container {
     referralCodeService: organization.referralCodeService,
     storageService: storage.service,
     otpService,
+    notificationTriggers: notifications.triggers,
   });
   const authMiddleware = createAuth(auth.authRepository);
 
@@ -120,10 +163,6 @@ export function buildContainer(dataSource: DataSource): Container {
   // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
   // before this was its own router — see modules/organization/organization.routes.ts.
   const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
-
-  // Producer, built here (right after auth) — no cross-module deps of its own beyond dataSource,
-  // and notifyByType below needs its service. Same build-order bucket as tracking/payments.
-  const notifications = createNotificationsModule(dataSource);
 
   // The one dispatcher every notification trigger site below calls against a domain catalog (see
   // modules/notifications/catalog/*) — currently just vehicle compliance (WhatsApp/push); the
@@ -135,6 +174,7 @@ export function buildContainer(dataSource: DataSource): Container {
     authRepository: auth.authRepository,
     authService: auth.service,
     notificationPreferencesRepository: notifications.notificationPreferencesRepository,
+    notificationTriggers: notifications.triggers,
   });
 
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
@@ -145,6 +185,7 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     storageService: storage.service,
     organizationService: organization.organizationService,
+    masterApprovalNotifier,
     notificationsService: notifications.service,
   });
 
@@ -167,7 +208,7 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverController: driver.driverController,
-    notifyByType,
+    masterApprovalNotifier,
   });
 
   // Producers with no cross-module deps of their own.
@@ -181,7 +222,10 @@ export function buildContainer(dataSource: DataSource): Container {
   // writes to vehicles through masters' vehicleService (the breakdown ⇄ dispatch hold) and reads
   // VehicleEntity/LoadEntity directly, same as dashboards.
   const maintenance = createMaintenanceModule(dataSource, {
-    notificationsGateway: new MaintenanceNotificationsGatewayLocal(notifications.service),
+    notificationsGateway: new MaintenanceNotificationsGatewayLocal(
+      notifications.service,
+      notifications.triggers,
+    ),
     fleetGateway: new MaintenanceFleetGatewayLocal(masters.vehicleService),
     storageGateway: new MaintenanceStorageGatewayLocal(storage.service),
     auditService: audit.service,
@@ -203,11 +247,121 @@ export function buildContainer(dataSource: DataSource): Container {
     auditService: audit.service,
     storageService: storage.service,
     dataSource,
+    notificationTriggers: notifications.triggers,
   });
+
+  // Runs notifyByType for jobs queued via notifications.triggers (LS_N_0001–0006 and future
+  // event-driven notifications), scheduling one-shot reminders and batching debounced bursts —
+  // built here, after admin, since notifyByType needs auth and the relevance checks / context
+  // resolvers read other modules' state. See modules/notifications/notification-triggers.ts.
+  const masterApprovalResolvers = createMasterApprovalResolvers({
+    dataSource,
+    getUserFullName: async (userId) =>
+      (await auth.authRepository.findUserById(userId))?.fullName ?? null,
+    getUserRoleName: async (userId) =>
+      (await auth.authRepository.findUserById(userId))?.role.name ?? null,
+    getEffectivePermissions: (userId) => roles.service.getEffectivePermissions(userId),
+  });
+  // LS_N_0047/0048 — the daily 9:00 IST vehicle-document check and the Monday roll-up (see
+  // modules/notifications/vehicle-document-alerts.ts). Registering the schedules is idempotent;
+  // a failure here is logged, never fatal to boot.
+  const vehicleDocumentAlerts = createVehicleDocumentAlerts(
+    dataSource,
+    notifications.triggers,
+    notifications.loadAlertRepository,
+  );
+  // LS_N_0056/0057 — service due soon / overdue, swept in the same daily 9:00 IST job.
+  const serviceAlerts = createServiceAlerts(dataSource, notifications.triggers);
+  // LS_N_0058 — tyres in the maintenance tyres queue, rolled up per vehicle, same daily tick.
+  const tyreAlerts = createTyreAlerts({
+    dataSource,
+    triggers: notifications.triggers,
+    listTyreQueue: (tenantId) => maintenance.tyreService.listQueue(tenantId),
+  });
+  // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
+  const digests = createDigests(dataSource, notifications.triggers);
+  const notificationScheduleWorker = createNotificationScheduleWorker(
+    vehicleDocumentAlerts,
+    {
+      runDaily: async (today) => ({
+        ...(await serviceAlerts.runDaily(today)),
+        ...(await tyreAlerts.runDaily(today)),
+      }),
+    },
+    digestJobs(digests),
+  );
+  scheduleVehicleDocumentChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
+    console.error('Failed to register vehicle document check schedules', error),
+  );
+  scheduleDigests(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
+    console.error('Failed to register digest schedules', error),
+  );
+
+  const loadAlertResolvers = createLoadAlertResolvers(notifications.loadAlertRepository);
+  const notificationTriggerWorker = createNotificationTriggerWorker(
+    notifyByType,
+    notifications.triggersQueue,
+    {
+      'organization.document_more_info_needed': (tenantId, context) =>
+        admin.service.isDocumentReuploadPending(tenantId, context.documentId),
+      // LS_N_0049 — one expiring alert per driver per day; expired ladder steps once each, and
+      // only while the licence is still expired.
+      'driver.licence_expiry': vehicleDocumentAlerts.driverExpiringNotSentToday,
+      'driver.licence_expired': vehicleDocumentAlerts.driverExpiredStillRelevant,
+      // LS_N_0047/0048 — at most one per vehicle per day, even if a check is re-run.
+      'vehicle.document_expiry':
+        vehicleDocumentAlerts.notAlreadySentToday('vehicle.document_expiry'),
+      'vehicle.compliance_expired': vehicleDocumentAlerts.notAlreadySentToday(
+        'vehicle.compliance_expired',
+      ),
+      // LS_N_0012 only if the vehicle is still unverified when the 24h retry window ends.
+      'vehicle.vahan_unverified': createVahanStillUnverifiedCheck(dataSource),
+      // LS_N_0056/0057 — each due-soon stage once per service cycle; overdue once per run day.
+      'vehicle.service_due_soon': serviceAlerts.dueSoonNotAlreadySent,
+      'vehicle.service_overdue': serviceAlerts.overdueNotAlreadySentToday,
+      // LS_N_0059/0060 — a digest is never sent twice for the same run day.
+      'vehicle.idle_weekly': digests.idleWeeklyNotSent,
+      // LS_N_0058 — at most one tyre roll-up per vehicle per day.
+      'vehicle.tyre_attention': tyreAlerts.notAlreadySentToday,
+      'digest.daily_brief': digests.dailyBriefNotSent,
+      // LS_N_0005's 24h reminder only while the invitee still hasn't signed in.
+      'organization.team_member_invited': async (_tenantId, context) =>
+        !(await auth.authRepository.hasEverSignedIn(context.userId)),
+    },
+    {
+      'organization.master_approval_requested': masterApprovalResolvers.requested,
+      'organization.master_approvals_waiting': masterApprovalResolvers.waiting,
+      'organization.master_approved': masterApprovalResolvers.approved,
+      'organization.master_rejected': masterApprovalResolvers.rejected,
+      'user.access_changed': createAccessChangeResolver({
+        getEffectivePermissions: (userId) => roles.service.getEffectivePermissions(userId),
+        describePermissions: (keys) => roles.service.describePermissions(keys),
+        getUserFullName: async (userId) =>
+          (await auth.authRepository.findUserById(userId))?.fullName ?? null,
+        getOrganizationName: async (tenantId) =>
+          organizationDisplayName(
+            await organization.organizationService.getOrganizationStatus(tenantId),
+          ),
+      }),
+      // LS_N_0054 — reads the breakdown report and its trip at send time.
+      'load.breakdown_reported': createBreakdownResolver(dataSource),
+      // Load events (load-alerts.ts) — read the load at send time; null once no longer relevant.
+      'load.stage_handoff': loadAlertResolvers.stageHandoff,
+      'load.eway_bill_expiry': loadAlertResolvers.ewayBillExpiry,
+      'load.pod_uploaded': loadAlertResolvers.podUploaded,
+      'load.advance_due': loadAlertResolvers.advanceDue,
+      // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
+      'vehicle.back_in_service': createBackInServiceResolver({
+        dataSource,
+        listUsersWithPermission: (tenantId, permission) =>
+          auth.authRepository.listUsersWithPermission(tenantId, permission),
+      }),
+    },
+  );
 
   // No cross-module deps of its own — built before dashboards, which reads its service directly
   // (Settings → Approvals aggregates pending customers alongside pending vehicles/drivers).
-  const customers = createCustomersModule(dataSource, audit.service);
+  const customers = createCustomersModule(dataSource, audit.service, masterApprovalNotifier);
 
   // Built after customers/masters/storage — the Load module reads customers.service
   // (unloading-point validation) and masters' vehicle/transporter/truckType/loadingPoint/
@@ -227,6 +381,10 @@ export function buildContainer(dataSource: DataSource): Container {
     // Push-notification payoff for driver_sessions.fcm_token — see docs/driver-auth.md.
     driverAuthService: driverAuth.service,
     notificationsService: notifications.service,
+    // LS_N_0054 — a driver-reported breakdown alerts maintenance holders and org admins.
+    onBreakdownReported: createBreakdownNotifier(notifications.triggers),
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due (notifications/load-alerts.ts).
+    onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
   // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant
@@ -285,6 +443,19 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/roles', router: roles.router },
       { path: '/masters', router: masters.protectedRouter },
       { path: '/tracking', router: tracking.router },
+      // TEMPORARY QA endpoint — mounted ahead of the main router; non-production + flag only.
+      ...(env.notificationsTestEndpoint
+        ? [
+            {
+              path: '/notifications/test',
+              router: createNotificationsTestRoutes({
+                notificationsService: notifications.service,
+                authRepository: auth.authRepository,
+                authService: auth.service,
+              }),
+            },
+          ]
+        : []),
       { path: '/notifications', router: notifications.router },
       { path: '/payments', router: payments.router },
       { path: '/maintenance', router: maintenance.router },
@@ -304,8 +475,9 @@ export function buildContainer(dataSource: DataSource): Container {
     ],
     backgroundWorkers: [
       notifications.worker,
+      notificationTriggerWorker,
+      notificationScheduleWorker,
       organization.documentVerificationWorker,
-      masters.vehicleComplianceAlertsWorker,
     ],
   };
 }

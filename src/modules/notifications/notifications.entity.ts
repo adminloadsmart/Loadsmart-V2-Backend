@@ -6,7 +6,12 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { NotificationChannelName, NotificationStatus } from './notifications.types';
+import {
+  NOTIFICATION_SEVERITIES,
+  NotificationChannelName,
+  NotificationSeverity,
+  NotificationStatus,
+} from './notifications.types';
 
 /**
  * The permanent record of every notification sent — not just a transient queue payload. Created
@@ -50,6 +55,10 @@ export class NotificationEntity {
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
 
+  // P1/P2/P3/P4 — see notifications.types.ts's NOTIFICATION_SEVERITIES.
+  @Column({ type: 'enum', enum: NOTIFICATION_SEVERITIES, default: 'p3_info' })
+  severity!: NotificationSeverity;
+
   @Column({
     type: 'enum',
     enum: ['pending', 'processing', 'sent', 'partially_failed', 'failed'],
@@ -59,6 +68,11 @@ export class NotificationEntity {
 
   @Column({ name: 'read_at', type: 'timestamptz', nullable: true })
   readAt!: Date | null;
+
+  // False when the recipient turned in-app off for this type: the row still exists to carry
+  // another medium's delivery (e.g. email) but never shows in their inbox. See notify-by-type.ts.
+  @Column({ name: 'show_in_app', default: true })
+  showInApp!: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

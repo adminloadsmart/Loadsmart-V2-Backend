@@ -23,6 +23,8 @@ import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
+import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
+import { LoadEventNotifier } from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
 
@@ -40,6 +42,8 @@ export function createLoadsModule(
     productService: ProductService;
     driverAuthService: DriverAuthService;
     notificationsService: NotificationsService;
+    onBreakdownReported?: BreakdownReportedNotifier;
+    onLoadEvent?: LoadEventNotifier;
   },
 ) {
   const loadActivityRepository = new LoadActivityRepository(dataSource);
@@ -72,6 +76,8 @@ export function createLoadsModule(
     deps.storageService,
     loadActivityService,
     deps.auditService,
+    deps.onBreakdownReported,
+    deps.onLoadEvent,
   );
 
   const loadPaymentService = new LoadPaymentService(

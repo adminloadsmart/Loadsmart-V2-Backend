@@ -1,10 +1,16 @@
 import { DataSource, EntityManager } from 'typeorm';
-import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
+import {
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  rethrow,
+  ValidationError,
+} from '../../../shared/errors';
+import { UlipClient, UlipError, UlipVahanResult } from '../../../adapters/ulip.client';
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { toDateString } from '../../../shared/utils/date';
 import { toIstDateString } from '../../../shared/utils/ist-time';
 import { AuditService } from '../../audit/audit.service';
-import { JobQueue } from '../../../jobs/queue-registry';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleServiceUsageEntity } from './entities/vehicle-service-usage.entity';
 import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
@@ -22,8 +28,9 @@ import { VehicleRepository } from './vehicle.repository';
 import { buildVehicleWorkbook, VEHICLE_EXPORT_MAX_ROWS } from './vehicle-export.mapper';
 import { TruckTypeService } from '../truck-type/truck-type.service';
 import { FleetDriverLinkService } from '../fleet-driver-link/fleet-driver-link.service';
-import { DOCUMENT_EXPIRING_SOON_DAYS, COMPLIANCE_ALERT_DAYS_BEFORE } from './vehicle.constants';
+import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
 import { Paginated, paginate } from '../../../shared/utils/pagination';
+import { MasterApprovalNotifier } from '../../notifications/master-approvals';
 import {
   AddVehicleDocumentInput,
   CreateVehicleInput,
@@ -117,55 +124,11 @@ export class VehicleService {
     private readonly fleetDriverLinkService: FleetDriverLinkService,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
-    private readonly complianceAlertsQueue: JobQueue,
+    private readonly ulipClient: UlipClient,
+    // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
+    // throws (see notifications/master-approvals.ts).
+    private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
-
-  /** Best-effort: schedules/reschedules the two one-time delayed jobs (15-day-before and expiry)
-   *  behind the "vehicle compliance expiring/expired" notifications — see workers/vehicle-
-   *  compliance-alerts.worker.ts. Called after any create/update that can change `expiryDate`
-   *  (addDocument, updateDocument, applyVerifiedPapers, and onboardVehicle's own document loop).
-   *  Cancels any previously-scheduled jobs for this document first, so re-saving reschedules
-   *  cleanly instead of stacking duplicate notifications. */
-  private async scheduleComplianceAlerts(document: VehicleDocumentEntity): Promise<void> {
-    try {
-      const expirySoonJobId = `expiry-soon:${document.id}`;
-      const expiredJobId = `expired:${document.id}`;
-      await this.complianceAlertsQueue.cancel(expirySoonJobId);
-      await this.complianceAlertsQueue.cancel(expiredJobId);
-
-      if (
-        !document.expiryDate ||
-        !(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY as readonly string[]).includes(document.documentType)
-      ) {
-        return;
-      }
-
-      const expiryMs = new Date(`${document.expiryDate}T00:00:00.000Z`).getTime();
-      const alertMs = expiryMs - COMPLIANCE_ALERT_DAYS_BEFORE * 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      const payload = {
-        documentId: document.id,
-        vehicleId: document.vehicleId,
-        tenantId: document.tenantId,
-      };
-
-      if (expiryMs > now) {
-        await this.complianceAlertsQueue.enqueue('expiry-soon', payload, {
-          delay: Math.max(0, alertMs - now),
-          jobId: expirySoonJobId,
-        });
-      }
-
-      // Always scheduled, even if already expired — fires almost immediately (delay ≈ 0) rather
-      // than being skipped, so a document imported/renewed already-expired still alerts.
-      await this.complianceAlertsQueue.enqueue('expired', payload, {
-        delay: Math.max(0, expiryMs - now),
-        jobId: expiredJobId,
-      });
-    } catch (error) {
-      console.error(`Failed to schedule compliance alerts for document ${document.id}`, error);
-    }
-  }
 
   private tyreSetupGateway: TyreSetupGateway | null = null;
 
@@ -487,7 +450,6 @@ export class VehicleService {
         status: resolveDocumentStatus(expiryDate),
         createdBy: actorId,
       });
-      await this.scheduleComplianceAlerts(document);
       return document;
     } catch (error) {
       rethrow(error, 'Failed to add vehicle document');
@@ -542,7 +504,6 @@ export class VehicleService {
         },
       );
       if (!document) throw new NotFoundError(`Vehicle document ${documentId} not found`);
-      await this.scheduleComplianceAlerts(document);
       return document;
     } catch (error) {
       rethrow(error, 'Failed to update vehicle document');
@@ -809,9 +770,42 @@ export class VehicleService {
         return snapshot;
       };
 
-      return outerManager ? await run(outerManager) : await this.dataSource.transaction(run);
+      if (outerManager) return await run(outerManager); // caller (onboardVehicle) reports after commit
+      const snapshot = await this.dataSource.transaction(run);
+      if (this.approvalNotifier) {
+        const vehicle = await this.vehicleRepository.findById(tenantId, vehicleId);
+        if (vehicle) {
+          await this.approvalNotifier.vahanResult({
+            tenantId,
+            vehicleId,
+            vehicleNo: vehicle.registrationNumber,
+            createdBy: vehicle.createdBy,
+            verificationStatus: snapshot.verificationStatus,
+          });
+        }
+      }
+      return snapshot;
     } catch (error) {
       rethrow(error, 'Failed to record vehicle verification');
+    }
+  }
+
+  /**
+   * "Add a truck" preflight: looks a registration number up in VAHAN through ULIP before the
+   * vehicle exists. Read-only — the client sends the result back through /vehicles/onboard or
+   * /vehicles/:vehicleId/verifications to persist it. A registry miss is a normal
+   * `status: 'not_found'` result, not an error.
+   */
+  async checkVahan(registrationNumber: string): Promise<UlipVahanResult> {
+    try {
+      return await this.ulipClient.lookupVehicle(registrationNumber);
+    } catch (error) {
+      if (error instanceof UlipError) {
+        // ULIP's own wording is for our logs, not the client (same as places.service.ts).
+        console.error(error.message);
+        throw new InternalError('VAHAN lookup is currently unavailable');
+      }
+      rethrow(error, 'Failed to check vehicle against VAHAN');
     }
   }
 
@@ -835,6 +829,15 @@ export class VehicleService {
     papers: VehicleVerificationPapersInput,
     manager: EntityManager,
   ): Promise<void> {
+    if (papers.hasNationalPermit !== undefined) {
+      await this.vehicleRepository.update(
+        tenantId,
+        vehicleId,
+        { hasNationalPermit: papers.hasNationalPermit },
+        manager,
+      );
+    }
+
     const byType: [VehicleDocumentType, string | undefined][] = [
       ['insurance', papers.insuranceValidTo],
       ['rc', papers.rcValidTo],
@@ -857,18 +860,17 @@ export class VehicleService {
       const providerName = documentType === 'insurance' ? papers.insuranceProvider : undefined;
 
       if (existing) {
-        const updated = await this.vehicleRepository.updateDocument(
+        await this.vehicleRepository.updateDocument(
           tenantId,
           vehicleId,
           existing.id,
           { expiryDate, ...(providerName && { providerName }), status, updatedBy: actorId },
           manager,
         );
-        if (updated) await this.scheduleComplianceAlerts(updated);
         continue;
       }
 
-      const created = await this.vehicleRepository.createDocument(
+      await this.vehicleRepository.createDocument(
         {
           tenantId,
           vehicleId,
@@ -883,7 +885,6 @@ export class VehicleService {
         },
         manager,
       );
-      await this.scheduleComplianceAlerts(created);
     }
   }
 
@@ -940,7 +941,7 @@ export class VehicleService {
           );
 
           if (existing) {
-            const updated = await this.vehicleRepository.updateDocument(
+            await this.vehicleRepository.updateDocument(
               tenantId,
               vehicle.id,
               existing.id,
@@ -952,11 +953,10 @@ export class VehicleService {
               },
               manager,
             );
-            if (updated) await this.scheduleComplianceAlerts(updated);
             continue;
           }
 
-          const created = await this.vehicleRepository.createDocument(
+          await this.vehicleRepository.createDocument(
             {
               tenantId,
               vehicleId: vehicle.id,
@@ -971,7 +971,6 @@ export class VehicleService {
             },
             manager,
           );
-          await this.scheduleComplianceAlerts(created);
         }
 
         const telemetryInput = buildTelemetryInput(telemetry, cost, gps);
@@ -1025,7 +1024,25 @@ export class VehicleService {
         return vehicle.id;
       });
 
-      return await this.getVehicleWithTyres(tenantId, vehicleId);
+      const vehicle = await this.getVehicleWithTyres(tenantId, vehicleId);
+      await this.approvalNotifier?.requested({
+        kind: 'vehicle',
+        tenantId,
+        recordId: vehicle.id,
+        masterValue: vehicle.registrationNumber,
+        createdBy: vehicle.createdBy,
+        pending: vehicle.status === 'pending',
+      });
+      if (verification) {
+        await this.approvalNotifier?.vahanResult({
+          tenantId,
+          vehicleId: vehicle.id,
+          vehicleNo: vehicle.registrationNumber,
+          createdBy: vehicle.createdBy,
+          verificationStatus: verification.verificationStatus,
+        });
+      }
+      return vehicle;
     } catch (error) {
       rethrow(error, 'Failed to onboard vehicle');
     }
@@ -1140,6 +1157,14 @@ export class VehicleService {
         oldData: { id: vehicleId, status: 'pending' },
         newData: { id: vehicleId, status: 'active', approvedBy: actorId },
       });
+      await this.approvalNotifier?.approved({
+        kind: 'vehicle',
+        tenantId,
+        recordId: vehicle.id,
+        masterValue: vehicle.registrationNumber,
+        createdBy: vehicle.createdBy,
+        approvedBy: actorId,
+      });
 
       return vehicle;
     } catch (error) {
@@ -1169,6 +1194,15 @@ export class VehicleService {
         resourceType: 'vehicle',
         oldData: { id: vehicleId, status: 'pending' },
         newData: { id: vehicleId, status: 'rejected', rejectionReason: reason },
+      });
+      await this.approvalNotifier?.rejected({
+        kind: 'vehicle',
+        tenantId,
+        recordId: vehicle.id,
+        masterValue: vehicle.registrationNumber,
+        createdBy: vehicle.createdBy,
+        rejectedBy: actorId,
+        reason,
       });
 
       return vehicle;

@@ -9,9 +9,8 @@ import {
   Repository,
 } from 'typeorm';
 import { FleetAnalyticsFilters } from './utils/fleet-analytics.interface';
-import { HELD_AS_OWNERSHIP } from './utils/fleet-analytics.constants';
+import { HELD_AS_OWNERSHIP, ON_THE_ROAD_STATUSES } from './utils/fleet-analytics.constants';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
-import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { TyreEntity } from '../../maintenance/entities/tyre.entity';
@@ -19,6 +18,8 @@ import { TyreReadingEntity } from '../../maintenance/entities/tyre-reading.entit
 import { BatterySohReadingEntity } from '../../maintenance/entities/battery-soh-reading.entity';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { MAINTAINED_VEHICLE_STATUSES } from '../../maintenance/maintenance.types';
+import { LoadEntity } from '../../loads/entities/load.entity';
+import { RequisitionEntity } from '../../loads/entities/requisition.entity';
 
 // Reads masters/maintenance/driver entities directly via the DataSource, same as
 // AnalyticsRepository (shipper analytics) — a reporting concern spanning several modules, not a
@@ -28,37 +29,34 @@ import { MAINTAINED_VEHICLE_STATUSES } from '../../maintenance/maintenance.types
 // so aggregation happens in application code instead of in the query.
 export class FleetAnalyticsRepository {
   private readonly vehicles: Repository<VehicleEntity>;
-  private readonly truckTypes: Repository<TruckTypeEntity>;
   private readonly customers: Repository<CustomerEntity>;
   private readonly jobs: Repository<MaintenanceJobEntity>;
   private readonly tyres: Repository<TyreEntity>;
   private readonly tyreReadings: Repository<TyreReadingEntity>;
   private readonly batteryReadings: Repository<BatterySohReadingEntity>;
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
+  private readonly loads: Repository<LoadEntity>;
+  private readonly requisitions: Repository<RequisitionEntity>;
 
   constructor(dataSource: DataSource) {
     this.vehicles = dataSource.getRepository(VehicleEntity);
-    this.truckTypes = dataSource.getRepository(TruckTypeEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
     this.jobs = dataSource.getRepository(MaintenanceJobEntity);
     this.tyres = dataSource.getRepository(TyreEntity);
     this.tyreReadings = dataSource.getRepository(TyreReadingEntity);
     this.batteryReadings = dataSource.getRepository(BatterySohReadingEntity);
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
+    this.loads = dataSource.getRepository(LoadEntity);
+    this.requisitions = dataSource.getRepository(RequisitionEntity);
   }
 
-  /** The running fleet the filter bar selects — onboarded, not retired, narrowed by "Held as"
-   *  and "Truck class". Carries everything the tabs read off a vehicle: class, fixed costs,
-   *  odometer, papers and the VAHAN registration date (for age). */
-  listScopedVehicles(tenantId: string, filters: FleetAnalyticsFilters): Promise<VehicleEntity[]> {
+  /** The running fleet narrowed by "Held as" (and a single vehicle). Body type and size are
+   *  derived (axle type, truck type master, length), so the service narrows by them in code.
+   *  Carries everything the tabs read off a vehicle: truck type, fixed costs, odometer, papers
+   *  and the VAHAN registration date (for age). */
+  listScopedVehicles(tenantId: string, filters: VehicleScope): Promise<VehicleEntity[]> {
     return this.vehicles.find({
-      where: {
-        tenantId,
-        deletedAt: IsNull(),
-        status: In([...MAINTAINED_VEHICLE_STATUSES]),
-        ownershipType: In(HELD_AS_OWNERSHIP[filters.heldAs]),
-        ...(filters.truckTypeId ? { truckTypeId: filters.truckTypeId } : {}),
-      },
+      where: scopedVehicleWhere(tenantId, filters),
       relations: {
         truckType: true,
         telemetryMeta: true,
@@ -66,6 +64,75 @@ export class FleetAnalyticsRepository {
         documents: true,
         verificationSnapshots: true,
       },
+      order: { registrationNumber: 'ASC' },
+    });
+  }
+
+  /** How many vehicles a filter combination selects — used to say which filter emptied a slice. */
+  countScopedVehicles(tenantId: string, filters: VehicleScope): Promise<number> {
+    return this.vehicles.count({ where: scopedVehicleWhere(tenantId, filters) });
+  }
+
+  /**
+   * Loads these trucks were on during the window: assigned past `created`, started before the
+   * window ends and not delivered before it starts. Narrowed by customer and lane. The exact
+   * overlap is settled in code from the stage timestamps (loadInterval).
+   */
+  listLoadsInWindow(
+    tenantId: string,
+    vehicleIds: string[],
+    range: { from: Date; to: Date },
+    filters: Pick<FleetAnalyticsFilters, 'customerId' | 'laneKey'>,
+  ): Promise<LoadEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    const [loadingPointId, customerDeliveryPointId] = filters.laneKey?.split(':') ?? [];
+    const requisition: FindOptionsWhere<RequisitionEntity> = {
+      ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      ...(filters.laneKey ? { loadingPointId, customerDeliveryPointId } : {}),
+    };
+    const base: FindOptionsWhere<LoadEntity> = {
+      tenantId,
+      vehicleId: In(vehicleIds),
+      status: Not('created'),
+      createdAt: LessThanOrEqual(range.to),
+      ...(Object.keys(requisition).length ? { requisition } : {}),
+    };
+    return this.loads.find({
+      where: [
+        { ...base, deliveredAt: IsNull() },
+        { ...base, deliveredAt: MoreThanOrEqual(range.from) },
+      ],
+      relations: {
+        requisition: { loadingPoint: true, customerDeliveryPoint: true },
+      },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /** Every lane the tenant has raised a requisition on, for the lane filter. */
+  listRequisitionLanes(tenantId: string): Promise<RequisitionEntity[]> {
+    return this.requisitions.find({
+      where: { tenantId },
+      relations: { loadingPoint: true, customerDeliveryPoint: true },
+      select: {
+        id: true,
+        loadingPointId: true,
+        customerDeliveryPointId: true,
+        loadingPoint: { id: true, city: true },
+        customerDeliveryPoint: { id: true, city: true, location: true },
+      },
+    });
+  }
+
+  /** Every running vehicle with its truck type — the Vehicle, Body type and Size options. */
+  listVehicleOptions(tenantId: string): Promise<VehicleEntity[]> {
+    return this.vehicles.find({
+      where: {
+        tenantId,
+        deletedAt: IsNull(),
+        status: In([...MAINTAINED_VEHICLE_STATUSES]),
+      },
+      relations: { truckType: true },
       order: { registrationNumber: 'ASC' },
     });
   }
@@ -197,23 +264,51 @@ export class FleetAnalyticsRepository {
   listActiveDrivers(tenantId: string): Promise<DriverTenantRelationEntity[]> {
     return this.driverRelations.find({
       where: { tenantId, status: 'active', deletedAt: IsNull(), driver: { deletedAt: IsNull() } },
-      relations: { driver: { verifications: true } },
+      relations: {
+        driver: { verifications: true },
+        operationalStatus: true,
+        vehicleLinks: true,
+      },
     });
   }
 
-  listTruckTypes(tenantId: string): Promise<TruckTypeEntity[]> {
-    return this.truckTypes.find({
-      where: { tenantId, deletedAt: IsNull() },
-      select: { id: true, name: true },
-      order: { name: 'ASC' },
+  /** Loads on the road right now — assigned and not yet unloaded — whatever the period. */
+  listLoadsOnTheRoad(tenantId: string, vehicleIds: string[]): Promise<LoadEntity[]> {
+    if (vehicleIds.length === 0) return Promise.resolve([]);
+    return this.loads.find({
+      where: { tenantId, vehicleId: In(vehicleIds), status: In([...ON_THE_ROAD_STATUSES]) },
+      relations: { requisition: true },
     });
   }
 
-  listCustomers(tenantId: string): Promise<CustomerEntity[]> {
+  /** Customers with at least one requisition — the Customer filter's options. */
+  async listCustomersWithLoads(tenantId: string): Promise<CustomerEntity[]> {
+    const requisitions = await this.requisitions.find({
+      where: { tenantId },
+      select: { id: true, customerId: true },
+    });
+    const ids = [...new Set(requisitions.map((requisition) => requisition.customerId))];
+    if (ids.length === 0) return [];
     return this.customers.find({
-      where: { tenantId, deletedAt: IsNull() },
+      where: { tenantId, id: In(ids), deletedAt: IsNull() },
       select: { id: true, name: true },
       order: { name: 'ASC' },
     });
   }
+}
+
+/** The vehicle filters the database applies; body type and size are applied in code. */
+export type VehicleScope = Pick<FleetAnalyticsFilters, 'heldAs' | 'vehicleId'>;
+
+function scopedVehicleWhere(
+  tenantId: string,
+  filters: VehicleScope,
+): FindOptionsWhere<VehicleEntity> {
+  return {
+    tenantId,
+    deletedAt: IsNull(),
+    status: In([...MAINTAINED_VEHICLE_STATUSES]),
+    ownershipType: In(HELD_AS_OWNERSHIP[filters.heldAs]),
+    ...(filters.vehicleId ? { id: filters.vehicleId } : {}),
+  };
 }

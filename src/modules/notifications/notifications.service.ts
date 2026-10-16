@@ -1,14 +1,21 @@
 import { NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { env } from '../../config/env';
 import { paginate } from '../../shared/utils/pagination';
 import { JobQueue } from '../../jobs/queue-registry';
 import { NotificationRepository } from './notification.repository';
+import { IN_APP_HIDDEN_TYPES, IN_APP_LATEST_ONLY_TYPES } from './catalog/notification-catalog';
 import { NotificationEntity } from './notifications.entity';
+import { presentNotification } from './utils/notification-presenter';
 import {
   CreateNotificationInput,
   ListNotificationsInput,
   NotificationDestinations,
 } from './notifications.interface';
-import { NotificationChannelName, DeliveryStatus } from './notifications.types';
+import {
+  DEFAULT_NOTIFICATION_SEVERITY,
+  NotificationChannelName,
+  DeliveryStatus,
+} from './notifications.types';
 
 function resolveDestination(
   channel: NotificationChannelName,
@@ -62,12 +69,19 @@ export class NotificationsService {
           body: input.body,
           channels,
           metadata: input.metadata ?? null,
+          severity: input.severity ?? DEFAULT_NOTIFICATION_SEVERITY,
+          showInApp: input.showInApp ?? true,
         },
         destinations,
       );
 
       for (const channel of channels) {
-        await this.jobQueue.enqueue(channel, { notificationId: notification.id });
+        const delay = input.channelDelaysMs?.[channel];
+        await this.jobQueue.enqueue(
+          channel,
+          { notificationId: notification.id },
+          delay ? { delay } : undefined,
+        );
       }
 
       return notification;
@@ -76,14 +90,41 @@ export class NotificationsService {
     }
   }
 
+  /** Which delivery gateways this server has credentials for — the inbox header's "WhatsApp,
+   *  SMS & Push gateways active". Configured ≠ every type sends on it: per-type templates and
+   *  org preferences still apply. In-app needs no gateway. */
+  channelStatus(): Record<NotificationChannelName | 'inApp', boolean> {
+    const isMsg91Configured = Boolean(env.msg91AuthKey);
+    return {
+      inApp: true,
+      push: Boolean(env.firebaseProjectId && env.firebaseClientEmail && env.firebasePrivateKey),
+      sms: isMsg91Configured,
+      whatsapp: isMsg91Configured && Boolean(env.msg91WhatsappIntegratedNumber),
+      email: isMsg91Configured && Boolean(env.msg91EmailDomain && env.msg91EmailFrom),
+    };
+  }
+
+  /** Backs a catalog type's `frequency: 'once_per_tenant'` (see notify-by-type.ts). */
+  hasNotificationOfType(tenantId: string, type: string): Promise<boolean> {
+    return this.repository.existsForTenantAndType(tenantId, type);
+  }
+
   async list(tenantId: string, recipientUserId: string, input: ListNotificationsInput) {
     try {
       const [items, total] = await this.repository.listByRecipient(
         tenantId,
         recipientUserId,
         input,
+        IN_APP_HIDDEN_TYPES,
+        IN_APP_LATEST_ONLY_TYPES,
       );
-      return paginate(items, total, input);
+      const unreadCount = await this.repository.countUnread(
+        tenantId,
+        recipientUserId,
+        IN_APP_HIDDEN_TYPES,
+        IN_APP_LATEST_ONLY_TYPES,
+      );
+      return { ...paginate(items.map(presentNotification), total, input), unreadCount };
     } catch (error) {
       rethrow(error, 'Failed to list notifications');
     }
@@ -97,10 +138,11 @@ export class NotificationsService {
         tenantId,
         recipientUserId,
         id,
+        IN_APP_HIDDEN_TYPES,
       );
       if (!notification) throw new NotFoundError(`Notification ${id} not found`);
       const deliveries = await this.repository.findDeliveriesByNotificationId(notification.id);
-      return { ...notification, deliveries };
+      return { ...presentNotification(notification), deliveries };
     } catch (error) {
       rethrow(error, 'Failed to fetch notification');
     }
@@ -108,11 +150,25 @@ export class NotificationsService {
 
   async markRead(tenantId: string, recipientUserId: string, id: string) {
     try {
-      const notification = await this.repository.markRead(tenantId, recipientUserId, id);
+      const notification = await this.repository.markRead(
+        tenantId,
+        recipientUserId,
+        id,
+        IN_APP_HIDDEN_TYPES,
+      );
       if (!notification) throw new NotFoundError(`Notification ${id} not found`);
-      return notification;
+      return presentNotification(notification);
     } catch (error) {
       rethrow(error, 'Failed to mark notification read');
+    }
+  }
+
+  /** Returns how many previously-unread notifications were just marked read. */
+  async markAllRead(tenantId: string, recipientUserId: string): Promise<number> {
+    try {
+      return await this.repository.markAllRead(tenantId, recipientUserId, IN_APP_HIDDEN_TYPES);
+    } catch (error) {
+      rethrow(error, 'Failed to mark all notifications read');
     }
   }
 

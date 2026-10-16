@@ -10,6 +10,7 @@ import { OrganizationJourneyStageService } from '../organization/organization-jo
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { StorageService } from '../storage/storage.service';
 import { OtpService } from '../../shared/services/otp.service';
+import { NotificationTriggers } from '../notifications/notification-triggers';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -31,6 +32,8 @@ export function createAuthModule(
     referralCodeService: ReferralCodeService;
     storageService: StorageService;
     otpService: OtpService;
+    // LS_N_0002 "signup received" — see auth.service.ts's submitOrganization.
+    notificationTriggers: NotificationTriggers;
   },
 ) {
   const repository = new AuthRepository(dataSource);
@@ -47,6 +50,7 @@ export function createAuthModule(
     deps.auditService,
     deps.otpService,
     dataSource,
+    deps.notificationTriggers,
   );
   const controller = new AuthController(service);
   const publicRouter = createAuthPublicRoutes(controller);

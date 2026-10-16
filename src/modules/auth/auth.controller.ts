@@ -6,12 +6,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   signup = async (req: Request, res: Response) => {
-    const tokens = await this.authService.signup(req.body);
+    const tokens = await this.authService.signup({ ...req.body, ipAddress: req.ip ?? null });
     respond(res, tokens, 201);
   };
 
   requestLoginOtp = async (req: Request, res: Response) => {
-    const result = await this.authService.requestLoginOtp(req.body);
+    const result = await this.authService.requestLoginOtp({
+      ...req.body,
+      ipAddress: req.ip ?? null,
+    });
     respond(res, result, 200);
   };
 
@@ -20,6 +23,7 @@ export class AuthController {
     const tokens = await this.authService.verifyOtp({
       phoneNumber,
       otp: req.body.otp,
+      whatsappOptIn: req.body.whatsappOptIn,
       fcmToken: req.body.fcmToken,
       deviceType: req.body.deviceType,
       deviceInfo: req.body.deviceInfo,
@@ -60,6 +64,11 @@ export class AuthController {
   me = async (req: Request, res: Response) => {
     const profile = await this.authService.getProfile(req.user!.id);
     respond(res, profile);
+  };
+
+  updateWhatsappOptIn = async (req: Request, res: Response) => {
+    const result = await this.authService.updateWhatsappOptIn(req.user!, req.body.optIn);
+    respond(res, result);
   };
 
   refresh = async (req: Request, res: Response) => {

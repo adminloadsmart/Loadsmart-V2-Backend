@@ -13,6 +13,18 @@ import { DataSource } from 'typeorm';
 import { NotificationTypeEntity } from '../modules/notifications/entities/notification-type.entity';
 import { NOTIFICATION_CATALOG } from '../modules/notifications/catalog/notification-catalog';
 
+/** vehicle.compliance_expiring_soon: the masters 15-day alert, replaced by LS_N_0047's
+ *  30/15/7/3/1 ladder ('vehicle.document_expiry'). */
+const RETIRED_NOTIFICATION_TYPES = [
+  'vehicle.compliance_expiring_soon',
+  // Settings-screen placeholders that were never sent — removed so only notifications from the
+  // LS_N sheet that actually fire appear on Settings → Notifications.
+  'load.trip_delay_exception',
+  'tracking.geofence_breach',
+  'payments.due_settlement',
+  'maintenance.compliance_due',
+];
+
 export async function seedNotificationTypes(dataSource: DataSource): Promise<void> {
   const typeRepo = dataSource.getRepository(NotificationTypeEntity);
 
@@ -26,6 +38,7 @@ export async function seedNotificationTypes(dataSource: DataSource): Promise<voi
           description: definition.description ?? null,
           channels: definition.channels,
           defaultChannels: definition.defaultChannels,
+          severity: definition.severity,
         }),
       );
       console.log(`created notification type ${key}`);
@@ -34,9 +47,18 @@ export async function seedNotificationTypes(dataSource: DataSource): Promise<voi
       existing.description = definition.description ?? null;
       existing.channels = definition.channels;
       existing.defaultChannels = definition.defaultChannels;
+      existing.severity = definition.severity;
       await typeRepo.save(existing);
       console.log(`updated notification type ${key}`);
     }
+  }
+
+  // Types removed from the catalog — deleting the row also removes saved org preferences for it
+  // (ON DELETE CASCADE) so it disappears from the settings screen. Past notifications of the
+  // type stay in notifications.notifications (they reference the key, not this row).
+  for (const key of RETIRED_NOTIFICATION_TYPES) {
+    const result = await typeRepo.delete({ key });
+    if (result.affected) console.log(`removed retired notification type ${key}`);
   }
 
   console.log('Notification types seeded.');

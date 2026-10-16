@@ -20,6 +20,11 @@ export function createNotificationsRoutes(controller: NotificationsController): 
     validate(notificationValidators.list),
     asyncHandler(controller.listNotifications),
   );
+  // No body/params — marks every one of the caller's own unread notifications read. Ahead of
+  // the /:notificationId routes so "mark-all-read" is never read as an id.
+  router.post('/mark-all-read', asyncHandler(controller.markAllNotificationsRead));
+  // Ahead of GET /:notificationId for the same reason.
+  router.get('/channel-status', asyncHandler(controller.channelStatus));
   router.get(
     '/:notificationId',
     validate(notificationValidators.get),
