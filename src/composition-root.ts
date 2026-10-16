@@ -1,6 +1,5 @@
 import { Router, RequestHandler } from 'express';
 import { DataSource } from 'typeorm';
-import { Worker } from 'bullmq';
 import { TenancyGateway } from './shared/tenancy/tenancy.gateway';
 import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
@@ -65,6 +64,17 @@ import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
 import { createPlacesModule } from './modules/places';
 import { createLoadsModule } from './modules/loads';
+import { AssignmentComplianceService } from './modules/loads/assignment-compliance.service';
+import { HttpTrackingClient } from './adapters/tracking.client';
+import {
+  createTrackingEventHandlers,
+  startTrackingEventsConsumer,
+} from './modules/notifications/tracking-events.consumer';
+import {
+  createTripTimingChecks,
+  scheduleTripTimingChecks,
+  TRIP_TIMING_JOB,
+} from './modules/notifications/trip-timing';
 import { createAnalyticsModule } from './modules/analytics';
 import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
 import { createDriverAnalyticsModule } from './modules/analytics/driver-analytics';
@@ -92,7 +102,8 @@ export interface Container {
   // In-process background workers (currently just notifications' BullMQ dispatch worker) —
   // server.ts closes each of these on SIGTERM/SIGINT before the HTTP server, so an in-flight job
   // finishes instead of being killed mid-dispatch on a pm2 restart.
-  backgroundWorkers: Worker[];
+  /** Closed on graceful shutdown (server.ts) — BullMQ workers and the tracking.events listener. */
+  backgroundWorkers: { close(): Promise<void> }[];
 }
 
 export function buildContainer(dataSource: DataSource): Container {
@@ -280,6 +291,11 @@ export function buildContainer(dataSource: DataSource): Container {
   });
   // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
   const digests = createDigests(dataSource, notifications.triggers);
+  // LS_N_0021/0023 — the 5-minute trip-timing sweep (trip-timing.ts).
+  const tripTimingChecks = createTripTimingChecks(
+    notifications.loadAlertRepository,
+    notifications.triggers,
+  );
   const notificationScheduleWorker = createNotificationScheduleWorker(
     vehicleDocumentAlerts,
     {
@@ -288,7 +304,11 @@ export function buildContainer(dataSource: DataSource): Container {
         ...(await tyreAlerts.runDaily(today)),
       }),
     },
-    digestJobs(digests),
+    {
+      ...digestJobs(digests),
+      // LS_N_0021 not reported / LS_N_0023 detention at loading — every 5 minutes.
+      [TRIP_TIMING_JOB]: () => tripTimingChecks.run(),
+    },
   );
   scheduleVehicleDocumentChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register vehicle document check schedules', error),
@@ -296,8 +316,19 @@ export function buildContainer(dataSource: DataSource): Container {
   scheduleDigests(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register digest schedules', error),
   );
+  scheduleTripTimingChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
+    console.error('Failed to register trip-timing schedule', error),
+  );
 
-  const loadAlertResolvers = createLoadAlertResolvers(notifications.loadAlertRepository);
+  // LS_N_0017 — the assignment-time compliance check. Shared by the loads module (which blocks on
+  // it) and the load-alert resolvers (which re-run it to see if the document was renewed).
+  const assignmentComplianceService = new AssignmentComplianceService(dataSource);
+  const loadAlertResolvers = createLoadAlertResolvers(
+    notifications.loadAlertRepository,
+    (tenantId, target) => assignmentComplianceService.check(tenantId, target),
+    // LS_N_0025/0026 — the live ETA from the loadsmart-tracking service.
+    new HttpTrackingClient(),
+  );
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,
     notifications.triggersQueue,
@@ -350,6 +381,16 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.eway_bill_expiry': loadAlertResolvers.ewayBillExpiry,
       'load.pod_uploaded': loadAlertResolvers.podUploaded,
       'load.advance_due': loadAlertResolvers.advanceDue,
+      // LS_N_0016 truck assigned / LS_N_0017 assignment blocked on an expired document.
+      'load.vehicle_assigned': loadAlertResolvers.vehicleAssigned,
+      'load.assignment_compliance_failed': loadAlertResolvers.assignmentComplianceFailed,
+      // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
+      'load.vehicle_loaded': loadAlertResolvers.vehicleLoaded,
+      'load.vehicle_in_transit': loadAlertResolvers.vehicleInTransit,
+      // LS_N_0021 not reported / LS_N_0022 reached loading point / LS_N_0023 detention at loading.
+      'load.vehicle_not_reported': loadAlertResolvers.vehicleNotReported,
+      'load.vehicle_reached_pickup': loadAlertResolvers.vehicleReachedPickup,
+      'load.detention_at_loading': loadAlertResolvers.detentionAtLoading,
       // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
       'vehicle.back_in_service': createBackInServiceResolver({
         dataSource,
@@ -381,9 +422,11 @@ export function buildContainer(dataSource: DataSource): Container {
     // Push-notification payoff for driver_sessions.fcm_token — see docs/driver-auth.md.
     driverAuthService: driverAuth.service,
     notificationsService: notifications.service,
+    assignmentComplianceService,
     // LS_N_0054 — a driver-reported breakdown alerts maintenance holders and org admins.
     onBreakdownReported: createBreakdownNotifier(notifications.triggers),
-    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due (notifications/load-alerts.ts).
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked
+    // (notifications/load-alerts.ts).
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
@@ -478,6 +521,15 @@ export function buildContainer(dataSource: DataSource): Container {
       notificationTriggerWorker,
       notificationScheduleWorker,
       organization.documentVerificationWorker,
+      // tracking → backend events (tracking's outbox relay writes to this Redis): LS_N_0026's
+      // trip.departed_pickup today.
+      startTrackingEventsConsumer(
+        env.redisUrl,
+        createTrackingEventHandlers(notifications.triggers, {
+          markArrivedAtPickup: (tenantId, loadId, at) =>
+            loads.loadService.markArrivedAtPickup(tenantId, loadId, at),
+        }),
+      ),
     ],
   };
 }

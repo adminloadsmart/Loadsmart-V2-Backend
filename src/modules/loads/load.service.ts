@@ -41,6 +41,11 @@ import {
 import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import {
+  AssignmentComplianceService,
+  assignmentBlockedError,
+  assignmentBlockedEvent,
+} from './assignment-compliance.service';
+import {
   buildNextAction,
   buildStepper,
   LoadPapers,
@@ -122,11 +127,13 @@ export class LoadService {
     private readonly storageService: StorageService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    // LS_N_0017 — refuses a vehicle or driver with an expired document at Load Assignment.
+    private readonly assignmentComplianceService: AssignmentComplianceService,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
     private readonly onBreakdownReported?: BreakdownReportedNotifier,
-    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due — optional; only queues a
-    // notification after the existing logic and never throws (see notifications/load-alerts.ts).
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked —
+    // optional; only queues a notification and never throws (see notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
   ) {}
 
@@ -165,7 +172,10 @@ export class LoadService {
       }
 
       if (!input.transporterId) throw new ValidationError('transporterId is required');
-      await this.transporterService.getTransporter(tenantId, input.transporterId);
+      const transporter = await this.transporterService.getTransporter(
+        tenantId,
+        input.transporterId,
+      );
       if (!input.vehicleNumber?.trim()) throw new ValidationError('vehicleNumber is required');
       // if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
       if (!input.freightType) throw new ValidationError('freightType is required');
@@ -184,6 +194,28 @@ export class LoadService {
         throw new ConflictError(
           `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.code}, status ${humanizeStatus(clash.status)})`,
         );
+      }
+
+      // LS_N_0017 — a vehicle with an expired document, or a driver with an expired licence, can't
+      // be assigned. Matched to the masters by number; one that isn't on file can't be checked
+      // and is let through (LS_N_0016 then says so). No override.
+      const compliance = await this.assignmentComplianceService.check(tenantId, {
+        vehicleNumber,
+        driverPhone: input.driverNumber,
+      });
+      if (compliance.failure) {
+        const driverName = input.driverName?.trim() || compliance.driverName;
+        await this.onLoadEvent?.(
+          assignmentBlockedEvent(
+            tenantId,
+            vehicleNumber,
+            compliance,
+            compliance.failure,
+            { loadId, transporterName: transporter.name },
+            driverName,
+          ),
+        );
+        throw assignmentBlockedError(vehicleNumber, compliance.failure, driverName);
       }
 
       // The agreed rate — defaults to the target rate captured at planning if the caller doesn't
@@ -224,6 +256,16 @@ export class LoadService {
           driverNumber: updated.driverNumber,
           driverName: updated.driverName,
         },
+      });
+
+      // LS_N_0016 — truck and driver assigned.
+      await this.onLoadEvent?.({
+        kind: 'assigned',
+        tenantId,
+        loadId,
+        at: new Date(),
+        vehicleChecked: compliance.vehicleChecked,
+        driverChecked: compliance.driverChecked,
       });
 
       return updated;
@@ -523,6 +565,17 @@ export class LoadService {
               : { id: loadId, status: 'loading_confirmed' },
           });
 
+          // LS_N_0024 — vehicle loaded (documents and e-way bill folded into one card).
+          const { expiresAt: ewayBillExpiresAt } = this.getEwayBillExpiry(confirmed);
+          await this.onLoadEvent?.({
+            kind: 'loading_confirmed',
+            tenantId,
+            loadId,
+            at: confirmed.loadingConfirmedAt ?? now,
+            confirmedBy: driverOwnerId ? { driverId: actorId } : { userId: actorId },
+            ewayBillExpiresAt: ewayBillExpiresAt ? new Date(ewayBillExpiresAt) : null,
+          });
+
           // Confirming loading means the truck is leaving the plant — advance straight to
           // in_transit, still passing through loading_confirmed above so the activity/audit trail
           // and stepper keep every stage. Guarded on loading_confirmed so it can't double-fire.
@@ -648,13 +701,59 @@ export class LoadService {
           ? { id: loadId, status: toStatus, driverId: actorId }
           : { id: loadId, status: toStatus },
       });
-      if (toStatus === 'in_transit' || toStatus === 'reached_delivery_point') {
+      if (
+        toStatus === 'at_plant' ||
+        toStatus === 'in_transit' ||
+        toStatus === 'reached_delivery_point'
+      ) {
         await this.onLoadEvent?.({ kind: toStatus, tenantId, loadId, at: new Date() });
       }
 
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to update load status');
+    }
+  }
+
+  /** Tracking's `trip.arrived_at_pickup` (the vehicle entered the loading point's geofence) moves
+   *  a still-"assigned" load to "At plant" at the arrival time — the same step the driver or staff
+   *  can take by hand (updateStatus), whichever comes first. A load already past "assigned" is
+   *  left alone. Returns whether it moved. */
+  async markArrivedAtPickup(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const updated = await this.repository.updateStatus(
+        tenantId,
+        loadId,
+        ['assigned'],
+        'at_plant',
+        {
+          atPlantAt: at,
+        },
+      );
+      if (!updated) return false;
+
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        null,
+        'STATUS_CHANGED',
+        'assigned',
+        'at_plant',
+        { source: 'tracking' },
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: null,
+        action: 'LOAD_STATUS_UPDATED_BY_TRACKING',
+        resourceType: 'load',
+        oldData: { id: loadId, status: 'assigned' },
+        newData: { id: loadId, status: 'at_plant', atPlantAt: at.toISOString() },
+      });
+      // LS_N_0022 — vehicle reached the loading point.
+      await this.onLoadEvent?.({ kind: 'at_plant', tenantId, loadId, at });
+      return true;
+    } catch (error) {
+      rethrow(error, 'Failed to mark the load at plant from tracking');
     }
   }
 

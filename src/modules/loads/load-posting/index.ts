@@ -16,6 +16,8 @@ import { LoadDraftService } from './load-draft.service';
 import { LoadPostingController } from './load-posting.controller';
 import { createLoadPostingRoutes } from './load-posting.routes';
 import { LoadDispatchNotifier, LoggingLoadDispatchNotifier } from './load-dispatch-notifier';
+import { AssignmentComplianceService } from '../assignment-compliance.service';
+import { LoadEventNotifier } from '../../notifications/notifications.interface';
 
 export function createLoadPostingModule(
   dataSource: DataSource,
@@ -29,6 +31,9 @@ export function createLoadPostingModule(
     driverAuthService: DriverAuthService;
     notificationsService: NotificationsService;
     truckTypeService: TruckTypeService;
+    assignmentComplianceService: AssignmentComplianceService;
+    /** LS_N_0016/0017 — truck assigned / blocked on an expired document. */
+    onLoadEvent?: LoadEventNotifier;
     /** Swap in the real WhatsApp sender here once it exists. */
     notifier?: LoadDispatchNotifier;
   },
@@ -48,6 +53,8 @@ export function createLoadPostingModule(
     deps.driverAuthService,
     deps.notificationsService,
     deps.truckTypeService,
+    deps.assignmentComplianceService,
+    deps.onLoadEvent,
   );
   const lookupService = new LoadPostingLookupService(
     dataSource,

@@ -44,8 +44,16 @@ export const QUIET_HOURS_HELD_CHANNELS: NotificationChannelName[] = ['push', 'sm
 /** Quiet hours are India time, the same fixed zone the daily notification checks use. */
 export const INDIA_UTC_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-/** How long before an e-way bill's expiry its 'load.eway_bill_expiry' alert goes out. */
-export const EWAY_BILL_ALERT_LEAD_MS = 30 * 60 * 1000;
+/** The IANA zone notification copy and the trip-timing checks show / compute times in. */
+export const INDIA_TIME_ZONE = 'Asia/Kolkata';
+
+export const MS_PER_MINUTE = 60 * 1000;
+export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+
+/** How long before an e-way bill's expiry its 'load.eway_bill_expiry' alert (LS_N_0025) goes out
+ *  — the sheet's last (1 h) step; its 12 h / 4 h steps need a real validity (the placeholder is 2
+ *  hours from generation). */
+export const EWAY_BILL_ALERT_LEAD_MS = MS_PER_HOUR;
 
 /** IFSC bank code (first four letters) → display name, for the advance-due card. A code not
  *  listed here is shown as-is. */
@@ -66,3 +74,41 @@ export const BANK_NAME_BY_IFSC_PREFIX: Record<string, string> = {
   BKID: 'Bank of India',
   MAHB: 'Bank of Maharashtra',
 };
+
+/** A load's reporting time when it has none: Post-a-load loads have a pickup time, Dispatch
+ *  Planning loads only a pickup date — this time of day (India time) stands in until loads
+ *  capture a real reporting time (LS_N_0016/0017/0021/0022). */
+export const DEFAULT_REPORTING_TIME_IST = '10:00';
+
+/** LS_N_0021 — minutes after the reporting time each "not reported" alert goes out (the sheet's
+ *  60 min, then every 2 h, 3 alerts at most). From the second one (3 h) org admins are added. */
+export const NOT_REPORTED_ALERT_MINUTES = [60, 180, 300];
+
+/** LS_N_0022/0023 — free loading hours at the plant before detention starts, and the detention
+ *  rate. Fixed placeholders until detention terms are configurable (org or customer contract). */
+export const FREE_LOADING_HOURS = 4;
+export const DETENTION_RATE_PER_HOUR = 500;
+/** LS_N_0023 — repeat the detention alert every this many hours while it continues. */
+export const DETENTION_REPEAT_HOURS = 4;
+/** LS_N_0023 — stop repeating once detention has run this long (12 alerts), so a load left "At
+ *  plant" by mistake doesn't alert every 4 hours forever. */
+export const DETENTION_ALERT_MAX_HOURS = 48;
+
+/** LS_N_0017 — escalate to org admins this long after a blocked assignment, and don't alert the
+ *  same blocked vehicle again within it (a user retrying the assignment). */
+export const ASSIGNMENT_BLOCK_ALERT_WINDOW_MS = MS_PER_HOUR;
+
+/** tracking.events listener (tracking-events.consumer.ts): entries read per call, how long a read
+ *  waits for new ones, when another instance's unacknowledged entry is taken over, how often a
+ *  failing handler is retried, how long a handled event id is remembered (dedupe), and the pause
+ *  after a Redis error. */
+export const TRACKING_EVENTS_BATCH_SIZE = 50;
+export const TRACKING_EVENTS_BLOCK_MS = 5000;
+export const TRACKING_EVENTS_CLAIM_IDLE_MS = 60_000;
+export const TRACKING_EVENTS_MAX_ATTEMPTS = 5;
+export const TRACKING_EVENT_SEEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const TRACKING_EVENTS_ERROR_BACKOFF_MS = 5000;
+
+/** How late a scheduled trip-timing alert may still go out — so a backlog (first deploy, a
+ *  missed run) never sends stale alerts. */
+export const TRIP_TIMING_GRACE_MINUTES = 60;

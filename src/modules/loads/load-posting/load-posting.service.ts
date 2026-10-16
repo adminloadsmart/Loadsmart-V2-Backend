@@ -37,6 +37,12 @@ import {
 } from './utils/load-posting.types';
 import { buildPostMessage } from './utils/post-message';
 import { driverUnavailableReason } from './utils/driver-availability';
+import { LoadEventNotifier } from '../../notifications/notifications.interface';
+import {
+  AssignmentComplianceService,
+  assignmentBlockedError,
+  assignmentBlockedEvent,
+} from '../assignment-compliance.service';
 
 const HOUR_MS = 60 * 60 * 1000;
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -92,6 +98,11 @@ export class LoadPostingService {
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
     private readonly truckTypeService: TruckTypeService,
+    // LS_N_0017 — refuses a truck or driver with an expired document.
+    private readonly assignmentComplianceService: AssignmentComplianceService,
+    // LS_N_0016/0017 — optional; only queues a notification and never throws (see
+    // notifications/load-alerts.ts).
+    private readonly onLoadEvent?: LoadEventNotifier,
   ) {}
 
   async post(
@@ -150,6 +161,24 @@ export class LoadPostingService {
         const own = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!, input.driverId);
         vehicleLoadDefaults = own.defaults;
         assignedDriverName = own.driverName;
+
+        // PL-22 / LS_N_0017 — expired papers or an expired driver licence block the post. Nothing
+        // is saved, so the alert carries the cities and pickup time.
+        const compliance = await this.assignmentComplianceService.check(tenantId, {
+          vehicleId: input.vehicleId,
+          driverId: own.defaults.driverId,
+        });
+        if (compliance.failure) {
+          const vehicleNumber = own.defaults.vehicleNumber ?? '';
+          await this.onLoadEvent?.(
+            assignmentBlockedEvent(tenantId, vehicleNumber, compliance, compliance.failure, {
+              originCity: pickup.address.city ?? null,
+              destinationCity: drop.address.city ?? null,
+              pickupAt,
+            }),
+          );
+          throw assignmentBlockedError(vehicleNumber, compliance.failure, compliance.driverName);
+        }
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
@@ -357,7 +386,20 @@ export class LoadPostingService {
         result.recipients,
         transporters,
       );
-      if (input.mode === 'own_fleet') await this.notifyDriver(tenantId, result.loads);
+      if (input.mode === 'own_fleet') {
+        await this.notifyDriver(tenantId, result.loads);
+        // LS_N_0016 — the truck and driver passed the compliance check above.
+        for (const load of result.loads) {
+          await this.onLoadEvent?.({
+            kind: 'assigned',
+            tenantId,
+            loadId: load.id,
+            at: new Date(),
+            vehicleChecked: true,
+            driverChecked: true,
+          });
+        }
+      }
 
       return {
         posting: result.posting,
@@ -549,7 +591,8 @@ export class LoadPostingService {
   }
 
   /** PL-22 — a truck in the workshop, inactive or already on a live load cannot be picked;
-   *  expiring papers never block. */
+   *  expiring papers never block. Expired papers (and an expired driver licence) are checked by
+   *  post() afterwards, so the block also raises LS_N_0017. */
   private async assertOwnFleetVehicle(
     tenantId: string,
     vehicleId: string,
@@ -562,12 +605,6 @@ export class LoadPostingService {
     if (vehicle.status !== 'active') throw new ConflictError('This truck is not active');
     if ((await this.repository.listVehicleIdsInWorkshop(tenantId, [vehicleId])).size > 0) {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
-    }
-    const { expired } = this.paperStatus(vehicle.documents ?? []);
-    if (expired.length > 0) {
-      throw new ConflictError(
-        `This truck has expired papers (${expired.join(', ')}) and cannot be assigned`,
-      );
     }
     const operational = vehicle.operationalStatus?.operationalStatus;
     if (operational === 'on_trip' || operational === 'inactive') {

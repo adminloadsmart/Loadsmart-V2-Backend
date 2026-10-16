@@ -1,6 +1,7 @@
 import { PaginationInput } from '../../shared/utils/pagination';
 import {
   LoadStageHandoffStage,
+  TrackingEventType,
   NotificationCategoryOrGeneral,
   NotificationChannelName,
   NotificationCtaStyle,
@@ -8,6 +9,7 @@ import {
   NotificationSeverity,
 } from './notifications.types';
 import { NotificationEntity } from './notifications.entity';
+import type { AssignmentComplianceSubject } from '../loads/utils/loads.types';
 
 /** Destination the caller supplies for each requested channel — this module owns no
  *  contact/token registry of its own, so these are taken as-is (see notifications.service.ts). */
@@ -106,7 +108,58 @@ export type LoadEvent =
       generatedAt: Date;
       expiresAt: Date;
     }
-  | { kind: 'pod_uploaded'; tenantId: string; loadId: string; at: Date };
+  | { kind: 'pod_uploaded'; tenantId: string; loadId: string; at: Date }
+  /** LS_N_0022 — the vehicle reached the loading point: the manual "At plant" step (driver app or
+   *  staff) or tracking's geofence entry, whichever came first. */
+  | { kind: 'at_plant'; tenantId: string; loadId: string; at: Date }
+  /** LS_N_0024 — loading confirmed (all mandatory documents in). `confirmedBy` is the assigned
+   *  driver (driver app) or a staff user. */
+  | {
+      kind: 'loading_confirmed';
+      tenantId: string;
+      loadId: string;
+      at: Date;
+      confirmedBy: LoadPersonRef;
+      ewayBillExpiresAt: Date | null;
+    }
+  /** LS_N_0016 — a vehicle (and driver) went onto the load: market Load Assignment, own-fleet
+   *  Dispatch Planning or own-fleet Post a load. Whether the masters had the vehicle / driver to
+   *  check comes from the assignment-time compliance check. */
+  | {
+      kind: 'assigned';
+      tenantId: string;
+      loadId: string;
+      at: Date;
+      vehicleChecked: boolean;
+      driverChecked: boolean;
+    }
+  | AssignmentBlockedEvent;
+
+/** Who did something on a load: the assigned driver (driver app) or a staff user. */
+export type LoadPersonRef = { driverId: string } | { userId: string };
+
+/** LS_N_0017 — an assignment was refused because the vehicle or driver has an expired document.
+ *  Nothing was saved, so the event carries what the message needs. A market Load Assignment has
+ *  its `loadId`; own-fleet Dispatch Planning its `requisitionId`; own-fleet Post a load neither
+ *  (the posting was never created) — its cities and pickup time instead. */
+export interface AssignmentBlockedEvent {
+  kind: 'assignment_blocked';
+  tenantId: string;
+  at: Date;
+  loadId?: string | null;
+  requisitionId?: string | null;
+  vehicleNumber: string;
+  vehicleId: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  subject: AssignmentComplianceSubject;
+  docType: string;
+  expiryDate: string;
+  transporterName?: string | null;
+  originCity?: string | null;
+  destinationCity?: string | null;
+  pickupAt?: Date | null;
+}
 
 /** Queues the notification(s) for a load event — never throws. */
 export type LoadEventNotifier = (event: LoadEvent) => Promise<void>;
@@ -135,6 +188,38 @@ export interface LoadAlertSnapshot {
   /** "Ludhiana to Bhiwandi"; null when either end has no city. */
   route: string | null;
   consigneeName: string | null;
+  /** The name typed at Load Assignment, else the linked driver master's. */
+  driverName: string | null;
+  driverPhone: string | null;
+  createdBy: string | null;
+  originCity: string | null;
+  destinationCity: string | null;
+  /** Lorry receipt (E-LR) number — optional even once the E-LR file is uploaded. */
+  elrNumber: string | null;
+  /** The E-LR file is on the load. */
+  hasLorryReceipt: boolean;
+  /** Loading documents on the load: invoice, e-way bill, E-LR, weighing slip and photos. */
+  documentCount: number;
+  /** Cargo planned on this truck (sum of its cargo lines), else its planned capacity. */
+  cargoTonnes: string | null;
+  /** The loading point's coordinates — "last seen N km away" (LS_N_0021). */
+  originLat: number | null;
+  originLng: number | null;
+  /** When the vehicle reached the loading point (LS_N_0022/0023). */
+  atPlantAt: Date | null;
+  /** Requisition pickup date (YYYY-MM-DD) — Dispatch Planning loads. */
+  pickupDate: string | null;
+  /** Posting pickup time — Post-a-load loads. */
+  pickupAt: Date | null;
+}
+
+/** A requisition as LS_N_0017 shows it when an own-fleet dispatch was blocked. */
+export interface RequisitionAlertSummary {
+  code: string;
+  /** "Ludhiana to Bhiwandi"; null when either end has no city. */
+  route: string | null;
+  pickupDate: string;
+  consigneeName: string | null;
 }
 
 /** The earliest planned trip on a vehicle — the "cannot be dispatched" card's first affected
@@ -147,3 +232,19 @@ export interface NextPlannedTrip {
   pickupDate: string;
   transporterName: string | null;
 }
+
+/** One entry of the tracking service's `tracking.events` stream (tracking-events.consumer.ts). */
+export interface TrackingEvent {
+  /** The stream entry id (Redis). */
+  streamId: string;
+  /** Tracking's outbox id — stable across a re-relay, so it's the dedupe key. */
+  eventId: string;
+  type: string;
+  tenantId: string;
+  payload: Record<string, unknown>;
+}
+
+/** What this backend does for each tracking event type it acts on. */
+export type TrackingEventHandlers = Partial<
+  Record<TrackingEventType, (event: TrackingEvent) => Promise<void>>
+>;

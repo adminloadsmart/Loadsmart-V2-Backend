@@ -110,6 +110,13 @@ export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
 );
 /** Driver-app "Upcoming" tab — assigned to the driver but not yet moving. */
 export const UPCOMING_LOAD_STATUSES: readonly LoadStatus[] = ['created', 'assigned'];
+/** The truck is at or past the delivery point — trip-execution alerts (LS_N_0025/0026) no longer
+ *  apply. */
+export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
+  'reached_delivery_point',
+  'delivered',
+  'closed',
+];
 export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
@@ -207,3 +214,12 @@ export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];
  *  load forward and the trip-detail view shows it as halted. Every other category is shown as
  *  incident info only. */
 export const HALTING_ISSUE_CATEGORIES: readonly LoadIssueCategory[] = ['accident', 'breakdown'];
+
+/** What an assignment-time compliance check (LS_N_0017) found expired: the vehicle's papers or the
+ *  driver's licence. */
+export const ASSIGNMENT_COMPLIANCE_SUBJECTS = ['vehicle', 'driver'] as const;
+export type AssignmentComplianceSubject = (typeof ASSIGNMENT_COMPLIANCE_SUBJECTS)[number];
+
+/** The `docType` an expired driver licence is reported as (vehicle papers use the masters'
+ *  DOCUMENT_TYPE_LABELS). */
+export const DRIVING_LICENCE_DOC_LABEL = 'Driving licence';

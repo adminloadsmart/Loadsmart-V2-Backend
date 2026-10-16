@@ -1,5 +1,6 @@
 import { PaginationInput } from '../../../shared/utils/pagination';
 import {
+  AssignmentComplianceSubject,
   FreightType,
   LoadSourceType,
   LoadStatus,
@@ -95,4 +96,32 @@ export type LoadParams = { loadId: string };
 export interface EwayBillExpiry {
   expiresAt: string | null;
   expired: boolean;
+}
+
+/** The vehicle and driver going onto a load. Own-fleet paths pass ids; a market Load Assignment
+ *  passes the typed-in vehicle and phone numbers, matched to the masters here. */
+export interface AssignmentTarget {
+  vehicleId?: string | null;
+  vehicleNumber?: string | null;
+  driverId?: string | null;
+  driverPhone?: string | null;
+}
+
+/** The expired document that blocks an assignment — the vehicle is checked first. */
+export interface AssignmentComplianceFailure {
+  subject: AssignmentComplianceSubject;
+  /** "Fitness Certificate", "Driving licence". */
+  docType: string;
+  /** YYYY-MM-DD. */
+  expiryDate: string;
+}
+
+export interface AssignmentCompliance {
+  /** The vehicle / driver master the check read; null when it isn't on file. */
+  vehicleId: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  vehicleChecked: boolean;
+  driverChecked: boolean;
+  failure: AssignmentComplianceFailure | null;
 }

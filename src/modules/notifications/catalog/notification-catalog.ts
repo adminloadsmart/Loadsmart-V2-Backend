@@ -6,13 +6,17 @@ import {
   MAINTENANCE_MANAGE,
   MASTERS_APPROVE,
   PAYMENTS_MANAGE,
+  TRIP_TRACK,
 } from '../../../shared/constants/permissions';
 import { ORG_ADMIN_ROLE, DISPATCH_ROLE, DOCUMENTS_OPS_ROLE } from '../../../shared/constants/roles';
 import { env } from '../../../config/env';
 import { toInternationalIndianNumber } from '../../../shared/utils/phone-number';
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
 import { LoadStageHandoffStage } from '../notifications.types';
-import { NextPlannedTrip } from '../notifications.interface';
+import { LoadPersonRef, NextPlannedTrip } from '../notifications.interface';
+import { ASSIGNMENT_BLOCK_ALERT_WINDOW_MS } from '../notifications.constants';
+import { formatIndiaDateTime } from '../utils/trip-time';
+import type { AssignmentComplianceSubject } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 
@@ -407,6 +411,92 @@ export interface EwayBillExpiryContext extends LoadSummary {
   generatedAt: string;
   expiresAt: string;
   ewayBillNumber?: string | null;
+  destination?: string | null;
+  /** Tracking's projected arrival (ISO); null when tracking has no ETA yet (no GPS / route). */
+  etaAt?: string | null;
+}
+
+/** LS_N_0024 — what the load looked like when loading was confirmed. */
+export interface VehicleLoadedContext extends LoadSummary {
+  /** When loading was confirmed (ISO). */
+  loadedAt: string;
+  /** The driver (driver app) or staff user who confirmed it. */
+  confirmedBy: LoadPersonRef;
+  /** The placeholder expiry LoadService computes (generated + 2 h) — no real validity yet (ISO). */
+  ewayBillExpiresAt?: string | null;
+  // Filled in by the resolver:
+  origin?: string | null;
+  confirmedByName?: string | null;
+  cargoTonnes?: string | null;
+  documentCount?: number;
+  elrNumber?: string | null;
+  /** The E-LR file is on the load (its number is optional). */
+  hasLorryReceipt?: boolean;
+  ewayBillNumber?: string | null;
+}
+
+/** LS_N_0021 — queued by the trip-timing sweep (trip-timing.ts) for one step of the ladder. */
+export interface VehicleNotReportedContext extends LoadSummary {
+  /** When the vehicle was due at the loading point (ISO). */
+  reportingAt: string;
+  /** 0, 1, 2 — the 60 min / 3 h / 5 h alert; org admins join from step 1. */
+  step: number;
+  // Filled in by the resolver:
+  origin?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  isOwnFleet?: boolean;
+  createdBy?: string | null;
+  lateMinutes?: number;
+  /** From tracking's last position for the vehicle, when it has one. */
+  lastSeenPlace?: string | null;
+  distanceAwayKm?: number | null;
+}
+
+/** LS_N_0022 — from the manual "At plant" step or tracking's geofence entry. */
+export interface VehicleReachedPickupContext extends LoadSummary {
+  /** When the vehicle reached the loading point (ISO). */
+  arrivedAt: string;
+  // Filled in by the resolver:
+  origin?: string | null;
+  reportingAt?: string | null;
+  freeTimeEndsAt?: string | null;
+}
+
+/** LS_N_0023 — queued by the trip-timing sweep for each 4-hour step of detention. */
+export interface DetentionAtLoadingContext extends LoadSummary {
+  /** When the vehicle reached the loading point (ISO) — the detention clock's start. */
+  arrivedAt: string;
+  /** 0 at the free-time boundary, then one per DETENTION_REPEAT_HOURS. */
+  step: number;
+  // Filled in by the resolver:
+  origin?: string | null;
+  hoursAtOrigin?: number;
+  freeHours?: number;
+  /** "₹2,000" — billable hours beyond the free time × the rate. */
+  amount?: string;
+  ratePerHour?: string;
+}
+
+/** "45 min" / "1 h 20 min" / "3 h". */
+function durationOf(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (!hours) return `${rest} min`;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/** LS_N_0026 — from tracking's `trip.departed_pickup` event (tracking-events.consumer.ts). */
+export interface VehicleInTransitContext extends LoadSummary {
+  /** When the vehicle left the loading point's geofence (ISO). */
+  departedAt: string;
+  // Filled in by the resolver:
+  origin?: string | null;
+  destination?: string | null;
+  /** Tracking's projected arrival (ISO) and road km left; null when tracking has none yet. */
+  etaAt?: string | null;
+  remainingKm?: number | null;
 }
 
 export interface PodUploadedContext extends LoadSummary {
@@ -424,6 +514,77 @@ export interface AdvanceDueContext extends LoadSummary {
   amount?: string | null;
   bankName?: string | null;
   accountLast4?: string | null;
+}
+
+/** LS_N_0016 — queued with the assignment-time check's result; the rest is read off the load at
+ *  send time (load-alerts.ts). */
+export interface VehicleAssignedContext extends LoadSummary {
+  /** Identifies this assignment (ISO). */
+  assignedAt: string;
+  /** Whether the masters had the vehicle / driver to check — a typed-in market vehicle or driver
+   *  that isn't on file can't be. */
+  vehicleChecked: boolean;
+  driverChecked: boolean;
+  isOwnFleet?: boolean;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  origin?: string | null;
+  /** "17 Oct" / "17 Oct, 14:30" — the pickup; no reporting time is captured on a load yet. */
+  reportingTime?: string | null;
+  /** The user who created the load — notified alongside trip.track holders. */
+  createdBy?: string | null;
+}
+
+/** LS_N_0017 — the refused assignment, as queued (nothing was saved), plus what the resolver
+ *  reads at send time. */
+export interface AssignmentComplianceFailedContext {
+  /** When the assignment was refused (ISO). */
+  blockedAt: string;
+  /** Market Load Assignment. */
+  loadId?: string | null;
+  /** Own-fleet Dispatch Planning. Neither id → own-fleet Post a load. */
+  requisitionId?: string | null;
+  vehicleNo: string;
+  vehicleId?: string | null;
+  driverId?: string | null;
+  driverName?: string | null;
+  subject: AssignmentComplianceSubject;
+  docType: string;
+  expiryDate: string;
+  transporterName?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  /** Post a load's pickup time (ISO). */
+  pickupAt?: string | null;
+  // Filled in by the resolver:
+  /** The load's or requisition's code. */
+  referenceCode?: string | null;
+  route?: string | null;
+  reportingTime?: string | null;
+}
+
+/** One blocked assignment — the same vehicle refused for the same load/requisition/post for the
+ *  same reason. Keys trigger dedupe and the "already alerted in the last hour" check. */
+export function assignmentBlockKeyOf(context: AssignmentComplianceFailedContext): string {
+  const target = context.loadId ?? context.requisitionId ?? 'post';
+  const plate = context.vehicleNo.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return `${target}-${plate}-${context.subject}`;
+}
+
+/** LS_N_0016's "Compliance checked and clear." — says what couldn't be checked rather than
+ *  claiming a clear result for a typed-in vehicle or driver that isn't in the masters. */
+function assignmentComplianceSentenceOf(context: VehicleAssignedContext): string {
+  const hasDriver = Boolean(context.driverName || context.driverPhone);
+  if (context.vehicleChecked && (context.driverChecked || !hasDriver)) {
+    return 'Compliance checked and clear.';
+  }
+  if (context.vehicleChecked) {
+    return "Vehicle documents checked and clear. The driver isn't in your driver list, so their licence wasn't checked.";
+  }
+  if (context.driverChecked) {
+    return "Driver's licence checked and clear. The vehicle isn't in your fleet list, so its documents weren't checked.";
+  }
+  return "The vehicle isn't in your fleet list, so its documents weren't checked.";
 }
 
 /** "HH:MM" in India time. */
@@ -1468,14 +1629,14 @@ export const NOTIFICATION_CATALOG = {
     },
   },
 
-  // Trip stage handoffs — fired by LoadService when a load goes in transit (loading confirmed)
-  // or reaches its delivery point (manual tracking — no GPS geofence exists yet). Label,
-  // description and recipients are the ones the settings screen already showed. See
-  // load-alerts.ts.
+  // Trip stage handoff — fired by LoadService when a load reaches its delivery point (manual
+  // tracking — no GPS geofence yet). Leaving the loading point is LS_N_0026
+  // ('load.vehicle_in_transit') now, so this only sends the reached-delivery card until LS_N_0031
+  // gets its own rules. See load-alerts.ts.
   'load.stage_handoff': {
     label: 'Stage handoff',
     category: 'trip_execution',
-    description: 'Dispatched, reached loading point, in-transit, and delivered updates.',
+    description: 'Vehicle reached the delivery point.',
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
     defaultChannels: ['push'],
@@ -1511,32 +1672,341 @@ export const NOTIFICATION_CATALOG = {
     },
   },
 
-  // E-way bill expiring on a moving load — queued by LoadService when the bill is generated, to
-  // send EWAY_BILL_ALERT_LEAD_MS before its computed expiry (LoadService.getEwayBillExpiry);
-  // skipped if the load is delivered by then or the bill was regenerated. Label, description and
-  // recipients are the ones the settings screen already showed. See load-alerts.ts.
+  // LS_N_0025 — queued by LoadService when the e-way bill is generated, to send
+  // EWAY_BILL_ALERT_LEAD_MS (1 hour) before its expiry. The expiry is still the 2-hour placeholder
+  // (LoadService.getEwayBillExpiry — no ULIP validity yet), so of the sheet's 12 h / 4 h / 1 h
+  // ladder only the 1 h step can happen. At send time the resolver asks tracking for the ETA:
+  // skipped if the truck is projected to arrive before the expiry, sent if it's projected after
+  // OR tracking has no ETA. Also skipped once delivered or the bill was regenerated. P1 (pings
+  // through quiet hours): in-app + push + WhatsApp + SMS to trip.track and compliance.manage.
   'load.eway_bill_expiry': {
     label: 'E-way bill expiry',
     category: 'compliance',
-    description: 'Expiring within 4 hours or breached validity warnings.',
-    recipientRoles: [DOCUMENTS_OPS_ROLE, DISPATCH_ROLE, ORG_ADMIN_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push', 'sms', 'email'],
+    description: 'The e-way bill expires before the vehicle is projected to reach the destination.',
+    recipientRoles: [],
+    recipientPermission: () => [{ permission: TRIP_TRACK }, { permission: COMPLIANCE_MANAGE }],
+    channels: ['push', 'whatsapp', 'sms'],
+    defaultChannels: ['push', 'whatsapp', 'sms'],
     severity: 'p1_critical',
     dedupeKey: (context: EwayBillExpiryContext) => `${context.loadId}-${context.generatedAt}`,
-    buildContent: (context: EwayBillExpiryContext) => {
-      const ewayBillLabel = context.ewayBillNumber ?? 'The e-way bill';
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateEwayBillExpiry,
+        variables: { var1: 'vehicle_no' },
+      },
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateEwayBillExpiry,
+        variables: ['first_name', 'load_code', 'eway_bill_expiry', 'eta'],
+      },
+    },
+    buildContent: (context: EwayBillExpiryContext, recipient) => {
+      const ewayBillLabel = context.ewayBillNumber
+        ? `E-way bill ${context.ewayBillNumber}`
+        : 'The e-way bill';
+      const vehicleNo = context.vehicleNo ?? 'the vehicle';
+      const destination = context.destination ?? 'the destination';
+      const expiry = formatIndiaDateTime(context.expiresAt);
+      const eta = context.etaAt ? formatIndiaDateTime(context.etaAt) : null;
+      const arrival = eta
+        ? `${vehicleNo} is projected to reach ${destination} at ${eta}`
+        : `there's no live ETA for ${vehicleNo} to ${destination} yet`;
       return {
         title: `E-way bill on ${context.loadCode} expires before delivery`,
-        body: `${ewayBillLabel} expires at ${formatIndiaTime(context.expiresAt)}${
-          context.route ? ` on ${context.route}` : ''
-        }. Extend it now to avoid vehicle detention and penalties.`,
-        highlights: [ewayBillLabel],
+        body: `${ewayBillLabel} is valid until ${expiry} and ${arrival}. Extend it now. A vehicle moving on a lapsed e-way bill can be detained and penalised.`,
+        highlights: [context.ewayBillNumber ?? '', vehicleNo].filter(Boolean),
         metadata: {
           ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
           eway_bill_number: context.ewayBillNumber ?? '',
           eway_bill_expires_at: context.expiresAt,
+          eway_bill_expiry: expiry,
+          destination: context.destination ?? '',
+          eta: eta ?? 'not available',
+          eta_at: context.etaAt ?? '',
           cta_label: 'Extend e-way bill',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0024 — fired by LoadService.confirmLoading once loading is confirmed (all mandatory
+  // documents in), whether by the driver app or staff. One card folding the lorry receipt and
+  // e-way bill facts together. In-app only, P3, to trip.track holders. Quantity is the cargo
+  // planned on the truck (no loaded weight is captured); the e-way bill validity is the 2-hour
+  // placeholder. The button opens the load's documents.
+  'load.vehicle_loaded': {
+    label: 'Vehicle loaded',
+    category: 'trip_execution',
+    description: 'Loading is confirmed and the loading documents are uploaded.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: VehicleLoadedContext) => context.loadId,
+    buildContent: (context: VehicleLoadedContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const quantity = context.cargoTonnes ? ` ${Number(context.cargoTonnes)} t` : '';
+      const documents = context.documentCount
+        ? ` and uploaded ${context.documentCount} documents`
+        : '';
+      // Only the papers actually on the load: "Lorry receipt LR-1 is generated and e-way bill
+      // EWB-9 is valid until 16 Oct, 16:30."
+      const papers = [
+        context.elrNumber
+          ? `lorry receipt ${context.elrNumber} is generated`
+          : context.hasLorryReceipt
+            ? 'the lorry receipt is uploaded'
+            : null,
+        context.ewayBillNumber
+          ? `e-way bill ${context.ewayBillNumber} ${
+              context.ewayBillExpiresAt
+                ? `is valid until ${formatIndiaDateTime(context.ewayBillExpiresAt)}`
+                : 'is uploaded'
+            }`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' and ');
+      const papersSentence = papers ? ` ${papers.charAt(0).toUpperCase()}${papers.slice(1)}.` : '';
+      return {
+        title: `${vehicleNo} loaded at ${context.origin ?? 'the loading point'}`,
+        body: `${context.confirmedByName ?? 'The driver'} confirmed${quantity} loaded at ${formatIndiaTime(context.loadedAt)}${documents}.${papersSentence}`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          origin: context.origin ?? '',
+          driver_name: context.confirmedByName ?? '',
+          quantity: context.cargoTonnes ?? '',
+          uom: 't',
+          loaded_at: context.loadedAt,
+          doc_count: String(context.documentCount ?? 0),
+          lr_no: context.elrNumber ?? '',
+          eway_bill_number: context.ewayBillNumber ?? '',
+          eway_bill_expires_at: context.ewayBillExpiresAt ?? '',
+          cta_label: 'View lorry receipt',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0021 — the trip-timing sweep (every 5 min, trip-timing.ts) sends this when a load is
+  // still "assigned" 60 min after its reporting time, then at 3 h and 5 h (3 alerts at most);
+  // org admins are added from the 3 h one. The reporting time is the posting's pickup time, or the
+  // pickup date at DEFAULT_REPORTING_TIME_IST. Stops as soon as the vehicle reaches the plant
+  // (manual "At plant" or tracking's geofence entry). "Last seen" comes from tracking's last
+  // position, left out when it has none. P1 (pings through quiet hours): in-app + push + WhatsApp
+  // + SMS to trip.track holders plus the user who created the load.
+  'load.vehicle_not_reported': {
+    label: 'Vehicle not reported for loading',
+    category: 'trip_execution',
+    description: 'The vehicle is over an hour late reaching the loading point.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    extraRecipientRoles: (context: VehicleNotReportedContext) =>
+      context.step >= 1 ? [ORG_ADMIN_ROLE] : [],
+    alsoNotifyUserId: (context: VehicleNotReportedContext) => context.createdBy,
+    channels: ['push', 'whatsapp', 'sms'],
+    defaultChannels: ['push', 'whatsapp', 'sms'],
+    severity: 'p1_critical',
+    dedupeKey: (context: VehicleNotReportedContext) => `${context.loadId}-${context.step}`,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateNotReported,
+        variables: { var1: 'vehicle_no' },
+      },
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateNotReported,
+        variables: [
+          'first_name',
+          'vehicle_no',
+          'delay_duration',
+          'origin',
+          'load_code',
+          'driver_name',
+          'driver_phone',
+        ],
+      },
+    },
+    buildContent: (context: VehicleNotReportedContext, recipient) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const origin = context.origin ?? 'the loading point';
+      const late = durationOf(context.lateMinutes ?? 0);
+      const lastSeen =
+        context.distanceAwayKm != null || context.lastSeenPlace
+          ? ` Last seen${context.distanceAwayKm != null ? ` ${context.distanceAwayKm} km away` : ''}${
+              context.lastSeenPlace ? ` near ${context.lastSeenPlace}` : ''
+            }.`
+          : '';
+      const standby =
+        context.isOwnFleet || !context.transporterName
+          ? 'arrange a standby vehicle'
+          : `ask ${context.transporterName} for a standby vehicle`;
+      const callDriver = context.driverName
+        ? `Call ${context.driverName}${context.driverPhone ? ` on ${context.driverPhone}` : ''} or `
+        : context.driverPhone
+          ? `Call the driver on ${context.driverPhone} or `
+          : '';
+      const action = `${callDriver}${standby}.`;
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${vehicleNo} has not reported at ${origin}`,
+        body: `${firstNameOf(recipient.fullName)}, ${vehicleNo} was due at ${origin} by ${formatIndiaDateTime(context.reportingAt)} and is ${late} late.${lastSeen} ${action.charAt(0).toUpperCase()}${action.slice(1)}`,
+        highlights: [vehicleNo, late],
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
+          origin: context.origin ?? '',
+          reporting_time: formatIndiaDateTime(context.reportingAt),
+          reporting_at: context.reportingAt,
+          delay_duration: late,
+          distance_away_km: context.distanceAwayKm != null ? String(context.distanceAwayKm) : '',
+          last_location: context.lastSeenPlace ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          ladder_step: String(context.step),
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // LS_N_0022 — the vehicle reached the loading point: fired by the manual "At plant" step
+  // (LoadService.updateStatus) or tracking's `trip.arrived_at_pickup` geofence entry (which also
+  // moves the load to "At plant"), whichever comes first — once per trip. Early/late is against
+  // the reporting time (see DEFAULT_REPORTING_TIME_IST); free time is FREE_LOADING_HOURS from
+  // arrival (a fixed placeholder). In-app + push, P3, to trip.track holders.
+  'load.vehicle_reached_pickup': {
+    label: 'Vehicle reached loading point',
+    category: 'trip_execution',
+    description: 'The vehicle has arrived at the loading point.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p3_info',
+    dedupeKey: (context: VehicleReachedPickupContext) => context.loadId,
+    buildContent: (context: VehicleReachedPickupContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      let earlyLate = '';
+      if (context.reportingAt) {
+        const minutes =
+          (new Date(context.arrivedAt).getTime() - new Date(context.reportingAt).getTime()) /
+          60_000;
+        const timing =
+          Math.abs(minutes) < 1
+            ? 'on time'
+            : minutes < 0
+              ? `${durationOf(-minutes)} early`
+              : `${durationOf(minutes)} late`;
+        earlyLate = `, ${timing} against a reporting time of ${formatIndiaDateTime(context.reportingAt)}`;
+      }
+      const freeTime = context.freeTimeEndsAt
+        ? ` Free loading time ends at ${formatIndiaDateTime(context.freeTimeEndsAt)}.`
+        : '';
+      return {
+        title: `${vehicleNo} has reached ${context.origin ?? 'the loading point'}`,
+        body: `Arrived at ${formatIndiaTime(context.arrivedAt)}${earlyLate}.${freeTime}`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          origin: context.origin ?? '',
+          arrived_at: context.arrivedAt,
+          reporting_at: context.reportingAt ?? '',
+          free_time_ends_at: context.freeTimeEndsAt ?? '',
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0023 — the trip-timing sweep sends this once the vehicle has been at the loading point
+  // ("At plant", loading not yet confirmed) for FREE_LOADING_HOURS, then every
+  // DETENTION_REPEAT_HOURS while it stays. Free hours and DETENTION_RATE_PER_HOUR are fixed
+  // placeholders until detention terms are configurable. No reason-recording feature exists, so
+  // the button opens the load. In-app + push + WhatsApp, P2, to trip.track and payments holders
+  // (the sheet's "payment.view").
+  'load.detention_at_loading': {
+    label: 'Detention started at loading',
+    category: 'trip_execution',
+    description: 'The vehicle has been at the loading point beyond the free hours.',
+    recipientRoles: [],
+    recipientPermission: () => [{ permission: TRIP_TRACK }, { permission: PAYMENTS_MANAGE }],
+    channels: ['push', 'whatsapp'],
+    defaultChannels: ['push', 'whatsapp'],
+    severity: 'p2_action',
+    dedupeKey: (context: DetentionAtLoadingContext) => `${context.loadId}-${context.step}`,
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateDetentionLoading,
+        variables: ['first_name', 'vehicle_no', 'origin', 'detention_amount'],
+      },
+    },
+    buildContent: (context: DetentionAtLoadingContext, recipient) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const origin = context.origin ?? 'the loading point';
+      return {
+        title: `Detention started at ${origin}`,
+        body: `${vehicleNo} has been at ${origin} for ${context.hoursAtOrigin} hours against ${context.freeHours} free. ${context.amount} is accruing at ${context.ratePerHour} an hour. Clear the vehicle to stop detention running.`,
+        highlights: [vehicleNo, context.amount ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
+          origin: context.origin ?? '',
+          arrived_at: context.arrivedAt,
+          detention_hrs: String(context.hoursAtOrigin ?? ''),
+          free_hours: String(context.freeHours ?? ''),
+          detention_amount: context.amount ?? '',
+          rate_per_hour: context.ratePerHour ?? '',
+          ladder_step: String(context.step),
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0026 — fired by tracking's `trip.departed_pickup` event (the vehicle left the loading
+  // point's geofence), read off the `tracking.events` stream by tracking-events.consumer.ts. ETA
+  // and km to run come from tracking's API at send time and are left out when it has none yet.
+  // In-app only, P3, to trip.track holders. Nothing sends this until tracking publishes the event.
+  'load.vehicle_in_transit': {
+    label: 'Vehicle in transit',
+    category: 'trip_execution',
+    description: 'The vehicle has left the loading point.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: VehicleInTransitContext) => context.loadId,
+    buildContent: (context: VehicleInTransitContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const towards = `In transit to ${context.destination ?? 'the destination'}${
+        context.consignee ? ` for ${context.consignee}` : ''
+      }.`;
+      const eta = context.etaAt
+        ? ` ETA ${formatIndiaDateTime(context.etaAt)}${
+            context.remainingKm != null ? `, ${Math.round(context.remainingKm)} km to run` : ''
+          }.`
+        : '';
+      return {
+        title: `${vehicleNo} has left ${context.origin ?? 'the loading point'}`,
+        body: `${towards}${eta}`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          origin: context.origin ?? '',
+          destination: context.destination ?? '',
+          departed_at: context.departedAt,
+          eta_at: context.etaAt ?? '',
+          distance_km: context.remainingKm != null ? String(Math.round(context.remainingKm)) : '',
+          cta_label: 'Track live',
           cta_path: `/loads/${context.loadId}`,
         },
       };
@@ -1622,6 +2092,146 @@ export const NOTIFICATION_CATALOG = {
           bank_account_last4: context.accountLast4 ?? '',
           cta_label: 'Approve advance',
           cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0016 — fired after any assignment: market Load Assignment (LoadService.assign), own-fleet
+  // Dispatch Planning and own-fleet Post a load. A vehicle or driver with an expired document is
+  // refused before this (LS_N_0017), so the compliance line only ever says clear or not checked.
+  // In-app + push + SMS to trip.track holders plus the user who created the load, P3. No load memo
+  // exists yet, so the button opens the load.
+  'load.vehicle_assigned': {
+    label: 'Truck and driver assigned',
+    category: 'trip_execution',
+    description: 'A vehicle and driver have been assigned to a load.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    alsoNotifyUserId: (context: VehicleAssignedContext) => context.createdBy,
+    channels: ['push', 'sms'],
+    defaultChannels: ['push', 'sms'],
+    severity: 'p3_info',
+    dedupeKey: (context: VehicleAssignedContext) => `${context.loadId}-${context.assignedAt}`,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateVehicleAssigned,
+        variables: { var1: 'vehicle_no', var2: 'load_code' },
+      },
+    },
+    buildContent: (context: VehicleAssignedContext) => {
+      const vehicleNo = context.vehicleNo ?? 'A vehicle';
+      const driverPart = context.driverName
+        ? ` with driver ${context.driverName}${context.driverPhone ? ` on ${context.driverPhone}` : ''}`
+        : context.driverPhone
+          ? ` with driver on ${context.driverPhone}`
+          : '';
+      const givenBy = context.isOwnFleet
+        ? `${vehicleNo} from your fleet is assigned${driverPart}.`
+        : `${context.transporterName ?? 'The transporter'} has given ${vehicleNo}${driverPart}.`;
+      const reporting = context.reportingTime
+        ? ` Reporting at ${context.origin ?? 'the loading point'} by ${context.reportingTime}.`
+        : '';
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${vehicleNo} assigned to ${context.loadCode}`,
+        body: `${givenBy}${reporting} ${assignmentComplianceSentenceOf(context)}`,
+        highlights: [vehicleNo, context.loadCode ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          origin: context.origin ?? '',
+          reporting_time: context.reportingTime ?? '',
+          vehicle_checked: String(context.vehicleChecked),
+          driver_checked: String(context.driverChecked),
+          assigned_at: context.assignedAt,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0017 — fired when an assignment is refused because the vehicle has an expired RC,
+  // insurance, permit, PUC, fitness or road tax, or the driver's licence has expired, per the
+  // masters (no live ULIP Vahan/Sarathi lookup exists): market Load Assignment, own-fleet Dispatch
+  // Planning or own-fleet Post a load. P1, so it pings through quiet hours: in-app + push +
+  // WhatsApp + SMS to trip.track and compliance.manage holders and org admins. One reminder after
+  // 60 minutes escalates to org admins only, unless the document was renewed or the load (or
+  // requisition) has since been given another vehicle. Retrying the same blocked vehicle within
+  // the hour doesn't send it again.
+  'load.assignment_compliance_failed': {
+    label: 'Assigned vehicle fails compliance',
+    category: 'compliance',
+    description:
+      'A vehicle or driver with an expired document was stopped from being assigned to a load.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    recipientPermission: (context: AssignmentComplianceFailedContext & { isReminder?: boolean }) =>
+      context.isReminder ? [] : [{ permission: TRIP_TRACK }, { permission: COMPLIANCE_MANAGE }],
+    channels: ['push', 'whatsapp', 'sms'],
+    defaultChannels: ['push', 'whatsapp', 'sms'],
+    severity: 'p1_critical',
+    dedupeKey: (context: AssignmentComplianceFailedContext) => assignmentBlockKeyOf(context),
+    reminderAfterMs: ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateAssignmentCompliance,
+        variables: { var1: 'vehicle_no' },
+      },
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateAssignmentCompliance,
+        variables: ['first_name', 'vehicle_no', 'reference_code', 'doc_type', 'transporter_name'],
+      },
+    },
+    buildContent: (
+      context: AssignmentComplianceFailedContext & { isReminder?: boolean },
+      recipient,
+    ) => {
+      const isDriver = context.subject === 'driver';
+      const expiredWhat = isDriver
+        ? `${context.driverName ? `${context.driverName}'s` : "The driver's"} driving licence for ${context.vehicleNo}`
+        : `${context.docType} on ${context.vehicleNo}`;
+      const heldWhat = context.referenceCode
+        ? `${context.referenceCode}${context.route ? `, ${context.route}` : ''}`
+        : `the new load${context.route ? ` from ${context.route}` : ''}`;
+      const replacement = isDriver ? 'driver' : 'vehicle';
+      const ask = context.transporterName
+        ? `Ask ${context.transporterName} for a replacement ${replacement}`
+        : `Assign another ${replacement}`;
+      const deadline = context.reportingTime ? ` before ${context.reportingTime}` : '';
+      const ctaPath = context.loadId
+        ? `/loads/${context.loadId}`
+        : context.requisitionId
+          ? `/requisitions/${context.requisitionId}`
+          : '/loads';
+      return {
+        title: `${context.vehicleNo} cannot be dispatched`,
+        body: `${context.isReminder ? 'Still not resolved after an hour. ' : ''}${expiredWhat} expired on ${context.expiryDate}. We have held the assignment for ${heldWhat}. ${ask}${deadline}.`,
+        highlights: [context.vehicleNo, context.referenceCode ?? ''].filter(Boolean),
+        metadata: {
+          first_name: firstNameOf(recipient.fullName),
+          load_id: context.loadId ?? '',
+          requisition_id: context.requisitionId ?? '',
+          reference_code: context.referenceCode ?? '',
+          vehicle_no: context.vehicleNo,
+          vehicle_id: context.vehicleId ?? '',
+          driver_id: context.driverId ?? '',
+          driver_name: context.driverName ?? '',
+          compliance_subject: context.subject,
+          doc_type: context.docType,
+          expiry_date: context.expiryDate,
+          transporter_name: context.transporterName ?? '',
+          route: context.route ?? '',
+          origin: context.origin ?? '',
+          destination: context.destination ?? '',
+          reporting_time: context.reportingTime ?? '',
+          blocked_at: context.blockedAt,
+          block_key: assignmentBlockKeyOf(context),
+          ladder_step: context.isReminder ? 'escalation' : 'initial',
+          cta_label: 'Ask for a replacement',
+          cta_path: ctaPath,
         },
       };
     },

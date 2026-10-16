@@ -4,8 +4,7 @@ import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { VehicleService, resolveDocumentStatus } from '../masters/vehicle/vehicle.service';
-import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/vehicle/vehicle.type';
+import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
 import { TruckTypeService } from '../masters/truck-type/truck-type.service';
 import { TruckTypeEntity } from '../masters/truck-type/entities/truck-type.entity';
@@ -28,6 +27,13 @@ import {
   TruckLineFitVerdict,
   TruckLineInput,
 } from './utils/dispatch-planning.interface';
+import { LoadEventNotifier } from '../notifications/notifications.interface';
+import {
+  AssignmentComplianceService,
+  assignmentBlockedError,
+  assignmentBlockedEvent,
+} from './assignment-compliance.service';
+import { AssignmentCompliance, AssignmentComplianceFailure } from './utils/load.interface';
 
 const MIN_OVERRIDE_REASON_LENGTH = 15; // V-17
 
@@ -64,6 +70,11 @@ export class DispatchPlanningService {
     // getActiveDeviceTokensForDriver is used, never anything RBAC-shaped.
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
+    // LS_N_0017 — refuses a vehicle or driver with an expired document.
+    private readonly assignmentComplianceService: AssignmentComplianceService,
+    // LS_N_0016/0017 — optional; only queues a notification and never throws (see
+    // notifications/load-alerts.ts).
+    private readonly onLoadEvent?: LoadEventNotifier,
   ) {}
 
   /**
@@ -231,6 +242,21 @@ export class DispatchPlanningService {
       // Outside the transaction, deliberately: a push failure must never roll back or fail an
       // otherwise-successful dispatch. Best-effort, errors are swallowed (logged) inside it.
       await this.notifyAssignedDrivers(tenantId, result.loads);
+
+      // LS_N_0016 — own-fleet loads land directly in `assigned`; their vehicle and driver passed
+      // the compliance check above.
+      const assignedAt = new Date();
+      for (const load of result.loads) {
+        if (load.status !== 'assigned') continue;
+        await this.onLoadEvent?.({
+          kind: 'assigned',
+          tenantId,
+          loadId: load.id,
+          at: assignedAt,
+          vehicleChecked: true,
+          driverChecked: Boolean(load.driverId),
+        });
+      }
 
       return result;
     } catch (error) {
@@ -429,9 +455,15 @@ export class DispatchPlanningService {
     cargoTonnes: number,
     cargoRows: { productId: string; tonnesPerTruck: string }[],
   ): Promise<BuiltLine> {
+    // Expired papers used to only warn here; they now block (LS_N_0017, below), so this stays
+    // empty — kept so the response keeps its `complianceWarnings` field.
     const complianceWarnings = new Map<string, string>();
-    const documentTypesWithExpiry: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
     const capacities: number[] = [];
+    const blockedVehicles: {
+      vehicleNumber: string;
+      compliance: AssignmentCompliance;
+      failure: AssignmentComplianceFailure;
+    }[] = [];
     const rows: CreateLoadData[] = [];
 
     for (const vehicleId of line.vehicleIds) {
@@ -444,22 +476,25 @@ export class DispatchPlanningService {
       }
       capacities.push(Number(vehicle.capacityTons));
 
-      const expired = (vehicle.documents ?? [])
-        .filter((document) => documentTypesWithExpiry.includes(document.documentType))
-        .some((document) => resolveDocumentStatus(document.expiryDate) === 'expired');
-      if (expired) {
-        complianceWarnings.set(
-          vehicleId,
-          'This vehicle has one or more expired compliance documents (e.g. insurance/PUC/fitness). ' +
-            'You can still assign it, but please verify before dispatch.',
-        );
-      }
-
       // Vehicle+driver already known — the load lands directly in `assigned` (R-35), skipping the
       // Load Assignment step entirely for own-fleet.
       const primaryLink = (vehicle.driverLinks ?? []).find(
         (link) => link.isPrimary && link.status === 'active',
       );
+
+      // LS_N_0017 — an expired vehicle document or driver licence blocks the whole plan. Every
+      // blocked truck in the line is alerted, then the first one's error is returned.
+      const compliance = await this.assignmentComplianceService.check(tenantId, {
+        vehicleId: vehicle.id,
+        driverId: primaryLink?.driverId ?? null,
+      });
+      if (compliance.failure) {
+        blockedVehicles.push({
+          vehicleNumber: vehicle.registrationNumber,
+          compliance,
+          failure: compliance.failure,
+        });
+      }
 
       rows.push({
         tenantId,
@@ -473,6 +508,16 @@ export class DispatchPlanningService {
         driverNumber: primaryLink?.driver?.phoneNumber ?? null,
         createdBy: actorId,
       });
+    }
+
+    if (blockedVehicles.length > 0) {
+      for (const { vehicleNumber, compliance, failure } of blockedVehicles) {
+        await this.onLoadEvent?.(
+          assignmentBlockedEvent(tenantId, vehicleNumber, compliance, failure, { requisitionId }),
+        );
+      }
+      const [{ vehicleNumber, compliance, failure }] = blockedVehicles;
+      throw assignmentBlockedError(vehicleNumber, failure, compliance.driverName);
     }
 
     const minCapacity = Math.min(...capacities);

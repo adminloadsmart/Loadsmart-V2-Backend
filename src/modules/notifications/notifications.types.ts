@@ -60,6 +60,12 @@ export type NotificationCategoryOrGeneral = NotificationCategory | 'general';
 export const NOTIFICATION_CTA_STYLES = ['danger', 'warning', 'primary', 'secondary'] as const;
 export type NotificationCtaStyle = (typeof NOTIFICATION_CTA_STYLES)[number];
 
-// Trip stages that send a 'load.stage_handoff' notification (see load-alerts.ts).
+// Trip stages LoadService reports to load-alerts.ts: 'in_transit' queues the advance-due card,
+// 'reached_delivery_point' the 'load.stage_handoff' one.
 export const LOAD_STAGE_HANDOFF_STAGES = ['in_transit', 'reached_delivery_point'] as const;
 export type LoadStageHandoffStage = (typeof LOAD_STAGE_HANDOFF_STAGES)[number];
+
+// Events the loadsmart-tracking service publishes that this backend acts on (see
+// tracking-events.consumer.ts): the vehicle entered / left the loading point's geofence.
+export const TRACKING_EVENT_TYPES = ['trip.arrived_at_pickup', 'trip.departed_pickup'] as const;
+export type TrackingEventType = (typeof TRACKING_EVENT_TYPES)[number];

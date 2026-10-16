@@ -47,6 +47,7 @@ import {
   MAINTENANCE_MANAGE,
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
+  TRIP_TRACK,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -210,6 +211,14 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Get alerts when a vehicle registration cannot be verified on Vahan',
     },
+    // Notification audience only — trip alerts (LS_N_0016/0017). In org_admin, dispatch and
+    // documents_ops's default bundles below; an org admin can grant it to anyone else.
+    {
+      key: TRIP_TRACK,
+      module: 'dispatch',
+      scope: 'organization',
+      description: 'Get trip alerts: truck assigned, or an assignment blocked by expired documents',
+    },
   ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -262,6 +271,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       PAYMENTS_MANAGE,
       MAINTENANCE_MANAGE,
       MAINTENANCE_COSTS_VIEW,
+      TRIP_TRACK,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
@@ -287,6 +297,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       MASTERS_WRITE,
       // Books the workshop jobs (a breakdown is a dispatch event) but doesn't see what they cost.
       MAINTENANCE_MANAGE,
+      TRIP_TRACK,
       FILES_READ,
       FILES_UPLOAD,
     ],
@@ -294,7 +305,13 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: DOCUMENTS_OPS_ROLE,
     scope: 'organization',
-    permissionKeys: [LOADS_DOCUMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [
+      LOADS_DOCUMENTS_MANAGE,
+      TRIP_TRACK,
+      CUSTOMERS_CREATE,
+      FILES_READ,
+      FILES_UPLOAD,
+    ],
   },
   {
     name: FINANCE_ACCOUNTS_ROLE,

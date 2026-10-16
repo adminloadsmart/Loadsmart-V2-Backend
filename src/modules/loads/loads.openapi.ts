@@ -152,7 +152,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: {
         description:
-          '{ requisition, loads, capacitySummary, allocationByProduct, fitVerdicts, complianceWarnings }',
+          '{ requisition, loads, capacitySummary, allocationByProduct, fitVerdicts, complianceWarnings } ' +
+          '— complianceWarnings is always empty now: expired papers block the plan (409) instead.',
       },
       400: {
         description: 'Validation failed, or a cargo mix exceeds truck capacity',
@@ -160,8 +161,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       },
       409: {
         description:
-          'Requisition not found/closed, a referenced vehicle/truck type is not usable, or a ' +
-          'vehicle fails the C-01/C-02/C-03 duplicate-use checks',
+          'Requisition not found/closed, a referenced vehicle/truck type is not usable, a ' +
+          'vehicle fails the C-01/C-02/C-03 duplicate-use checks, or a vehicle has an expired ' +
+          'document / its driver an expired licence (LS_N_0017; details.reason = ' +
+          '"compliance_expired" with subject, docType, expiryDate)',
         ...errorContent,
       },
     },
@@ -300,8 +303,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Validation failed', ...errorContent },
       409: {
         description:
-          'Load is own-fleet, is not in the "created" state, or the vehicle number is already ' +
-          'on another active load elsewhere (C-07)',
+          'Load is own-fleet, is not in the "created" state, the vehicle number is already ' +
+          'on another active load elsewhere (C-07), or the vehicle (matched to Fleet Master by ' +
+          'number) has an expired document / the driver (matched by phone) an expired licence ' +
+          '(LS_N_0017; details.reason = "compliance_expired" with subject, docType, expiryDate)',
         ...errorContent,
       },
     },

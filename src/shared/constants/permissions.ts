@@ -51,3 +51,6 @@ export const MAINTENANCE_COSTS_VIEW = 'maintenance.costs.view';
 // default (db/seed-roles.ts); an org admin grants it to specific teammates via the existing
 // POST /roles/users/:userId/permissions.
 export const COMPLIANCE_MANAGE = 'compliance.manage';
+// Notification audience only (no route checks it) — who gets trip alerts such as LS_N_0016 truck
+// assigned and LS_N_0017 assignment blocked on compliance (the LS_N sheet's "trip.track").
+export const TRIP_TRACK = 'trip.track';

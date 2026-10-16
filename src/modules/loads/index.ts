@@ -27,6 +27,7 @@ import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
+import { AssignmentComplianceService } from './assignment-compliance.service';
 
 export function createLoadsModule(
   dataSource: DataSource,
@@ -42,6 +43,8 @@ export function createLoadsModule(
     productService: ProductService;
     driverAuthService: DriverAuthService;
     notificationsService: NotificationsService;
+    // LS_N_0017 — built in composition-root.ts, which also hands it to the notification resolvers.
+    assignmentComplianceService: AssignmentComplianceService;
     onBreakdownReported?: BreakdownReportedNotifier;
     onLoadEvent?: LoadEventNotifier;
   },
@@ -76,6 +79,7 @@ export function createLoadsModule(
     deps.storageService,
     loadActivityService,
     deps.auditService,
+    deps.assignmentComplianceService,
     deps.onBreakdownReported,
     deps.onLoadEvent,
   );
@@ -99,6 +103,8 @@ export function createLoadsModule(
     deps.auditService,
     deps.driverAuthService,
     deps.notificationsService,
+    deps.assignmentComplianceService,
+    deps.onLoadEvent,
   );
 
   const controller = new LoadsController(
@@ -122,6 +128,8 @@ export function createLoadsModule(
     driverAuthService: deps.driverAuthService,
     notificationsService: deps.notificationsService,
     truckTypeService: deps.truckTypeService,
+    assignmentComplianceService: deps.assignmentComplianceService,
+    onLoadEvent: deps.onLoadEvent,
   });
   protectedRouter.use('/post', loadPosting.router);
 
