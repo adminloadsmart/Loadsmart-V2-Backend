@@ -20,6 +20,9 @@ export interface UlipVahanResult {
   registeringAuthority?: string;
   financierName?: string;
   addressLine1?: string;
+  /** VAHAN's own body-type wording, e.g. "OPEN BODY". */
+  bodyType?: string;
+  unladenWeightKg?: number;
   papers: {
     insuranceValidTo?: string;
     rcValidTo?: string;
@@ -171,9 +174,15 @@ export class UlipClient {
       };
     }
 
+    // ULIP returns camelCase keys (rcMakerModel) while older VAHAN payloads use snake_case
+    // (rc_maker_model), so keys are matched case- and underscore-insensitively.
+    const normalizeKey = (key: string) => key.replace(/_/g, '').toLowerCase();
+    const fields = new Map(
+      Object.entries(record).map(([key, value]) => [normalizeKey(key), value]),
+    );
     const pick = (...keys: string[]) => {
       for (const key of keys) {
-        const value = record[key];
+        const value = fields.get(normalizeKey(key));
         if (typeof value === 'string' && value.trim() && value.trim().toUpperCase() !== 'NA') {
           return value.trim();
         }
@@ -182,6 +191,9 @@ export class UlipClient {
       return undefined;
     };
     const date = (...keys: string[]) => toIsoDate(pick(...keys));
+    const maker = pick('rc_maker_desc');
+    const model = pick('rc_maker_model');
+    const unladenWeight = Number(pick('rc_unld_wt'));
 
     return {
       status: 'verified',
@@ -189,13 +201,16 @@ export class UlipClient {
       registeredName: pick('rc_owner_name'),
       registeredOn: date('rc_regn_dt'),
       vehicleClass: pick('rc_vh_class_desc', 'rc_vch_catg'),
-      makerModel: pick('rc_maker_model'),
+      makerModel: maker && model ? `${maker} ${model}` : (model ?? maker),
       fuelType: pick('rc_fuel_desc'),
       chassisNumber: pick('rc_chasi_no'),
       engineNumber: pick('rc_eng_no'),
       registeringAuthority: pick('rc_registered_at', 'rc_off_cd'),
       financierName: pick('rc_financer'),
       addressLine1: pick('rc_permanent_address', 'rc_present_address'),
+      bodyType: pick('rc_body_type_desc'),
+      unladenWeightKg:
+        Number.isFinite(unladenWeight) && unladenWeight > 0 ? unladenWeight : undefined,
       papers: {
         insuranceValidTo: date('rc_insurance_upto'),
         rcValidTo: date('rc_regn_upto'),
