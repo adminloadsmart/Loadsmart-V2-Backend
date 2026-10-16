@@ -71,7 +71,10 @@ export class VehicleRepository {
         telemetryMeta: true,
         serviceUsage: true,
         operationalStatus: true,
+        verificationSnapshots: true,
       },
+      // Newest snapshot first — the vehicle page reads verificationSnapshots[0] (e.g. Vehicle class).
+      order: { verificationSnapshots: { createdAt: 'DESC' } },
     });
   }
 

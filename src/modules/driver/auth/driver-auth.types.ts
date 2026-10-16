@@ -15,6 +15,8 @@ export interface DriverDeviceCaptureInput {
 
 export interface RequestDriverOtpInput {
   phoneNumber: string;
+  /** Server-derived (req.ip), never client-supplied — for the OTP request limit (LS_N_0008). */
+  ipAddress?: string | null;
 }
 
 // A driver profile is now global (one row per phone), so /otp/request no longer needs to fan out

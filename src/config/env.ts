@@ -41,6 +41,14 @@ export const env = {
   signupOtpTtlSeconds: numberWithDefault('SIGNUP_OTP_TTL_SECONDS', 600),
   loginOtpTtlSeconds: numberWithDefault('LOGIN_OTP_TTL_SECONDS', 600),
   loginOtpResendCooldownSeconds: numberWithDefault('LOGIN_OTP_RESEND_COOLDOWN_SECONDS', 30),
+  // LS_N_0008 throttle, applied to every OTP request (staff signup/login, driver login) by
+  // shared/services/otp.service.ts — separately per phone number and per client IP (req.ip, the
+  // same key the existing per-IP rate limiter uses): more than OTP_REQUEST_LIMIT_MAX requests
+  // within OTP_REQUEST_LIMIT_WINDOW_SECONDS locks that phone/IP out of OTP requests for
+  // OTP_REQUEST_LOCKOUT_SECONDS. Sheet defaults: 3 in 15 minutes, then a 30-minute cool-off.
+  otpRequestLimitMax: numberWithDefault('OTP_REQUEST_LIMIT_MAX', 3),
+  otpRequestLimitWindowSeconds: numberWithDefault('OTP_REQUEST_LIMIT_WINDOW_SECONDS', 15 * 60),
+  otpRequestLockoutSeconds: numberWithDefault('OTP_REQUEST_LOCKOUT_SECONDS', 30 * 60),
   userExistsCacheTtlSeconds: numberWithDefault('USER_EXISTS_CACHE_TTL_SECONDS', 30),
   permissionsVersionCacheTtlSeconds: numberWithDefault('PERMISSIONS_VERSION_CACHE_TTL_SECONDS', 30),
   // Driver-app auth — a separate identity domain from auth.users (see docs/driver-auth.md), with
@@ -123,6 +131,18 @@ export const env = {
   // Fixed per this account's IDfy workspace setup, not generated per call.
   idfyTaskId: process.env.IDFY_TASK_ID || undefined,
   idfyGroupId: process.env.IDFY_GROUP_ID || undefined,
+  // ULIP (DPIIT) VAHAN vehicle lookup (UlipClient). Optional: POST /vehicles/verify-vahan fails
+  // loudly per-request when the credentials are unset instead of crashing boot. ULIP only accepts
+  // whitelisted server IPs, so this only works from a deployed environment.
+  ulipBaseUrl: process.env.ULIP_BASE_URL || 'https://www.ulip.dpiit.gov.in/ulip/v1.0.0',
+  ulipUsername: process.env.ULIP_USERNAME || undefined,
+  ulipPassword: process.env.ULIP_PASSWORD || undefined,
+  // Throttles POST /vehicles/verify-vahan — each call is a ULIP lookup.
+  vehicleVerifyVahanRateLimitMax: numberWithDefault('VEHICLE_VERIFY_VAHAN_RATE_LIMIT_MAX', 5),
+  vehicleVerifyVahanRateLimitWindowSeconds: numberWithDefault(
+    'VEHICLE_VERIFY_VAHAN_RATE_LIMIT_WINDOW_SECONDS',
+    60,
+  ),
   // MSG91's OTP API (Msg91Client) — generates and verifies signup/login OTPs; we never see the
   // code ourselves. Left optional so the app still boots without them: auth.service.ts falls
   // back to a fixed dev-only OTP outside production when these aren't set (see
@@ -146,6 +166,59 @@ export const env = {
   // MSG91's WhatsApp send API lives on a different host (api.msg91.com) from the rest of their
   // v5 API (msg91BaseUrl/control.msg91.com) — see Msg91Client.sendWhatsapp.
   msg91WhatsappBaseUrl: process.env.MSG91_WHATSAPP_BASE_URL || 'https://api.msg91.com',
+  // MSG91 Email API (EmailChannel) — sends from a domain verified on the MSG91 dashboard, using a
+  // template created there. Optional, same "fails loudly but doesn't crash boot" contract.
+  msg91EmailDomain: process.env.MSG91_EMAIL_DOMAIN || undefined,
+  msg91EmailFrom: process.env.MSG91_EMAIL_FROM || undefined,
+  msg91EmailFromName: process.env.MSG91_EMAIL_FROM_NAME || 'Loadsmart',
+  // Optional reply-to for notification emails (e.g. a monitored sales/support inbox) — LS_N_0004
+  // asks the applicant to "reply to this mail". Unset = no reply-to, replies go to MSG91_EMAIL_FROM.
+  msg91EmailReplyTo: process.env.MSG91_EMAIL_REPLY_TO || undefined,
+  // Per-notification-type MSG91 templates (see catalog/notification-catalog.ts's `templates`) —
+  // LS_N_0001 "account approved". Optional until provisioned on the MSG91 dashboard.
+  msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
+  msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
+  msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
+  // LS_N_0008 login OTP — optional WhatsApp copy of the same code (Meta-approved template whose
+  // {{1}} is the OTP). Unset = SMS only, exactly as before.
+  // TEMPORARY: mounts POST /v1/notifications/test/trigger-all (modules/notifications/test-trigger.ts)
+  // — only when this is 'true' AND NODE_ENV isn't production. Never set it in production.
+  notificationsTestEndpoint:
+    nodeEnv !== 'production' && process.env.NOTIFICATIONS_TEST_ENDPOINT === 'true',
+  msg91WhatsappTemplateOtp: process.env.MSG91_WHATSAPP_TEMPLATE_OTP || undefined,
+  // LS_N_0008's own DLT-approved OTP SMS template (must carry MSG91's ##OTP## variable). Unset =
+  // falls back to msg91TemplateId, exactly as before (see Msg91Client.sendOtp).
+  msg91SmsTemplateOtp: process.env.MSG91_SMS_TEMPLATE_OTP || undefined,
+  // LS_N_0002 "signup received, under review" (SMS + email only).
+  msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,
+  msg91EmailTemplateSignupReceived: process.env.MSG91_EMAIL_TEMPLATE_SIGNUP_RECEIVED || undefined,
+  // LS_N_0003 "more information needed" — a KYC document couldn't be verified (SMS + email only).
+  msg91SmsTemplateDocumentPending: process.env.MSG91_SMS_TEMPLATE_DOCUMENT_PENDING || undefined,
+  msg91EmailTemplateDocumentPending: process.env.MSG91_EMAIL_TEMPLATE_DOCUMENT_PENDING || undefined,
+  // LS_N_0004 "account not approved" (email only).
+  msg91EmailTemplateOrgNotApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_NOT_APPROVED || undefined,
+  // LS_N_0005 "team member invited" (SMS + email) and LS_N_0006 "your access changed" (email).
+  msg91SmsTemplateTeamInvite: process.env.MSG91_SMS_TEMPLATE_TEAM_INVITE || undefined,
+  msg91EmailTemplateTeamInvite: process.env.MSG91_EMAIL_TEMPLATE_TEAM_INVITE || undefined,
+  msg91EmailTemplateAccessChanged: process.env.MSG91_EMAIL_TEMPLATE_ACCESS_CHANGED || undefined,
+  // LS_N_0047 vehicle document expiring (SMS + weekly roll-up email) / LS_N_0048 expired (SMS + email).
+  msg91SmsTemplateDocExpiring: process.env.MSG91_SMS_TEMPLATE_DOC_EXPIRING || undefined,
+  msg91EmailTemplateDocRollup: process.env.MSG91_EMAIL_TEMPLATE_DOC_ROLLUP || undefined,
+  msg91SmsTemplateDocExpired: process.env.MSG91_SMS_TEMPLATE_DOC_EXPIRED || undefined,
+  msg91EmailTemplateDocExpired: process.env.MSG91_EMAIL_TEMPLATE_DOC_EXPIRED || undefined,
+  // LS_N_0049 driver licence expired (SMS).
+  msg91SmsTemplateDlExpired: process.env.MSG91_SMS_TEMPLATE_DL_EXPIRED || undefined,
+  // LS_N_0054 driver-reported breakdown (SMS + WhatsApp).
+  msg91SmsTemplateBreakdown: process.env.MSG91_SMS_TEMPLATE_BREAKDOWN || undefined,
+  msg91WhatsappTemplateBreakdown: process.env.MSG91_WHATSAPP_TEMPLATE_BREAKDOWN || undefined,
+  // LS_N_0056 service due soon / LS_N_0057 service overdue (SMS).
+  msg91SmsTemplateServiceDue: process.env.MSG91_SMS_TEMPLATE_SERVICE_DUE || undefined,
+  msg91SmsTemplateServiceOverdue: process.env.MSG91_SMS_TEMPLATE_SERVICE_OVERDUE || undefined,
+  // LS_N_0060 daily morning brief (WhatsApp + email).
+  msg91WhatsappTemplateDailyBrief: process.env.MSG91_WHATSAPP_TEMPLATE_DAILY_BRIEF || undefined,
+  msg91EmailTemplateDailyBrief: process.env.MSG91_EMAIL_TEMPLATE_DAILY_BRIEF || undefined,
+  // LS_N_0058 tyre needs attention (SMS).
+  msg91SmsTemplateTyreAttention: process.env.MSG91_SMS_TEMPLATE_TYRE_ATTENTION || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.

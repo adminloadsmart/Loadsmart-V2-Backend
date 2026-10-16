@@ -108,6 +108,11 @@ export class VehicleEntity {
   @Column({ name: 'financier_name', type: 'varchar', length: 150, nullable: true })
   financierName!: string | null;
 
+  /** Whether VAHAN lists a National Permit on the truck (its rc_np_* fields). null = not known
+   *  yet — never verified since this was captured; false = a state permit or none. */
+  @Column({ name: 'has_national_permit', type: 'boolean', nullable: true })
+  hasNationalPermit!: boolean | null;
+
   /** The size the truck is sold as (picker step 3), not the legal load — see grossVehicleWeightKg. */
   @Column({
     name: 'capacity_tons',

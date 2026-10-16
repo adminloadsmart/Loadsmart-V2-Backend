@@ -1,13 +1,14 @@
 import { DataSource } from 'typeorm';
 import { Router } from 'express';
 import { Worker } from 'bullmq';
-import { createJobQueue } from '../../jobs/queue-registry';
+import { createJobQueue, JobQueue } from '../../jobs/queue-registry';
 import { Msg91Client } from '../../adapters/msg91.client';
 import { NotificationRepository } from './notification.repository';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { createNotificationsRoutes } from './notifications.routes';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
+import { LoadAlertRepository } from './load-alert.repository';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationPreferencesController } from './notification-preferences.controller';
 import { createNotificationPreferencesRoutes } from './notification-preferences.routes';
@@ -18,6 +19,11 @@ import { SmsChannel } from './channels/sms.channel';
 import { PushChannel } from './channels/push.channel';
 import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationChannelName } from './notifications.types';
+import {
+  createNotificationTriggers,
+  NOTIFICATION_TRIGGERS_QUEUE,
+  NotificationTriggers,
+} from './notification-triggers';
 
 export interface NotificationsModule {
   service: NotificationsService;
@@ -27,6 +33,16 @@ export interface NotificationsModule {
   // notify-by-type.ts lives here too, but it's built in composition-root.ts alongside auth's
   // services, so this repository crosses the same boundary.
   notificationPreferencesRepository: NotificationPreferencesRepository;
+  // Loads read side for the load-event notifications and the "cannot be dispatched" card —
+  // handed to their resolvers/checks, which composition-root.ts wires up.
+  loadAlertRepository: LoadAlertRepository;
+  // Queue-backed trigger entry point (see notification-triggers.ts) — only needs this module's
+  // own queue, so trigger sites can take it without depending on notifyByType's build order.
+  // Its worker is built in composition-root.ts (it runs notifyByType).
+  triggers: NotificationTriggers;
+  // The same queue `triggers` writes to — handed to the trigger worker (built in
+  // composition-root.ts) so it can schedule reminders.
+  triggersQueue: JobQueue;
 }
 
 /** No cross-module deps — a "producer" module, same build-order bucket as tracking/payments in
@@ -59,12 +75,25 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
   const msg91Client = new Msg91Client(); // per-module adapter instance, same pattern
   // masters/index.ts uses for SarathiClient.
   const channels: Record<NotificationChannelName, NotificationChannel> = {
-    email: new EmailChannel(),
+    email: new EmailChannel(msg91Client),
     sms: new SmsChannel(msg91Client),
     push: new PushChannel(),
     whatsapp: new WhatsappChannel(msg91Client),
   };
   const worker = createNotificationDispatchWorker(service, channels);
 
-  return { service, router, worker, notificationPreferencesRepository };
+  const triggersQueue = createJobQueue(NOTIFICATION_TRIGGERS_QUEUE);
+  const triggers = createNotificationTriggers(triggersQueue);
+
+  const loadAlertRepository = new LoadAlertRepository(dataSource);
+
+  return {
+    service,
+    router,
+    worker,
+    notificationPreferencesRepository,
+    loadAlertRepository,
+    triggers,
+    triggersQueue,
+  };
 }

@@ -1,3 +1,4 @@
+import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DataSource } from 'typeorm';
 import { createDriverAuth } from '../../shared/middleware/driver-auth.middleware';
 import { DriverRepository } from './driver.repository';
@@ -42,6 +43,8 @@ export function createDriverModule(
     auditService: AuditService;
     storageService: StorageService;
     organizationService: OrganizationService;
+    // LS_N_0009/0010 — optional; see modules/notifications/master-approvals.ts.
+    masterApprovalNotifier?: MasterApprovalNotifier;
     notificationsService: NotificationsService;
   },
 ) {
@@ -69,6 +72,7 @@ export function createDriverModule(
     new DriverAnalyticsRepository(dataSource),
     // Roster/detail "app installed" icon — read straight off driver_sessions.
     driverSessionRepository,
+    deps.masterApprovalNotifier,
   );
   const driverController = new DriverController(driverService);
   const driverImportController = new DriverImportController(

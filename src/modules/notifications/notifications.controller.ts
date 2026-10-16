@@ -36,4 +36,12 @@ export class NotificationsController {
         String(req.params.notificationId),
       ),
     );
+
+  channelStatus = async (_req: Request, res: Response) =>
+    respond(res, this.notificationsService.channelStatus());
+
+  markAllNotificationsRead = async (req: Request, res: Response) =>
+    respond(res, {
+      markedCount: await this.notificationsService.markAllRead(requireTenantId(req), req.user!.id),
+    });
 }

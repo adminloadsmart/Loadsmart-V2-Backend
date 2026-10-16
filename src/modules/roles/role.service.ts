@@ -21,6 +21,15 @@ export interface EffectiveUserPermissions {
   effective: string[];
 }
 
+/** What changed, for the "your access changed" notification (LS_N_0006) — `before` is the target's
+ *  effective permission keys just before the change; the listener reads "after" itself. */
+export interface CapabilitiesChange {
+  tenantId: string;
+  userId: string;
+  actorUserId: string;
+  before: string[];
+}
+
 export class RoleService {
   constructor(
     private readonly roleRepository: RoleRepository,
@@ -29,7 +38,50 @@ export class RoleService {
     // modules/auth (which already depends on roles.service for the JWT permissions claim; the
     // reverse import would cycle). See composition-root.ts for how this is wired.
     private readonly revokeRefreshTokensForUser: (userId: string) => Promise<void>,
+    // Optional, same plain-function decoupling as above: called after an org admin changes a
+    // teammate's capabilities (assignRole/grantPermission/revokePermission). Wired to the
+    // notifications module by composition-root.ts; best-effort — see reportCapabilitiesChanged.
+    private readonly onCapabilitiesChanged?: (change: CapabilitiesChange) => Promise<void>,
   ) {}
+
+  /** Only an org admin changing a teammate in their own org counts (LS_N_0006's trigger) — not
+   *  platform staff changes. Returns the target's effective permissions before the change, or
+   *  null when no notification applies (so nothing extra is queried in that case). */
+  private async capabilitiesBeforeChange(
+    actingUser: AuthenticatedUser,
+    targetUser: UserEntity,
+  ): Promise<string[] | null> {
+    if (!this.onCapabilitiesChanged) return null;
+    if (actingUser.role !== ORG_ADMIN_ROLE || !targetUser.tenantId) return null;
+    return this.getEffectivePermissions(targetUser.id);
+  }
+
+  /** Best-effort: a notification problem must never fail the role/permission change itself. */
+  private async reportCapabilitiesChanged(
+    actingUser: AuthenticatedUser,
+    targetUser: UserEntity,
+    before: string[],
+  ): Promise<void> {
+    try {
+      await this.onCapabilitiesChanged!({
+        tenantId: targetUser.tenantId!,
+        userId: targetUser.id,
+        actorUserId: actingUser.id,
+        before,
+      });
+    } catch (error) {
+      console.warn(`Failed to queue access-changed notification for user ${targetUser.id}`, error);
+    }
+  }
+
+  /** Human-readable descriptions of the given permission keys (as seeded), in the given order —
+   *  used for notification copy that says what someone can do (LS_N_0005/LS_N_0006). A key with
+   *  no description falls back to the key itself. */
+  async describePermissions(keys: string[]): Promise<string[]> {
+    const permissions = await this.roleRepository.findPermissionsByKeys(keys);
+    const byKey = new Map(permissions.map((p) => [p.key, p.description ?? p.key]));
+    return keys.map((key) => byKey.get(key) ?? key);
+  }
 
   /** Called by assignRole/grantPermission/revokePermission after the DB write: bumps the
    *  target's permissions_version (so their next request's version check fails and forces
@@ -219,6 +271,7 @@ export class RoleService {
       if (!role) throw new NotFoundError(`Role ${roleId} not found`);
 
       this.assertCanManage(actingUser, targetUser, role.scope);
+      const before = await this.capabilitiesBeforeChange(actingUser, targetUser);
 
       const oldRole = { id: targetUser.role.id, name: targetUser.role.name };
       await this.roleRepository.updateUserRole(targetUserId, roleId);
@@ -232,6 +285,7 @@ export class RoleService {
         oldData: oldRole,
         newData: { id: role.id, name: role.name },
       });
+      if (before) await this.reportCapabilitiesChanged(actingUser, targetUser, before);
 
       return role;
     } catch (error) {
@@ -259,6 +313,7 @@ export class RoleService {
       );
       if (existing)
         throw new ConflictError(`User already has permission "${permission.key}" granted directly`);
+      const before = await this.capabilitiesBeforeChange(actingUser, targetUser);
 
       await this.roleRepository.grantPermission(targetUserId, permissionId, actingUser.id);
       await this.invalidateSession(targetUserId);
@@ -270,6 +325,7 @@ export class RoleService {
         resourceType: 'user',
         newData: { permissionId: permission.id, key: permission.key },
       });
+      if (before) await this.reportCapabilitiesChanged(actingUser, targetUser, before);
 
       return permission;
     } catch (error) {
@@ -298,6 +354,7 @@ export class RoleService {
         throw new NotFoundError(
           `User does not have permission "${permission.key}" granted directly`,
         );
+      const before = await this.capabilitiesBeforeChange(actingUser, targetUser);
 
       await this.roleRepository.revokePermission(targetUserId, permissionId);
       await this.invalidateSession(targetUserId);
@@ -309,6 +366,7 @@ export class RoleService {
         resourceType: 'user',
         oldData: { permissionId: permission.id, key: permission.key },
       });
+      if (before) await this.reportCapabilitiesChanged(actingUser, targetUser, before);
     } catch (error) {
       rethrow(error, 'Failed to revoke permission');
     }

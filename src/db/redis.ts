@@ -42,6 +42,21 @@ class RedisManager {
     return count as number;
   }
 
+  /** Fixed-window counter: the window starts at the first increment and is NOT renewed by later
+   *  ones (unlike incr above) — "at most N in any window starting from the first request". Used
+   *  by the OTP request limit (LS_N_0008), where a renewing window would eventually lock out
+   *  someone who only ever requests occasionally. */
+  async incrInFixedWindow(key: string, windowSeconds: number): Promise<number> {
+    const results = await this.getClient()
+      .multi()
+      .set(key, '0', 'EX', windowSeconds, 'NX')
+      .incr(key)
+      .exec();
+    const [err, count] = results?.[1] ?? [];
+    if (err) throw err;
+    return count as number;
+  }
+
   private getClient(): Redis {
     if (!this.client) {
       throw new Error('Redis client not connected. Call connect() first.');
