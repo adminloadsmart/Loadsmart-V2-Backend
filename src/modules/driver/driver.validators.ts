@@ -2,7 +2,11 @@ import { z } from 'zod';
 import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { IFSC_REGEX } from '../masters/masters.constants';
-import { DRIVING_LICENCE_REGEX } from './driver.constants';
+import {
+  DRIVER_IMPORT_MAX_ROWS,
+  DRIVER_NOTE_MAX_LENGTH,
+  DRIVING_LICENCE_REGEX,
+} from './driver.constants';
 import {
   DRIVER_BANK_VERIFICATION_STATUSES,
   DRIVER_BLOOD_GROUPS,
@@ -28,7 +32,7 @@ import {
 const uuid = z.string().uuid();
 
 /** "a,b,c" → ['a', 'b', 'c'], each checked against `values` and de-duplicated. */
-const csvList = <T extends readonly [string, ...string[]]>(
+const normaliseFilter = <T extends readonly [string, ...string[]]>(
   values: T,
   normalise: (value: string) => string = (value) => value,
 ) =>
@@ -190,6 +194,18 @@ const driverOperationalStatusBody = z.object({
   effectiveAt: isoDateTime.optional(),
 });
 
+/** A fleet's own free-text note about the driver — kept on its relation, not the shared profile. */
+const driverNote = z.string().trim().min(1).max(DRIVER_NOTE_MAX_LENGTH);
+
+const onboardDriverBody = z.object({
+  ...driverCoreFields,
+  note: driverNote.optional(),
+  verification: driverVerificationBody.optional(),
+  bankDetails: driverBankDetailsBody.optional(),
+  documents: z.array(driverDocumentBody).max(10).optional(),
+  operationalStatus: driverOperationalStatusBody.optional(),
+});
+
 export const driverValidators = {
   /**
    * Preflight check for step 2 of "Add a driver", before the driver exists — no driverId param.
@@ -200,26 +216,28 @@ export const driverValidators = {
   verifyDriverBankAccount: z.object({ body: bankAccountCheckBody }),
 
   /** The whole "Add a driver" form in one request. */
-  onboardDriver: z.object({
+  onboardDriver: z.object({ body: onboardDriverBody }),
+
+  /**
+   * Step 2 of the bulk upload: the rows the admin approved on the preview screen, each the same
+   * shape as onboardDriver. The preview is step 1 and takes the .xlsx itself (no body schema).
+   */
+  importDrivers: z.object({
     body: z.object({
-      ...driverCoreFields,
-      verification: driverVerificationBody.optional(),
-      bankDetails: driverBankDetailsBody.optional(),
-      documents: z.array(driverDocumentBody).max(10).optional(),
-      operationalStatus: driverOperationalStatusBody.optional(),
+      drivers: z.array(onboardDriverBody).min(1).max(DRIVER_IMPORT_MAX_ROWS),
     }),
   }),
   listDrivers: z.object({
     // Filter panel lists arrive as one comma-separated string each ("fixed,vendor"); yes/no keys
     // as "true"/"false". A key is simply absent when nothing in its section is ticked.
     query: pagination.extend({
-      employmentType: csvList(DRIVER_ROSTER_EMPLOYMENT_FILTERS).optional(),
-      licenceValidity: csvList(DRIVER_LICENCE_VALIDITY_FILTERS).optional(),
-      licenceClass: csvList(DRIVER_LICENCE_CLASS_FILTERS, (value) =>
+      employmentType: normaliseFilter(DRIVER_ROSTER_EMPLOYMENT_FILTERS).optional(),
+      licenceValidity: normaliseFilter(DRIVER_LICENCE_VALIDITY_FILTERS).optional(),
+      licenceClass: normaliseFilter(DRIVER_LICENCE_CLASS_FILTERS, (value) =>
         value.toUpperCase(),
       ).optional(),
       hazmatEndorsed: booleanString.optional(),
-      scoreStatus: csvList(DRIVER_SCORE_STATUSES).optional(),
+      scoreStatus: normaliseFilter(DRIVER_SCORE_STATUSES).optional(),
       appInstalled: booleanString.optional(),
       status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
       // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
@@ -262,6 +280,8 @@ export const driverValidators = {
         advanceOutstanding: driverCoreFields.advanceOutstanding,
         homeBase: driverCoreFields.homeBase,
         licenseEndorsements: driverCoreFields.licenseEndorsements,
+        // null clears the note.
+        note: driverNote.nullable().optional(),
       })
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),

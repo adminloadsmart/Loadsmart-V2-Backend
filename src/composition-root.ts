@@ -208,6 +208,7 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverController: driver.driverController,
+    driverImportController: driver.driverImportController,
     masterApprovalNotifier,
   });
 

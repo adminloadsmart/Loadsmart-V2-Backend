@@ -5,10 +5,15 @@ import { requirePermission } from '../../shared/middleware/require-permission.mi
 import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
 import { env } from '../../config/env';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
+import { mastersExcelUpload, requireMastersExcelFile } from '../masters/masters.upload';
 import { DriverController } from './driver.controller';
+import { DriverImportController } from './driver-import.controller';
 import { driverValidators } from './driver.validators';
 
-export function createDriverRoutes(controller: DriverController): Router {
+export function createDriverRoutes(
+  controller: DriverController,
+  importController: DriverImportController,
+): Router {
   const router = Router();
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending driver — org_admin only (see db/seed-roles.ts).
@@ -51,6 +56,29 @@ export function createDriverRoutes(controller: DriverController): Router {
     canWrite,
     validate(driverValidators.onboardDriver),
     asyncHandler(controller.onboardDriver),
+  );
+  // Bulk upload, step 1: parses the .xlsx, validates every row and runs the Sarathi lookup for
+  // each — nothing is saved. Throttled like verify-dl, since every row is a paid lookup.
+  const importPreviewRateLimit = createIpRateLimit({
+    keyPrefix: 'driver-import-preview',
+    limit: env.driverVerifyDlRateLimitMax,
+    windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+  });
+  router.post(
+    '/drivers/import/preview',
+    importPreviewRateLimit,
+    canWrite,
+    mastersExcelUpload.single('file'),
+    requireMastersExcelFile,
+    asyncHandler(importController.preview),
+  );
+  // Bulk upload, step 2: saves the rows the admin approved on the preview, each through the same
+  // onboardDriver as the form. Declared before '/drivers/:driverId' like '/drivers/onboard'.
+  router.post(
+    '/drivers/import',
+    canWrite,
+    validate(driverValidators.importDrivers),
+    asyncHandler(importController.import),
   );
   router.get(
     '/drivers',
