@@ -22,6 +22,7 @@ import {
 } from './modules/driver';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
+import { createGeofencesModule } from './modules/geofences';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
 import { env } from './config/env';
@@ -393,6 +394,15 @@ export function buildContainer(dataSource: DataSource): Container {
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
+  // Geofences — built after loads: entering a linked loading/unloading geofence advances the
+  // vehicle's live load through LoadService.
+  const geofences = createGeofencesModule(dataSource, {
+    auditService: audit.service,
+    authService: auth.service,
+    notificationsService: notifications.service,
+    advanceLoad: (input) => loads.loadService.advanceFromGeofence(input),
+  });
+
   // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant
   // relation management. Built after driverAuth (registerSelf issues sessions through
   // driverAuth.service.issueIdentitySession) and after notifyByType exists (requestJoin/
@@ -449,6 +459,7 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/roles', router: roles.router },
       { path: '/masters', router: masters.protectedRouter },
       { path: '/tracking', router: tracking.router },
+      { path: '/geofences', router: geofences.router },
       // TEMPORARY QA endpoint — mounted ahead of the main router; non-production + flag only.
       ...(env.notificationsTestEndpoint
         ? [

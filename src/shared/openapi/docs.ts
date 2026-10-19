@@ -19,6 +19,7 @@ import { registerDriverAuthOpenApi } from '../../modules/driver/auth/driver-auth
 import { registerDriverPortalOpenApi } from '../../modules/driver/portal/driver-portal.openapi';
 import { registerMaintenanceOpenApi } from '../../modules/maintenance/maintenance.openapi';
 import { registerPlacesOpenApi } from '../../modules/places/places.openapi';
+import { registerGeofencesOpenApi } from '../../modules/geofences/geofences.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -59,6 +60,7 @@ function getOpenApiDocument() {
     registerDriverPortalOpenApi(registry);
     registerMaintenanceOpenApi(registry);
     registerPlacesOpenApi(registry);
+    registerGeofencesOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -123,6 +125,11 @@ function getOpenApiDocument() {
           name: TAGS.PLACES,
           description:
             'Place lookup backed by Google Places: search any place by text, then fetch its full details (address, coordinates, city/state/pin) by placeId',
+        },
+        {
+          name: TAGS.GEOFENCES,
+          description:
+            'Tracking → Geofences: named circle/polygon places with alert rules, plus the location-ping endpoint that detects enter/exit and advances a load’s status at its loading/unloading point',
         },
       ],
     });
