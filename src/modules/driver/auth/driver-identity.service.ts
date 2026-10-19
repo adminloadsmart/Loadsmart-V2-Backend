@@ -93,11 +93,12 @@ export class DriverIdentityService {
       throw new ConflictError(msg('errors.driver.phoneAlreadyRegistered'));
     }
 
-    await this.otpService.requestOtpCode({
-      phoneNumber: normalized,
-      purpose: 'driver-register',
-      cooldownSeconds: env.driverLoginOtpResendCooldownSeconds,
-    });
+    // TEMP: OTP sending disabled — static OTP 1234 in use (see verifyOtp below).
+    // await this.otpService.requestOtpCode({
+    //   phoneNumber: normalized,
+    //   purpose: 'driver-register',
+    //   cooldownSeconds: env.driverLoginOtpResendCooldownSeconds,
+    // });
 
     const otpToken = signToken(
       { phoneNumber: normalized, purpose: 'driver-register-otp' },
@@ -127,14 +128,16 @@ export class DriverIdentityService {
     device?: DriverDeviceCaptureInput,
   ): Promise<DriverIdentitySession> {
     try {
-      await this.otpService.verifyOtpCode({
-        phoneNumber,
-        otp,
-        purpose: 'driver-register',
-        ttlSeconds: env.driverLoginOtpTtlSeconds,
-        invalidOtpMessage: msg('errors.otp.invalid'),
-        tooManyAttemptsMessage: msg('errors.otp.tooManyAttempts'),
-      });
+      // TEMP: static OTP until SMS sending is re-enabled.
+      // await this.otpService.verifyOtpCode({
+      //   phoneNumber,
+      //   otp,
+      //   purpose: 'driver-register',
+      //   ttlSeconds: env.driverLoginOtpTtlSeconds,
+      //   invalidOtpMessage: msg('errors.otp.invalid'),
+      //   tooManyAttemptsMessage: msg('errors.otp.tooManyAttempts'),
+      // });
+      if (otp !== '1234') throw new AuthenticationError(msg('errors.otp.invalid'));
 
       let driver = await this.driverRepository.findByPhoneNumber(phoneNumber);
       if (!driver) {

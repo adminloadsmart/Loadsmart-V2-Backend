@@ -1,9 +1,8 @@
 import { VehicleEntity } from '../../../masters/vehicle/entities/vehicle.entity';
 import { VehicleDocumentEntity } from '../../../masters/vehicle/entities/vehicle-document.entity';
-import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../../masters/vehicle/vehicle.type';
 import { MaintenanceJobEntity } from '../../../maintenance/entities/maintenance-job.entity';
-import { SERVICE_CLOCK_TYPES } from '../../../maintenance/maintenance.types';
-import { dailyFixedCost, money } from '../../../maintenance/calculations/downtime';
+import { TyreEntity } from '../../../maintenance/entities/tyre.entity';
+import { money } from '../../../maintenance/calculations/downtime';
 import { LoadEntity } from '../../../loads/entities/load.entity';
 import { RequisitionEntity } from '../../../loads/entities/requisition.entity';
 import { addDays, daysBetween, msToDays, round } from '../../../maintenance/calculations/dates';
@@ -14,26 +13,35 @@ import {
   TyreConditionLabel,
 } from './fleet-analytics.interface';
 import {
+  AXLE_BODY_TYPE_LABELS,
+  COMPLIANCE_DOCUMENT_TYPES,
+  DAYS_PER_MONTH,
+  DAYS_PER_YEAR,
   EXPIRING_SOON_DAYS,
   EXPIRING_URGENT_DAYS,
-  ON_TIME_GRACE_MS,
+  NATIONAL_PERMIT_YEARLY_FEE,
+  ON_TIME_WINDOW_MS,
+  TRUCK_BODY_TYPE_LABELS,
+  TYRE_LEGAL_FLOOR_MM,
+  TYRE_NEW_TREAD_MM,
+  TYRE_REPLACE_NOW_MM,
+  TYRE_RETREAD_FACTOR,
+  TYRE_WORN_MM,
+  UNCLASSIFIED_BODY_TYPE,
 } from './fleet-analytics.constants';
 
-const DAYS_PER_YEAR = 365;
-const DAYS_PER_MONTH = 30;
+// Calculations for the Fleet Analytics Metric Guide (v1.0, October 2026). Section numbers in the
+// comments refer to that document.
 
 export interface TimeWindow {
   from: Date;
   to: Date;
 }
 
-export function toFleetVehicleSummary(vehicle: VehicleEntity): FleetVehicleSummary {
-  return {
-    id: vehicle.id,
-    registrationNumber: vehicle.registrationNumber,
-    truckTypeName: vehicle.truckType?.name ?? null,
-    ownershipType: vehicle.ownershipType,
-  };
+/** One IST calendar day of the period. */
+export interface PeriodDay extends TimeWindow {
+  /** "YYYY-MM-DD" */
+  date: string;
 }
 
 /** part / whole as a percentage to one decimal, 0 when there is no whole. */
@@ -48,65 +56,6 @@ export function overlapDays(start: Date, end: Date, window: TimeWindow): number 
   return to > from ? msToDays(to - from) : 0;
 }
 
-/** The part of the period the vehicle was on the books for — from onboarding (or the period
- *  start) to the period end, never past now. */
-export function activeWindow(vehicle: VehicleEntity, period: TimeWindow, now: Date): TimeWindow {
-  const from = new Date(Math.max(vehicle.createdAt.getTime(), period.from.getTime()));
-  const to = new Date(Math.min(period.to.getTime(), now.getTime()));
-  return { from, to: to > from ? to : from };
-}
-
-export interface StandingCost {
-  emiAndLease: number;
-  insurance: number;
-  /** fixed_cost_monthly as entered — already bundles EMI, insurance, salaries etc. */
-  otherFixed: number;
-  total: number;
-}
-
-/** Days of the window that fall on or before `endDate` (all of it when there is no end). */
-function daysUntil(window: TimeWindow, endDate: string | null): number {
-  const end = endDate ? endOfIstDate(endDate) : window.to;
-  return overlapDays(window.from, end, window);
-}
-
-/**
- * What a truck cost over the window whether it moved or not. An attached truck costs us nothing
- * standing. Otherwise fixed_cost_monthly wins when entered (it already includes EMI and
- * insurance — same precedence as dailyFixedCost); else EMI until emi_end_date + lease rent until
- * lease_end_date + the yearly insurance premium, each prorated by day.
- */
-export function standingCostIn(vehicle: VehicleEntity, window: TimeWindow): StandingCost {
-  const zero = { emiAndLease: 0, insurance: 0, otherFixed: 0, total: 0 };
-  const meta = vehicle.telemetryMeta;
-  if (vehicle.ownershipType === 'attached' || !meta || meta.deletedAt) return zero;
-
-  const days = overlapDays(window.from, window.to, window);
-  const base = dailyFixedCost(meta.fixedCostMonthly, null);
-  if (base.source === 'fixed') {
-    const otherFixed = base.perDay * days;
-    return { ...zero, otherFixed, total: otherFixed };
-  }
-
-  const emi = (Number(meta.emiAmount ?? 0) / DAYS_PER_MONTH) * daysUntil(window, meta.emiEndDate);
-  const lease =
-    (Number(meta.leaseRentMonthly ?? 0) / DAYS_PER_MONTH) * daysUntil(window, meta.leaseEndDate);
-  const insurance = (Number(meta.insurancePremiumYearly ?? 0) / DAYS_PER_YEAR) * days;
-  return { emiAndLease: emi + lease, insurance, otherFixed: 0, total: emi + lease + insurance };
-}
-
-/** Current monthly EMI + lease outgo for one truck (each 0 once it has run out). */
-export function monthlyEmiAndLease(vehicle: VehicleEntity, today: string): number {
-  const meta = vehicle.telemetryMeta;
-  if (!meta || meta.deletedAt || vehicle.ownershipType === 'attached') return 0;
-  const emiRunning = !meta.emiEndDate || meta.emiEndDate >= today;
-  const leaseRunning = !meta.leaseEndDate || meta.leaseEndDate >= today;
-  return (
-    (emiRunning ? Number(meta.emiAmount ?? 0) : 0) +
-    (leaseRunning ? Number(meta.leaseRentMonthly ?? 0) : 0)
-  );
-}
-
 /** The part of `window` inside `bounds`, collapsed to an empty window when they don't meet. */
 export function intersect(window: TimeWindow, bounds: TimeWindow): TimeWindow {
   const from = new Date(Math.max(window.from.getTime(), bounds.from.getTime()));
@@ -114,53 +63,295 @@ export function intersect(window: TimeWindow, bounds: TimeWindow): TimeWindow {
   return { from, to: to > from ? to : from };
 }
 
-/** The current copy of each dated paper — the latest expiry per document type, so a renewed
+function overlaps(interval: TimeWindow, window: TimeWindow): boolean {
+  return interval.from < window.to && interval.to > window.from;
+}
+
+/**
+ * The calendar days of the period (§1 "Days in period"): from period start to today, or to the
+ * period end if earlier. Sundays included.
+ */
+export function periodDays(fromDate: string, toDate: string, today: string): PeriodDay[] {
+  const last = toDate < today ? toDate : today;
+  const days: PeriodDay[] = [];
+  for (let date = fromDate; date <= last; date = addDays(date, 1)) {
+    days.push({ date, from: startOfIstDate(date), to: endOfIstDate(date) });
+  }
+  return days;
+}
+
+// ─── Truck type (§2) ─────────────────────────────────────────────────────────
+
+export interface TruckTypeKey {
+  key: string;
+  label: string;
+}
+
+/** Body type: the axle type for a container sold by axle, else the truck type master's body. */
+export function bodyTypeOf(vehicle: VehicleEntity): TruckTypeKey {
+  if (vehicle.axleType) {
+    return { key: vehicle.axleType, label: AXLE_BODY_TYPE_LABELS[vehicle.axleType] };
+  }
+  const bodyType = vehicle.truckType?.bodyType;
+  if (bodyType) return { key: bodyType, label: TRUCK_BODY_TYPE_LABELS[bodyType] ?? bodyType };
+  return { key: UNCLASSIFIED_BODY_TYPE, label: 'Unclassified' };
+}
+
+/** Size: tonnage and length, e.g. "18T, 32 ft". Null when neither is on file. */
+export function sizeOf(vehicle: VehicleEntity): TruckTypeKey | null {
+  const tons = vehicle.capacityTons ?? vehicle.truckType?.capacityTons ?? null;
+  const feet = vehicle.bodyLengthFt;
+  const parts = [
+    tons !== null && Number(tons) > 0 ? `${Number(tons)}T` : null,
+    feet ? `${feet} ft` : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return null;
+  const label = parts.join(', ');
+  return { key: label, label };
+}
+
+/** "Multi Axle · 18T, 32 ft" — the guide's truck label after the truck number. */
+export function truckTypeLabel(vehicle: VehicleEntity): string {
+  const size = sizeOf(vehicle);
+  return [bodyTypeOf(vehicle).label, size?.label].filter(Boolean).join(' · ');
+}
+
+export function toFleetVehicleSummary(vehicle: VehicleEntity): FleetVehicleSummary {
+  return {
+    id: vehicle.id,
+    registrationNumber: vehicle.registrationNumber,
+    truckTypeName: truckTypeLabel(vehicle),
+    bodyType: bodyTypeOf(vehicle).key,
+    size: sizeOf(vehicle)?.key ?? null,
+    ownershipType: vehicle.ownershipType,
+  };
+}
+
+export function isAttached(vehicle: VehicleEntity): boolean {
+  return vehicle.ownershipType === 'attached';
+}
+
+// ─── Daily fixed cost (§7) ───────────────────────────────────────────────────
+
+export interface FixedCostParts {
+  emiAndLease: number;
+  insurance: number;
+  permit: number;
+  driverSalary: number;
+  total: number;
+}
+
+export const ZERO_FIXED_COST: FixedCostParts = {
+  emiAndLease: 0,
+  insurance: 0,
+  permit: 0,
+  driverSalary: 0,
+  total: 0,
+};
+
+export function addFixedCost(a: FixedCostParts, b: FixedCostParts): FixedCostParts {
+  return {
+    emiAndLease: a.emiAndLease + b.emiAndLease,
+    insurance: a.insurance + b.insurance,
+    permit: a.permit + b.permit,
+    driverSalary: a.driverSalary + b.driverSalary,
+    total: a.total + b.total,
+  };
+}
+
+/**
+ * A truck's fixed cost on one calendar day (§7).
+ *
+ * Owned (outright, financed or leased): EMI or lease ÷ 30 while it runs + insurance premium ÷ 365
+ * + permit ÷ 365 + the assigned driver's monthly salary ÷ 30. Permit is the National Permit
+ * default for a truck VAHAN lists with one; state permit fees aren't recorded, so 0. Depreciation
+ * needs the truck price, which isn't recorded, so it is left out.
+ *
+ * Attached: the hire is a running cost and rentals aren't recorded, so only our driver's salary.
+ */
+export function dailyFixedCost(
+  vehicle: VehicleEntity,
+  driverMonthlySalary: number,
+  date: string,
+): FixedCostParts {
+  const driverSalary = driverMonthlySalary / DAYS_PER_MONTH;
+  if (isAttached(vehicle)) return { ...ZERO_FIXED_COST, driverSalary, total: driverSalary };
+
+  const meta =
+    vehicle.telemetryMeta && !vehicle.telemetryMeta.deletedAt ? vehicle.telemetryMeta : null;
+  const running = (endDate: string | null) => !endDate || endDate >= date;
+  const emi = meta && running(meta.emiEndDate) ? Number(meta.emiAmount ?? 0) : 0;
+  const lease = meta && running(meta.leaseEndDate) ? Number(meta.leaseRentMonthly ?? 0) : 0;
+  const emiAndLease = (emi + lease) / DAYS_PER_MONTH;
+  const insurance = Number(meta?.insurancePremiumYearly ?? 0) / DAYS_PER_YEAR;
+  const permit = vehicle.hasNationalPermit ? NATIONAL_PERMIT_YEARLY_FEE / DAYS_PER_YEAR : 0;
+
+  return {
+    emiAndLease,
+    insurance,
+    permit,
+    driverSalary,
+    total: emiAndLease + insurance + permit + driverSalary,
+  };
+}
+
+/** The truck's fixed cost summed over the given days. */
+export function fixedCostOver(
+  vehicle: VehicleEntity,
+  driverMonthlySalary: number,
+  days: PeriodDay[],
+): FixedCostParts {
+  return days.reduce(
+    (total, day) => addFixedCost(total, dailyFixedCost(vehicle, driverMonthlySalary, day.date)),
+    ZERO_FIXED_COST,
+  );
+}
+
+/** Current monthly EMI + lease outgo for one owned truck (each 0 once it has run out). */
+export function monthlyEmiAndLease(vehicle: VehicleEntity, today: string): number {
+  return dailyFixedCost(vehicle, 0, today).emiAndLease * DAYS_PER_MONTH;
+}
+
+// ─── Day status (§8) ─────────────────────────────────────────────────────────
+
+export interface DayBuckets {
+  onLoad: number;
+  workshop: number;
+  idle: number;
+}
+
+/**
+ * Every day of the period falls in exactly one bucket, checked in this order: on a load (any
+ * load overlaps the day), workshop (no load, but a service job or breakdown overlaps it), idle.
+ */
+export function dayBuckets(
+  days: PeriodDay[],
+  loadIntervals: TimeWindow[],
+  jobIntervals: TimeWindow[],
+): DayBuckets {
+  const buckets: DayBuckets = { onLoad: 0, workshop: 0, idle: 0 };
+  for (const day of days) {
+    if (loadIntervals.some((interval) => overlaps(interval, day))) buckets.onLoad += 1;
+    else if (jobIntervals.some((interval) => overlaps(interval, day))) buckets.workshop += 1;
+    else buckets.idle += 1;
+  }
+  return buckets;
+}
+
+// ─── Loads (§1, §6, §8) ──────────────────────────────────────────────────────
+
+/** Departure: gate-out at the first loading point, or the driver's "Start trip". */
+export function loadDeparture(load: LoadEntity): Date | null {
+  return load.inTransitAt ?? load.loadingConfirmedAt ?? null;
+}
+
+/** Arrival: entry into the unloading geofence, or the driver's "Reached". */
+export function loadArrival(load: LoadEntity): Date | null {
+  return load.reachedDeliveryPointAt ?? load.deliveredAt ?? null;
+}
+
+/** The days the load held the truck: departure to arrival (or now, if still running). */
+export function onLoadInterval(load: LoadEntity, now: Date): TimeWindow | null {
+  const from = loadDeparture(load);
+  if (!from) return null;
+  const to = loadArrival(load) ?? now;
+  return { from, to: to > from ? to : from };
+}
+
+/** Delivered: the load has reached Unloaded. */
+export function isDelivered(load: LoadEntity): boolean {
+  return load.status === 'delivered' || load.status === 'closed';
+}
+
+/** Due time: the promised delivery. Only a date is recorded, so the end of that IST day. */
+export function dueAt(load: LoadEntity): Date | null {
+  const date = load.requisition?.expectedDeliveryDate;
+  return date ? endOfIstDate(date) : null;
+}
+
+/** On time (§6): arrived before the window closes, 4 hours after the due time. */
+export function isOnTime(arrival: Date, due: Date): boolean {
+  return arrival.getTime() <= due.getTime() + ON_TIME_WINDOW_MS;
+}
+
+/** Days late past the window close, 0 when on time. */
+export function lateDays(arrival: Date, due: Date): number {
+  return Math.max(0, msToDays(arrival.getTime() - due.getTime() - ON_TIME_WINDOW_MS));
+}
+
+export function hoursBetween(from: Date | null, to: Date | null): number | null {
+  if (!from || !to || to <= from) return null;
+  return (to.getTime() - from.getTime()) / 3_600_000;
+}
+
+/** Hours at the loading point: gate-in to gate-out. */
+export function loadingHours(load: LoadEntity): number | null {
+  return hoursBetween(load.atPlantAt, load.inTransitAt ?? load.loadingConfirmedAt);
+}
+
+/** Hours at the unloading point: gate-in to gate-out. */
+export function unloadingHours(load: LoadEntity): number | null {
+  return hoursBetween(load.reachedDeliveryPointAt, load.deliveredAt);
+}
+
+/** Turnaround (§13): first loading gate-in to last unloading gate-out, in days. */
+export function turnaroundDays(load: LoadEntity): number | null {
+  const hours = hoursBetween(load.atPlantAt, load.deliveredAt);
+  return hours === null ? null : hours / 24;
+}
+
+export interface Lane {
+  /** `${loadingPointId}:${customerDeliveryPointId}` — the value the lane filter takes. */
+  key: string;
+  label: string;
+}
+
+/** The lane a requisition runs: loading point city to delivery point city. */
+export function laneOfRequisition(requisition: RequisitionEntity | null | undefined): Lane | null {
+  if (!requisition) return null;
+  const from = requisition.loadingPoint?.city ?? 'Unknown';
+  const delivery = requisition.customerDeliveryPoint;
+  const to = delivery?.city ?? delivery?.location ?? 'Unknown';
+  return {
+    key: `${requisition.loadingPointId}:${requisition.customerDeliveryPointId}`,
+    label: `${from} → ${to}`,
+  };
+}
+
+export function laneOf(load: LoadEntity): Lane | null {
+  return laneOfRequisition(load.requisition);
+}
+
+// ─── Documents (§18) ─────────────────────────────────────────────────────────
+
+function isComplianceDocument(document: VehicleDocumentEntity): boolean {
+  return (
+    !document.deletedAt &&
+    Boolean(document.expiryDate) &&
+    (COMPLIANCE_DOCUMENT_TYPES as readonly string[]).includes(document.documentType)
+  );
+}
+
+/** The current copy of each compliance document — the latest expiry per type, so a renewed
  *  paper doesn't leave its expired predecessor counting against the truck. */
 export function currentDatedDocuments(vehicle: VehicleEntity): VehicleDocumentEntity[] {
   const latest = new Map<string, VehicleDocumentEntity>();
   for (const document of vehicle.documents ?? []) {
-    if (document.deletedAt || !document.expiryDate) continue;
-    if (
-      !(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY as readonly string[]).includes(document.documentType)
-    ) {
-      continue;
-    }
+    if (!isComplianceDocument(document)) continue;
     const existing = latest.get(document.documentType);
-    if (!existing || document.expiryDate > existing.expiryDate!) {
+    if (!existing || document.expiryDate! > existing.expiryDate!) {
       latest.set(document.documentType, document);
     }
   }
   return [...latest.values()];
 }
 
+/** Expired: below 0 days left. Within 7 days: 0–7. Then 8–30. In order: above 30. */
 export function documentBucket(daysLeft: number): DocumentBucket {
   if (daysLeft < 0) return 'expired';
   if (daysLeft <= EXPIRING_URGENT_DAYS) return 'inside7Days';
   if (daysLeft <= EXPIRING_SOON_DAYS) return 'inside30Days';
   return 'inOrder';
-}
-
-/** Days covered by the union of the intervals inside the window — overlapping intervals count
- *  once, so two loads on the same day are one working day, not two. */
-export function unionDaysInWindow(intervals: TimeWindow[], window: TimeWindow): number {
-  const clipped = intervals
-    .map((interval) => intersect(interval, window))
-    .filter((interval) => interval.to > interval.from)
-    .sort((a, b) => a.from.getTime() - b.from.getTime());
-  let total = 0;
-  let open: { from: number; to: number } | null = null;
-  for (const interval of clipped) {
-    const from = interval.from.getTime();
-    const to = interval.to.getTime();
-    if (open && from <= open.to) {
-      open.to = Math.max(open.to, to);
-      continue;
-    }
-    if (open) total += open.to - open.from;
-    open = { from, to };
-  }
-  if (open) total += open.to - open.from;
-  return msToDays(total);
 }
 
 /** When a paper starts covering the truck: its issue date, else when it was entered. */
@@ -169,20 +360,14 @@ function coverageStart(document: VehicleDocumentEntity): Date {
 }
 
 /**
- * Every stretch a mandatory paper was out — for each document type, from the day after a copy
- * expired until a later copy started covering the truck (or now, if none has). Reads every copy,
- * not just the current one, so a paper that lapsed and was renewed inside the period still
- * counts the days it was out.
+ * Every stretch a compliance document was out — for each type, from the day after a copy expired
+ * until a later copy started covering the truck (or now, if none has). Reads every copy, so a
+ * paper that lapsed and was renewed still shows the days it was out.
  */
 export function lapsedPaperIntervals(documents: VehicleDocumentEntity[], now: Date): TimeWindow[] {
   const byType = new Map<string, VehicleDocumentEntity[]>();
   for (const document of documents) {
-    if (document.deletedAt || !document.expiryDate) continue;
-    if (
-      !(VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY as readonly string[]).includes(document.documentType)
-    ) {
-      continue;
-    }
+    if (!isComplianceDocument(document)) continue;
     byType.set(document.documentType, [...(byType.get(document.documentType) ?? []), document]);
   }
 
@@ -201,16 +386,21 @@ export function lapsedPaperIntervals(documents: VehicleDocumentEntity[], now: Da
   return intervals;
 }
 
-/** Days inside the window the truck stood blocked because a mandatory paper had lapsed (§6.9). */
-export function blockedDaysInWindow(
+/** Whether any compliance document was expired at that instant. */
+export function hadExpiredDocumentAt(
   documents: VehicleDocumentEntity[],
-  window: TimeWindow,
+  at: Date,
   now: Date,
-): number {
-  return unionDaysInWindow(lapsedPaperIntervals(documents, now), window);
+): boolean {
+  return lapsedPaperIntervals(documents, now).some(
+    (interval) => at >= interval.from && at < interval.to,
+  );
 }
 
-/** Age in years from the VAHAN registration date, else from when the truck was onboarded. */
+// ─── Maintenance (§16) ───────────────────────────────────────────────────────
+
+/** Age in years from the VAHAN registration date (no purchase date is recorded), else from when
+ *  the truck was onboarded. */
 export function vehicleAgeYears(vehicle: VehicleEntity, today: string): number | null {
   const registeredOn = (vehicle.verificationSnapshots ?? [])
     .filter((snapshot) => !snapshot.deletedAt && snapshot.registeredOn)
@@ -230,33 +420,60 @@ export function isCountedJob(job: MaintenanceJobEntity): boolean {
 
 export type JobCategory = 'preventive' | 'unplannedRepair' | 'roadsideBreakdown';
 
+/** Preventive service jobs are planned; every other service job and every tyre replacement is
+ *  unplanned; breakdowns are roadside. */
 export function jobCategory(job: MaintenanceJobEntity): JobCategory {
   if (job.jobType === 'breakdown') return 'roadsideBreakdown';
-  if (
-    job.jobType === 'service' &&
-    job.serviceType &&
-    SERVICE_CLOCK_TYPES.includes(job.serviceType)
-  ) {
-    return 'preventive';
-  }
+  if (job.jobType === 'service' && job.serviceType === 'preventive_service') return 'preventive';
   return 'unplannedRepair';
+}
+
+/** The preventive share counts service jobs and breakdowns, not tyre replacements. */
+export function isServiceOrBreakdown(job: MaintenanceJobEntity): boolean {
+  return job.jobType === 'service' || job.jobType === 'breakdown';
 }
 
 export function jobCost(job: MaintenanceJobEntity): number {
   return Number(job.totalCost ?? 0);
 }
 
+/** The stretch a job kept the truck in the workshop: opened to closed (or now). */
+export function jobInterval(job: MaintenanceJobEntity, now: Date): TimeWindow {
+  const to = job.closedAt ?? now;
+  return { from: job.openedAt, to: to > job.openedAt ? to : job.openedAt };
+}
+
 export function istMonth(date: Date): string {
   return toIstDateString(date).slice(0, 7);
 }
 
-export function tyreCondition(treadLeftPct: number): TyreConditionLabel {
-  if (treadLeftPct >= 85) return 'new_like';
-  if (treadLeftPct >= 70) return 'good';
-  if (treadLeftPct >= 50) return 'fair';
-  if (treadLeftPct >= 30) return 'worn';
-  return 'very_worn';
+/** New tread depth of a tyre: by size, else its recorded original tread; a retread casing starts
+ *  at 78% of it. */
+export function newTreadMm(
+  tyre: Pick<TyreEntity, 'sizeCode' | 'originalTreadMm' | 'retreadCount'>,
+): number {
+  const size = tyre.sizeCode?.replace(/\s+/g, '').toUpperCase() ?? '';
+  const base = TYRE_NEW_TREAD_MM[size] ?? Number(tyre.originalTreadMm);
+  return tyre.retreadCount > 0 ? base * TYRE_RETREAD_FACTOR : base;
 }
+
+/** Tyre life left (§16): tread above the legal floor over new tread above the floor, 0 to 1. */
+export function tyreLifeLeft(treadMm: number, newTread: number): number {
+  const usable = newTread - TYRE_LEGAL_FLOOR_MM;
+  if (usable <= 0) return 0;
+  return Math.min(1, Math.max(0, (treadMm - TYRE_LEGAL_FLOOR_MM) / usable));
+}
+
+/** Tyre condition bands (§16). */
+export function tyreBand(treadMm: number, lifeLeft: number): TyreConditionLabel {
+  if (treadMm <= TYRE_REPLACE_NOW_MM) return 'very_worn';
+  if (treadMm <= TYRE_WORN_MM) return 'worn';
+  if (lifeLeft >= 0.8) return 'new_like';
+  if (lifeLeft >= 0.5) return 'good';
+  return 'fair';
+}
+
+// ─── Kilometres (§3) ─────────────────────────────────────────────────────────
 
 export interface OdometerPoint {
   at: Date;
@@ -264,11 +481,11 @@ export interface OdometerPoint {
 }
 
 /**
- * Km run inside the window, read off the truck's dated odometer readings (loads carry no
- * distance yet). The odometer at each edge of the window is the reading on that instant if there
- * is one, else interpolated between the readings either side; before the first reading it is
- * the first reading (the truck wasn't on our books), after the last it runs on at the truck's
- * average km/day. A reading lower than an earlier one is a typo and is dropped.
+ * Km run inside the window, read off the truck's dated odometer readings (§3 "Recorded odometer
+ * readings"; there is no GPS yet). The odometer at each edge of the window is the reading on that
+ * instant if there is one, else interpolated between the readings either side; before the first
+ * reading it is the first reading, after the last it runs on at the truck's average km/day. A
+ * reading lower than an earlier one is a typo and is dropped.
  *
  * `estimated` is true whenever either edge was not an actual reading.
  */
@@ -312,6 +529,11 @@ export function kmInWindow(
   };
 }
 
+/** Cost per km, or null when no km could be read — a ratio over nothing is not a measurement. */
+export function perKm(cost: number, km: number): number | null {
+  return km > 0 ? money(cost / km) : null;
+}
+
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -319,18 +541,24 @@ export function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+export function average(values: number[]): number | null {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+// ─── Replacement candidates (interim) ────────────────────────────────────────
+
 export interface ReplacementInput<T> {
   row: T;
-  truckTypeId: string | null;
+  truckTypeKey: string;
   ageYears: number | null;
   perKm: number;
 }
 
 /**
- * "How much more per km it costs than a new truck of the same class would." The new-truck
- * figure is the median maintenance per km of the young trucks (age ≤ newMaxAge) in the class;
- * a class with fewer than minBenchmark young trucks falls back to the fleet's young median.
- * Young trucks are the benchmark, so they are never candidates themselves.
+ * Interim until truck prices exist (the guide's formula needs a new truck's price): how much more
+ * per km a truck costs to maintain than the young trucks (age ≤ newMaxAge) of its truck type; a
+ * type with fewer than minBenchmark young trucks falls back to the fleet's young median. Young
+ * trucks are the benchmark, so they are never candidates themselves.
  */
 export function replacementCandidates<T>(
   inputs: ReplacementInput<T>[],
@@ -348,25 +576,23 @@ export function replacementCandidates<T>(
   const young = inputs.filter(isYoung);
   const fleetBenchmark = median(young.map((input) => input.perKm));
 
-  const classBenchmark = new Map<string | null, number | null>();
-  const benchmarkOf = (truckTypeId: string | null) => {
-    if (!classBenchmark.has(truckTypeId)) {
-      const inClass = young.filter((input) => input.truckTypeId === truckTypeId);
-      classBenchmark.set(
-        truckTypeId,
-        truckTypeId !== null && inClass.length >= minBenchmark
-          ? median(inClass.map((input) => input.perKm))
-          : null,
+  const typeBenchmark = new Map<string, number | null>();
+  const benchmarkOf = (key: string) => {
+    if (!typeBenchmark.has(key)) {
+      const ofType = young.filter((input) => input.truckTypeKey === key);
+      typeBenchmark.set(
+        key,
+        ofType.length >= minBenchmark ? median(ofType.map((input) => input.perKm)) : null,
       );
     }
-    return classBenchmark.get(truckTypeId) ?? null;
+    return typeBenchmark.get(key) ?? null;
   };
 
   return inputs
     .filter((input) => !isYoung(input))
     .flatMap((input) => {
-      const ofClass = benchmarkOf(input.truckTypeId);
-      const benchmark = ofClass ?? fleetBenchmark;
+      const ofType = benchmarkOf(input.truckTypeKey);
+      const benchmark = ofType ?? fleetBenchmark;
       if (benchmark === null) return [];
       const extraPerKm = input.perKm - benchmark;
       if (extraPerKm <= 0) return [];
@@ -375,72 +601,10 @@ export function replacementCandidates<T>(
           row: input.row,
           perKm: input.perKm,
           benchmarkPerKm: benchmark,
-          benchmarkScope: ofClass !== null ? ('class' as const) : ('fleet' as const),
+          benchmarkScope: ofType !== null ? ('class' as const) : ('fleet' as const),
           extraPerKm,
         },
       ];
     })
     .sort((a, b) => b.extraPerKm - a.extraPerKm);
-}
-
-/** Cost per km, or null when no km could be read — a ratio over nothing is not a measurement. */
-export function perKm(cost: number, km: number): number | null {
-  return km > 0 ? money(cost / km) : null;
-}
-
-/** When the truck was first committed to the load at the plant. */
-export function loadStart(load: LoadEntity): Date | null {
-  return load.atPlantAt ?? load.loadingConfirmedAt ?? load.inTransitAt ?? null;
-}
-
-/** The stretch the truck was on the load: from the plant until delivery (or now, if still
- *  running). Null for a load the truck has not reached yet. */
-export function loadInterval(load: LoadEntity, now: Date): TimeWindow | null {
-  const from = loadStart(load);
-  if (!from) return null;
-  const to = load.deliveredAt ?? load.closedAt ?? now;
-  return { from, to: to > from ? to : from };
-}
-
-/** The promised delivery: the end of the requisition's expected delivery date (IST). */
-export function promisedBy(load: LoadEntity): Date | null {
-  const date = load.requisition?.expectedDeliveryDate;
-  return date ? endOfIstDate(date) : null;
-}
-
-/** On time if delivered no more than half an hour past the promise (§6.3). */
-export function isOnTime(deliveredAt: Date, promised: Date): boolean {
-  return deliveredAt.getTime() <= promised.getTime() + ON_TIME_GRACE_MS;
-}
-
-/** Days late past the promise, 0 when on time. */
-export function lateDays(deliveredAt: Date, promised: Date): number {
-  return Math.max(0, msToDays(deliveredAt.getTime() - promised.getTime()));
-}
-
-export function hoursBetween(from: Date | null, to: Date | null): number | null {
-  if (!from || !to || to <= from) return null;
-  return (to.getTime() - from.getTime()) / 3_600_000;
-}
-
-export interface Lane {
-  /** `${loadingPointId}:${customerDeliveryPointId}` — the value the lane filter takes. */
-  key: string;
-  label: string;
-}
-
-/** The lane a requisition runs: loading point city to delivery point city. */
-export function laneOfRequisition(requisition: RequisitionEntity | null | undefined): Lane | null {
-  if (!requisition) return null;
-  const from = requisition.loadingPoint?.city ?? 'Unknown';
-  const delivery = requisition.customerDeliveryPoint;
-  const to = delivery?.city ?? delivery?.location ?? 'Unknown';
-  return {
-    key: `${requisition.loadingPointId}:${requisition.customerDeliveryPointId}`,
-    label: `${from} → ${to}`,
-  };
-}
-
-export function laneOf(load: LoadEntity): Lane | null {
-  return laneOfRequisition(load.requisition);
 }

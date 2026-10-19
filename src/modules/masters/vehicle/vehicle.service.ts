@@ -829,6 +829,15 @@ export class VehicleService {
     papers: VehicleVerificationPapersInput,
     manager: EntityManager,
   ): Promise<void> {
+    if (papers.hasNationalPermit !== undefined) {
+      await this.vehicleRepository.update(
+        tenantId,
+        vehicleId,
+        { hasNationalPermit: papers.hasNationalPermit },
+        manager,
+      );
+    }
+
     const byType: [VehicleDocumentType, string | undefined][] = [
       ['insurance', papers.insuranceValidTo],
       ['rc', papers.rcValidTo],

@@ -31,6 +31,8 @@ export interface UlipVahanResult {
     fitnessValidTo?: string;
     roadTaxValidTo?: string;
     insuranceProvider?: string;
+    /** True when VAHAN carries any National Permit field (rc_np_no / rc_np_upto / …). */
+    hasNationalPermit?: boolean;
   };
   rawResponse?: unknown;
 }
@@ -219,6 +221,9 @@ export class UlipClient {
         fitnessValidTo: date('rc_fit_upto'),
         roadTaxValidTo: date('rc_tax_upto'),
         insuranceProvider: pick('rc_insurance_comp'),
+        hasNationalPermit: Boolean(
+          pick('rc_np_no', 'rc_np_upto', 'rc_np_issued_by', 'rc_np_valid_upto'),
+        ),
       },
       rawResponse: body,
     };
