@@ -143,6 +143,10 @@ export class DriverTenantRelationEntity {
   @Column({ name: 'push_delivery_status_at', type: 'timestamptz', nullable: true })
   pushDeliveryStatusAt!: Date | null;
 
+  // This fleet's own free-text note about the driver — per relation, so other fleets never see it.
+  @Column({ name: 'note', type: 'varchar', length: 500, nullable: true })
+  note!: string | null;
+
   // Set by reject, cleared by approve — mirrors the old DriverEntity.rejectionReason.
   @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
   rejectionReason!: string | null;

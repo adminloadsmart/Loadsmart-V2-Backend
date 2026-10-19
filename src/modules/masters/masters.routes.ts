@@ -16,6 +16,7 @@ import { VehicleController } from './vehicle/vehicle.controller';
 import { VehicleImportController } from './vehicle/vehicle-import.controller';
 import { createDriverRoutes } from '../driver/driver.routes';
 import { DriverController } from '../driver/driver.controller';
+import { DriverImportController } from '../driver/driver-import.controller';
 import { createFleetDriverLinkRoutes } from './fleet-driver-link/fleet-driver-link.routes';
 import { FleetDriverLinkController } from './fleet-driver-link/fleet-driver-link.controller';
 import { createGstRoutes } from './gst/gst.routes';
@@ -36,6 +37,7 @@ export function createMastersProtectedRoutes(
   vehicleController: VehicleController,
   vehicleImportController: VehicleImportController,
   driverController: DriverController,
+  driverImportController: DriverImportController,
   fleetDriverLinkController: FleetDriverLinkController,
   gstController: GstController,
   contractController: ContractController,
@@ -52,7 +54,7 @@ export function createMastersProtectedRoutes(
   router.use(createLoadingPointRoutes(loadingPointController, loadingPointImportController));
   router.use(createTransporterRoutes(transporterController, transporterImportController));
   router.use(createVehicleRoutes(vehicleController, vehicleImportController));
-  router.use(createDriverRoutes(driverController));
+  router.use(createDriverRoutes(driverController, driverImportController));
   router.use(createFleetDriverLinkRoutes(fleetDriverLinkController));
   router.use(createGstRoutes(gstController));
   router.use(createContractRoutes(contractController));

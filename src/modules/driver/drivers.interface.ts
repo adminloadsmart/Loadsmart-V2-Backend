@@ -22,9 +22,11 @@ import {
   DriverLicenceValidityFilter,
   DriverLicenceClassFilter,
   DriverScoreStatus,
+  DriverImportErrorCode,
 } from './drivers.types';
 import { Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { DriverEntity } from './entities/driver.entity';
+import { SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
 import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
@@ -57,6 +59,8 @@ export interface CreateDriverInput {
   licenseEndorsements?: DriverLicenseEndorsement[];
   hasHealthInsurance?: DriverInsuranceAnswer;
   hasLifeInsurance?: DriverInsuranceAnswer;
+  /** This fleet's own note about the driver — stored on the relation, not the shared profile. */
+  note?: string;
   // Set by onboardDriver itself (never from the request body) — `completed` once the form carries
   // everything the driver app's registration needs, so the app skips its wizard.
   onboardingStep?: DriverOnboardingStep;
@@ -84,6 +88,8 @@ export interface UpdateDriverInput {
   advanceOutstanding?: number;
   homeBase?: string;
   licenseEndorsements?: DriverLicenseEndorsement[];
+  /** null clears it. */
+  note?: string | null;
 }
 
 export interface ListDriversInput extends PaginationInput {
@@ -261,9 +267,9 @@ export interface DriverActiveLoadSummary {
 }
 
 /** Driver detail → "Availability" card (also a roster row's Availability column). */
+/** The stored operational status isn't repeated here — read the top-level
+ *  `operationalStatus.operationalStatus` (with its `reason` / `effectiveAt`). */
 export interface DriverAvailabilitySection {
-  /** Stored company status; can lag reality since load assignment doesn't update it. */
-  operationalStatus: DriverOperationalStatus | null;
   /** Live check — the driver's newest non-closed load. */
   activeLoad: DriverActiveLoadSummary | null;
   dispatchable: boolean;
@@ -325,6 +331,8 @@ export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'
   approvedBy: string | null;
   approvedAt: Date | null;
   rejectionReason: string | null;
+  /** This fleet's own note about the driver; null when none. */
+  note: string | null;
   /** When this tenant link was created — the "Requested 2 days ago" timestamp. `createdAt` is the
    * global driver profile's, which predates the request for a driver already on the platform. */
   requestedAt: Date;
@@ -483,6 +491,7 @@ export interface CreateDriverTenantRelationData extends Partial<InviteSendColumn
   fleetOwnerRespondedAt: Date | null;
   approvedBy: string | null;
   approvedAt: Date | null;
+  note?: string | null;
   createdBy: string | null;
 }
 
@@ -511,6 +520,7 @@ export interface UpdateDriverTenantRelationData {
   approvedBy?: string | null;
   approvedAt?: Date | null;
   rejectionReason?: string | null;
+  note?: string | null;
   updatedBy?: string | null;
 }
 
@@ -647,3 +657,85 @@ export type InvitationParams = { invitationId: string };
 export type DriverDocumentParams = { driverId: string; documentId: string };
 export type DriverBankDetailsParams = { driverId: string; bankDetailsId: string };
 export type DriverRelationParams = { relationId: string };
+
+/* Bulk driver upload (driver-import.mapper.ts / driver-import.service.ts). */
+
+/** One column of the bulk-upload sheet. */
+export interface DriverImportColumn {
+  key: string;
+  /** Other headers accepted for this column — matched case/space/punctuation-insensitively. */
+  aliases?: string[];
+}
+
+export interface ParsedDriverRow {
+  row: number;
+  input: Record<string, unknown>;
+}
+
+export interface ParsedDriverExcel {
+  rows: ParsedDriverRow[];
+  mapping: Record<string, string>;
+}
+
+export interface DriverImportRowError {
+  row: number;
+  /** The mobile number as typed in the sheet, so the row is identifiable without counting lines. */
+  phoneNumber?: string;
+  /** Sheet column header the problem is in, when it maps to one. */
+  column?: string;
+  field?: string;
+  code: DriverImportErrorCode;
+  message: string;
+}
+
+/** The parts of the Sarathi result the preview screen shows next to the typed-in row. */
+export interface DriverImportLicenceCheck {
+  status: SarathiDrivingLicenceResult['status'];
+  holderName?: string;
+  validUntil?: string;
+  licenseClass?: string;
+  transportClass?: string;
+  licenseStatus?: string;
+  age?: number;
+}
+
+export interface DriverImportPreviewRow {
+  row: number;
+  /**
+   * `ready` — can be saved as-is. `needs_review` — saveable, but Sarathi could not confirm the
+   * licence, so it is recorded for manual review. `invalid` — fix the sheet; `data` is absent.
+   */
+  status: 'ready' | 'needs_review' | 'invalid';
+  /** Exactly what to send back in POST /drivers/import once the admin approves the row. */
+  data?: OnboardDriverInput;
+  licenceCheck?: DriverImportLicenceCheck;
+  /** Saveable, but worth a look before approving (e.g. the sheet name differs from Sarathi's). */
+  warnings: string[];
+  errors: DriverImportRowError[];
+}
+
+export interface DriverImportPreview {
+  totalRows: number;
+  readyRows: number;
+  needsReviewRows: number;
+  invalidRows: number;
+  columnMapping: Record<string, string>;
+  rows: DriverImportPreviewRow[];
+}
+
+export interface DriverImportResult {
+  /** Position in the submitted `drivers` array. */
+  index: number;
+  phoneNumber: string;
+  status: 'created' | 'failed';
+  driverId?: string;
+  code?: DriverImportErrorCode;
+  message?: string;
+}
+
+export interface DriverImportReport {
+  total: number;
+  created: number;
+  failed: number;
+  results: DriverImportResult[];
+}

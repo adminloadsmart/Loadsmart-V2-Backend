@@ -8,6 +8,7 @@ import { VehicleImportService } from './vehicle/vehicle-import.service';
 import { VehicleImportController } from './vehicle/vehicle-import.controller';
 import { DriverTenantRelationRepository } from '../driver/driver-tenant-relation.repository';
 import { DriverController } from '../driver/driver.controller';
+import { DriverImportController } from '../driver/driver-import.controller';
 import { FleetDriverLinkRepository } from './fleet-driver-link/fleet-driver-link.repository';
 import { FleetDriverLinkService } from './fleet-driver-link/fleet-driver-link.service';
 import { FleetDriverLinkController } from './fleet-driver-link/fleet-driver-link.controller';
@@ -58,6 +59,7 @@ export function createMastersModule(
     // unchanged URLs).
     driverTenantRelationRepository: DriverTenantRelationRepository;
     driverController: DriverController;
+    driverImportController: DriverImportController;
     // LS_N_0009/0010 — optional; see modules/notifications/master-approvals.ts.
     masterApprovalNotifier?: MasterApprovalNotifier;
   },
@@ -170,6 +172,7 @@ export function createMastersModule(
     vehicleController,
     vehicleImportController,
     deps.driverController,
+    deps.driverImportController,
     fleetDriverLinkController,
     gstController,
     contractController,
