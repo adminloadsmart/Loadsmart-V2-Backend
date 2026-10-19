@@ -48,6 +48,7 @@ import {
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
   TRIP_TRACK,
+  GEOFENCES_MANAGE,
 } from '../shared/constants/permissions';
 import {
   PLATFORM_ADMIN_ROLE,
@@ -149,6 +150,12 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       module: 'maintenance',
       scope: 'organization',
       description: 'Log services, open/close breakdowns, record tyres and battery health',
+    },
+    {
+      key: GEOFENCES_MANAGE,
+      module: 'tracking',
+      scope: 'organization',
+      description: 'Create and edit geofences and submit vehicle location pings',
     },
     {
       key: MAINTENANCE_COSTS_VIEW,
@@ -272,6 +279,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       MAINTENANCE_MANAGE,
       MAINTENANCE_COSTS_VIEW,
       TRIP_TRACK,
+      GEOFENCES_MANAGE,
     ],
   },
   // Teammate roles an org admin can invite (POST /auth/organization/users) — Settings → Users &
@@ -298,6 +306,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       // Books the workshop jobs (a breakdown is a dispatch event) but doesn't see what they cost.
       MAINTENANCE_MANAGE,
       TRIP_TRACK,
+      GEOFENCES_MANAGE,
       FILES_READ,
       FILES_UPLOAD,
     ],

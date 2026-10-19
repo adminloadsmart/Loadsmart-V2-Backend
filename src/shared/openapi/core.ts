@@ -26,6 +26,7 @@ export const TAGS = {
   DRIVER_PORTAL: 'driver-portal',
   MAINTENANCE: 'maintenance',
   PLACES: 'places',
+  GEOFENCES: 'geofences',
 } as const;
 
 /**

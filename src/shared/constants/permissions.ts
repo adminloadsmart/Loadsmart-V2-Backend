@@ -47,6 +47,10 @@ export const MASTERS_APPROVE = 'masters.approve';
 export const MAINTENANCE_MANAGE = 'maintenance.manage';
 export const MAINTENANCE_COSTS_VIEW = 'maintenance.costs.view';
 
+// Geofences (Tracking → Geofences): create/edit/delete a geofence and feed it location pings.
+// Reads are open to every tenant seat, same as maintenance.
+export const GEOFENCES_MANAGE = 'geofences.manage';
+
 // LS_N_0012 — receives "vehicle could not be verified on Vahan" alerts. Assigned to no role by
 // default (db/seed-roles.ts); an org admin grants it to specific teammates via the existing
 // POST /roles/users/:userId/permissions.
