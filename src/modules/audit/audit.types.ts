@@ -53,6 +53,7 @@ export const AUDIT_ACTIONS = [
   'DRIVER_LINK_ACCEPTED',
   'DRIVER_LINK_DECLINED',
   'DRIVER_ACCOUNT_DELETED',
+  'DRIVER_BULK_IMPORTED',
   'LOADING_POINT_APPROVED',
   'LOADING_POINT_REJECTED',
   'LOADING_POINT_BULK_IMPORTED',
@@ -108,6 +109,18 @@ export const AUDIT_ACTIONS = [
   'TYRE_REMOVED',
   'BATTERY_PACK_REGISTERED',
   'BATTERY_SOH_RECORDED',
+  // Settings redesign (Masters + Users & Roles)
+  'GSTIN_VERIFICATION_REQUESTED',
+  'TRANSPORTER_STATUS_UPDATED',
+  'TRANSPORTER_CONTRACT_CREATED',
+  'TRANSPORTER_CONTRACT_UPDATED',
+  'TRANSPORTER_CONTRACT_DELETED',
+  'TRANSPORTER_CONTRACT_BULK_IMPORTED',
+  'LOADING_POINT_STATUS_UPDATED',
+  'LOADING_POINT_DELETED',
+  'ORG_USER_SEAT_CHANGED',
+  'ORG_USER_REMOVED',
+  'ORGANIZATION_SEAT_LIMIT_UPDATED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -128,5 +141,7 @@ export const AUDIT_RESOURCE_TYPES = [
   'maintenance_job',
   'tyre',
   'battery_pack',
+  'gst_verification',
+  'transporter_contract',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

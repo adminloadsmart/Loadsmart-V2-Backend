@@ -1,5 +1,11 @@
 import { PaginationInput } from '../../../shared/utils/pagination';
-import { ProductApprovalStatus, ProductStatus } from './product.types';
+import {
+  ProductApprovalStatus,
+  ProductClassification,
+  ProductConversionModel,
+  ProductDimensionUnit,
+  ProductStatus,
+} from './product.types';
 
 export interface ProductSubItemInput {
   name: string;
@@ -13,6 +19,12 @@ export interface CreateProductInput {
   dimensions?: string;
   weight?: number;
   weightUnit?: string;
+  classification?: ProductClassification;
+  length?: number;
+  width?: number;
+  height?: number;
+  dimensionUnit?: ProductDimensionUnit;
+  conversionModel?: ProductConversionModel;
   subItems?: ProductSubItemInput[];
 }
 export interface UpdateProductInput {
@@ -24,6 +36,12 @@ export interface UpdateProductInput {
   dimensions?: string | null;
   weight?: number | null;
   weightUnit?: string | null;
+  classification?: ProductClassification;
+  length?: number | null;
+  width?: number | null;
+  height?: number | null;
+  dimensionUnit?: ProductDimensionUnit | null;
+  conversionModel?: ProductConversionModel | null;
   status?: ProductStatus;
   subItems?: {
     add?: ProductSubItemInput[];

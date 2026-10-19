@@ -189,8 +189,10 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     operationId: 'auth.inviteOrganizationUser',
     ...orgAdminOnly(
       'Org admin invites a teammate into their own org (Settings → Users & Roles) with one ' +
-        'of the 4 assignable roles: Sales/CS, Dispatch, Documents/Ops, Finance/Accounts. Phone ' +
-        'only, no email. Returns a one-time temporaryPassword for the admin to share manually.',
+        'of the 4 assignable roles: Sales/CS, Dispatch, Documents/Ops, Finance/Accounts, with a ' +
+        'work email, a phone (login is phone-based) and an optional "Based at" loading point. ' +
+        '409 when no seats are free on the plan. Returns a one-time temporaryPassword for the ' +
+        'admin to share manually.',
     ),
     request: { body: json(organizationValidators.inviteOrganizationUser.shape.body) },
     responses: {
@@ -211,7 +213,8 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     operationId: 'auth.listOrganizationUsers',
     ...orgAdminOnly(
       "List the caller's own org's teammates (org_admin plus invited users), paginated and " +
-        'optionally filtered by role.',
+        'optionally filtered by role and status (active | invited). Each row has email, seat ' +
+        '{ roleId, name, label }, basedAt, state and lastSignedInAt.',
     ),
     request: { query: organizationValidators.listOrganizationUsers.shape.query },
     responses: {
@@ -235,5 +238,71 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     responses: {
       200: { description: 'Assignable roles — [{ id, name }]' },
     },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/users/summary`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.organizationUsersSummary',
+    ...orgAdminOnly(
+      'Users & Roles KPI tiles: { activeUsers, invitedUsers, seatsOnPlan, seatsFree }. Invited = ' +
+        'never signed in.',
+    ),
+    responses: { 200: { description: 'Counts' } },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/users/export`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.exportOrganizationUsers',
+    ...orgAdminOnly('Users table "Export CSV" — same filters as the list.'),
+    request: { query: organizationValidators.exportOrganizationUsers.shape.query },
+    responses: { 200: { description: 'text/csv file' } },
+  });
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/organization/users/{userId}/seat`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.changeOrganizationUserSeat',
+    ...orgAdminOnly(
+      'Change a teammate\'s seat (one of the 4 assignable roles) and/or "Based at". An org ' +
+        "admin's seat can't change — only their Based at. A seat change forces the user to " +
+        're-authenticate.',
+    ),
+    request: {
+      params: organizationValidators.changeOrganizationUserSeat.shape.params,
+      body: json(organizationValidators.changeOrganizationUserSeat.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated user row' },
+      400: { description: 'Seat not assignable / site not active', ...errorContent },
+      404: { description: 'User not in your organization', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/organization/users/{userId}`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.removeOrganizationUser',
+    ...orgAdminOnly(
+      'Remove a teammate: access ends at once (soft delete + every session revoked); records ' +
+        'they created keep their name. Cannot remove yourself or an org admin.',
+    ),
+    request: { params: organizationValidators.removeOrganizationUser.shape.params },
+    responses: {
+      200: { description: '{ success: true }' },
+      404: { description: 'User not in your organization', ...errorContent },
+    },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/seats`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.listOrganizationSeats',
+    ...orgAdminOnly(
+      '"What each seat opens": [{ roleId, name, label, assignable, userCount, screenCount, ' +
+        'screens, groups, summary }] for every organization seat including Org Admin.',
+    ),
+    responses: { 200: { description: 'Seats' } },
   });
 }

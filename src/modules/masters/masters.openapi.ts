@@ -6,6 +6,9 @@ import { registerTransporterOpenApi } from './transporter/transporter.openapi';
 import { registerVehicleOpenApi } from './vehicle/vehicle.openapi';
 import { registerDriverOpenApi } from '../driver/driver.openapi';
 import { registerFleetDriverLinkOpenApi } from './fleet-driver-link/fleet-driver-link.openapi';
+import { registerGstOpenApi } from './gst/gst.openapi';
+import { registerContractOpenApi } from './contract/contract.openapi';
+import { registerMastersSummaryOpenApi } from './summary/summary.openapi';
 
 /**
  * OpenAPI docs for the masters module: registers every route in masters.routes.ts, under the
@@ -25,4 +28,7 @@ export function registerMastersOpenApi(registry: OpenAPIRegistry): void {
   registerVehicleOpenApi(registry);
   registerDriverOpenApi(registry);
   registerFleetDriverLinkOpenApi(registry);
+  registerGstOpenApi(registry);
+  registerContractOpenApi(registry);
+  registerMastersSummaryOpenApi(registry);
 }

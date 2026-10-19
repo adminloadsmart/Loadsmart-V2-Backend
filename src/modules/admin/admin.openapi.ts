@@ -115,6 +115,25 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'patch',
+    path: `${BASE}/organizations/{organizationId}/seat-limit`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.updateOrganizationSeatLimit',
+    ...adminOnly(
+      'Set "Seats on the plan" for an organization (Settings → Users & Roles). null resets to ' +
+        'the default. Invites beyond the limit are refused with 409.',
+    ),
+    request: {
+      params: adminValidators.updateOrganizationSeatLimit.shape.params,
+      body: json(adminValidators.updateOrganizationSeatLimit.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated organization' },
+      404: { description: 'Organization not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
     path: `${BASE}/organizations/{organizationId}/documents/{documentId}`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.verifyOrganizationDocument',

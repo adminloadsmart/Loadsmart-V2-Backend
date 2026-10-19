@@ -150,4 +150,16 @@ export function registerProductOpenApi(registry: OpenAPIRegistry): void {
       404: { description: 'Product not found', ...errorContent },
     },
   });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/products/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportProducts',
+    ...authenticated(
+      'Products "Export CSV" — classification, dimensions, computed volume/volumetric weight and ' +
+        'moved (6 mo) tonnes. Same filters as the list.',
+    ),
+    request: { query: productValidators.export.shape.query },
+    responses: { 200: { description: 'text/csv file' } },
+  });
 }

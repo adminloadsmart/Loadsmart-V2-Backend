@@ -16,8 +16,15 @@ import { VehicleController } from './vehicle/vehicle.controller';
 import { VehicleImportController } from './vehicle/vehicle-import.controller';
 import { createDriverRoutes } from '../driver/driver.routes';
 import { DriverController } from '../driver/driver.controller';
+import { DriverImportController } from '../driver/driver-import.controller';
 import { createFleetDriverLinkRoutes } from './fleet-driver-link/fleet-driver-link.routes';
 import { FleetDriverLinkController } from './fleet-driver-link/fleet-driver-link.controller';
+import { createGstRoutes } from './gst/gst.routes';
+import { GstController } from './gst/gst.controller';
+import { createContractRoutes } from './contract/contract.routes';
+import { ContractController } from './contract/contract.controller';
+import { createMastersSummaryRoutes } from './summary/summary.routes';
+import { MastersSummaryController } from './summary/summary.controller';
 
 export function createMastersProtectedRoutes(
   truckTypeController: TruckTypeController,
@@ -30,7 +37,11 @@ export function createMastersProtectedRoutes(
   vehicleController: VehicleController,
   vehicleImportController: VehicleImportController,
   driverController: DriverController,
+  driverImportController: DriverImportController,
   fleetDriverLinkController: FleetDriverLinkController,
+  gstController: GstController,
+  contractController: ContractController,
+  mastersSummaryController: MastersSummaryController,
 ): Router {
   const router = Router();
 
@@ -43,8 +54,11 @@ export function createMastersProtectedRoutes(
   router.use(createLoadingPointRoutes(loadingPointController, loadingPointImportController));
   router.use(createTransporterRoutes(transporterController, transporterImportController));
   router.use(createVehicleRoutes(vehicleController, vehicleImportController));
-  router.use(createDriverRoutes(driverController));
+  router.use(createDriverRoutes(driverController, driverImportController));
   router.use(createFleetDriverLinkRoutes(fleetDriverLinkController));
+  router.use(createGstRoutes(gstController));
+  router.use(createContractRoutes(contractController));
+  router.use(createMastersSummaryRoutes(mastersSummaryController));
 
   return router;
 }

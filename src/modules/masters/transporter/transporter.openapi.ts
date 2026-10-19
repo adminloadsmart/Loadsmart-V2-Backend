@@ -125,4 +125,55 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
       404: { description: 'Transporter not found', ...errorContent },
     },
   });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/transporters/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportTransporters',
+    ...authenticated('Transporters "Export CSV" — same filters/sort as the list. org_admin only.'),
+    request: { query: transporterValidators.exportTransporters.shape.query },
+    responses: { 200: { description: 'text/csv file' } },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/transporters/{transporterId}/loads`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.listTransporterLoads',
+    ...authenticated(
+      'Transporter drawer "LOADS MOVED": code, customer, loading point → drop city, tonnes, trip ' +
+        'freight, stage label and progress. org_admin only.',
+    ),
+    request: {
+      params: transporterValidators.transporterLoads.shape.params,
+      query: transporterValidators.transporterLoads.shape.query,
+    },
+    responses: { 200: { description: 'Paginated loads' } },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/transporters/{transporterId}/usage`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.transporterUsage',
+    ...authenticated(
+      '`{ inUse, activeLoads, liveContracts }` — running loads block Make inactive / delete (409); ' +
+        'liveContracts is informational. org_admin only.',
+    ),
+    request: { params: transporterValidators.getTransporter.shape.params },
+    responses: { 200: { description: 'Usage' } },
+  });
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/transporters/{transporterId}/status`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.updateTransporterStatus',
+    ...authenticated('Make a transporter active/inactive. 409 while it has running loads.'),
+    request: {
+      params: transporterValidators.updateStatus.shape.params,
+      body: json(transporterValidators.updateStatus.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated transporter' },
+      409: { description: 'In use / already in that status', ...errorContent },
+    },
+  });
 }

@@ -8,6 +8,7 @@ import {
   UpdateLoadingPointInput,
 } from './loading-point.interface';
 import { LoadingPointService } from './loading-point.service';
+import { sendCsv } from '../../../shared/utils/csv';
 
 export class LoadingPointController {
   constructor(private readonly loadingPointService: LoadingPointService) {}
@@ -27,6 +28,25 @@ export class LoadingPointController {
     );
     respond(res, cities);
   };
+
+  exportLoadingPoints = async (req: Request, res: Response) =>
+    sendCsv(
+      res,
+      'loading-points',
+      await this.loadingPointService.export(
+        requireTenantId(req),
+        req.validatedQuery as Omit<ListLoadingPointsInput, 'page' | 'limit'>,
+      ),
+    );
+
+  loadingPointUsage = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.loadingPointService.usageOf(
+        requireTenantId(req),
+        req.params.loadingPointId as string,
+      ),
+    );
 
   getLoadingPoint = async (req: Request, res: Response) => {
     const loadingPoint = await this.loadingPointService.get(

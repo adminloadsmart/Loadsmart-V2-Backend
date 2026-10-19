@@ -154,34 +154,86 @@ export class AuthRepository {
   // teammates) belonging to one tenant, for Settings → Users & Roles.
   async listOrganizationUsers(
     tenantId: string,
-    filters: { search?: string; role?: string; page: number; limit: number },
+    filters: {
+      search?: string;
+      role?: string;
+      status?: 'active' | 'invited';
+      page: number;
+      limit: number;
+    },
   ): Promise<{ items: UserEntity[]; total: number }> {
-    const { search, role, page, limit } = filters;
+    const { search, role, status, page, limit } = filters;
 
     const base: FindOptionsWhere<UserEntity> = {
       tenantId,
       deletedAt: IsNull(),
       role: { scope: 'organization', ...(role ? { name: role } : {}) },
+      // "Invited" = never signed in (Settings → Users & Roles state column).
+      ...(status === 'active' ? { lastSignedInAt: Not(IsNull()) } : {}),
+      ...(status === 'invited' ? { lastSignedInAt: IsNull() } : {}),
     };
 
-    // Search spans two columns, so it becomes two OR'd where-clauses rather than one — same
+    // Search spans several columns, so it becomes OR'd where-clauses rather than one — same
     // approach driver.repository.ts's list() uses.
     const where: FindOptionsWhere<UserEntity>[] = search
       ? [
           { ...base, fullName: ILike(`%${search}%`) },
           { ...base, phoneNumber: ILike(`%${search}%`) },
+          { ...base, email: ILike(`%${search}%`) },
         ]
       : [base];
 
     const [items, total] = await this.users.findAndCount({
       where,
-      relations: { role: true },
+      relations: { role: true, basedAtLoadingPoint: true },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
 
     return { items, total };
+  }
+
+  /** Settings → Users & Roles KPI tiles: org users who have / haven't signed in yet. */
+  async countOrganizationUsersByState(
+    tenantId: string,
+  ): Promise<{ active: number; invited: number }> {
+    const row = await this.users
+      .createQueryBuilder('user')
+      .innerJoin('user.role', 'role', "role.scope = 'organization'")
+      .select('COUNT(*) FILTER (WHERE user.last_signed_in_at IS NOT NULL)', 'active')
+      .addSelect('COUNT(*) FILTER (WHERE user.last_signed_in_at IS NULL)', 'invited')
+      .where('user.tenant_id = :tenantId AND user.deleted_at IS NULL', { tenantId })
+      .getRawOne<{ active: string; invited: string }>();
+    return { active: Number(row?.active ?? 0), invited: Number(row?.invited ?? 0) };
+  }
+
+  /** Users per role name in one tenant — the "Users" column of "What each seat opens". */
+  async countOrganizationUsersByRole(tenantId: string): Promise<Map<string, number>> {
+    const rows = await this.users
+      .createQueryBuilder('user')
+      .innerJoin('user.role', 'role', "role.scope = 'organization'")
+      .select('role.name', 'role')
+      .addSelect('COUNT(*)', 'count')
+      .where('user.tenant_id = :tenantId AND user.deleted_at IS NULL', { tenantId })
+      .groupBy('role.name')
+      .getRawMany<{ role: string; count: string }>();
+    return new Map(rows.map((row) => [row.role, Number(row.count)]));
+  }
+
+  async touchLastSignedIn(userId: string): Promise<void> {
+    await this.users.update({ id: userId }, { lastSignedInAt: new Date() });
+  }
+
+  async setBasedAt(userId: string, loadingPointId: string | null): Promise<void> {
+    await this.users.update({ id: userId }, { basedAtLoadingPointId: loadingPointId });
+  }
+
+  findOrganizationUser(tenantId: string, userId: string): Promise<UserEntity | null> {
+    return this.users.findOne({
+      where: { id: userId, tenantId, deletedAt: IsNull() },
+      relations: { role: true, basedAtLoadingPoint: true },
+    });
   }
 
   // Unpaginated counterpart to listOrganizationUsers, for a notification producer fanning out to

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ORGANIZATION_DOCUMENT_TYPES } from './entities/organization-document.entity';
-import { ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { ORG_ADMIN_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 
 const uuid = z.string().uuid();
@@ -35,6 +35,11 @@ const multipartRegisteredAddressSchema = z.preprocess((value) => {
   }
 }, registeredAddressSchema);
 
+const organizationUserFilters = {
+  role: z.enum([ORG_ADMIN_ROLE, ...ORG_ASSIGNABLE_ROLES] as [string, ...string[]]).optional(),
+  status: z.enum(['active', 'invited']).optional(),
+};
+
 export const organizationValidators = {
   createOrganization: z.object({
     body: z.object({
@@ -66,14 +71,32 @@ export const organizationValidators = {
   // inviteOrganizationUser), same as admin.validators.ts's createStaff/STAFF_ASSIGNABLE_ROLES.
   inviteOrganizationUser: z.object({
     body: z.object({
-      fullName: z.string().min(1),
+      fullName: z.string().trim().min(1),
+      // Work email from the redesigned "Invite a User" drawer.
+      email: z.string().trim().email().max(255),
+      // Still required: every login path is phone-based (see auth.types.ts).
       phoneNumber: z.string().min(10),
       roleId: uuid,
+      basedAtLoadingPointId: uuid.nullable().optional(),
     }),
   }),
   // role narrows to a specific teammate role for the table's filter — same enum the invite
-  // roleId is ultimately validated against.
+  // roleId is ultimately validated against. org_admin is listable too (it shows in the table).
   listOrganizationUsers: z.object({
-    query: pagination.extend({ role: z.enum(ORG_ASSIGNABLE_ROLES).optional() }),
+    query: pagination.extend(organizationUserFilters),
   }),
+  exportOrganizationUsers: z.object({
+    query: z.object({ search: z.string().min(1).optional(), ...organizationUserFilters }),
+  }),
+  changeOrganizationUserSeat: z.object({
+    params: z.object({ userId: uuid }),
+    body: z
+      .object({
+        roleId: uuid.optional(),
+        basedAtLoadingPointId: uuid.nullable().optional(),
+      })
+      .strict()
+      .refine((value) => Object.keys(value).length > 0, 'At least one field is required'),
+  }),
+  removeOrganizationUser: z.object({ params: z.object({ userId: uuid }) }),
 };

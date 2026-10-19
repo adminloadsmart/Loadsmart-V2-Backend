@@ -3,6 +3,7 @@ import { respond } from '../../../shared/responses/respond';
 import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
 import { CreateProductInput, ListProductsInput, UpdateProductInput } from './product.interface';
 import { ProductService } from './product.service';
+import { sendCsv } from '../../../shared/utils/csv';
 
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
@@ -11,6 +12,15 @@ export class ProductController {
     respond(
       res,
       await this.productService.list(requireTenantId(req), req.validatedQuery as ListProductsInput),
+    );
+  exportProducts = async (req: Request, res: Response) =>
+    sendCsv(
+      res,
+      'products',
+      await this.productService.export(
+        requireTenantId(req),
+        req.validatedQuery as Omit<ListProductsInput, 'page' | 'limit'>,
+      ),
     );
   getProduct = async (req: Request, res: Response) =>
     respond(res, await this.productService.get(requireTenantId(req), String(req.params.productId)));

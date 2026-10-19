@@ -37,6 +37,25 @@ export function createCustomerRoutes(
     validate(customerValidators.list),
     asyncHandler(controller.list),
   );
+  // Literal segment — declared before '/:customerId' so it is never captured as an id.
+  router.get(
+    '/export',
+    requirePermission(CUSTOMERS_READ),
+    validate(customerValidators.export),
+    asyncHandler(controller.export),
+  );
+  router.get(
+    '/:customerId/loads',
+    requirePermission(CUSTOMERS_READ),
+    validate(customerValidators.loads),
+    asyncHandler(controller.listLoads),
+  );
+  router.get(
+    '/:customerId/usage',
+    requirePermission(CUSTOMERS_READ),
+    validate(customerValidators.get),
+    asyncHandler(controller.usage),
+  );
   router.get(
     '/:customerId',
     requirePermission(CUSTOMERS_READ),

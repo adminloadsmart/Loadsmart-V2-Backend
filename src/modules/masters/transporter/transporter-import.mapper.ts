@@ -26,7 +26,28 @@ function value(row: Record<string, string>, header: string): string | undefined 
 }
 
 /** Fields stored as a number on `CreateTransporterInput` — parsed from the raw CSV string. */
-const NUMERIC_FIELDS = new Set<keyof CreateTransporterInput>(['advancePercentage', 'creditDays']);
+const NUMERIC_FIELDS = new Set<keyof CreateTransporterInput>([
+  'advancePercentage',
+  'creditDays',
+  'trucksDeclared',
+]);
+
+/** Columns the export writes that are derived/read-only — accepted and ignored on re-upload. */
+const IGNORED_HEADERS = new Set([
+  'code',
+  'pan',
+  'gstverification',
+  'tripsdone',
+  'freightowed',
+  'rating',
+]);
+
+/** First POC card, written by the export as three flat columns. */
+const POC_HEADERS: Record<string, 'fullName' | 'phone' | 'email'> = {
+  pocname: 'fullName',
+  pocphone: 'phone',
+  pocemail: 'email',
+};
 
 /** Normalized header (see `normalizeHeader`) → `CreateTransporterInput` field it maps to. */
 const FIELD_BY_HEADER: Record<string, keyof CreateTransporterInput> = {
@@ -53,6 +74,12 @@ const FIELD_BY_HEADER: Record<string, keyof CreateTransporterInput> = {
   bankaccountnumber: 'bankAccountNumber',
   bankifsc: 'bankIfsc',
   bankaccountholdername: 'bankAccountHolderName',
+  banknamebranch: 'bankNameBranch',
+  upivpa: 'upiVpa',
+  upi: 'upiVpa',
+  gsttreatment: 'gstTreatment',
+  trucksdeclared: 'trucksDeclared',
+  fleetcount: 'trucksDeclared',
 };
 
 export async function parseTransporterExcel(buffer: Buffer): Promise<ParsedTransporterExcel> {
@@ -65,8 +92,14 @@ export async function parseTransporterExcel(buffer: Buffer): Promise<ParsedTrans
 
   const headers = Object.keys(records[0]);
   const mapping: Record<string, keyof CreateTransporterInput> = {};
+  const pocHeaders: Record<string, 'fullName' | 'phone' | 'email'> = {};
   for (const header of headers) {
     const normalized = normalizeHeader(header);
+    if (IGNORED_HEADERS.has(normalized)) continue;
+    if (POC_HEADERS[normalized]) {
+      pocHeaders[header] = POC_HEADERS[normalized];
+      continue;
+    }
     const field = FIELD_BY_HEADER[normalized];
     if (!field) throw new Error(`Unexpected column "${header}"`);
     if (Object.values(mapping).includes(field))
@@ -90,6 +123,12 @@ export async function parseTransporterExcel(buffer: Buffer): Promise<ParsedTrans
         (input as Record<string, unknown>)[field] = raw;
       }
     }
+    const poc: Record<string, string> = {};
+    for (const [header, key] of Object.entries(pocHeaders)) {
+      const raw = value(record, header);
+      if (raw !== undefined) poc[key] = raw;
+    }
+    if (poc.phone) input.contacts = [{ ...poc, phone: poc.phone }];
     return { row: index + 2, input };
   });
   return { rows, mapping };

@@ -1,9 +1,20 @@
 import { PaginationInput } from '../../../shared/utils/pagination';
 import { LoadingPointStatus } from './loading-point.types';
+import { LocationSource } from '../../../shared/constants/location-source';
 
-export interface CreateLoadingPointInput {
+/** Settings redesign fields shared by create/update input. */
+interface LoadingPointSiteFields {
+  googlePlaceId?: string | null;
+  geofenceRadiusM?: number | null;
+  /** 'HH:mm' (24:00 allowed). */
+  gateOpensAt?: string | null;
+  gateClosesAt?: string | null;
+  notes?: string | null;
+}
+
+export interface CreateLoadingPointInput extends LoadingPointSiteFields {
   title: string;
-  addressLine1: string;
+  addressLine1?: string;
   addressLine2?: string;
   landmark?: string;
   areaLocality?: string;
@@ -17,9 +28,9 @@ export interface CreateLoadingPointInput {
   contactPersonEmail?: string;
 }
 
-export interface UpdateLoadingPointInput {
+export interface UpdateLoadingPointInput extends LoadingPointSiteFields {
   title?: string;
-  addressLine1?: string;
+  addressLine1?: string | null;
   addressLine2?: string | null;
   landmark?: string | null;
   areaLocality?: string | null;
@@ -55,7 +66,13 @@ export interface ListLoadingPointsQuery {
 export interface CreateLoadingPointData {
   tenantId: string;
   title: string;
-  addressLine1: string;
+  addressLine1: string | null;
+  googlePlaceId: string | null;
+  locationSource: LocationSource;
+  geofenceRadiusM: number;
+  gateOpensAt: string | null;
+  gateClosesAt: string | null;
+  notes: string | null;
   addressLine2: string | null;
   landmark: string | null;
   areaLocality: string | null;
@@ -76,7 +93,13 @@ export interface CreateLoadingPointData {
 
 export interface UpdateLoadingPointData {
   title?: string;
-  addressLine1?: string;
+  addressLine1?: string | null;
+  googlePlaceId?: string | null;
+  locationSource?: LocationSource;
+  geofenceRadiusM?: number;
+  gateOpensAt?: string | null;
+  gateClosesAt?: string | null;
+  notes?: string | null;
   addressLine2?: string | null;
   landmark?: string | null;
   areaLocality?: string | null;

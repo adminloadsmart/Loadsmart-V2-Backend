@@ -7,6 +7,11 @@ import {
   Index,
 } from 'typeorm';
 import { LOADING_POINT_STATUSES, LoadingPointStatus } from '../loading-point.types';
+import {
+  DEFAULT_GEOFENCE_RADIUS_M,
+  LOCATION_SOURCES,
+  LocationSource,
+} from '../../../../shared/constants/location-source';
 
 @Entity({ schema: 'masters', name: 'loading_points' })
 @Index('loading_points_tenant_id_idx', ['tenantId'])
@@ -22,8 +27,10 @@ export class LoadingPointEntity {
   @Column({ type: 'varchar', length: 150 })
   title!: string;
 
-  @Column({ name: 'address_line_1', type: 'varchar', length: 255 })
-  addressLine1!: string;
+  // Nullable since the settings redesign: the Add Loading Point form only has "Find on map" +
+  // city/state/PIN — the Places formatted address lands here when the client sends it.
+  @Column({ name: 'address_line_1', type: 'varchar', length: 255, nullable: true })
+  addressLine1!: string | null;
 
   @Column({ name: 'address_line_2', type: 'varchar', length: 255, nullable: true })
   addressLine2!: string | null;
@@ -57,6 +64,25 @@ export class LoadingPointEntity {
 
   @Column({ name: 'contact_person_email', type: 'varchar', length: 255, nullable: true })
   contactPersonEmail!: string | null;
+
+  @Column({ name: 'geofence_radius_m', type: 'integer', default: DEFAULT_GEOFENCE_RADIUS_M })
+  geofenceRadiusM!: number;
+
+  /** Gate operating window, 'HH:MM:SS' as Postgres returns `time` ('24:00:00' allowed). */
+  @Column({ name: 'gate_opens_at', type: 'time', nullable: true })
+  gateOpensAt!: string | null;
+
+  @Column({ name: 'gate_closes_at', type: 'time', nullable: true })
+  gateClosesAt!: string | null;
+
+  @Column({ name: 'google_place_id', type: 'varchar', length: 255, nullable: true })
+  googlePlaceId!: string | null;
+
+  @Column({ name: 'location_source', type: 'enum', enum: [...LOCATION_SOURCES], default: 'manual' })
+  locationSource!: LocationSource;
+
+  @Column({ type: 'text', nullable: true })
+  notes!: string | null;
 
   @Column({ type: 'enum', enum: [...LOADING_POINT_STATUSES], default: 'pending' })
   status!: LoadingPointStatus;

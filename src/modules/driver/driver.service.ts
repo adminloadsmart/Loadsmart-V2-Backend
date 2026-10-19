@@ -18,6 +18,7 @@ import {
   inviteSendColumns,
 } from './driver-tenant-relation.repository';
 import { Paginated, paginate } from '../../shared/utils/pagination';
+import { humanizeStatus } from '../../shared/utils/humanize';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
@@ -26,6 +27,7 @@ import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
 import { MIN_SCORED_TRIPS } from './driver.constants';
+import { getCachedLicenceLookup, setCachedLicenceLookup } from './driver-licence-lookup-cache';
 import {
   BankAccountVerificationResult,
   IdfyClient,
@@ -212,6 +214,16 @@ function assertCanReinvite(relation: DriverTenantRelationEntity): void {
   }
 }
 
+/** Fleet-operational writes (availability, trip metrics) need a driver who has actually joined —
+ *  same rule as linking to a vehicle (fleet-driver-link.service.ts). */
+function assertRelationActive(relation: DriverTenantRelationEntity, action: string): void {
+  if (relation.status !== 'active') {
+    throw new ValidationError(
+      `Driver is ${humanizeStatus(relation.status)} for this tenant and ${action}`,
+    );
+  }
+}
+
 /** Sequential invite number → the drawer's "Req ID", e.g. 42 → INV-00042. */
 function formatInviteRequestId(inviteNumber: string): string {
   return `INV-${inviteNumber.padStart(5, '0')}`;
@@ -278,6 +290,7 @@ export function flattenRelation(relation: DriverTenantRelationEntity): DriverWit
     approvedBy: relation.approvedBy,
     approvedAt: relation.approvedAt,
     rejectionReason: relation.rejectionReason,
+    note: relation.note,
     requestedAt: relation.createdAt,
     licenseClass: latestLicenseClass(driver.verifications),
     operationalStatus: relation.operationalStatus,
@@ -358,7 +371,6 @@ function toDriverDetailSections(
       homeBase: driver.homeBase,
     },
     availability: {
-      operationalStatus,
       activeLoad: activeLoad
         ? { id: activeLoad.id, code: activeLoad.code, status: activeLoad.status }
         : null,
@@ -454,6 +466,22 @@ export class DriverService {
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
     }
+  }
+
+  /**
+   * checkDrivingLicence for the bulk-import preview. A genuine registry answer (one carrying
+   * `rawResponse`) is cached so onboardDriver can reuse it when the admin saves the approved rows;
+   * the "IDfy unusable" fallback is not, so the save retries a real lookup.
+   */
+  async checkDrivingLicenceForImport(
+    tenantId: string,
+    licenseNumber: string,
+    dateOfBirth: string,
+  ): Promise<SarathiDrivingLicenceResult> {
+    const result = await this.checkDrivingLicence(licenseNumber, dateOfBirth);
+    if (result.rawResponse)
+      await setCachedLicenceLookup(tenantId, licenseNumber, dateOfBirth, result);
+    return result;
   }
 
   /**
@@ -576,6 +604,7 @@ export class DriverService {
             tenantId,
             driverId: driver.id,
             ...newRelationColumns(actorId, actorRole),
+            note: input.note ?? null,
             createdBy: actorId,
           },
           txManager,
@@ -756,7 +785,16 @@ export class DriverService {
         advanceOutstanding,
         homeBase,
         licenseEndorsements,
+        note,
       } = input;
+
+      // The note is this fleet's own, so it goes on the relation rather than the shared profile.
+      if (note !== undefined) {
+        await this.driverTenantRelationRepository.update(tenantId, relation.id, {
+          note,
+          updatedBy: actorId,
+        });
+      }
 
       await this.driverRepository.update(driverId, {
         fullName,
@@ -1065,45 +1103,58 @@ export class DriverService {
     }
   }
 
-  /** One row per driver-tenant relation, so the first call inserts and later calls overwrite it. */
+  /** Availability (active / on leave / medically unfit …) only means something once the driver has
+   *  joined, so a pending relation is refused. Onboarding seeds the first row via
+   *  writeOperationalStatus instead, since that relation is still pending. */
   async setOperationalStatus(
     tenantId: string,
     actorId: string,
     driverId: string,
     input: SetDriverOperationalStatusInput,
-    manager?: EntityManager,
   ): Promise<DriverOperationalStatusEntity> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId, manager);
-
-      const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
-      const existing = await this.driverRepository.findOperationalStatus(relation.id);
-
-      if (!existing) {
-        return await this.driverRepository.createOperationalStatus(
-          {
-            tenantId,
-            driverTenantRelationId: relation.id,
-            operationalStatus: input.operationalStatus,
-            reason: input.reason ?? null,
-            effectiveAt,
-            createdBy: actorId,
-          },
-          manager,
-        );
-      }
-
-      const status = await this.driverRepository.updateOperationalStatus(relation.id, {
-        operationalStatus: input.operationalStatus,
-        reason: input.reason ?? null,
-        effectiveAt,
-        updatedBy: actorId,
-      });
-      if (!status) throw new NotFoundError(`Driver ${driverId} has no operational status yet`);
-      return status;
+      const relation = await this.assertDriverExists(tenantId, driverId);
+      assertRelationActive(relation, 'cannot have its availability changed');
+      return await this.writeOperationalStatus(tenantId, actorId, relation.id, input);
     } catch (error) {
       rethrow(error, 'Failed to set driver operational status');
     }
+  }
+
+  /** One row per driver-tenant relation, so the first call inserts and later calls overwrite it. */
+  private async writeOperationalStatus(
+    tenantId: string,
+    actorId: string,
+    relationId: string,
+    input: SetDriverOperationalStatusInput,
+    manager?: EntityManager,
+  ): Promise<DriverOperationalStatusEntity> {
+    const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
+    const existing = await this.driverRepository.findOperationalStatus(relationId);
+
+    if (!existing) {
+      return await this.driverRepository.createOperationalStatus(
+        {
+          tenantId,
+          driverTenantRelationId: relationId,
+          operationalStatus: input.operationalStatus,
+          reason: input.reason ?? null,
+          effectiveAt,
+          createdBy: actorId,
+        },
+        manager,
+      );
+    }
+
+    const status = await this.driverRepository.updateOperationalStatus(relationId, {
+      operationalStatus: input.operationalStatus,
+      reason: input.reason ?? null,
+      effectiveAt,
+      updatedBy: actorId,
+    });
+    if (!status)
+      throw new NotFoundError(`Driver relation ${relationId} has no operational status yet`);
+    return status;
   }
 
   /** Metrics are unique per reporting period, so re-reporting a period overwrites it. */
@@ -1115,6 +1166,7 @@ export class DriverService {
   ): Promise<DriverTripMetricsEntity> {
     try {
       const relation = await this.assertDriverExists(tenantId, driverId);
+      assertRelationActive(relation, 'cannot have trip metrics recorded');
 
       if (input.periodEnd < input.periodStart) {
         throw new ValidationError('periodEnd must not be earlier than periodStart');
@@ -1175,12 +1227,20 @@ export class DriverService {
       const { verification, bankDetails, documents, operationalStatus, ...driverInput } = input;
 
       // The licence lookup runs here, server-side, rather than trusting a result the client sends —
-      // same as the bank check below and DriverIdentityService.completeRegistration. Outside the
-      // transaction, since the IDfy poll can take ~15s and shouldn't hold it open.
-      const licenceLookup = await this.dlVerificationClient.lookupDrivingLicence(
-        driverInput.licenseNumber,
-        driverInput.dateOfBirth,
-      );
+      // same as the bank check below and DriverIdentityService.completeRegistration. A result the
+      // bulk-import preview fetched (and cached) a moment ago is reused instead of paying for a
+      // second lookup. Outside the transaction, since the IDfy poll can take ~15s and shouldn't
+      // hold it open.
+      const licenceLookup =
+        (await getCachedLicenceLookup(
+          tenantId,
+          driverInput.licenseNumber,
+          driverInput.dateOfBirth,
+        )) ??
+        (await this.dlVerificationClient.lookupDrivingLicence(
+          driverInput.licenseNumber,
+          driverInput.dateOfBirth,
+        ));
       const licenceVerification: RecordVerificationInput =
         licenceLookup.status === 'manual_review' && verification
           ? // Registry couldn't confirm it — keep the details staff typed in for manual review.
@@ -1252,10 +1312,10 @@ export class DriverService {
           );
         }
 
-        await this.setOperationalStatus(
+        await this.writeOperationalStatus(
           tenantId,
           actorId,
-          driver.id,
+          relation.id,
           {
             operationalStatus: operationalStatus?.operationalStatus ?? 'active',
             reason: operationalStatus?.reason,

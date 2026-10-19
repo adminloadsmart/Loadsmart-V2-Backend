@@ -82,15 +82,26 @@ export interface UpdateStaffInput {
 // CreateStaffInput. Phone only, no email: see auth.service.ts's inviteOrganizationUser.
 export interface InviteOrganizationUserInput {
   fullName: string;
+  /** Work email (Settings → Users & Roles "Invite a User"). */
+  email: string;
+  /** Still required — every login path (/login, /login/otp/*) is phone-based. */
   phoneNumber: string;
   roleId: string;
+  basedAtLoadingPointId?: string | null;
 }
 
 export interface ListOrganizationUsersInput {
   search?: string;
   role?: string;
+  status?: 'active' | 'invited';
   page: number;
   limit: number;
+}
+
+/** Settings → Users & Roles "Change Seat": a new seat (role) and/or "Based at". */
+export interface ChangeOrganizationUserSeatInput {
+  roleId?: string;
+  basedAtLoadingPointId?: string | null;
 }
 
 export interface LoginInput extends Omit<DeviceCaptureInput, 'ipAddress'> {

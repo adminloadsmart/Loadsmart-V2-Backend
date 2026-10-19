@@ -3,7 +3,7 @@ import { CreateCustomerInput } from './customer.types';
 
 export const CUSTOMER_IMPORT_MAX_ROWS = 5000;
 
-const aliases: Record<keyof CreateCustomerInput, string[]> = {
+const aliases: Partial<Record<keyof CreateCustomerInput, string[]>> = {
   name: ['name', 'customername', 'customer', 'companyname', 'clientname', 'customerfullname'],
   mobile: [
     'mobile',
@@ -17,7 +17,12 @@ const aliases: Record<keyof CreateCustomerInput, string[]> = {
   email: ['email', 'emailid', 'emailaddress', 'mail'],
   gstin: ['gstin', 'gst', 'gstnumber', 'gstno', 'taxnumber'],
   contactPersonName: ['contactpersonname', 'contactname', 'personname'],
-  contactPersonNumber: ['contactpersonnumber', 'contactpersonmobile', 'contactmobile'],
+  contactPersonNumber: [
+    'contactpersonnumber',
+    'contactpersonmobile',
+    'contactmobile',
+    'contactphone',
+  ],
   contactPersonEmail: ['contactpersonemail', 'contactemail'],
   contactPersonDesignation: ['contactpersondesignation', 'contactdesignation', 'designation'],
   contactPersonDesignationOther: ['contactpersondesignationother', 'otherdesignation'],
@@ -41,7 +46,32 @@ const aliases: Record<keyof CreateCustomerInput, string[]> = {
   billingCity: ['billingcity'],
   billingState: ['billingstate'],
   billingPinCode: ['billingpincode', 'billingpin', 'billingzip'],
+  registeredAddress: ['registeredaddress', 'address', 'gstaddress'],
+  invoiceAgainst: ['invoiceagainst', 'invoicebasis', 'podbasis'],
+  creditLimit: ['creditlimit'],
+  balanceAmount: ['balanceamount', 'outstandingbalance', 'openingbalance'],
+  freeHoursAtDrop: ['freehoursatdrop', 'freehours'],
+  notes: ['notes', 'customnotes', 'remarks'],
 };
+
+const NUMERIC_FIELDS = new Set<keyof CreateCustomerInput>([
+  'advancePercentage',
+  'balancePercentage',
+  'creditDays',
+  'creditLimit',
+  'balanceAmount',
+  'freeHoursAtDrop',
+]);
+
+/** "Original POD" / "soft copy" → the enum value; anything else is passed through for the
+ *  validator to reject with a clear message. */
+function invoiceAgainstValue(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const normalized = normalizeHeader(raw);
+  if (normalized.includes('original')) return 'original_pod';
+  if (normalized.includes('soft')) return 'soft_copy';
+  return raw;
+}
 
 export interface ParsedImportRow {
   row: number;
@@ -63,7 +93,7 @@ export function normalizeHeader(value: string): string {
 function findField(header: string): keyof CreateCustomerInput | undefined {
   const normalized = normalizeHeader(header);
   const matches = (Object.keys(aliases) as (keyof CreateCustomerInput)[]).filter((field) =>
-    aliases[field].includes(normalized),
+    aliases[field]?.includes(normalized),
   );
   if (matches.length > 1) throw new Error(`Ambiguous column "${header}"`);
   return matches[0];
@@ -76,7 +106,7 @@ function value(row: Record<string, string>, header: string): string | undefined 
 
 function numberValue(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
-  const cleaned = raw.replace(/%|days?/gi, '').trim();
+  const cleaned = raw.replace(/%|days?|hours?|hrs?|₹|,|rs\.?/gi, '').trim();
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
@@ -142,20 +172,18 @@ export async function parseCustomerExcel(buffer: Buffer): Promise<ParsedCustomer
       mapping[header] = field;
     }
   }
-  for (const required of ['name', 'mobile'] as const) {
-    if (!Object.values(mapping).includes(required))
-      throw new Error(`Missing required column "${required}"`);
-  }
+  const mapped = Object.values(mapping);
+  if (!mapped.includes('name')) throw new Error('Missing required column "name"');
+  if (!mapped.includes('mobile') && !mapped.includes('gstin'))
+    throw new Error('Missing required column "gstin" or "mobile"');
 
   const rows = records.map((record, index) => {
     const data: Partial<CreateCustomerInput> = {};
     for (const [header, field] of Object.entries(mapping)) {
       const raw = value(record, header);
-      if (
-        field === 'advancePercentage' ||
-        field === 'balancePercentage' ||
-        field === 'creditDays'
-      ) {
+      if (field === 'invoiceAgainst') {
+        (data as Record<string, unknown>)[field] = invoiceAgainstValue(raw);
+      } else if (NUMERIC_FIELDS.has(field)) {
         if (field === 'creditDays' && normalizeHeader(header) === 'paymentterms') {
           Object.assign(data, paymentTermsValue(raw));
         } else {

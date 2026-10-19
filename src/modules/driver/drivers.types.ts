@@ -1,3 +1,5 @@
+import type { VehicleImportErrorCode } from '../masters/vehicle/vehicle-import.errors';
+
 /**
  * Driver-side value sets. Each is declared once here as a `const` tuple and everything else
  * derives from it — the union type below, the entity's `@Column({ enum: [...] })` and the request
@@ -208,3 +210,6 @@ export type DriverOnboardingStep = (typeof DRIVER_ONBOARDING_STEPS)[number];
 /** Answers on the driver app's Insurance screen — "Do you have health/life insurance?". */
 export const DRIVER_INSURANCE_ANSWERS = ['yes', 'no', 'dont_know'] as const;
 export type DriverInsuranceAnswer = (typeof DRIVER_INSURANCE_ANSWERS)[number];
+
+/** Same codes as the vehicle import, so the frontend renders both reports the same way. */
+export type DriverImportErrorCode = VehicleImportErrorCode;

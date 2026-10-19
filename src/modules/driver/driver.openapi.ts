@@ -63,7 +63,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'validTo, daysLeft, registry, eligibleToDrive }, `contact` { primaryMobile, bloodGroup, ' +
         'emergencyContact, engagementType, dateOfJoining, tenureYears, advanceOutstanding, ' +
         'compensation { salaryType, salaryAmount, bhattaPerDay } }, `assignment` { vehicle, ' +
-        'homeBase }, `availability` { operationalStatus, activeLoad, dispatchable }, ' +
+        'homeBase }, `availability` { activeLoad, dispatchable } (the operational status is the ' +
+        'top-level `operationalStatus` object), ' +
         '`performance` { totalTrips, onTimePercentage, driverScore, scoreStatus }, `knownLanes`, ' +
         '`behaviour`, `slaBreachTrips`. `scoreStatus` (new | strong | watch) is the score badge — ' +
         '`new` until the driver has 5 trips and a score, so a just-added driver is neutral. ' +
@@ -92,7 +93,7 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         '`engagementType` (on_roll | per_trip | vendor — how they are employed, separate from ' +
         '`salaryType`), `bhattaPerDay` (daily trip allowance), `advanceOutstanding` ' +
         '(hand-entered balance), `homeBase` (yard, free text) and `licenseEndorsements` ' +
-        "(e.g. ['hazmat']; replaces the whole list).",
+        "(e.g. ['hazmat']; replaces the whole list) and `note` (max 500; null clears it).",
     ),
     request: {
       params: driverValidators.updateDriver.shape.params,
@@ -497,7 +498,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         "is created `active` immediately; dispatch's is created `pending` until an org_admin " +
         'approves or rejects it via PATCH .../approve|reject. Also takes `emergencyContactRelation`, ' +
         '`engagementType` (on_roll | per_trip | vendor), `bhattaPerDay`, `advanceOutstanding`, ' +
-        '`homeBase` and `licenseEndorsements`.',
+        "`homeBase`, `licenseEndorsements` and `note` — this fleet's own note about the driver " +
+        "(max 500), stored on the fleet's link so other fleets never see it.",
     ),
     request: { body: json(driverValidators.onboardDriver.shape.body) },
     responses: {
@@ -507,6 +509,72 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         ...errorContent,
       },
       409: { description: 'Phone number already in use', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/import/preview`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.previewDriverImport',
+    ...write(
+      'Bulk upload, step 1. Reads an .xlsx with one row per driver (the onboardDriver fields, ' +
+        'flattened: bank details as bankAccountNumber/bankIfsc/bankAccountHolderName/bankUpiId, ' +
+        'operationalStatus/operationalStatusReason; no licence photos). phoneNumber, ' +
+        'licenseNumber and dateOfBirth columns are required. Also reads bloodGroup, ' +
+        'hasHealthInsurance/hasLifeInsurance (yes | no | dont_know), salaryType + salaryAmount, ' +
+        'bhattaPerDay and note (max 500). Headers match case/space-insensitively, and these ' +
+        'aliases are accepted: Monthly Salary/Salary/Pay → salaryAmount, Bhatta/Daily Bhatta → ' +
+        'bhattaPerDay, Health Insurance/Life Insurance, Blood → bloodGroup, Notes/Remarks/Comment ' +
+        '→ note. Validates every row, checks for ' +
+        'drivers that already exist, and runs the Sarathi lookup for each valid row. Nothing is ' +
+        'saved. Each row comes back as ready | needs_review | invalid with errors, warnings, the ' +
+        'Sarathi result and, unless invalid, `data` — the onboardDriver body to send to ' +
+        'POST /drivers/import once the admin approves it.',
+    ),
+    request: {
+      body: {
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'Excel file (.xlsx), maximum 5 MB and 100 rows.',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Row-by-row preview; nothing saved' },
+      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      403: { description: 'Not permitted to write masters', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/drivers/import`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.importDrivers',
+    ...write(
+      'Bulk upload, step 2. Saves the rows the admin approved on the preview — `drivers` is an ' +
+        'array of onboardDriver bodies (the `data` of each preview row). Each driver is onboarded ' +
+        'on its own, exactly like POST /drivers/onboard, so a bad row never blocks the others. ' +
+        'Sarathi results from the preview are reused for up to an hour instead of being paid for ' +
+        'again.',
+    ),
+    request: { body: json(driverValidators.importDrivers.shape.body) },
+    responses: {
+      201: { description: 'Per-driver result report: created (with driverId) or failed' },
+      400: { description: 'Validation failed', ...errorContent },
+      403: { description: 'Not permitted to write masters', ...errorContent },
     },
   });
 
@@ -532,7 +600,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.updateDriverStatus',
     ...write(
       'Set the operational status backing the My Drivers status dropdown (On trip / Active / On ' +
-        'leave). One row per driver — first call inserts, later calls overwrite.',
+        'leave). One row per driver — first call inserts, later calls overwrite. Only for drivers ' +
+        'who have joined (relation status `active`); pending drivers get a 400.',
     ),
     request: {
       params: driverValidators.setDriverOperationalStatus.shape.params,
@@ -540,7 +609,12 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Operational status' },
-      400: { description: 'Validation failed', ...errorContent },
+      400: {
+        description:
+          'Validation failed, or the driver has not joined yet (pending_driver_review / ' +
+          'pending_staff_review)',
+        ...errorContent,
+      },
       404: { description: 'Driver not found', ...errorContent },
     },
   });
@@ -553,7 +627,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.recordDriverTripMetrics',
     ...write(
-      'Record trip count and on-time percentage for a period. Re-reporting a period overwrites it.',
+      'Record trip count and on-time percentage for a period. Re-reporting a period overwrites it. ' +
+        'Only for drivers who have joined (relation status `active`).',
     ),
     request: {
       params: driverValidators.recordDriverTripMetrics.shape.params,
@@ -561,7 +636,11 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Trip metrics for the period' },
-      400: { description: 'Validation failed, or periodEnd before periodStart', ...errorContent },
+      400: {
+        description:
+          'Validation failed, periodEnd before periodStart, or the driver has not joined yet',
+        ...errorContent,
+      },
       404: { description: 'Driver not found', ...errorContent },
     },
   });

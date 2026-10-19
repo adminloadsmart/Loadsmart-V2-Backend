@@ -219,6 +219,7 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverController: driver.driverController,
+    driverImportController: driver.driverImportController,
     masterApprovalNotifier,
   });
 
@@ -402,7 +403,12 @@ export function buildContainer(dataSource: DataSource): Container {
 
   // No cross-module deps of its own — built before dashboards, which reads its service directly
   // (Settings → Approvals aggregates pending customers alongside pending vehicles/drivers).
-  const customers = createCustomersModule(dataSource, audit.service, masterApprovalNotifier);
+  const customers = createCustomersModule(
+    dataSource,
+    audit.service,
+    masters.gstVerificationService,
+    masterApprovalNotifier,
+  );
 
   // Built after customers/masters/storage — the Load module reads customers.service
   // (unloading-point validation) and masters' vehicle/transporter/truckType/loadingPoint/

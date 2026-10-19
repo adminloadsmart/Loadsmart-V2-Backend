@@ -80,6 +80,7 @@ export class OrganizationService {
       state: string | null;
       pinCode: string | null;
       hasOwnFleet: boolean | null;
+      seatLimit: number | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
       onlineKycCompletedAt: Date | null;
