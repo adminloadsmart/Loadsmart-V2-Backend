@@ -42,6 +42,7 @@ export function createTrackingEventHandlers(
     markArrivedAtPickup(tenantId: string, loadId: string, at: Date): Promise<boolean>;
     markDepartedPickup(tenantId: string, loadId: string, at: Date): Promise<boolean>;
     markReachedDeliveryPoint(tenantId: string, loadId: string, at: Date): Promise<boolean>;
+    markDepartedDrop(tenantId: string, loadId: string, at: Date): Promise<boolean>;
     notifyGeofenceTransition(notice: GeofenceTransitionNotice): Promise<void>;
   },
 ): TrackingEventHandlers {
@@ -108,9 +109,90 @@ export function createTrackingEventHandlers(
       }
       await deps.markReachedDeliveryPoint(event.tenantId, loadId, occurredAtOf(event));
     },
+    // LS_N_0032 / LS_N_0033 — the vehicle left the delivery point's geofence (before or after the
+    // E-POD). Records when; that ends unloading detention, and completes the trip once the E-POD
+    // is in too (the resolver checks) — else the E-POD completes it.
+    'trip.departed_drop': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      if (!loadId || !event.tenantId) {
+        console.warn(`tracking event ${event.eventId}: trip.departed_drop without loadId/tenantId`);
+        return;
+      }
+      await deps.markDepartedDrop(event.tenantId, loadId, occurredAtOf(event));
+      await triggers.enqueue('load.trip_completed', event.tenantId, { loadId });
+    },
     // The geofence's own enter / exit alert (any geofence type, trip or not).
     'geofence.entered': geofenceTransition('enter'),
     'geofence.exited': geofenceTransition('exit'),
+    // LS_N_0028 — far off route for 45 min and heading away from the drop (tracking decides).
+    'trip.route_deviation': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      const deviationStartedAt = dateOf(event.payload.deviationStartedAt);
+      const distanceOffKm = Number(event.payload.distanceOffKm);
+      const lat = Number(event.payload.lat);
+      const lng = Number(event.payload.lng);
+      if (
+        !loadId ||
+        !event.tenantId ||
+        !deviationStartedAt ||
+        ![distanceOffKm, lat, lng].every(Number.isFinite)
+      ) {
+        console.warn(`tracking event ${event.eventId}: trip.route_deviation missing fields`);
+        return;
+      }
+      await triggers.enqueue('load.route_deviation', event.tenantId, {
+        loadId,
+        deviationStartedAt: deviationStartedAt.toISOString(),
+        distanceOffKm,
+        lat,
+        lng,
+      });
+    },
+    // LS_N_0029 — no position for 4 h, 12 h, then daily, on a running trip.
+    'trip.signal_lost': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      const step = stringOf(event.payload.step);
+      const lastSeenAt = dateOf(event.payload.lastSeenAt);
+      if (!loadId || !event.tenantId || !step || !lastSeenAt) {
+        console.warn(`tracking event ${event.eventId}: trip.signal_lost missing fields`);
+        return;
+      }
+      await triggers.enqueue('load.tracking_signal_lost', event.tenantId, {
+        loadId,
+        step,
+        lastSeenAt: lastSeenAt.toISOString(),
+        lastLat: finiteOrNull(event.payload.lastLat),
+        lastLng: finiteOrNull(event.payload.lastLng),
+      });
+    },
+    // LS_N_0030 — the projected delay passed the company's limit, or doubled since the last one.
+    'trip.delivery_late': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      const delayMin = Number(event.payload.delayMin);
+      const sequence = Number(event.payload.sequence);
+      const promisedAt = dateOf(event.payload.promisedAt);
+      if (
+        !loadId ||
+        !event.tenantId ||
+        !promisedAt ||
+        !Number.isFinite(delayMin) ||
+        !Number.isInteger(sequence)
+      ) {
+        console.warn(`tracking event ${event.eventId}: trip.delivery_late missing fields`);
+        return;
+      }
+      const cause = stringOf(event.payload.delayCause);
+      await triggers.enqueue('load.delivery_late', event.tenantId, {
+        loadId,
+        sequence,
+        delayMin,
+        etaAt: dateOf(event.payload.etaAt)?.toISOString() ?? null,
+        promisedAt: promisedAt.toISOString(),
+        delayCause: cause === 'halts' || cause === 'deviation' ? cause : 'slow_progress',
+        causeMin: finiteOrNull(event.payload.causeMin),
+        speedKmh: finiteOrNull(event.payload.speedKmh),
+      });
+    },
     // LS_N_0027 — tracking's HALT-GPS alert (raised 10 min into an in-transit halt). Queues the
     // halt's 2 h and 6 h checks; each re-checks at send time that the truck is still standing
     // there, outside a known stop, with the ETA slipping (load-alerts.ts vehicleHalted). The
@@ -156,6 +238,9 @@ export function createTrackingEventHandlers(
     },
   };
 }
+
+const finiteOrNull = (value: unknown): number | null =>
+  value != null && Number.isFinite(Number(value)) ? Number(value) : null;
 
 const objectOf = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {};

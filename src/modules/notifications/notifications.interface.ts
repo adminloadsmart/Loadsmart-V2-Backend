@@ -222,6 +222,24 @@ export interface LoadAlertSnapshot {
   pickupDate: string | null;
   /** Posting pickup time — Post-a-load loads. */
   pickupAt: Date | null;
+  /** When the vehicle reached the delivery point (LS_N_0031/0032). */
+  reachedDeliveryPointAt: Date | null;
+  /** When the E-POD was first uploaded — unloading confirmed (LS_N_0033). */
+  deliveredAt: Date | null;
+  /** When the vehicle left the delivery point's geofence (LS_N_0032/0033); null without GPS. */
+  departedDropAt: Date | null;
+  /** Requisition's expected delivery date (YYYY-MM-DD) — the promised date (LS_N_0031). Post-a-
+   *  load loads have none. */
+  promisedDeliveryDate: string | null;
+  /** The customer's own free unloading hours; null → the company's (LS_N_0031/0032). */
+  customerFreeHoursAtDrop: number | null;
+}
+
+/** The company's detention terms (auth.organizations) — LS_N_0022/0023/0031/0032. */
+export interface DetentionTerms {
+  loadingFreeHours: number;
+  unloadingFreeHours: number;
+  ratePerHour: number;
 }
 
 /** A requisition as LS_N_0017 shows it when an own-fleet dispatch was blocked. */

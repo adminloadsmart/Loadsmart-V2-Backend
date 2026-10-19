@@ -233,6 +233,11 @@ export class LoadEntity {
   @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt!: Date | null;
 
+  /** When the vehicle left the delivery point's geofence (tracking's `trip.departed_drop`) — ends
+   *  unloading detention (LS_N_0032) and completes the trip (LS_N_0033). Null without GPS. */
+  @Column({ name: 'departed_drop_at', type: 'timestamptz', nullable: true })
+  departedDropAt!: Date | null;
+
   // --- E-POD — podFileKey, podReceiverName, podReceiverMobile, podReceiverDesignation,
   // podQuantityReceived and sealStatus are all captured together at uploadPod; only podRemarks
   // is optional. ---

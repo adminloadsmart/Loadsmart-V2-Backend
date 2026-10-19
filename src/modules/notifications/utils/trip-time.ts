@@ -15,6 +15,13 @@ export function reportingAtOf(pickupAt: Date | null, pickupDate: string | null):
   );
 }
 
+/** LS_N_0031 — a promised delivery date (YYYY-MM-DD) as a moment: only the date is recorded, so
+ *  the end of that day in India (23:59), same as tracking's promised_delivery_at. */
+export function promisedAtOf(promisedDate: string | null): Date | null {
+  if (!promisedDate) return null;
+  return new Date(Date.parse(`${promisedDate}T23:59:00Z`) - INDIA_UTC_OFFSET_MS);
+}
+
 /** "17 Oct, 14:30" in India time. */
 export function formatIndiaDateTime(at: Date | string): string {
   return new Intl.DateTimeFormat('en-GB', {

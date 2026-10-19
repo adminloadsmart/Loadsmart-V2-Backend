@@ -96,15 +96,18 @@ export const DEFAULT_REPORTING_TIME_IST = '10:00';
  *  60 min, then every 2 h, 3 alerts at most). From the second one (3 h) org admins are added. */
 export const NOT_REPORTED_ALERT_MINUTES = [60, 180, 300];
 
-/** LS_N_0022/0023 — free loading hours at the plant before detention starts, and the detention
- *  rate. Fixed placeholders until detention terms are configurable (org or customer contract). */
-export const FREE_LOADING_HOURS = 4;
-export const DETENTION_RATE_PER_HOUR = 500;
-/** LS_N_0023 — repeat the detention alert every this many hours while it continues. */
+// Free hours and the detention rate are the company's own (auth.organizations: loading_free_hours,
+// unloading_free_hours, detention_rate_per_hour — defaults 4 h / 4 h / ₹500 in the database); a
+// customer's free_hours_at_drop overrides the unloading one. See LoadAlertRepository.
+/** LS_N_0023/0032 — repeat the detention alert every this many hours while it continues. */
 export const DETENTION_REPEAT_HOURS = 4;
-/** LS_N_0023 — stop repeating once detention has run this long (12 alerts), so a load left "At
- *  plant" by mistake doesn't alert every 4 hours forever. */
+/** LS_N_0023/0032 — stop repeating once detention has run this long (12 alerts), so a load left
+ *  at a point by mistake doesn't alert every 4 hours forever. */
 export const DETENTION_ALERT_MAX_HOURS = 48;
+/** LS_N_0033 — how long after the E-POD the trip waits for tracking's exit from the delivery
+ *  point before completing without it (no GPS, or the exit was missed). Mirrors how long tracking
+ *  keeps following a delivered load (its trip-state.ts DELIVERED_FOLLOW_MS). */
+export const TRIP_COMPLETED_FALLBACK_MS = 24 * MS_PER_HOUR;
 
 /** LS_N_0017 — escalate to org admins this long after a blocked assignment, and don't alert the
  *  same blocked vehicle again within it (a user retrying the assignment). */

@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { ORGANIZATION_DOCUMENT_TYPES } from './entities/organization-document.entity';
 import { ORG_ADMIN_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import {
+  MAX_LATE_DELIVERY_THRESHOLD_MINUTES,
+  MIN_LATE_DELIVERY_THRESHOLD_MINUTES,
+} from './organization.constants';
 
 const uuid = z.string().uuid();
 
@@ -41,6 +45,19 @@ const organizationUserFilters = {
 };
 
 export const organizationValidators = {
+  // LS_N_0030's "late by more than" limit; null resets to the default (one day).
+  updateLateDeliverySetting: z.object({
+    body: z
+      .object({
+        thresholdMinutes: z
+          .number()
+          .int()
+          .min(MIN_LATE_DELIVERY_THRESHOLD_MINUTES)
+          .max(MAX_LATE_DELIVERY_THRESHOLD_MINUTES)
+          .nullable(),
+      })
+      .strict(),
+  }),
   createOrganization: z.object({
     body: z.object({
       companyLegalName: z.string().min(1),

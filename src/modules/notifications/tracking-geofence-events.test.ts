@@ -18,6 +18,7 @@ function setup() {
     markArrivedAtPickup: vi.fn(async () => true),
     markDepartedPickup: vi.fn(async () => true),
     markReachedDeliveryPoint: vi.fn(async () => true),
+    markDepartedDrop: vi.fn(async () => true),
     notifyGeofenceTransition: vi.fn(async () => undefined),
   };
   const enqueue = vi.fn(async () => undefined);
@@ -65,6 +66,22 @@ describe('tracking geofence events', () => {
     const { deps, enqueue, handlers } = setup();
     await handlers['trip.departed_pickup']!(event('trip.departed_pickup', { occurredAt: AT }));
     expect(deps.markDepartedPickup).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('trip.departed_drop records the departure and queues LS_N_0033', async () => {
+    const { deps, enqueue, handlers } = setup();
+    await handlers['trip.departed_drop']!(
+      event('trip.departed_drop', { loadId: 'load-1', occurredAt: AT }),
+    );
+    expect(deps.markDepartedDrop).toHaveBeenCalledWith('tenant-1', 'load-1', new Date(AT));
+    expect(enqueue).toHaveBeenCalledWith('load.trip_completed', 'tenant-1', { loadId: 'load-1' });
+  });
+
+  it('trip.departed_drop without a load is skipped', async () => {
+    const { deps, enqueue, handlers } = setup();
+    await handlers['trip.departed_drop']!(event('trip.departed_drop', { occurredAt: AT }));
+    expect(deps.markDepartedDrop).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();
   });
 

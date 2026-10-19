@@ -9,6 +9,7 @@ import { OrganizationJourneyStageService } from './organization-journey-stage.se
 import { ReferralCodeRepository } from './referral-code.repository';
 import { ReferralCodeService } from './referral-code.service';
 import { OrganizationController } from './organization.controller';
+import { OrganizationSettingsService } from './organization-settings.service';
 import { createOrganizationOnboardingRoutes as buildOnboardingRouter } from './organization.routes';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
@@ -84,8 +85,14 @@ export function createOrganizationModule(
 // has available after modules/auth/ itself has been built (which in turn depends on this
 // module's createOrganizationModule output). Mounted at '/auth' by composition-root.ts alongside
 // auth's own protectedRouter — see organization.routes.ts for why the URLs stay unchanged.
-export function createOrganizationOnboardingRoutes(authService: AuthService) {
-  const controller = new OrganizationController(authService);
+export function createOrganizationOnboardingRoutes(
+  authService: AuthService,
+  deps: { organizationService: OrganizationService; auditService: AuditService },
+) {
+  const controller = new OrganizationController(
+    authService,
+    new OrganizationSettingsService(deps.organizationService, deps.auditService),
+  );
   const router = buildOnboardingRouter(controller);
   return { router };
 }

@@ -179,6 +179,13 @@ export const env = {
   msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
   msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
   msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
+  // LS_N_0029 "tracking signal lost" (WhatsApp: first_name, vehicle_no, hours_since,
+  // last_location + an "Open load" button) and LS_N_0030 "delivery will be late" (WhatsApp:
+  // first_name, load_code, consignee, delay, revised_eta; DLT SMS: load code, revised ETA).
+  msg91WhatsappTemplateTrackingSignalLost:
+    process.env.MSG91_WHATSAPP_TEMPLATE_TRACKING_SIGNAL_LOST || undefined,
+  msg91WhatsappTemplateDeliveryLate: process.env.MSG91_WHATSAPP_TEMPLATE_DELIVERY_LATE || undefined,
+  msg91SmsTemplateDeliveryLate: process.env.MSG91_SMS_TEMPLATE_DELIVERY_LATE || undefined,
   // LS_N_0008 login OTP — optional WhatsApp copy of the same code (Meta-approved template whose
   // {{1}} is the OTP). Unset = SMS only, exactly as before.
   // TEMPORARY: mounts POST /v1/notifications/test/trigger-all (modules/notifications/test-trigger.ts)
@@ -236,6 +243,10 @@ export const env = {
   msg91WhatsappTemplateNotReported: process.env.MSG91_WHATSAPP_TEMPLATE_NOT_REPORTED || undefined,
   msg91WhatsappTemplateDetentionLoading:
     process.env.MSG91_WHATSAPP_TEMPLATE_DETENTION_LOADING || undefined,
+  // LS_N_0031 vehicle reached unloading point (SMS) / LS_N_0032 detention at unloading (WhatsApp).
+  msg91SmsTemplateReachedDrop: process.env.MSG91_SMS_TEMPLATE_REACHED_DROP || undefined,
+  msg91WhatsappTemplateDetentionUnloading:
+    process.env.MSG91_WHATSAPP_TEMPLATE_DETENTION_UNLOADING || undefined,
   // The loadsmart-tracking service's REST API (e.g. http://localhost:4100) — LS_N_0025/0026 read a
   // load's ETA from it. Optional: unset means no ETA (the notifications still go out without it).
   trackingApiUrl: process.env.TRACKING_API_URL || undefined,

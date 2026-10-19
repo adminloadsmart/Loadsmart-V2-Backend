@@ -305,4 +305,30 @@ export function registerOrganizationOnboardingOpenApi(registry: OpenAPIRegistry)
     ),
     responses: { 200: { description: 'Seats' } },
   });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organization/settings/late-delivery`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.getLateDeliverySetting',
+    ...orgAdminOnly(
+      'LS_N_0030 "delivery will be late": how late (minutes of projected delay past the committed delivery date) a load must run before its trackers are notified. Returns { thresholdMinutes, isDefault, defaultThresholdMinutes } — the default is 1440 (one day).',
+    ),
+    responses: { 200: { description: 'The limit in force' } },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/organization/settings/late-delivery`,
+    tags: [TAGS.AUTH],
+    operationId: 'auth.updateLateDeliverySetting',
+    ...orgAdminOnly(
+      'Set the LS_N_0030 limit: thresholdMinutes 30–10080 (7 days), or null to go back to the default (1440). The tracking service picks the change up within 5 minutes.',
+    ),
+    request: { body: json(organizationValidators.updateLateDeliverySetting.shape.body) },
+    responses: {
+      200: { description: 'The limit in force after the change' },
+      400: { description: 'Validation failed', ...errorContent },
+    },
+  });
 }

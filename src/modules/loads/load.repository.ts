@@ -430,4 +430,20 @@ export class LoadRepository {
       .execute();
     return result.affected === 1 ? this.findById(tenantId, id, manager) : null;
   }
+
+  /** Stamps `departedDropAt` once — only while the vehicle is at or past the delivery point and
+   *  no departure was recorded yet (a replayed event changes nothing). Returns the load if it
+   *  was stamped, else null. */
+  async markDepartedDrop(tenantId: string, id: string, at: Date): Promise<LoadEntity | null> {
+    const result = await this.loads
+      .createQueryBuilder()
+      .update(LoadEntity)
+      .set({ departedDropAt: at })
+      .where(
+        'id = :id AND tenant_id = :tenantId AND departed_drop_at IS NULL AND status IN (:...statuses)',
+        { id, tenantId, statuses: ['reached_delivery_point', 'delivered', 'closed'] },
+      )
+      .execute();
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
 }

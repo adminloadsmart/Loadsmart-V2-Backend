@@ -762,9 +762,31 @@ export class LoadService {
     }
   }
 
+  /** Tracking's `trip.departed_drop` (the vehicle left the delivery point's geofence) records when
+   *  it left — before or after the E-POD. It doesn't change the status (unloading is confirmed by
+   *  the E-POD), but ends unloading detention (LS_N_0032) and completes the trip (LS_N_0033).
+   *  Recorded once; returns whether it was. */
+  async markDepartedDrop(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const updated = await this.repository.markDepartedDrop(tenantId, loadId, at);
+      if (!updated) return false;
+      await this.auditService.log({
+        tenantId,
+        userId: null,
+        action: 'LOAD_DEPARTED_DROP_BY_TRACKING',
+        resourceType: 'load',
+        oldData: { id: loadId, departedDropAt: null },
+        newData: { id: loadId, status: updated.status, departedDropAt: at.toISOString() },
+      });
+      return true;
+    } catch (error) {
+      rethrow(error, 'Failed to record the departure from the delivery point');
+    }
+  }
+
   /** One tracking-driven step (no acting user): only from exactly `fromStatus`, never while the
    *  trip is on hold; timeline, audit and the stage's notification (LS_N_0022 at the plant, the
-   *  advance-due check in transit, the stage handoff at the drop) follow. */
+   *  advance-due check in transit, LS_N_0031 at the drop) follow. */
   private async advanceFromTracking(
     tenantId: string,
     loadId: string,

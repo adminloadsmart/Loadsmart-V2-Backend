@@ -124,6 +124,30 @@ export class OrganizationEntity {
   @Column({ name: 'seat_limit', type: 'integer', nullable: true })
   seatLimit!: number | null;
 
+  // LS_N_0030 "delivery will be late": notify once the projected delay exceeds this many minutes.
+  // Null → DEFAULT_LATE_DELIVERY_THRESHOLD_MINUTES. Set by the org admin (PATCH
+  // /auth/organization/settings/late-delivery); read by the tracking service, which decides.
+  @Column({ name: 'late_delivery_threshold_minutes', type: 'integer', nullable: true })
+  lateDeliveryThresholdMinutes!: number | null;
+
+  // Detention terms (LS_N_0023 at loading, LS_N_0032 at unloading). Defaults live in the database
+  // (4 h, 4 h, ₹500/h); a customer's own freeHoursAtDrop overrides unloadingFreeHours. Editable
+  // by the org admin from Settings later — nothing writes them yet.
+  @Column({ name: 'loading_free_hours', type: 'integer', default: 4 })
+  loadingFreeHours!: number;
+
+  @Column({ name: 'unloading_free_hours', type: 'integer', default: 4 })
+  unloadingFreeHours!: number;
+
+  @Column({
+    name: 'detention_rate_per_hour',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    default: 500,
+  })
+  detentionRatePerHour!: string;
+
   @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
   documents!: OrganizationDocumentEntity[];
 

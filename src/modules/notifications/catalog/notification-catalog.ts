@@ -8,13 +8,17 @@ import {
   PAYMENTS_MANAGE,
   TRIP_TRACK,
 } from '../../../shared/constants/permissions';
-import { ORG_ADMIN_ROLE, DISPATCH_ROLE, DOCUMENTS_OPS_ROLE } from '../../../shared/constants/roles';
+import { ORG_ADMIN_ROLE, DISPATCH_ROLE } from '../../../shared/constants/roles';
 import { env } from '../../../config/env';
 import { toInternationalIndianNumber } from '../../../shared/utils/phone-number';
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
-import { LoadStageHandoffStage } from '../notifications.types';
 import { LoadPersonRef, NextPlannedTrip } from '../notifications.interface';
-import { ASSIGNMENT_BLOCK_ALERT_WINDOW_MS, VehicleHaltStep } from '../notifications.constants';
+import {
+  ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
+  MS_PER_HOUR,
+  MS_PER_MINUTE,
+  VehicleHaltStep,
+} from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
 import { formatIndiaDateTime } from '../utils/trip-time';
 import type { AssignmentComplianceSubject } from '../../loads/utils/loads.types';
@@ -401,12 +405,6 @@ export interface LoadSummary {
   consignee?: string | null;
 }
 
-export interface LoadStageContext extends LoadSummary {
-  stage: LoadStageHandoffStage;
-  /** When the stage was reached (ISO). */
-  at: string;
-}
-
 export interface EwayBillExpiryContext extends LoadSummary {
   /** The generation this alert is for — a regenerated bill makes this one stale (ISO). */
   generatedAt: string;
@@ -479,6 +477,71 @@ export interface DetentionAtLoadingContext extends LoadSummary {
   ratePerHour?: string;
 }
 
+/** LS_N_0031 — from the manual "Reached delivery point" step or tracking's geofence entry. */
+export interface VehicleReachedDropContext extends LoadSummary {
+  /** When the vehicle reached the delivery point (ISO). */
+  arrivedAt: string;
+  // Filled in by the resolver:
+  /** End of the promised delivery day, IST (ISO); null when the load has no promised date. */
+  promisedAt?: string | null;
+  freeTimeEndsAt?: string | null;
+}
+
+/** LS_N_0032 — queued by the trip-timing sweep for each 4-hour step of unloading detention. */
+export interface DetentionAtUnloadingContext extends LoadSummary {
+  /** When the vehicle reached the delivery point (ISO) — the detention clock's start. */
+  arrivedAt: string;
+  /** 0 at the free-time boundary, then one per DETENTION_REPEAT_HOURS. */
+  step: number;
+  // Filled in by the resolver:
+  destination?: string | null;
+  hoursAtDestination?: number;
+  freeHours?: number;
+  /** "₹2,000" — billable hours beyond the free time × the rate. */
+  amount?: string;
+}
+
+/** LS_N_0033 — queued on the E-POD (now, and once more after TRIP_COMPLETED_FALLBACK_MS) and on
+ *  tracking's exit from the delivery point; the resolver sends it once both have happened. */
+export interface TripCompletedContext extends LoadSummary {
+  /** The post-E-POD retry: complete even though tracking never saw the vehicle leave. */
+  fallback?: boolean;
+  // Filled in by the resolver:
+  createdBy?: string | null;
+  quantityTonnes?: string | null;
+  /** When the vehicle left the delivery point (ISO); null when tracking never saw it leave. */
+  departedAt?: string | null;
+}
+
+/** "26 h" reads badly for a late delivery: "1 day 2 h" / "2 days" / else durationOf. */
+function delayOf(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const days = Math.floor(total / 1440);
+  if (!days) return durationOf(total);
+  const hours = Math.floor((total % 1440) / 60);
+  return `${days} ${days === 1 ? 'day' : 'days'}${hours ? ` ${hours} h` : ''}`;
+}
+
+/** LS_N_0030's "Main reason: …". */
+function delayReasonOf(context: DeliveryLateContext): string {
+  switch (context.delayCause) {
+    case 'halts':
+      return `long halts on the way (${durationOf(context.causeMin ?? 0)} stopped)`;
+    case 'deviation':
+      return `off the planned route for ${durationOf(context.causeMin ?? 0)}`;
+    default:
+      return context.speedKmh
+        ? `slow progress (about ${context.speedKmh} km/h)`
+        : 'slow progress on the route';
+  }
+}
+
+/** " Check with Ramesh on 98765 00000" style driver line; '' when neither is known. */
+function driverContactOf(name?: string | null, phone?: string | null): string {
+  if (name && phone) return `${name} on ${phone}`;
+  return name ?? phone ?? '';
+}
+
 /** "45 min" / "1 h 20 min" / "3 h". */
 function durationOf(minutes: number): string {
   const total = Math.max(0, Math.round(minutes));
@@ -524,6 +587,58 @@ export interface VehicleHaltedContext extends LoadSummary {
   haltDurationMin?: number;
   driverName?: string | null;
   driverPhone?: string | null;
+}
+
+/** LS_N_0028 — from tracking's `trip.route_deviation` notice (tracking-events.consumer.ts): the
+ *  truck has been over 15 km off every planned route for 45 min and is heading away from the drop. */
+export interface RouteDeviationContext extends LoadSummary {
+  /** When this deviation began (ISO) — one notification per deviation. */
+  deviationStartedAt: string;
+  /** How far off the route the truck was when it qualified. */
+  distanceOffKm: number;
+  lat: number;
+  lng: number;
+  // Filled in by the resolver:
+  /** Tracking's place name for the truck's position, else "lat, lng". */
+  location?: string | null;
+  revisedEtaAt?: string | null;
+  deviationDurationMin?: number;
+  driverName?: string | null;
+  driverPhone?: string | null;
+}
+
+/** LS_N_0029 — from tracking's `trip.signal_lost` notice: no position for 4 h, 12 h, then daily. */
+export interface TrackingSignalLostContext extends LoadSummary {
+  /** '4h' | '12h' | 'day_1', 'day_2', … — one notification per step of one silence. */
+  step: string;
+  /** The last position (ISO) — or when the trip started running, if none since. */
+  lastSeenAt: string;
+  lastLat: number | null;
+  lastLng: number | null;
+  // Filled in by the resolver:
+  lastLocation?: string | null;
+  hoursSince?: number;
+  destination?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+}
+
+/** LS_N_0030 — from tracking's `trip.delivery_late` notice: the projected delay passed the
+ *  company's limit (org setting, default one day); again each time the delay doubles. */
+export interface DeliveryLateContext extends LoadSummary {
+  /** 1 for the first notice on this load, 2 once the delay doubled, … */
+  sequence: number;
+  delayMin: number;
+  /** Tracking's projected arrival (ISO); null when it has no fresh ETA (already past promised). */
+  etaAt: string | null;
+  promisedAt: string;
+  /** What tracking measured as the main cause. */
+  delayCause: 'halts' | 'deviation' | 'slow_progress';
+  causeMin: number | null;
+  speedKmh: number | null;
+  // Filled in by the resolver:
+  destination?: string | null;
+  createdBy?: string | null;
 }
 
 export interface PodUploadedContext extends LoadSummary {
@@ -621,6 +736,21 @@ const formatIndiaTime = (iso: string) =>
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(iso));
+
+/** "21 Oct" in India time. */
+const formatIndiaDate = (iso: string) =>
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(iso));
+
+/** LS_N_0031's "{{early_late}}": "2 h early" / "1 day 3 h late" / "on time" against `due`. */
+function earlyLateOf(at: string, due: string): string {
+  const minutes = (new Date(at).getTime() - new Date(due).getTime()) / 60_000;
+  if (Math.abs(minutes) < 1) return 'on time';
+  return minutes < 0 ? `${delayOf(-minutes)} early` : `${delayOf(minutes)} late`;
+}
 
 /** Metadata every load-event card carries. */
 function loadMetadataOf(context: LoadSummary): Record<string, string> {
@@ -1656,49 +1786,6 @@ export const NOTIFICATION_CATALOG = {
     },
   },
 
-  // Trip stage handoff — fired by LoadService when a load reaches its delivery point (manual
-  // tracking — no GPS geofence yet). Leaving the loading point is LS_N_0026
-  // ('load.vehicle_in_transit') now, so this only sends the reached-delivery card until LS_N_0031
-  // gets its own rules. See load-alerts.ts.
-  'load.stage_handoff': {
-    label: 'Stage handoff',
-    category: 'trip_execution',
-    description: 'Vehicle reached the delivery point.',
-    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push'],
-    severity: 'p3_info',
-    dedupeKey: (context: LoadStageContext) => `${context.loadId}-${context.stage}`,
-    buildContent: (context: LoadStageContext) => {
-      const vehicleLabel = context.vehicleNo ?? context.loadCode ?? 'The load';
-      const hasReachedDestination = context.stage === 'reached_delivery_point';
-      const [originCity, destinationCity] = context.route?.split(' to ') ?? [];
-      const placeName = hasReachedDestination
-        ? (destinationCity ?? 'the delivery point')
-        : (originCity ?? 'the plant');
-      return {
-        title: hasReachedDestination
-          ? `${vehicleLabel} reached ${placeName}`
-          : `${vehicleLabel} left ${placeName}`,
-        body: hasReachedDestination
-          ? `Load ${context.loadCode} reached the delivery point at ${formatIndiaTime(context.at)}${
-              context.consignee ? ` for ${context.consignee}` : ''
-            }. E-POD is next.`
-          : `Load ${context.loadCode} is in transit since ${formatIndiaTime(context.at)}${
-              context.route ? `, ${context.route}` : ''
-            }.`,
-        highlights: [vehicleLabel],
-        metadata: {
-          ...loadMetadataOf(context),
-          stage: context.stage,
-          stage_at: context.at,
-          cta_label: 'View load',
-          cta_path: `/loads/${context.loadId}`,
-        },
-      };
-    },
-  },
-
   // LS_N_0025 — queued by LoadService when the e-way bill is generated, to send
   // EWAY_BILL_ALERT_LEAD_MS (1 hour) before its expiry. The expiry is still the 2-hour placeholder
   // (LoadService.getEwayBillExpiry — no ULIP validity yet), so of the sheet's 12 h / 4 h / 1 h
@@ -1905,8 +1992,9 @@ export const NOTIFICATION_CATALOG = {
   // LS_N_0022 — the vehicle reached the loading point: fired by the manual "At plant" step
   // (LoadService.updateStatus) or tracking's `trip.arrived_at_pickup` geofence entry (which also
   // moves the load to "At plant"), whichever comes first — once per trip. Early/late is against
-  // the reporting time (see DEFAULT_REPORTING_TIME_IST); free time is FREE_LOADING_HOURS from
-  // arrival (a fixed placeholder). In-app + push, P3, to trip.track holders.
+  // the reporting time (see DEFAULT_REPORTING_TIME_IST); free time is the company's loading free
+  // hours from arrival (auth.organizations, 4 h by default). In-app + push, P3, to trip.track
+  // holders.
   'load.vehicle_reached_pickup': {
     label: 'Vehicle reached loading point',
     category: 'trip_execution',
@@ -1953,11 +2041,11 @@ export const NOTIFICATION_CATALOG = {
   },
 
   // LS_N_0023 — the trip-timing sweep sends this once the vehicle has been at the loading point
-  // for FREE_LOADING_HOURS, then every DETENTION_REPEAT_HOURS while it stays. The clock runs from
+  // for the company's loading free hours, then every DETENTION_REPEAT_HOURS while it stays. The clock runs from
   // "At plant" (the geofence entry, or the manual tap) until the vehicle leaves: its geofence exit
   // (tracking's departure moves the load to "In transit") when the geofence saw it arrive, else
-  // loading confirmed. Free hours and DETENTION_RATE_PER_HOUR are fixed
-  // placeholders until detention terms are configurable. No reason-recording feature exists, so
+  // loading confirmed. Free hours and the rate are the company's (auth.organizations — 4 h and
+  // ₹500/h by default). No reason-recording feature exists, so
   // the button opens the load. In-app + push + WhatsApp, P2, to trip.track and payments holders
   // (the sheet's "payment.view").
   'load.detention_at_loading': {
@@ -1993,6 +2081,148 @@ export const NOTIFICATION_CATALOG = {
           detention_amount: context.amount ?? '',
           rate_per_hour: context.ratePerHour ?? '',
           ladder_step: String(context.step),
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0031 — the vehicle reached the delivery point: fired by the manual "Reached delivery
+  // point" step (LoadService.updateStatus) or tracking's `trip.arrived_at_drop` geofence entry
+  // (which also moves the load there), whichever comes first — once per trip. Early/late is
+  // against the promised delivery date (the end of that day — only a date is recorded; Post-a-load
+  // loads have none, so it's left out); free time is the customer's free hours at drop, else the
+  // company's. In-app + push + SMS, P3, to trip.track holders. Replaces the old generic
+  // 'load.stage_handoff' card.
+  'load.vehicle_reached_drop': {
+    label: 'Vehicle reached unloading point',
+    category: 'trip_execution',
+    description: 'The vehicle has arrived at the delivery point.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push', 'sms'],
+    defaultChannels: ['push', 'sms'],
+    severity: 'p3_info',
+    dedupeKey: (context: VehicleReachedDropContext) => context.loadId,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateReachedDrop,
+        variables: { var1: 'vehicle_no', var2: 'consignee' },
+      },
+    },
+    buildContent: (context: VehicleReachedDropContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const consignee = context.consignee ?? 'the delivery point';
+      const earlyLate = context.promisedAt
+        ? `, ${earlyLateOf(context.arrivedAt, context.promisedAt)} against ${formatIndiaDate(context.promisedAt)}`
+        : '';
+      const freeTime = context.freeTimeEndsAt
+        ? ` Free unloading time ends at ${formatIndiaDateTime(context.freeTimeEndsAt)}.`
+        : '';
+      return {
+        title: `${vehicleNo} reached ${consignee}`,
+        body: `Arrived at ${formatIndiaTime(context.arrivedAt)}${earlyLate}.${freeTime}`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          arrival_time: formatIndiaTime(context.arrivedAt),
+          arrived_at: context.arrivedAt,
+          early_late: context.promisedAt ? earlyLateOf(context.arrivedAt, context.promisedAt) : '',
+          promised_date: context.promisedAt ? formatIndiaDate(context.promisedAt) : '',
+          promised_at: context.promisedAt ?? '',
+          free_time_end: context.freeTimeEndsAt ? formatIndiaDateTime(context.freeTimeEndsAt) : '',
+          free_time_ends_at: context.freeTimeEndsAt ?? '',
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0032 — the trip-timing sweep sends this once the vehicle has been at the delivery point
+  // for its free hours (the customer's free hours at drop, else the company's), then every
+  // DETENTION_REPEAT_HOURS while it stays, up to DETENTION_ALERT_MAX_HOURS. The clock runs from
+  // reaching the delivery point until the vehicle leaves: tracking's exit from the drop geofence
+  // when the geofence saw it arrive (tracking follows a delivered load until then), else the
+  // E-POD. The amount is the hours beyond the free time × the company's rate. The sheet's "Record
+  // the reason" button waits for a reason-recording feature — it opens the load for now.
+  // In-app + push + WhatsApp, P2, to trip.track and payments holders (the sheet's "payment.view").
+  'load.detention_at_unloading': {
+    label: 'Detention started at unloading',
+    category: 'trip_execution',
+    description: 'The vehicle has been at the delivery point beyond the free hours.',
+    recipientRoles: [],
+    recipientPermission: () => [{ permission: TRIP_TRACK }, { permission: PAYMENTS_MANAGE }],
+    channels: ['push', 'whatsapp'],
+    defaultChannels: ['push', 'whatsapp'],
+    severity: 'p2_action',
+    dedupeKey: (context: DetentionAtUnloadingContext) => `${context.loadId}-${context.step}`,
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateDetentionUnloading,
+        variables: ['first_name', 'vehicle_no', 'consignee', 'detention_amount'],
+      },
+    },
+    buildContent: (context: DetentionAtUnloadingContext, recipient) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const consignee = context.consignee ?? 'the consignee';
+      const destination = context.destination ?? context.consignee ?? 'the delivery point';
+      return {
+        title: `Detention started at ${context.consignee ?? destination}`,
+        body: `${vehicleNo} has been at ${destination} for ${context.hoursAtDestination} hours against ${context.freeHours} free. ${context.amount} is billable to ${consignee}.`,
+        highlights: [vehicleNo, context.amount ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
+          destination: context.destination ?? '',
+          arrived_at: context.arrivedAt,
+          detention_hrs: String(context.hoursAtDestination ?? ''),
+          free_hours: String(context.freeHours ?? ''),
+          detention_amount: context.amount ?? '',
+          ladder_step: String(context.step),
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0033 — the trip is done at the drop: unloading confirmed (the E-POD) and the vehicle has
+  // left the delivery point (tracking's exit from the drop geofence), whichever comes last. When
+  // there's no exit to wait for (a manual arrival), the E-POD alone completes it; when tracking
+  // never reports the exit, TRIP_COMPLETED_FALLBACK_MS after the E-POD. Not the load's "Closed"
+  // status (that waits on E-POD review and payments). The sheet's cost line ("Trip closed at
+  // {{actual_cost}} against a plan of {{planned_cost}}") waits for trip expenses, which aren't
+  // recorded yet. In-app only, P3, to trip.track holders plus the user who created the load.
+  'load.trip_completed': {
+    label: 'Unloading complete, trip closed',
+    category: 'trip_execution',
+    description: 'The vehicle has unloaded and left the delivery point.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    alsoNotifyUserId: (context: TripCompletedContext) => context.createdBy ?? null,
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: TripCompletedContext) => context.loadId,
+    buildContent: (context: TripCompletedContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const unloaded = context.quantityTonnes
+        ? `unloaded ${Number(context.quantityTonnes)} MT`
+        : 'unloaded';
+      const at = context.consignee ? ` at ${context.consignee}` : '';
+      const left = context.departedAt ? ` and left at ${formatIndiaTime(context.departedAt)}` : '';
+      return {
+        title: `${context.loadCode ?? 'Load'} delivered`,
+        body: `${vehicleNo} ${unloaded}${at}${left}.`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          quantity: context.quantityTonnes ?? '',
+          uom: context.quantityTonnes ? 'MT' : '',
+          departure_time: context.departedAt ? formatIndiaTime(context.departedAt) : '',
+          departed_at: context.departedAt ?? '',
           cta_label: 'View load',
           cta_path: `/loads/${context.loadId}`,
         },
@@ -2099,6 +2329,182 @@ export const NOTIFICATION_CATALOG = {
           cta_path: `/loads/${context.loadId}`,
           // "+919876500000"; left out when the driver has no valid number.
           ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // LS_N_0028 — tracking's `trip.route_deviation` notice (tracking-events.consumer.ts): more than
+  // 15 km off every planned route for 45 min AND heading away from the drop (further from it than
+  // 15 min earlier) — so service roads, toll bypasses and diversions closing in on the drop don't
+  // fire. One per deviation; tracking re-arms it only after the truck rejoins the corridor. Sent
+  // only while the load is still in transit. P2, in-app + push to trip.track holders.
+  'load.route_deviation': {
+    label: 'Route deviation',
+    category: 'trip_execution',
+    description: 'A vehicle is far off its planned route and heading away from the destination.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: RouteDeviationContext) =>
+      `${context.loadId}-${context.deviationStartedAt}`,
+    buildContent: (context: RouteDeviationContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const distanceOff = `${Math.round(context.distanceOffKm)}`;
+      const location = context.location ?? `${context.lat.toFixed(4)}, ${context.lng.toFixed(4)}`;
+      const duration = durationOf(
+        context.deviationDurationMin ??
+          (Date.now() - new Date(context.deviationStartedAt).getTime()) / MS_PER_MINUTE,
+      );
+      const revisedEta = context.revisedEtaAt ? formatIndiaDateTime(context.revisedEtaAt) : '';
+      const driver = driverContactOf(context.driverName, context.driverPhone);
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${vehicleNo} is off route`,
+        body:
+          `${distanceOff} km off the planned route near ${location} for ${duration}.` +
+          (revisedEta ? ` ETA is now ${revisedEta}.` : '') +
+          ` Check with ${driver || 'the driver'} whether this is a planned diversion.`,
+        highlights: [vehicleNo, `${distanceOff} km`],
+        metadata: {
+          ...loadMetadataOf(context),
+          distance_off: distanceOff,
+          location,
+          deviation_duration: duration,
+          deviation_started_at: context.deviationStartedAt,
+          revised_eta: revisedEta,
+          revised_eta_at: context.revisedEtaAt ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // LS_N_0029 — tracking's `trip.signal_lost` notice: a running trip (At plant to delivery) with
+  // no position from any source for 4 h; again at 12 h, then once a day. Silence is the failure
+  // mode — a dead device otherwise looks like a smooth trip. Sent only while the load is still
+  // running and no newer position has arrived. P2, in-app + push + WhatsApp to trip.track holders.
+  'load.tracking_signal_lost': {
+    label: 'Tracking signal lost',
+    category: 'trip_execution',
+    description: 'No position has been received from a vehicle on a running trip for hours.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push', 'whatsapp'],
+    defaultChannels: ['push', 'whatsapp'],
+    severity: 'p2_action',
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateTrackingSignalLost,
+        variables: ['first_name', 'vehicle_no', 'hours_since', 'last_location'],
+      },
+    },
+    dedupeKey: (context: TrackingSignalLostContext) =>
+      `${context.loadId}-${context.lastSeenAt}-${context.step}`,
+    buildContent: (context: TrackingSignalLostContext, recipient) => {
+      const vehicleNo = context.vehicleNo ?? 'the vehicle';
+      const hoursSince = String(
+        context.hoursSince ??
+          Math.floor((Date.now() - new Date(context.lastSeenAt).getTime()) / MS_PER_HOUR),
+      );
+      const lastLocation =
+        context.lastLocation ??
+        (context.lastLat != null && context.lastLng != null
+          ? `${context.lastLat.toFixed(4)}, ${context.lastLng.toFixed(4)}`
+          : 'no position yet on this trip');
+      const lastPingTime = formatIndiaDateTime(context.lastSeenAt);
+      const loadCode = context.loadCode ?? 'the load';
+      const destination = context.destination ?? 'the destination';
+      const driver = driverContactOf(context.driverName, context.driverPhone);
+      const transporter = context.transporterName ?? 'the transporter';
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `No tracking signal from ${vehicleNo}`,
+        body:
+          `Last position ${lastLocation} at ${lastPingTime}, ${hoursSince} hours ago, on ${loadCode} to ${destination}.` +
+          ` Call ${driver || 'the driver'} or ask ${transporter} to check the device.`,
+        highlights: [vehicleNo, `${hoursSince} hours`],
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
+          hours_since: hoursSince,
+          last_location: lastLocation,
+          last_ping_time: lastPingTime,
+          last_seen_at: context.lastSeenAt,
+          signal_step: context.step,
+          destination: context.destination ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // LS_N_0030 — tracking's `trip.delivery_late` notice: the projected ETA is past the committed
+  // delivery date by more than the company's limit (Settings, auth.organizations
+  // .late_delivery_threshold_minutes; default one day), on two evaluations in a row; again only
+  // each time the delay doubles. Sent only while the load is still in transit. P2, in-app + push +
+  // WhatsApp + SMS to trip.track holders plus whoever created the load.
+  'load.delivery_late': {
+    label: 'Delivery will be late',
+    category: 'trip_execution',
+    description: 'A load is projected to reach its destination well after the committed date.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    alsoNotifyUserId: (context: DeliveryLateContext) => context.createdBy ?? null,
+    channels: ['push', 'whatsapp', 'sms'],
+    defaultChannels: ['push', 'whatsapp', 'sms'],
+    severity: 'p2_action',
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateDeliveryLate,
+        variables: ['first_name', 'load_code', 'consignee', 'delay', 'revised_eta'],
+      },
+      sms: {
+        templateId: env.msg91SmsTemplateDeliveryLate,
+        variables: { var1: 'load_code', var2: 'revised_eta' },
+      },
+    },
+    dedupeKey: (context: DeliveryLateContext) => `${context.loadId}-${context.sequence}`,
+    buildContent: (context: DeliveryLateContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      const loadCode = context.loadCode ?? 'Your load';
+      const destination = context.destination ?? 'its destination';
+      const delay = delayOf(context.delayMin);
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const consignee = context.consignee ?? destination;
+      const revisedEta = context.etaAt ? formatIndiaDateTime(context.etaAt) : 'not yet known';
+      const promisedDate = formatIndiaDateTime(context.promisedAt);
+      const reason = delayReasonOf(context);
+      return {
+        title: `${loadCode} will reach ${destination} ${delay} late`,
+        body:
+          `${firstName}, ${vehicleNo} is now expected at ${consignee} on ${revisedEta} against a commitment of ${promisedDate}.` +
+          ` Main reason: ${reason}. Tell the consignee or move the delivery slot.`,
+        highlights: [loadCode, delay],
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstName,
+          destination: context.destination ?? '',
+          delay,
+          delay_minutes: String(context.delayMin),
+          revised_eta: revisedEta,
+          revised_eta_at: context.etaAt ?? '',
+          promised_date: promisedDate,
+          promised_at: context.promisedAt,
+          delay_reason: reason,
+          late_sequence: String(context.sequence),
+          cta_label: 'Notify consignee',
+          cta_path: `/loads/${context.loadId}`,
         },
       };
     },

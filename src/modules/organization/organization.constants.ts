@@ -103,3 +103,10 @@ export const DOCUMENT_NUMBER_REGEX: Record<
 // Enforced both at the API boundary (admin.validators.ts's createReferralCode) and again in
 // referral-code.service.ts (defense in depth for any other caller of createCode).
 export const REFERRAL_CODE_REGEX = /^[A-Z0-9_-]{4,40}$/;
+
+/** LS_N_0030 "delivery will be late" — the company's limit when its org admin never set one:
+ *  late by more than a day. Mirrored by the tracking service (delay.monitor.ts), which decides. */
+export const DEFAULT_LATE_DELIVERY_THRESHOLD_MINUTES = 24 * 60;
+/** Bounds an org admin may set: 30 minutes to 7 days. */
+export const MIN_LATE_DELIVERY_THRESHOLD_MINUTES = 30;
+export const MAX_LATE_DELIVERY_THRESHOLD_MINUTES = 7 * 24 * 60;

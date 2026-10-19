@@ -176,7 +176,10 @@ export function buildContainer(dataSource: DataSource): Container {
   // `organization` above, since it needs auth.service (createOrganization etc. also mutate the
   // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
   // before this was its own router — see modules/organization/organization.routes.ts.
-  const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
+  const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service, {
+    organizationService: organization.organizationService,
+    auditService: audit.service,
+  });
 
   // The one dispatcher every notification trigger site below calls against a domain catalog (see
   // modules/notifications/catalog/*) — currently just vehicle compliance (WhatsApp/push); the
@@ -383,7 +386,6 @@ export function buildContainer(dataSource: DataSource): Container {
       // LS_N_0054 — reads the breakdown report and its trip at send time.
       'load.breakdown_reported': createBreakdownResolver(dataSource),
       // Load events (load-alerts.ts) — read the load at send time; null once no longer relevant.
-      'load.stage_handoff': loadAlertResolvers.stageHandoff,
       'load.eway_bill_expiry': loadAlertResolvers.ewayBillExpiry,
       'load.pod_uploaded': loadAlertResolvers.podUploaded,
       'load.advance_due': loadAlertResolvers.advanceDue,
@@ -395,10 +397,19 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.vehicle_in_transit': loadAlertResolvers.vehicleInTransit,
       // LS_N_0027 vehicle halted (from tracking's HALT-GPS alert; 2 h, and again at 6 h).
       'load.vehicle_halted': loadAlertResolvers.vehicleHalted,
+      // LS_N_0028 off route / LS_N_0029 signal lost / LS_N_0030 delivery late (tracking notices).
+      'load.route_deviation': loadAlertResolvers.routeDeviation,
+      'load.tracking_signal_lost': loadAlertResolvers.trackingSignalLost,
+      'load.delivery_late': loadAlertResolvers.deliveryLate,
       // LS_N_0021 not reported / LS_N_0022 reached loading point / LS_N_0023 detention at loading.
       'load.vehicle_not_reported': loadAlertResolvers.vehicleNotReported,
       'load.vehicle_reached_pickup': loadAlertResolvers.vehicleReachedPickup,
       'load.detention_at_loading': loadAlertResolvers.detentionAtLoading,
+      // LS_N_0031 reached unloading point / LS_N_0032 detention at unloading / LS_N_0033 trip
+      // completed (E-POD + tracking's exit from the drop).
+      'load.vehicle_reached_drop': loadAlertResolvers.vehicleReachedDrop,
+      'load.detention_at_unloading': loadAlertResolvers.detentionAtUnloading,
+      'load.trip_completed': loadAlertResolvers.tripCompleted,
       // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
       'vehicle.back_in_service': createBackInServiceResolver({
         dataSource,
@@ -553,6 +564,8 @@ export function buildContainer(dataSource: DataSource): Container {
             loads.loadService.markArrivedAtPickup(tenantId, loadId, at),
           markDepartedPickup: (tenantId, loadId, at) =>
             loads.loadService.markDepartedPickup(tenantId, loadId, at),
+          markDepartedDrop: (tenantId, loadId, at) =>
+            loads.loadService.markDepartedDrop(tenantId, loadId, at),
           markReachedDeliveryPoint: (tenantId, loadId, at) =>
             loads.loadService.markReachedDeliveryPoint(tenantId, loadId, at),
           notifyGeofenceTransition: (notice) => geofences.service.notifyTransition(notice),

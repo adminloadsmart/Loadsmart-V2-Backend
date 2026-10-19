@@ -23,6 +23,9 @@ const RETIRED_NOTIFICATION_TYPES = [
   'tracking.geofence_breach',
   'payments.due_settlement',
   'maintenance.compliance_due',
+  // The generic "reached the delivery point" card — replaced by LS_N_0031
+  // ('load.vehicle_reached_drop').
+  'load.stage_handoff',
 ];
 
 export async function seedNotificationTypes(dataSource: DataSource): Promise<void> {

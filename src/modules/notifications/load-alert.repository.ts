@@ -6,9 +6,11 @@ import { CustomerEntity } from '../customers/entities/customer.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { DriverEntity } from '../driver/entities/driver.entity';
 import { UPCOMING_LOAD_STATUSES } from '../loads/utils/loads.types';
+import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { NotificationEntity } from './notifications.entity';
 import { DEFAULT_REPORTING_TIME_IST, INDIA_TIME_ZONE } from './notifications.constants';
 import {
+  DetentionTerms,
   LoadAlertSnapshot,
   LoadPersonRef,
   NextPlannedTrip,
@@ -39,16 +41,50 @@ function routeOf(originCity: string | null, destinationCity: string | null): str
   return originCity && destinationCity ? `${originCity} to ${destinationCity}` : null;
 }
 
-/** The load (aliased `load`) reached "At plant" through tracking's geofence — LoadService's
+/** A tracking-driven arrival: at the loading point ("At plant") or the delivery point. */
+export type TrackedArrival = 'at_plant' | 'reached_delivery_point';
+
+/** The load (aliased `load`) reached `arrival` through tracking's geofence — LoadService's
  *  advanceFromTracking records that step with `source: 'tracking'`; a manual tap has none. */
-const ARRIVED_BY_TRACKING_SQL = `EXISTS (
+const arrivedByTrackingSql = (arrival: TrackedArrival) => `EXISTS (
   SELECT 1 FROM loads.load_activities activity
   WHERE activity.tenant_id = load.tenant_id
     AND activity.load_id = load.id
     AND activity.action = 'STATUS_CHANGED'
-    AND activity.to_value = 'at_plant'
+    AND activity.to_value = '${arrival}'
     AND activity.metadata->>'source' = 'tracking'
 )`;
+
+/** Only if the organization row is missing — the real defaults are the columns' (migration
+ *  AddDetentionTermsAndDropDeparture). */
+const DEFAULT_DETENTION_TERMS: DetentionTerms = {
+  loadingFreeHours: 4,
+  unloadingFreeHours: 4,
+  ratePerHour: 500,
+};
+
+interface RawDetentionRow {
+  loadId: string;
+  tenantId: string;
+  arrivedAt: Date | string;
+  freeHours: number | string;
+}
+
+const detentionCandidateOf = (row: RawDetentionRow): DetentionCandidate => ({
+  loadId: row.loadId,
+  tenantId: row.tenantId,
+  arrivedAt: new Date(row.arrivedAt),
+  freeHours: Number(row.freeHours),
+});
+
+/** A load in detention, as the trip-timing sweep needs it (LS_N_0023/0032). */
+export interface DetentionCandidate {
+  loadId: string;
+  tenantId: string;
+  /** When the vehicle reached the point — the clock's start. */
+  arrivedAt: Date;
+  freeHours: number;
+}
 
 /**
  * Read side of the loads data the load-event notifications need (load-alerts.ts) and the
@@ -63,8 +99,10 @@ export class LoadAlertRepository {
   private readonly users: Repository<UserEntity>;
   private readonly drivers: Repository<DriverEntity>;
   private readonly notifications: Repository<NotificationEntity>;
+  private readonly organizations: Repository<OrganizationEntity>;
 
   constructor(dataSource: DataSource) {
+    this.organizations = dataSource.getRepository(OrganizationEntity);
     this.loads = dataSource.getRepository(LoadEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
     this.postings = dataSource.getRepository(LoadPostingEntity);
@@ -159,6 +197,29 @@ export class LoadAlertRepository {
       atPlantAt: load.atPlantAt,
       pickupDate: load.requisition?.pickupDate ?? null,
       pickupAt: posting?.pickupAt ?? null,
+      reachedDeliveryPointAt: load.reachedDeliveryPointAt,
+      deliveredAt: load.deliveredAt,
+      departedDropAt: load.departedDropAt,
+      promisedDeliveryDate: load.requisition?.expectedDeliveryDate ?? null,
+      customerFreeHoursAtDrop:
+        load.requisition?.customer?.freeHoursAtDrop ?? postingCustomer?.freeHoursAtDrop ?? null,
+    };
+  }
+
+  /** The company's detention terms — the database holds the defaults (4 h / 4 h / ₹500). */
+  async findDetentionTerms(tenantId: string): Promise<DetentionTerms> {
+    const organization = await this.organizations.findOne({
+      where: { id: tenantId },
+      select: { loadingFreeHours: true, unloadingFreeHours: true, detentionRatePerHour: true },
+    });
+    return {
+      loadingFreeHours: organization?.loadingFreeHours ?? DEFAULT_DETENTION_TERMS.loadingFreeHours,
+      unloadingFreeHours:
+        organization?.unloadingFreeHours ?? DEFAULT_DETENTION_TERMS.unloadingFreeHours,
+      ratePerHour:
+        organization?.detentionRatePerHour != null
+          ? Number(organization.detentionRatePerHour)
+          : DEFAULT_DETENTION_TERMS.ratePerHour,
     };
   }
 
@@ -252,34 +313,72 @@ export class LoadAlertRepository {
     return rows.map((row) => ({ ...row, reportingAt: new Date(row.reportingAt) }));
   }
 
-  /** LS_N_0023 — loads whose vehicle is still at the loading point, there since `before` or
-   *  earlier: "At plant", or "Loading confirmed" when tracking's geofence saw it arrive (so its
+  /** LS_N_0023 — loads whose vehicle is still at the loading point past the company's free
+   *  hours: "At plant", or "Loading confirmed" when tracking's geofence saw it arrive (so its
    *  gate exit — which moves the load to "In transit" — is what ends detention). A load whose
    *  arrival was tapped by hand has no exit to wait for, so its detention ends at loading
    *  confirmed. */
-  async findLoadsAtOriginSince(
-    before: Date,
-  ): Promise<{ loadId: string; tenantId: string; atPlantAt: Date }[]> {
-    const rows: { loadId: string; tenantId: string; atPlantAt: Date | string }[] = await this.loads
+  async findLoadingDetentionCandidates(now: Date): Promise<DetentionCandidate[]> {
+    const rows: RawDetentionRow[] = await this.loads
       .createQueryBuilder('load')
+      .innerJoin(OrganizationEntity, 'org', 'org.id = load.tenant_id')
       .select('load.id', 'loadId')
       .addSelect('load.tenant_id', 'tenantId')
-      .addSelect('load.at_plant_at', 'atPlantAt')
-      .where('load.at_plant_at <= :before', { before })
+      .addSelect('load.at_plant_at', 'arrivedAt')
+      .addSelect('org.loading_free_hours', 'freeHours')
+      .where('load.at_plant_at + make_interval(hours => org.loading_free_hours) <= :now', { now })
       .andWhere(
-        `(load.status = 'at_plant' OR (load.status = 'loading_confirmed' AND ${ARRIVED_BY_TRACKING_SQL}))`,
+        `(load.status = 'at_plant' OR (load.status = 'loading_confirmed' AND ${arrivedByTrackingSql('at_plant')}))`,
       )
       .getRawMany();
-    return rows.map((row) => ({ ...row, atPlantAt: new Date(row.atPlantAt) }));
+    return rows.map(detentionCandidateOf);
   }
 
-  /** LS_N_0023 — whether tracking's geofence (not a manual tap) moved this load to "At plant". */
-  async arrivedByTracking(tenantId: string, loadId: string): Promise<boolean> {
+  /** LS_N_0032 — loads whose vehicle is still at the delivery point past its free hours (the
+   *  customer's own, else the company's): "Reached delivery point" until it leaves; once the
+   *  E-POD is in, only when tracking's geofence saw it arrive — then it's at the drop until
+   *  tracking sees it leave (departed_drop_at), for as long as tracking follows a delivered load
+   *  (`followSince`). A load whose arrival was tapped by hand ends detention at the E-POD. */
+  async findUnloadingDetentionCandidates(
+    now: Date,
+    followSince: Date,
+  ): Promise<DetentionCandidate[]> {
+    const freeHours =
+      'COALESCE(customer.free_hours_at_drop, posting_customer.free_hours_at_drop, org.unloading_free_hours)';
+    const rows: RawDetentionRow[] = await this.loads
+      .createQueryBuilder('load')
+      .innerJoin(OrganizationEntity, 'org', 'org.id = load.tenant_id')
+      .leftJoin(RequisitionEntity, 'requisition', 'requisition.id = load.requisition_id')
+      .leftJoin(CustomerEntity, 'customer', 'customer.id = requisition.customer_id')
+      .leftJoin(LoadPostingEntity, 'posting', 'posting.id = load.posting_id')
+      .leftJoin(CustomerEntity, 'posting_customer', 'posting_customer.id = posting.customer_id')
+      .select('load.id', 'loadId')
+      .addSelect('load.tenant_id', 'tenantId')
+      .addSelect('load.reached_delivery_point_at', 'arrivedAt')
+      .addSelect(freeHours, 'freeHours')
+      .where(`load.reached_delivery_point_at + make_interval(hours => ${freeHours}) <= :now`, {
+        now,
+      })
+      .andWhere('load.departed_drop_at IS NULL')
+      .andWhere(
+        `(load.status = 'reached_delivery_point' OR (load.status IN ('delivered', 'closed') AND load.delivered_at > :followSince AND ${arrivedByTrackingSql('reached_delivery_point')}))`,
+        { followSince },
+      )
+      .getRawMany();
+    return rows.map(detentionCandidateOf);
+  }
+
+  /** Whether tracking's geofence (not a manual tap) moved this load to `arrival`. */
+  async arrivedByTracking(
+    tenantId: string,
+    loadId: string,
+    arrival: TrackedArrival,
+  ): Promise<boolean> {
     return this.loads
       .createQueryBuilder('load')
       .where('load.tenant_id = :tenantId', { tenantId })
       .andWhere('load.id = :loadId', { loadId })
-      .andWhere(ARRIVED_BY_TRACKING_SQL)
+      .andWhere(arrivedByTrackingSql(arrival))
       .getExists();
   }
 

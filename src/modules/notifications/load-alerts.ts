@@ -6,16 +6,21 @@ import {
   AdvanceDueContext,
   AssignmentComplianceFailedContext,
   assignmentBlockKeyOf,
+  DeliveryLateContext,
+  RouteDeviationContext,
+  TrackingSignalLostContext,
   EwayBillExpiryContext,
-  LoadStageContext,
   LoadSummary,
   PodUploadedContext,
   VehicleAssignedContext,
   DetentionAtLoadingContext,
+  DetentionAtUnloadingContext,
+  TripCompletedContext,
   VehicleHaltedContext,
   VehicleInTransitContext,
   VehicleLoadedContext,
   VehicleNotReportedContext,
+  VehicleReachedDropContext,
   VehicleReachedPickupContext,
 } from './catalog/notification-catalog';
 import { findHaltExclusion, HaltGeofences } from './halt-exclusions';
@@ -23,10 +28,9 @@ import { LoadAlertRepository } from './load-alert.repository';
 import {
   ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
   BANK_NAME_BY_IFSC_PREFIX,
-  DETENTION_RATE_PER_HOUR,
   EWAY_BILL_ALERT_LEAD_MS,
-  FREE_LOADING_HOURS,
   MS_PER_HOUR,
+  TRIP_COMPLETED_FALLBACK_MS,
   MS_PER_MINUTE,
   VEHICLE_HALT_SAME_SPOT_M,
 } from './notifications.constants';
@@ -35,12 +39,13 @@ import {
   distanceKmBetween,
   distanceMetresBetween,
   formatIndiaDateTime,
+  promisedAtOf,
   reportingAtOf,
 } from './utils/trip-time';
 
 /**
- * Load-event notifications: reached delivery (stage handoff), e-way bill expiry (LS_N_0025), E-POD
- * uploaded, advance due, truck assigned (LS_N_0016), assignment blocked on compliance (LS_N_0017)
+ * Load-event notifications: reached the delivery point (LS_N_0031), trip completed (LS_N_0033, with
+ * the E-POD), e-way bill expiry (LS_N_0025), E-POD uploaded, advance due, truck assigned (LS_N_0016), assignment blocked on compliance (LS_N_0017)
  * and vehicle loaded (LS_N_0024). LoadService calls the notifier after its own writes — it only
  * queues ids and never throws (same contract as breakdown-alerts.ts); the trigger worker's
  * resolvers below then read everything the message needs, and return null (nothing sent) once it
@@ -66,10 +71,9 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
           });
           return;
         case 'reached_delivery_point':
-          await triggers.enqueue('load.stage_handoff', tenantId, {
+          await triggers.enqueue('load.vehicle_reached_drop', tenantId, {
             loadId,
-            stage: event.kind,
-            at: event.at.toISOString(),
+            arrivedAt: event.at.toISOString(),
           });
           return;
         case 'loading_confirmed':
@@ -99,6 +103,16 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
             loadId,
             uploadedAt: event.at.toISOString(),
           });
+          // LS_N_0033 — unloading is confirmed. Sent now if the vehicle has already left the
+          // delivery point (or there's no geofence exit to wait for), else on tracking's exit;
+          // the later retry completes the trip even if that exit never comes.
+          await triggers.enqueue('load.trip_completed', tenantId, { loadId });
+          await triggers.enqueue(
+            'load.trip_completed',
+            tenantId,
+            { loadId, fallback: true },
+            { delayMs: TRIP_COMPLETED_FALLBACK_MS },
+          );
           return;
         case 'assigned':
           await triggers.enqueue('load.vehicle_assigned', tenantId, {
@@ -137,6 +151,15 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
     }
   };
 }
+
+/** LS_N_0029's "running trip": At plant through to the delivery point (tracking watches the same
+ *  statuses). */
+const SIGNAL_WATCHED_STATUSES: readonly string[] = [
+  'at_plant',
+  'loading_confirmed',
+  'in_transit',
+  'reached_delivery_point',
+];
 
 const formatRupees = (amount: number) => `₹${Math.round(amount).toLocaleString('en-IN')}`;
 
@@ -180,14 +203,6 @@ export function createLoadAlertResolvers(
   haltGeofences: HaltGeofences,
 ) {
   return {
-    stageHandoff: async (
-      tenantId: string,
-      context: LoadStageContext,
-    ): Promise<LoadStageContext | null> => {
-      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      return snapshot ? { ...context, ...summaryOf(context.loadId, snapshot) } : null;
-    },
-
     /** LS_N_0025 — null once the truck has reached the delivery point (or later), its bill was
      *  regenerated (a newer alert is queued for that one), or tracking projects it to arrive
      *  before the expiry. No ETA from tracking, or a stale one, still sends — the risk isn't ruled
@@ -279,13 +294,14 @@ export function createLoadAlertResolvers(
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot) return null;
       const reportingAt = reportingAtOf(snapshot.pickupAt, snapshot.pickupDate);
+      const { loadingFreeHours } = await loadAlertRepository.findDetentionTerms(tenantId);
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
         origin: snapshot.originCity,
         reportingAt: reportingAt?.toISOString() ?? null,
         freeTimeEndsAt: new Date(
-          new Date(context.arrivedAt).getTime() + FREE_LOADING_HOURS * MS_PER_HOUR,
+          new Date(context.arrivedAt).getTime() + loadingFreeHours * MS_PER_HOUR,
         ).toISOString(),
       };
     },
@@ -303,7 +319,7 @@ export function createLoadAlertResolvers(
       const stillAtOrigin =
         snapshot.status === 'at_plant' ||
         (snapshot.status === 'loading_confirmed' &&
-          (await loadAlertRepository.arrivedByTracking(tenantId, context.loadId)));
+          (await loadAlertRepository.arrivedByTracking(tenantId, context.loadId, 'at_plant')));
       if (!stillAtOrigin) return null;
       if (
         await loadAlertRepository.hasSentNotification(tenantId, 'load.detention_at_loading', {
@@ -313,17 +329,112 @@ export function createLoadAlertResolvers(
       ) {
         return null;
       }
+      const { loadingFreeHours, ratePerHour } =
+        await loadAlertRepository.findDetentionTerms(tenantId);
       const hoursAtOrigin = (Date.now() - snapshot.atPlantAt.getTime()) / MS_PER_HOUR;
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
         origin: snapshot.originCity,
         hoursAtOrigin: Math.floor(hoursAtOrigin),
-        freeHours: FREE_LOADING_HOURS,
-        amount: formatRupees(
-          Math.max(0, hoursAtOrigin - FREE_LOADING_HOURS) * DETENTION_RATE_PER_HOUR,
-        ),
-        ratePerHour: formatRupees(DETENTION_RATE_PER_HOUR),
+        freeHours: loadingFreeHours,
+        amount: formatRupees(Math.max(0, hoursAtOrigin - loadingFreeHours) * ratePerHour),
+        ratePerHour: formatRupees(ratePerHour),
+      };
+    },
+
+    /** LS_N_0031 — early/late against the promised delivery date (the end of that day), and when
+     *  the free unloading time ends (the customer's free hours at drop, else the company's). */
+    vehicleReachedDrop: async (
+      tenantId: string,
+      context: VehicleReachedDropContext,
+    ): Promise<VehicleReachedDropContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot) return null;
+      const terms = await loadAlertRepository.findDetentionTerms(tenantId);
+      const freeHours = snapshot.customerFreeHoursAtDrop ?? terms.unloadingFreeHours;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        promisedAt: promisedAtOf(snapshot.promisedDeliveryDate)?.toISOString() ?? null,
+        freeTimeEndsAt: new Date(
+          new Date(context.arrivedAt).getTime() + freeHours * MS_PER_HOUR,
+        ).toISOString(),
+      };
+    },
+
+    /** LS_N_0032 — null once the vehicle has left the delivery point or this step already went
+     *  out. Left means: out of the geofence (tracking's exit) when the geofence saw it arrive —
+     *  for as long as tracking follows a delivered load; the E-POD when its arrival was tapped by
+     *  hand (no exit to wait for). Same rule as findUnloadingDetentionCandidates. */
+    detentionAtUnloading: async (
+      tenantId: string,
+      context: DetentionAtUnloadingContext,
+    ): Promise<DetentionAtUnloadingContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot?.reachedDeliveryPointAt || snapshot.departedDropAt) return null;
+      const stillAtDestination =
+        snapshot.status === 'reached_delivery_point' ||
+        ((snapshot.status === 'delivered' || snapshot.status === 'closed') &&
+          !!snapshot.deliveredAt &&
+          Date.now() - snapshot.deliveredAt.getTime() < TRIP_COMPLETED_FALLBACK_MS &&
+          (await loadAlertRepository.arrivedByTracking(
+            tenantId,
+            context.loadId,
+            'reached_delivery_point',
+          )));
+      if (!stillAtDestination) return null;
+      if (
+        await loadAlertRepository.hasSentNotification(tenantId, 'load.detention_at_unloading', {
+          load_id: context.loadId,
+          ladder_step: String(context.step),
+        })
+      ) {
+        return null;
+      }
+      const terms = await loadAlertRepository.findDetentionTerms(tenantId);
+      const freeHours = snapshot.customerFreeHoursAtDrop ?? terms.unloadingFreeHours;
+      const hoursAtDestination =
+        (Date.now() - snapshot.reachedDeliveryPointAt.getTime()) / MS_PER_HOUR;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        destination: snapshot.destinationCity,
+        hoursAtDestination: Math.floor(hoursAtDestination),
+        freeHours,
+        amount: formatRupees(Math.max(0, hoursAtDestination - freeHours) * terms.ratePerHour),
+      };
+    },
+
+    /** LS_N_0033 — once unloading is confirmed (E-POD in) and the vehicle has left the delivery
+     *  point. When the geofence saw it arrive, that's tracking's exit (departedDropAt) — the
+     *  post-E-POD retry (`fallback`) completes it anyway if the exit never came; a manual arrival
+     *  has no exit to wait for. Once per trip (the catalog dedupes on the load). */
+    tripCompleted: async (
+      tenantId: string,
+      context: TripCompletedContext,
+    ): Promise<TripCompletedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || (snapshot.status !== 'delivered' && snapshot.status !== 'closed')) {
+        return null;
+      }
+      if (
+        !snapshot.departedDropAt &&
+        !context.fallback &&
+        (await loadAlertRepository.arrivedByTracking(
+          tenantId,
+          context.loadId,
+          'reached_delivery_point',
+        ))
+      ) {
+        return null; // tracking's exit from the delivery point completes it
+      }
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        createdBy: snapshot.createdBy,
+        quantityTonnes: snapshot.podQuantityReceived,
+        departedAt: snapshot.departedDropAt?.toISOString() ?? null,
       };
     },
 
@@ -431,6 +542,73 @@ export function createLoadAlertResolvers(
         haltDurationMin: (Date.now() - new Date(context.haltStartedAt).getTime()) / MS_PER_MINUTE,
         driverName: snapshot.driverName,
         driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** LS_N_0028 — tracking already judged the deviation (far, long, heading away); null once
+     *  the load is no longer in transit. Fills in where the truck is and the live ETA. */
+    routeDeviation: async (
+      tenantId: string,
+      context: RouteDeviationContext,
+    ): Promise<RouteDeviationContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'in_transit') return null;
+      const { eta, position } = await tracking.getTrip(tenantId, context.loadId);
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        location: position?.placeName ?? `${context.lat.toFixed(4)}, ${context.lng.toFixed(4)}`,
+        revisedEtaAt: eta && !eta.stale ? eta.etaAt.toISOString() : null,
+        deviationDurationMin:
+          (Date.now() - new Date(context.deviationStartedAt).getTime()) / MS_PER_MINUTE,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** LS_N_0029 — null once the trip isn't running any more (delivered/closed, or back before
+     *  At plant) or a newer position has come in since tracking sent the notice. */
+    trackingSignalLost: async (
+      tenantId: string,
+      context: TrackingSignalLostContext,
+    ): Promise<TrackingSignalLostContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !SIGNAL_WATCHED_STATUSES.includes(snapshot.status)) return null;
+      const lastSeenMs = new Date(context.lastSeenAt).getTime();
+      const { position } = await tracking.getTrip(tenantId, context.loadId);
+      if (position && position.recordedAt.getTime() > lastSeenMs + MS_PER_MINUTE) return null;
+      const known = context.lastLat != null && context.lastLng != null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        lastLocation: known
+          ? (position?.placeName ??
+            `${context.lastLat!.toFixed(4)}, ${context.lastLng!.toFixed(4)}`)
+          : null,
+        hoursSince: Math.floor((Date.now() - lastSeenMs) / MS_PER_HOUR),
+        destination: snapshot.destinationCity,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** LS_N_0030 — null once the load is no longer in transit. A fresher ETA from tracking, when
+     *  it has one, replaces the one in the notice; the load's creator is added as a recipient. */
+    deliveryLate: async (
+      tenantId: string,
+      context: DeliveryLateContext,
+    ): Promise<DeliveryLateContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'in_transit') return null;
+      const eta = await tracking.getTripEta(tenantId, context.loadId);
+      const fresh = eta && !eta.stale && eta.projectedDelayMin != null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        etaAt: fresh ? eta.etaAt.toISOString() : context.etaAt,
+        delayMin: fresh ? Math.max(context.delayMin, eta.projectedDelayMin!) : context.delayMin,
+        destination: snapshot.destinationCity,
+        createdBy: snapshot.createdBy,
       };
     },
 

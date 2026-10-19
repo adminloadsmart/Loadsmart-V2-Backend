@@ -185,6 +185,7 @@ describe("tracking's HALT-GPS alert.opened", () => {
       markArrivedAtPickup: vi.fn(),
       markDepartedPickup: vi.fn(),
       markReachedDeliveryPoint: vi.fn(),
+      markDepartedDrop: vi.fn(),
       notifyGeofenceTransition: vi.fn(),
     });
     const haltStartedAt = new Date(Date.now() - 10 * 60_000);
@@ -223,6 +224,7 @@ describe("tracking's HALT-GPS alert.opened", () => {
       markArrivedAtPickup: vi.fn(),
       markDepartedPickup: vi.fn(),
       markReachedDeliveryPoint: vi.fn(),
+      markDepartedDrop: vi.fn(),
       notifyGeofenceTransition: vi.fn(),
     });
     await handlers['alert.opened']!(event({ id: 'a', rule_id: 'OVER-GPS', trip_id: 'load-1' }));

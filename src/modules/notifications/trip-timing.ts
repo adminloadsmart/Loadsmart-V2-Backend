@@ -1,20 +1,19 @@
 import { JobQueue } from '../../jobs/queue-registry';
 import { NotificationTriggers } from './notification-triggers';
-import { LoadAlertRepository } from './load-alert.repository';
+import { DetentionCandidate, LoadAlertRepository } from './load-alert.repository';
 import {
   DETENTION_ALERT_MAX_HOURS,
   DETENTION_REPEAT_HOURS,
-  FREE_LOADING_HOURS,
   INDIA_TIME_ZONE,
-  MS_PER_HOUR,
   MS_PER_MINUTE,
   NOT_REPORTED_ALERT_MINUTES,
+  TRIP_COMPLETED_FALLBACK_MS,
   TRIP_TIMING_GRACE_MINUTES,
 } from './notifications.constants';
 
 export const TRIP_TIMING_JOB = 'trip-timing-check';
-/** Every 5 minutes — LS_N_0021's 60 min / 3 h / 5 h steps and LS_N_0023's detention steps go out
- *  within 5 minutes of when they're due. */
+/** Every 5 minutes — LS_N_0021's 60 min / 3 h / 5 h steps and LS_N_0023/0032's detention steps go
+ *  out within 5 minutes of when they're due. */
 const TRIP_TIMING_CRON = '*/5 * * * *';
 
 export async function scheduleTripTimingChecks(queue: JobQueue): Promise<void> {
@@ -23,9 +22,11 @@ export async function scheduleTripTimingChecks(queue: JobQueue): Promise<void> {
 
 /**
  * Time-driven trip alerts, swept on the 'notification-schedules' queue: LS_N_0021 (vehicle not
- * reported — still "assigned" after its reporting time) and LS_N_0023 (detention — still at the
- * loading point past the free hours; see findLoadsAtOriginSince). Each run queues the step that's due; a step only counts as due for
- * TRIP_TIMING_GRACE_MINUTES, so a backlog never sends stale alerts, and the trigger worker's
+ * reported — still "assigned" after its reporting time), LS_N_0023 (detention — still at the
+ * loading point past the company's free hours) and LS_N_0032 (detention — still at the delivery
+ * point past the customer's or company's free hours); see LoadAlertRepository's
+ * find*DetentionCandidates for when a vehicle counts as still there. Each run queues the step
+ * that's due; a step only counts as due for TRIP_TIMING_GRACE_MINUTES, so a backlog never sends stale alerts, and the trigger worker's
  * resolvers (load-alerts.ts) drop a step that already went out or no longer applies.
  */
 export function createTripTimingChecks(
@@ -37,7 +38,9 @@ export function createTripTimingChecks(
   const detentionRepeatMinutes = DETENTION_REPEAT_HOURS * 60;
 
   return {
-    async run(now: Date = new Date()): Promise<{ notReported: number; detention: number }> {
+    async run(
+      now: Date = new Date(),
+    ): Promise<{ notReported: number; detention: number; unloadingDetention: number }> {
       const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * MS_PER_MINUTE);
 
       let notReported = 0;
@@ -59,24 +62,46 @@ export function createTripTimingChecks(
         notReported++;
       }
 
-      let detention = 0;
-      const atOrigin = await loadAlertRepository.findLoadsAtOriginSince(
-        new Date(now.getTime() - FREE_LOADING_HOURS * MS_PER_HOUR),
-      );
-      for (const load of atOrigin) {
+      // Detention: due at the free-time boundary, then every DETENTION_REPEAT_HOURS, up to
+      // DETENTION_ALERT_MAX_HOURS — the step that's due now, if any.
+      const dueStepOf = (load: DetentionCandidate): number | null => {
         const overMinutes =
-          (now.getTime() - load.atPlantAt.getTime()) / MS_PER_MINUTE - FREE_LOADING_HOURS * 60;
-        if (overMinutes >= DETENTION_ALERT_MAX_HOURS * 60) continue;
+          (now.getTime() - load.arrivedAt.getTime()) / MS_PER_MINUTE - load.freeHours * 60;
+        if (overMinutes < 0 || overMinutes >= DETENTION_ALERT_MAX_HOURS * 60) return null;
         const step = Math.floor(overMinutes / detentionRepeatMinutes);
-        if (overMinutes - step * detentionRepeatMinutes >= TRIP_TIMING_GRACE_MINUTES) continue;
+        return overMinutes - step * detentionRepeatMinutes < TRIP_TIMING_GRACE_MINUTES
+          ? step
+          : null;
+      };
+
+      let detention = 0;
+      for (const load of await loadAlertRepository.findLoadingDetentionCandidates(now)) {
+        const step = dueStepOf(load);
+        if (step === null) continue;
         await triggers.enqueue('load.detention_at_loading', load.tenantId, {
           loadId: load.loadId,
-          arrivedAt: load.atPlantAt.toISOString(),
+          arrivedAt: load.arrivedAt.toISOString(),
           step,
         });
         detention++;
       }
-      return { notReported, detention };
+
+      let unloadingDetention = 0;
+      const atDestination = await loadAlertRepository.findUnloadingDetentionCandidates(
+        now,
+        new Date(now.getTime() - TRIP_COMPLETED_FALLBACK_MS),
+      );
+      for (const load of atDestination) {
+        const step = dueStepOf(load);
+        if (step === null) continue;
+        await triggers.enqueue('load.detention_at_unloading', load.tenantId, {
+          loadId: load.loadId,
+          arrivedAt: load.arrivedAt.toISOString(),
+          step,
+        });
+        unloadingDetention++;
+      }
+      return { notReported, detention, unloadingDetention };
     },
   };
 }
