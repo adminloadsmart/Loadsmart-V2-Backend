@@ -25,7 +25,6 @@ import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
 import {
   COMPLETED_LOAD_STATUSES,
   LOAD_STATUSES,
-  LoadStatus,
   MANUAL_TRACKING_STATUSES,
   ManualTrackingStatus,
   PodReviewDecision,
@@ -46,10 +45,6 @@ import {
   assignmentBlockedError,
   assignmentBlockedEvent,
 } from './assignment-compliance.service';
-import {
-  GeofenceLoadAdvance,
-  GeofenceLoadAdvanceResult,
-} from '../geofences/utils/geofence.interface';
 import {
   buildNextAction,
   buildStepper,
@@ -722,119 +717,98 @@ export class LoadService {
 
   /** Tracking's `trip.arrived_at_pickup` (the vehicle entered the loading point's geofence) moves
    *  a still-"assigned" load to "At plant" at the arrival time — the same step the driver or staff
-   *  can take by hand (updateStatus), whichever comes first. A load already past "assigned" is
-   *  left alone. Returns whether it moved. */
+   *  can take by hand (updateStatus), whichever comes first. A load already past "assigned", or on
+   *  hold after an incident, is left alone. Returns whether it moved. */
   async markArrivedAtPickup(tenantId: string, loadId: string, at: Date): Promise<boolean> {
     try {
-      const updated = await this.repository.updateStatus(
-        tenantId,
-        loadId,
-        ['assigned'],
-        'at_plant',
-        {
-          atPlantAt: at,
-        },
-      );
-      if (!updated) return false;
-
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        null,
-        'STATUS_CHANGED',
-        'assigned',
-        'at_plant',
-        { source: 'tracking' },
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: null,
-        action: 'LOAD_STATUS_UPDATED_BY_TRACKING',
-        resourceType: 'load',
-        oldData: { id: loadId, status: 'assigned' },
-        newData: { id: loadId, status: 'at_plant', atPlantAt: at.toISOString() },
-      });
-      // LS_N_0022 — vehicle reached the loading point.
-      await this.onLoadEvent?.({ kind: 'at_plant', tenantId, loadId, at });
-      return true;
+      return await this.advanceFromTracking(tenantId, loadId, 'assigned', 'at_plant', at);
     } catch (error) {
       rethrow(error, 'Failed to mark the load at plant from tracking');
     }
   }
 
-  /**
-   * Geofence-driven tracking: a vehicle entered a loading/unloading geofence. Moves the vehicle's
-   * live load forward one step — assigned → at_plant at its pickup, in_transit →
-   * reached_delivery_point at its drop — but only when the geofence is linked to that load's own
-   * point, and only from exactly that prior status (never skips, never goes back). Returns null
-   * when there is no matching load; a matching load that can't move (wrong status, trip on hold,
-   * lost a race) comes back with `toStatus: null`. Written without a user id, like the
-   * driver-initiated path, since there is no acting user.
-   */
-  async advanceFromGeofence(input: GeofenceLoadAdvance): Promise<GeofenceLoadAdvanceResult | null> {
+  /** Tracking's `trip.arrived_at_drop` (the vehicle entered the delivery point's geofence) moves an
+   *  "in transit" load to "Reached delivery point" at the arrival time. Same rules as
+   *  markArrivedAtPickup. Returns whether it moved. */
+  async markReachedDeliveryPoint(tenantId: string, loadId: string, at: Date): Promise<boolean> {
     try {
-      const { tenantId, vehicleId, geofenceId, geofenceType } = input;
-      const live = await this.repository.findLiveByVehicleWithPoints(tenantId, vehicleId);
-      if (!live) return null;
-      const { load } = live;
-
-      const isLoading = geofenceType === 'loading_point';
-      const matches = isLoading
-        ? !!input.loadingPointId && live.pickupLoadingPointId === input.loadingPointId
-        : (!!input.customerDeliveryPointId &&
-            live.dropCustomerDeliveryPointId === input.customerDeliveryPointId) ||
-          (!!input.loadingPointId && live.dropLoadingPointId === input.loadingPointId);
-      if (!matches) return null;
-
-      const fromStatus: LoadStatus = isLoading ? 'assigned' : 'in_transit';
-      const toStatus: LoadStatus = isLoading ? 'at_plant' : 'reached_delivery_point';
-      const result = (moved: boolean): GeofenceLoadAdvanceResult => ({
-        loadId: load.id,
-        loadCode: load.code,
-        fromStatus: load.status,
-        toStatus: moved ? toStatus : null,
-      });
-      if (load.status !== fromStatus) return result(false);
-      try {
-        await this.assertNotHalted(tenantId, load.id);
-      } catch (error) {
-        if (error instanceof ConflictError) return result(false);
-        throw error;
-      }
-
-      const updated = await this.repository.updateStatus(
+      return await this.advanceFromTracking(
         tenantId,
-        load.id,
-        [fromStatus],
-        toStatus,
-        { [isLoading ? 'atPlantAt' : 'reachedDeliveryPointAt']: new Date(), updatedBy: null },
+        loadId,
+        'in_transit',
+        'reached_delivery_point',
+        at,
       );
-      if (!updated) return result(false);
-
-      await this.loadActivityService.record(
-        tenantId,
-        load.id,
-        null,
-        'STATUS_CHANGED',
-        fromStatus,
-        toStatus,
-        { source: 'geofence', geofenceId, vehicleId },
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: null,
-        action: 'LOAD_STATUS_UPDATED_BY_GEOFENCE',
-        resourceType: 'load',
-        oldData: { id: load.id, status: fromStatus },
-        newData: { id: load.id, status: toStatus, geofenceId, vehicleId },
-      });
-      if (toStatus === 'reached_delivery_point') {
-        await this.onLoadEvent?.({ kind: toStatus, tenantId, loadId: load.id, at: new Date() });
-      }
-      return result(true);
     } catch (error) {
-      rethrow(error, 'Failed to advance load from geofence');
+      rethrow(error, 'Failed to mark the load at the delivery point from tracking');
     }
+  }
+
+  /** Tracking's `trip.departed_pickup` (the loaded vehicle left the loading point's geofence) moves
+   *  a "loading confirmed" load to "In transit" at the departure time — the step the driver or
+   *  staff would otherwise tap by hand. Same rules as markArrivedAtPickup; a load already marked
+   *  in transit is left alone. Returns whether it moved. */
+  async markDepartedPickup(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      return await this.advanceFromTracking(
+        tenantId,
+        loadId,
+        'loading_confirmed',
+        'in_transit',
+        at,
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to mark the load in transit from tracking');
+    }
+  }
+
+  /** One tracking-driven step (no acting user): only from exactly `fromStatus`, never while the
+   *  trip is on hold; timeline, audit and the stage's notification (LS_N_0022 at the plant, the
+   *  advance-due check in transit, the stage handoff at the drop) follow. */
+  private async advanceFromTracking(
+    tenantId: string,
+    loadId: string,
+    fromStatus: 'assigned' | 'loading_confirmed' | 'in_transit',
+    toStatus: 'at_plant' | 'in_transit' | 'reached_delivery_point',
+    at: Date,
+  ): Promise<boolean> {
+    try {
+      await this.assertNotHalted(tenantId, loadId);
+    } catch (error) {
+      if (error instanceof ConflictError) return false;
+      throw error;
+    }
+    const timestampField =
+      toStatus === 'at_plant'
+        ? 'atPlantAt'
+        : toStatus === 'in_transit'
+          ? 'inTransitAt'
+          : 'reachedDeliveryPointAt';
+    const updated = await this.repository.updateStatus(tenantId, loadId, [fromStatus], toStatus, {
+      [timestampField]: at,
+      updatedBy: null,
+    });
+    if (!updated) return false;
+
+    await this.loadActivityService.record(
+      tenantId,
+      loadId,
+      null,
+      'STATUS_CHANGED',
+      fromStatus,
+      toStatus,
+      { source: 'tracking' },
+    );
+    await this.auditService.log({
+      tenantId,
+      userId: null,
+      action: 'LOAD_STATUS_UPDATED_BY_TRACKING',
+      resourceType: 'load',
+      oldData: { id: loadId, status: fromStatus },
+      newData: { id: loadId, status: toStatus, [timestampField]: at.toISOString() },
+    });
+    await this.onLoadEvent?.({ kind: toStatus, tenantId, loadId, at });
+    return true;
   }
 
   /** Step 1 of the driver-app delivery flow: sends a 4-digit code to the receiver's phone.

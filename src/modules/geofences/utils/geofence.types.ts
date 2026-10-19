@@ -6,8 +6,14 @@ export const GEOFENCE_TYPES = [
   'unloading_point',
   'fuel_pump',
   'no_go_area',
+  'rest_stop',
+  'toll_plaza',
 ] as const;
 export type GeofenceType = (typeof GEOFENCE_TYPES)[number];
+
+/** Places a truck is expected to stand — a long halt inside one is not alerted (LS_N_0027). */
+export const HALT_EXPECTED_GEOFENCE_TYPES = ['rest_stop', 'toll_plaza'] as const;
+export type HaltExpectedGeofenceType = (typeof HALT_EXPECTED_GEOFENCE_TYPES)[number];
 
 /** Types a load's status is driven by — entering one of these advances the vehicle's live load. */
 export const LOAD_LINKED_GEOFENCE_TYPES = ['loading_point', 'unloading_point'] as const;
@@ -25,7 +31,6 @@ export const MIN_GEOFENCE_RADIUS_M = 50;
 export const MAX_GEOFENCE_RADIUS_M = 5000;
 export const MIN_POLYGON_POINTS = 3;
 export const MAX_POLYGON_POINTS = 100;
-export const MAX_PINGS_PER_REQUEST = 500;
 
 export interface GeoPoint {
   latitude: number;

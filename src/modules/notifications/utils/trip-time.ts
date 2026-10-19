@@ -26,17 +26,25 @@ export function formatIndiaDateTime(at: Date | string): string {
   }).format(new Date(at));
 }
 
-/** Straight-line km between two points, rounded — "last seen N km away" (LS_N_0021). */
-export function distanceKmBetween(
+/** Straight-line metres between two points (haversine) — geofence checks (LS_N_0027). */
+export function distanceMetresBetween(
   from: { lat: number; lng: number },
   to: { lat: number; lng: number },
 ): number {
-  const EARTH_RADIUS_KM = 6371;
+  const EARTH_RADIUS_M = 6_371_000;
   const radians = (degrees: number) => (degrees * Math.PI) / 180;
   const dLat = radians(to.lat - from.lat);
   const dLng = radians(to.lng - from.lng);
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(dLng / 2) ** 2;
-  return Math.round(EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Straight-line km between two points, rounded — "last seen N km away" (LS_N_0021). */
+export function distanceKmBetween(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): number {
+  return Math.round(distanceMetresBetween(from, to) / 1000);
 }

@@ -205,6 +205,17 @@ export interface LoadAlertSnapshot {
   /** The loading point's coordinates — "last seen N km away" (LS_N_0021). */
   originLat: number | null;
   originLng: number | null;
+  /** The loading point's arrival geofence in metres; null = the default (LS_N_0027). */
+  originGeofenceRadiusM: number | null;
+  /** Master points the trip's geofences link to (LS_N_0027): the pickup loading point, and the
+   *  drop — a customer delivery point, or a loading point for a posted load. */
+  originLoadingPointId: string | null;
+  destinationDeliveryPointId: string | null;
+  destinationLoadingPointId: string | null;
+  /** The delivery point's coordinates and geofence — a halt inside it is not alerted (LS_N_0027). */
+  destinationLat: number | null;
+  destinationLng: number | null;
+  destinationGeofenceRadiusM: number | null;
   /** When the vehicle reached the loading point (LS_N_0022/0023). */
   atPlantAt: Date | null;
   /** Requisition pickup date (YYYY-MM-DD) — Dispatch Planning loads. */

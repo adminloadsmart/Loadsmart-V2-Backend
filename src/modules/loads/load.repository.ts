@@ -14,7 +14,6 @@ import {
 } from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
-import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
   COMPLETED_LOAD_STATUSES,
@@ -86,13 +85,6 @@ export type UpdateLoadData = Partial<
 >;
 
 export type ListLoadsFilters = ListLoadsInput;
-
-export interface LiveLoadPoints {
-  load: LoadEntity;
-  pickupLoadingPointId: string | null;
-  dropCustomerDeliveryPointId: string | null;
-  dropLoadingPointId: string | null;
-}
 
 export interface ProductTonnage {
   productId: string;
@@ -166,34 +158,6 @@ export class LoadRepository {
     return repo.find({
       where: { tenantId, vehicleId: In(vehicleIds), status: In(ACTIVE_VEHICLE_STATUSES) },
     });
-  }
-
-  /** The vehicle's live load plus the master points it picks up from / drops at — requisition-born
-   *  loads carry them on the requisition, posted loads on the posting. Backs geofence-driven status
-   *  changes, which match a geofence to the load by those points. At most one row (C-02). */
-  async findLiveByVehicleWithPoints(
-    tenantId: string,
-    vehicleId: string,
-  ): Promise<LiveLoadPoints | null> {
-    const load = await this.loads.findOne({
-      where: { tenantId, vehicleId, status: In(ACTIVE_VEHICLE_STATUSES) },
-      relations: { requisition: true },
-      order: { createdAt: 'DESC' },
-    });
-    if (!load) return null;
-    const posting = load.postingId
-      ? await this.loads.manager
-          .getRepository(LoadPostingEntity)
-          .findOneBy({ id: load.postingId, tenantId })
-      : null;
-    return {
-      load,
-      pickupLoadingPointId:
-        load.requisition?.loadingPointId ?? posting?.pickupLoadingPointId ?? null,
-      dropCustomerDeliveryPointId:
-        load.requisition?.customerDeliveryPointId ?? posting?.dropCustomerDeliveryPointId ?? null,
-      dropLoadingPointId: posting?.dropLoadingPointId ?? null,
-    };
   }
 
   /** C-03 — the vehicle appears on an earlier closed load in the tenant (amber, overridable). */

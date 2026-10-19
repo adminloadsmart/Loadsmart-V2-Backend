@@ -66,6 +66,15 @@ export const LOAD_STAGE_HANDOFF_STAGES = ['in_transit', 'reached_delivery_point'
 export type LoadStageHandoffStage = (typeof LOAD_STAGE_HANDOFF_STAGES)[number];
 
 // Events the loadsmart-tracking service publishes that this backend acts on (see
-// tracking-events.consumer.ts): the vehicle entered / left the loading point's geofence.
-export const TRACKING_EVENT_TYPES = ['trip.arrived_at_pickup', 'trip.departed_pickup'] as const;
+// tracking-events.consumer.ts): the vehicle entered / left the loading point's geofence, entered
+// the delivery point's geofence, entered / left any geofence (its own alert), and a rule alert
+// opened (only HALT-GPS is acted on — LS_N_0027).
+export const TRACKING_EVENT_TYPES = [
+  'trip.arrived_at_pickup',
+  'trip.departed_pickup',
+  'trip.arrived_at_drop',
+  'geofence.entered',
+  'geofence.exited',
+  'alert.opened',
+] as const;
 export type TrackingEventType = (typeof TRACKING_EVENT_TYPES)[number];

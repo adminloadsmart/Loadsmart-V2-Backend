@@ -12,11 +12,13 @@ import {
   PodUploadedContext,
   VehicleAssignedContext,
   DetentionAtLoadingContext,
+  VehicleHaltedContext,
   VehicleInTransitContext,
   VehicleLoadedContext,
   VehicleNotReportedContext,
   VehicleReachedPickupContext,
 } from './catalog/notification-catalog';
+import { findHaltExclusion, HaltGeofences } from './halt-exclusions';
 import { LoadAlertRepository } from './load-alert.repository';
 import {
   ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
@@ -26,9 +28,15 @@ import {
   FREE_LOADING_HOURS,
   MS_PER_HOUR,
   MS_PER_MINUTE,
+  VEHICLE_HALT_SAME_SPOT_M,
 } from './notifications.constants';
 import { LoadAlertSnapshot, LoadEventNotifier } from './notifications.interface';
-import { distanceKmBetween, formatIndiaDateTime, reportingAtOf } from './utils/trip-time';
+import {
+  distanceKmBetween,
+  distanceMetresBetween,
+  formatIndiaDateTime,
+  reportingAtOf,
+} from './utils/trip-time';
 
 /**
  * Load-event notifications: reached delivery (stage handoff), e-way bill expiry (LS_N_0025), E-POD
@@ -164,11 +172,12 @@ function reportingTimeOf(pickupAt: Date | null, pickupDate: string | null): stri
 /** Context resolvers for the trigger worker (wired in composition-root.ts). `checkCompliance` is
  *  the loads module's assignment-time check (AssignmentComplianceService.check) — LS_N_0017 re-runs
  *  it to tell whether the expired document has been renewed. `tracking` supplies the live ETA
- *  for LS_N_0025/0026. */
+ *  for LS_N_0025/0026/0027; `haltGeofences` the geofences LS_N_0027 checks a halt against. */
 export function createLoadAlertResolvers(
   loadAlertRepository: LoadAlertRepository,
   checkCompliance: (tenantId: string, target: AssignmentTarget) => Promise<AssignmentCompliance>,
   tracking: TrackingClient,
+  haltGeofences: HaltGeofences,
 ) {
   return {
     stageHandoff: async (
@@ -181,7 +190,8 @@ export function createLoadAlertResolvers(
 
     /** LS_N_0025 — null once the truck has reached the delivery point (or later), its bill was
      *  regenerated (a newer alert is queued for that one), or tracking projects it to arrive
-     *  before the expiry. No ETA from tracking still sends — the risk isn't ruled out. */
+     *  before the expiry. No ETA from tracking, or a stale one, still sends — the risk isn't ruled
+     *  out. */
     ewayBillExpiry: async (
       tenantId: string,
       context: EwayBillExpiryContext,
@@ -191,13 +201,16 @@ export function createLoadAlertResolvers(
         return null;
       if (snapshot.ewayBillGeneratedAt?.toISOString() !== context.generatedAt) return null;
       const eta = await tracking.getTripEta(tenantId, context.loadId);
-      if (eta && eta.etaAt.getTime() <= new Date(context.expiresAt).getTime()) return null;
+      // A stale ETA (no GPS for 60+ min) is the last one computed, not a live projection — a
+      // halted truck arrives later than it says — so it can't rule the risk out either.
+      const liveEta = eta && !eta.stale ? eta : null;
+      if (liveEta && liveEta.etaAt.getTime() <= new Date(context.expiresAt).getTime()) return null;
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
         ewayBillNumber: snapshot.ewayBillNumber,
         destination: snapshot.destinationCity,
-        etaAt: eta?.etaAt.toISOString() ?? null,
+        etaAt: liveEta?.etaAt.toISOString() ?? null,
       };
     },
 
@@ -277,14 +290,21 @@ export function createLoadAlertResolvers(
       };
     },
 
-    /** LS_N_0023 — null once the vehicle has left "At plant" (loading confirmed) or this step
-     *  already went out. The amount is the hours beyond the free time × the rate. */
+    /** LS_N_0023 — null once the vehicle has left the loading point or this step already went
+     *  out. Left means: out of the geofence (tracking moved the load to "In transit") when the
+     *  geofence saw it arrive; loading confirmed when its arrival was tapped by hand (no exit to
+     *  wait for). The amount is the hours beyond the free time × the rate. */
     detentionAtLoading: async (
       tenantId: string,
       context: DetentionAtLoadingContext,
     ): Promise<DetentionAtLoadingContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status !== 'at_plant' || !snapshot.atPlantAt) return null;
+      if (!snapshot?.atPlantAt) return null;
+      const stillAtOrigin =
+        snapshot.status === 'at_plant' ||
+        (snapshot.status === 'loading_confirmed' &&
+          (await loadAlertRepository.arrivedByTracking(tenantId, context.loadId)));
+      if (!stillAtOrigin) return null;
       if (
         await loadAlertRepository.hasSentNotification(tenantId, 'load.detention_at_loading', {
           load_id: context.loadId,
@@ -324,6 +344,93 @@ export function createLoadAlertResolvers(
         destination: snapshot.destinationCity,
         etaAt: eta?.etaAt.toISOString() ?? null,
         remainingKm: eta?.remainingKm ?? null,
+      };
+    },
+
+    /** LS_N_0027 — sends only if, at this step (2 h / 6 h into the halt), the load is still in
+     *  transit, this step hasn't gone out, the truck is still standing where it stopped (a fresh
+     *  position within VEHICLE_HALT_SAME_SPOT_M of the halt anchor), the spot isn't an expected
+     *  stop (origin / destination / rest stop / toll plaza geofence — halt-exclusions.ts) and
+     *  tracking's live ETA is behind the promised time. No ETA, or a stale one, can't show the
+     *  risk, so nothing is sent. */
+    vehicleHalted: async (
+      tenantId: string,
+      context: VehicleHaltedContext,
+    ): Promise<VehicleHaltedContext | null> => {
+      const skip = (reason: string) => {
+        console.debug(
+          `LS_N_0027 skipped for load ${context.loadId} (${context.step}, halt ${context.haltAlertId}): ${reason}`,
+        );
+        return null;
+      };
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'in_transit') return skip('load not in transit');
+      if (
+        await loadAlertRepository.hasSentNotification(tenantId, 'load.vehicle_halted', {
+          load_id: context.loadId,
+          halt_alert_id: context.haltAlertId,
+          halt_step: context.step,
+        })
+      ) {
+        return skip('already sent');
+      }
+
+      const anchor = { lat: context.anchorLat, lng: context.anchorLng };
+      const { eta, position } = await tracking.getTrip(tenantId, context.loadId);
+      if (
+        !position ||
+        position.stale ||
+        distanceMetresBetween(anchor, position) > VEHICLE_HALT_SAME_SPOT_M
+      ) {
+        return skip('halt over or no fresh position');
+      }
+
+      const exclusion = await findHaltExclusion({
+        tenantId,
+        anchor,
+        origin: {
+          loadingPointId: snapshot.originLoadingPointId,
+          customerDeliveryPointId: null,
+          pin:
+            snapshot.originLat != null && snapshot.originLng != null
+              ? {
+                  lat: snapshot.originLat,
+                  lng: snapshot.originLng,
+                  radiusM: snapshot.originGeofenceRadiusM,
+                }
+              : null,
+        },
+        destination: {
+          loadingPointId: snapshot.destinationLoadingPointId,
+          customerDeliveryPointId: snapshot.destinationDeliveryPointId,
+          pin:
+            snapshot.destinationLat != null && snapshot.destinationLng != null
+              ? {
+                  lat: snapshot.destinationLat,
+                  lng: snapshot.destinationLng,
+                  radiusM: snapshot.destinationGeofenceRadiusM,
+                }
+              : null,
+        },
+        trackingStopPlaceKind: context.stopPlaceKind ?? null,
+        geofences: haltGeofences,
+      });
+      if (exclusion) return skip(`expected stop (${exclusion.kind})`);
+
+      if (!eta || eta.stale || eta.projectedDelayMin == null || eta.projectedDelayMin <= 0) {
+        return skip('ETA not at risk');
+      }
+
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        location: position.placeName ?? `${position.lat.toFixed(4)}, ${position.lng.toFixed(4)}`,
+        destination: snapshot.destinationCity,
+        revisedEtaAt: eta.etaAt.toISOString(),
+        delayMin: eta.projectedDelayMin,
+        haltDurationMin: (Date.now() - new Date(context.haltStartedAt).getTime()) / MS_PER_MINUTE,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
       };
     },
 

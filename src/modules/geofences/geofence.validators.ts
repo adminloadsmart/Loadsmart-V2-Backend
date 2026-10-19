@@ -5,7 +5,6 @@ import {
   GEOFENCE_SHAPES,
   GEOFENCE_TYPES,
   MAX_GEOFENCE_RADIUS_M,
-  MAX_PINGS_PER_REQUEST,
   MAX_POLYGON_POINTS,
   MIN_GEOFENCE_RADIUS_M,
 } from './utils/geofence.types';
@@ -68,16 +67,6 @@ const fields = z.object({
   isActive: z.boolean().optional(),
 });
 
-const ping = z
-  .object({
-    vehicleId: uuid,
-    latitude,
-    longitude,
-    recordedAt: z.string().datetime({ offset: true }),
-    ignitionOn: z.boolean().optional(),
-  })
-  .strict();
-
 export const geofenceValidators = {
   create: z.object({ body: fields.strict() }),
   // No defaults on PATCH — an omitted block must mean "leave as is", not "reset to default".
@@ -114,7 +103,4 @@ export const geofenceValidators = {
   }),
   get: z.object({ params }),
   delete: z.object({ params }),
-  ingestPings: z.object({
-    body: z.object({ pings: z.array(ping).min(1).max(MAX_PINGS_PER_REQUEST) }).strict(),
-  }),
 };

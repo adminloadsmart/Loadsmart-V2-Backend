@@ -22,6 +22,8 @@ import {
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createGeofencesModule } from './modules/geofences';
+import { GeofenceRepository } from './modules/geofences/geofence.repository';
+import { createHaltGeofences } from './modules/notifications/halt-exclusions';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
 import { env } from './config/env';
@@ -328,8 +330,10 @@ export function buildContainer(dataSource: DataSource): Container {
   const loadAlertResolvers = createLoadAlertResolvers(
     notifications.loadAlertRepository,
     (tenantId, target) => assignmentComplianceService.check(tenantId, target),
-    // LS_N_0025/0026 — the live ETA from the loadsmart-tracking service.
+    // LS_N_0025/0026/0027 — the live ETA and position from the loadsmart-tracking service.
     new HttpTrackingClient(),
+    // LS_N_0027 — the origin / destination / rest stop / toll plaza geofences a halt is expected in.
+    createHaltGeofences(new GeofenceRepository(dataSource)),
   );
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,
@@ -389,6 +393,8 @@ export function buildContainer(dataSource: DataSource): Container {
       // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
       'load.vehicle_loaded': loadAlertResolvers.vehicleLoaded,
       'load.vehicle_in_transit': loadAlertResolvers.vehicleInTransit,
+      // LS_N_0027 vehicle halted (from tracking's HALT-GPS alert; 2 h, and again at 6 h).
+      'load.vehicle_halted': loadAlertResolvers.vehicleHalted,
       // LS_N_0021 not reported / LS_N_0022 reached loading point / LS_N_0023 detention at loading.
       'load.vehicle_not_reported': loadAlertResolvers.vehicleNotReported,
       'load.vehicle_reached_pickup': loadAlertResolvers.vehicleReachedPickup,
@@ -437,13 +443,12 @@ export function buildContainer(dataSource: DataSource): Container {
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
-  // Geofences — built after loads: entering a linked loading/unloading geofence advances the
-  // vehicle's live load through LoadService.
+  // Geofences — CRUD here; the inside/outside check runs in the tracking service, whose
+  // tracking.events drive load status and the geofence alerts (tracking-events.consumer.ts).
   const geofences = createGeofencesModule(dataSource, {
     auditService: audit.service,
     authService: auth.service,
     notificationsService: notifications.service,
-    advanceLoad: (input) => loads.loadService.advanceFromGeofence(input),
   });
 
   // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant
@@ -538,13 +543,19 @@ export function buildContainer(dataSource: DataSource): Container {
       notificationTriggerWorker,
       notificationScheduleWorker,
       organization.documentVerificationWorker,
-      // tracking → backend events (tracking's outbox relay writes to this Redis): LS_N_0026's
-      // trip.departed_pickup today.
+      // tracking → backend events (tracking's outbox relay writes to this Redis): geofence
+      // arrival / departure (load status, LS_N_0022 / LS_N_0026), geofence alerts and LS_N_0027's
+      // HALT-GPS alert.opened.
       startTrackingEventsConsumer(
         env.redisUrl,
         createTrackingEventHandlers(notifications.triggers, {
           markArrivedAtPickup: (tenantId, loadId, at) =>
             loads.loadService.markArrivedAtPickup(tenantId, loadId, at),
+          markDepartedPickup: (tenantId, loadId, at) =>
+            loads.loadService.markDepartedPickup(tenantId, loadId, at),
+          markReachedDeliveryPoint: (tenantId, loadId, at) =>
+            loads.loadService.markReachedDeliveryPoint(tenantId, loadId, at),
+          notifyGeofenceTransition: (notice) => geofences.service.notifyTransition(notice),
         }),
       ),
     ],

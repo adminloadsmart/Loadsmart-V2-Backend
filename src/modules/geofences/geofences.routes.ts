@@ -15,14 +15,6 @@ export function createGeofencesRoutes(controller: GeofencesController): Router {
 
   const canManage = requirePermission(GEOFENCES_MANAGE);
 
-  // Declared before '/:geofenceId' so 'location-pings' is never read as an id.
-  router.post(
-    '/location-pings',
-    canManage,
-    validate(geofenceValidators.ingestPings),
-    asyncHandler(controller.ingestPings),
-  );
-
   router.post('/', canManage, validate(geofenceValidators.create), asyncHandler(controller.create));
   router.get('/', validate(geofenceValidators.list), asyncHandler(controller.list));
   router.get('/:geofenceId', validate(geofenceValidators.get), asyncHandler(controller.get));

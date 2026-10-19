@@ -55,6 +55,18 @@ export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
  *  hours from generation). */
 export const EWAY_BILL_ALERT_LEAD_MS = MS_PER_HOUR;
 
+/** LS_N_0027 — when a halt is checked, measured from its start: once past 2 hours, and a second
+ *  time only if the same halt crosses 6 hours (at most two alerts per halt). */
+export const VEHICLE_HALT_ALERT_STEPS = [
+  { step: '2h', afterMs: 2 * MS_PER_HOUR },
+  { step: '6h', afterMs: 6 * MS_PER_HOUR },
+] as const;
+export type VehicleHaltStep = (typeof VEHICLE_HALT_ALERT_STEPS)[number]['step'];
+
+/** LS_N_0027 — the truck's latest position must be this close to where the halt started for it
+ *  to still count as the same halt (tracking's HALT-GPS clubbing radius). */
+export const VEHICLE_HALT_SAME_SPOT_M = 500;
+
 /** IFSC bank code (first four letters) → display name, for the advance-due card. A code not
  *  listed here is shown as-is. */
 export const BANK_NAME_BY_IFSC_PREFIX: Record<string, string> = {

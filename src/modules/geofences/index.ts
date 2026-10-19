@@ -7,14 +7,12 @@ import { GeofencesController } from './geofences.controller';
 import { createGeofencesRoutes } from './geofences.routes';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createGeofenceEventNotifier } from './geofence-alerts';
-import { GeofenceLoadAdvancer } from './utils/geofence.interface';
 
 export function createGeofencesModule(
   dataSource: DataSource,
   deps: {
     auditService: AuditService;
     authService: AuthService;
-    advanceLoad?: GeofenceLoadAdvancer;
     notificationsService: NotificationsService;
   },
 ) {
@@ -23,7 +21,6 @@ export function createGeofencesModule(
     repository,
     deps.authService,
     deps.auditService,
-    deps.advanceLoad,
     createGeofenceEventNotifier(deps.notificationsService),
   );
   const controller = new GeofencesController(service);

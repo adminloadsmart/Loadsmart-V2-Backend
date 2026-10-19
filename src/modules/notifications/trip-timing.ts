@@ -23,8 +23,8 @@ export async function scheduleTripTimingChecks(queue: JobQueue): Promise<void> {
 
 /**
  * Time-driven trip alerts, swept on the 'notification-schedules' queue: LS_N_0021 (vehicle not
- * reported — still "assigned" after its reporting time) and LS_N_0023 (detention — still "At
- * plant" past the free hours). Each run queues the step that's due; a step only counts as due for
+ * reported — still "assigned" after its reporting time) and LS_N_0023 (detention — still at the
+ * loading point past the free hours; see findLoadsAtOriginSince). Each run queues the step that's due; a step only counts as due for
  * TRIP_TIMING_GRACE_MINUTES, so a backlog never sends stale alerts, and the trigger worker's
  * resolvers (load-alerts.ts) drop a step that already went out or no longer applies.
  */
@@ -60,10 +60,10 @@ export function createTripTimingChecks(
       }
 
       let detention = 0;
-      const atPlant = await loadAlertRepository.findLoadsAtPlantSince(
+      const atOrigin = await loadAlertRepository.findLoadsAtOriginSince(
         new Date(now.getTime() - FREE_LOADING_HOURS * MS_PER_HOUR),
       );
-      for (const load of atPlant) {
+      for (const load of atOrigin) {
         const overMinutes =
           (now.getTime() - load.atPlantAt.getTime()) / MS_PER_MINUTE - FREE_LOADING_HOURS * 60;
         if (overMinutes >= DETENTION_ALERT_MAX_HOURS * 60) continue;

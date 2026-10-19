@@ -8,6 +8,9 @@ export interface TripEta {
   remainingKm: number;
   /** No GPS fix for a while — the ETA is the last one computed, not a fresh one. */
   stale: boolean;
+  /** Minutes the ETA is behind the promised delivery time (≤ 0 = on time); null when tracking
+   *  has no promised time to compare against. */
+  projectedDelayMin: number | null;
 }
 
 /** The vehicle's last known position on a load. */
@@ -42,7 +45,12 @@ const SERVICE_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 interface TripResponse {
   data?: {
-    eta?: { etaAt?: string; remainingKm?: number; stale?: boolean } | null;
+    eta?: {
+      etaAt?: string;
+      remainingKm?: number;
+      stale?: boolean;
+      projectedDelayMin?: number | null;
+    } | null;
     position?: {
       lat?: number;
       lng?: number;
@@ -98,12 +106,17 @@ export class HttpTrackingClient implements TrackingClient {
       const etaAt = validDate(data?.eta?.etaAt);
       const recordedAt = validDate(data?.position?.recordedAt ?? undefined);
       const { lat, lng } = data?.position ?? {};
+      const projectedDelayMin = Number(data?.eta?.projectedDelayMin);
       return {
         eta: etaAt
           ? {
               etaAt,
               remainingKm: Number(data?.eta?.remainingKm ?? 0),
               stale: Boolean(data?.eta?.stale),
+              projectedDelayMin:
+                data?.eta?.projectedDelayMin != null && Number.isFinite(projectedDelayMin)
+                  ? projectedDelayMin
+                  : null,
             }
           : null,
         position:

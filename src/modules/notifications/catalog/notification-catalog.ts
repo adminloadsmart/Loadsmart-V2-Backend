@@ -14,7 +14,8 @@ import { toInternationalIndianNumber } from '../../../shared/utils/phone-number'
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
 import { LoadStageHandoffStage } from '../notifications.types';
 import { LoadPersonRef, NextPlannedTrip } from '../notifications.interface';
-import { ASSIGNMENT_BLOCK_ALERT_WINDOW_MS } from '../notifications.constants';
+import { ASSIGNMENT_BLOCK_ALERT_WINDOW_MS, VehicleHaltStep } from '../notifications.constants';
+import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
 import { formatIndiaDateTime } from '../utils/trip-time';
 import type { AssignmentComplianceSubject } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
@@ -497,6 +498,32 @@ export interface VehicleInTransitContext extends LoadSummary {
   /** Tracking's projected arrival (ISO) and road km left; null when tracking has none yet. */
   etaAt?: string | null;
   remainingKm?: number | null;
+}
+
+/** LS_N_0027 — queued from tracking's HALT-GPS alert (tracking-events.consumer.ts), one per
+ *  step of VEHICLE_HALT_ALERT_STEPS. */
+export interface VehicleHaltedContext extends LoadSummary {
+  /** Tracking's HALT-GPS alert id — one halt. */
+  haltAlertId: string;
+  /** When the truck stopped (ISO). */
+  haltStartedAt: string;
+  /** Where the truck stopped (tracking's halt anchor). */
+  anchorLat: number;
+  anchorLng: number;
+  /** Rest stop / toll plaza, when tracking itself tagged the halt; null otherwise. */
+  stopPlaceKind?: HaltExpectedGeofenceType | null;
+  /** '2h' — the first alert; '6h' — only if the same halt crossed 6 hours. */
+  step: VehicleHaltStep;
+  // Filled in by the resolver:
+  /** Tracking's place name for the truck's position, else "lat, lng". */
+  location?: string | null;
+  destination?: string | null;
+  /** Tracking's projected arrival (ISO) and how far it is behind the promised delivery time. */
+  revisedEtaAt?: string | null;
+  delayMin?: number | null;
+  haltDurationMin?: number;
+  driverName?: string | null;
+  driverPhone?: string | null;
 }
 
 export interface PodUploadedContext extends LoadSummary {
@@ -1677,7 +1704,7 @@ export const NOTIFICATION_CATALOG = {
   // (LoadService.getEwayBillExpiry — no ULIP validity yet), so of the sheet's 12 h / 4 h / 1 h
   // ladder only the 1 h step can happen. At send time the resolver asks tracking for the ETA:
   // skipped if the truck is projected to arrive before the expiry, sent if it's projected after
-  // OR tracking has no ETA. Also skipped once delivered or the bill was regenerated. P1 (pings
+  // OR tracking has no live ETA (none, or stale — no GPS for 60+ min). Also skipped once delivered or the bill was regenerated. P1 (pings
   // through quiet hours): in-app + push + WhatsApp + SMS to trip.track and compliance.manage.
   'load.eway_bill_expiry': {
     label: 'E-way bill expiry',
@@ -1926,8 +1953,10 @@ export const NOTIFICATION_CATALOG = {
   },
 
   // LS_N_0023 — the trip-timing sweep sends this once the vehicle has been at the loading point
-  // ("At plant", loading not yet confirmed) for FREE_LOADING_HOURS, then every
-  // DETENTION_REPEAT_HOURS while it stays. Free hours and DETENTION_RATE_PER_HOUR are fixed
+  // for FREE_LOADING_HOURS, then every DETENTION_REPEAT_HOURS while it stays. The clock runs from
+  // "At plant" (the geofence entry, or the manual tap) until the vehicle leaves: its geofence exit
+  // (tracking's departure moves the load to "In transit") when the geofence saw it arrive, else
+  // loading confirmed. Free hours and DETENTION_RATE_PER_HOUR are fixed
   // placeholders until detention terms are configurable. No reason-recording feature exists, so
   // the button opens the load. In-app + push + WhatsApp, P2, to trip.track and payments holders
   // (the sheet's "payment.view").
@@ -2008,6 +2037,68 @@ export const NOTIFICATION_CATALOG = {
           distance_km: context.remainingKm != null ? String(Math.round(context.remainingKm)) : '',
           cta_label: 'Track live',
           cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0027 — fired by tracking's HALT-GPS alert (`alert.opened` on the tracking.events stream,
+  // tracking-events.consumer.ts), which queues a check at 2 h and at 6 h from the halt's start:
+  // one alert per halt, a second only if the same halt crosses 6 hours. Each check sends only if
+  // the truck is still standing there, the spot is outside the trip's origin / destination
+  // geofences and any rest stop / toll plaza geofence (halt-exclusions.ts), and tracking projects
+  // arrival after the promised time. P2, in-app + push to trip.track holders only (no Loadsmart
+  // admin).
+  'load.vehicle_halted': {
+    label: 'Vehicle halted',
+    category: 'trip_execution',
+    description: 'A vehicle has been stopped for over 2 hours and its ETA is slipping.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: VehicleHaltedContext) =>
+      `${context.loadId}-${context.haltAlertId}-${context.step}`,
+    buildContent: (context: VehicleHaltedContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const haltDuration = durationOf(context.haltDurationMin ?? 0);
+      const haltStart = formatIndiaDateTime(context.haltStartedAt);
+      const location = context.location ?? 'its last reported spot';
+      const destination = context.destination ?? 'the destination';
+      const revisedEta = context.revisedEtaAt ? formatIndiaDateTime(context.revisedEtaAt) : '';
+      const delay = context.delayMin != null ? durationOf(context.delayMin) : '';
+      const eta = revisedEta
+        ? ` ETA at ${destination} has moved to ${revisedEta}${delay ? `, which is ${delay} behind plan` : ''}.`
+        : '';
+      const driver = context.driverName
+        ? ` Driver ${context.driverName}${context.driverPhone ? ` on ${context.driverPhone}` : ''}.`
+        : context.driverPhone
+          ? ` Driver on ${context.driverPhone}.`
+          : '';
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${vehicleNo} halted for ${haltDuration}`,
+        body: `Stopped near ${location} since ${haltStart}.${eta}${driver}`,
+        highlights: [vehicleNo, haltDuration],
+        metadata: {
+          ...loadMetadataOf(context),
+          halt_duration: haltDuration,
+          location: context.location ?? '',
+          halt_start: haltStart,
+          halt_started_at: context.haltStartedAt,
+          destination: context.destination ?? '',
+          revised_eta: revisedEta,
+          revised_eta_at: context.revisedEtaAt ?? '',
+          delay,
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          halt_alert_id: context.haltAlertId,
+          halt_step: context.step,
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          // "+919876500000"; left out when the driver has no valid number.
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
         },
       };
     },

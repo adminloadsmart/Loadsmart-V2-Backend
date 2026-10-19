@@ -1,4 +1,4 @@
-import { DataSource, In, LessThanOrEqual, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { RequisitionEntity } from '../loads/entities/requisition.entity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
@@ -27,9 +27,28 @@ function coordinatesOf(
     : { originLat: null, originLng: null };
 }
 
+function destinationCoordinatesOf(
+  lat: string | number | null | undefined,
+  lng: string | number | null | undefined,
+): { destinationLat: number | null; destinationLng: number | null } {
+  const { originLat, originLng } = coordinatesOf(lat, lng);
+  return { destinationLat: originLat, destinationLng: originLng };
+}
+
 function routeOf(originCity: string | null, destinationCity: string | null): string | null {
   return originCity && destinationCity ? `${originCity} to ${destinationCity}` : null;
 }
+
+/** The load (aliased `load`) reached "At plant" through tracking's geofence — LoadService's
+ *  advanceFromTracking records that step with `source: 'tracking'`; a manual tap has none. */
+const ARRIVED_BY_TRACKING_SQL = `EXISTS (
+  SELECT 1 FROM loads.load_activities activity
+  WHERE activity.tenant_id = load.tenant_id
+    AND activity.load_id = load.id
+    AND activity.action = 'STATUS_CHANGED'
+    AND activity.to_value = 'at_plant'
+    AND activity.metadata->>'source' = 'tracking'
+)`;
 
 /**
  * Read side of the loads data the load-event notifications need (load-alerts.ts) and the
@@ -126,6 +145,17 @@ export class LoadAlertRepository {
         load.requisition?.loadingPoint?.latitude ?? posting?.pickupAddress?.latitude,
         load.requisition?.loadingPoint?.longitude ?? posting?.pickupAddress?.longitude,
       ),
+      originGeofenceRadiusM: load.requisition?.loadingPoint?.geofenceRadiusM ?? null,
+      originLoadingPointId:
+        load.requisition?.loadingPointId ?? posting?.pickupLoadingPointId ?? null,
+      destinationDeliveryPointId:
+        load.requisition?.customerDeliveryPointId ?? posting?.dropCustomerDeliveryPointId ?? null,
+      destinationLoadingPointId: posting?.dropLoadingPointId ?? null,
+      ...destinationCoordinatesOf(
+        deliveryPoint?.latitude ?? posting?.dropAddress?.latitude,
+        deliveryPoint?.longitude ?? posting?.dropAddress?.longitude,
+      ),
+      destinationGeofenceRadiusM: deliveryPoint?.geofenceRadiusM ?? null,
       atPlantAt: load.atPlantAt,
       pickupDate: load.requisition?.pickupDate ?? null,
       pickupAt: posting?.pickupAt ?? null,
@@ -222,19 +252,35 @@ export class LoadAlertRepository {
     return rows.map((row) => ({ ...row, reportingAt: new Date(row.reportingAt) }));
   }
 
-  /** LS_N_0023 — loads still "At plant" (loading not confirmed) since `before` or earlier. */
-  async findLoadsAtPlantSince(
+  /** LS_N_0023 — loads whose vehicle is still at the loading point, there since `before` or
+   *  earlier: "At plant", or "Loading confirmed" when tracking's geofence saw it arrive (so its
+   *  gate exit — which moves the load to "In transit" — is what ends detention). A load whose
+   *  arrival was tapped by hand has no exit to wait for, so its detention ends at loading
+   *  confirmed. */
+  async findLoadsAtOriginSince(
     before: Date,
   ): Promise<{ loadId: string; tenantId: string; atPlantAt: Date }[]> {
-    const loads = await this.loads.find({
-      where: { status: 'at_plant', atPlantAt: LessThanOrEqual(before) },
-      select: { id: true, tenantId: true, atPlantAt: true },
-    });
-    return loads.map((load) => ({
-      loadId: load.id,
-      tenantId: load.tenantId,
-      atPlantAt: load.atPlantAt!,
-    }));
+    const rows: { loadId: string; tenantId: string; atPlantAt: Date | string }[] = await this.loads
+      .createQueryBuilder('load')
+      .select('load.id', 'loadId')
+      .addSelect('load.tenant_id', 'tenantId')
+      .addSelect('load.at_plant_at', 'atPlantAt')
+      .where('load.at_plant_at <= :before', { before })
+      .andWhere(
+        `(load.status = 'at_plant' OR (load.status = 'loading_confirmed' AND ${ARRIVED_BY_TRACKING_SQL}))`,
+      )
+      .getRawMany();
+    return rows.map((row) => ({ ...row, atPlantAt: new Date(row.atPlantAt) }));
+  }
+
+  /** LS_N_0023 — whether tracking's geofence (not a manual tap) moved this load to "At plant". */
+  async arrivedByTracking(tenantId: string, loadId: string): Promise<boolean> {
+    return this.loads
+      .createQueryBuilder('load')
+      .where('load.tenant_id = :tenantId', { tenantId })
+      .andWhere('load.id = :loadId', { loadId })
+      .andWhere(ARRIVED_BY_TRACKING_SQL)
+      .getExists();
   }
 
   /** The earliest not-yet-started trip on a vehicle picking up on or after `fromDate`. */
