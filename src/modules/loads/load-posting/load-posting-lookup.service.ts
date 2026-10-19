@@ -242,9 +242,10 @@ export class LoadPostingLookupService {
             .filter((id): id is string => Boolean(id)),
         ),
       ];
-      const [relations, busyDrivers] = await Promise.all([
+      const [relations, busyDrivers, driversWithApp] = await Promise.all([
         this.repository.listDriverRelationsByDriverIds(tenantId, linkedDriverIds),
         this.repository.listDriverIdsOnActiveLoads(tenantId, linkedDriverIds),
+        this.repository.listDriverIdsWithApp(linkedDriverIds),
       ]);
 
       const rows = await Promise.all(
@@ -258,7 +259,11 @@ export class LoadPostingLookupService {
           );
           const relation = relations.find((r) => r.driverId === primary?.driverId);
           const reason = primary
-            ? driverUnavailableReason(relation, busyDrivers.has(primary.driverId))
+            ? driverUnavailableReason(
+                relation,
+                busyDrivers.has(primary.driverId),
+                driversWithApp.has(primary.driverId),
+              )
             : null;
           const linkedDriver = primary
             ? {
@@ -290,17 +295,24 @@ export class LoadPostingLookupService {
   }
 
   /** Idle drivers to choose from when a truck's own driver is missing or unavailable (PL-22):
-   *  active in this fleet, not on leave or inactive, and not on a live load. */
+   *  active in this fleet, not on leave, medically unfit or inactive, not on a live load, and
+   *  with the driver app installed. */
   async availableDrivers(tenantId: string, search?: string) {
     try {
       const relations = await this.repository.listActiveDriverRelations(tenantId, search);
-      const busy = await this.repository.listDriverIdsOnActiveLoads(
-        tenantId,
-        relations.map((relation) => relation.driverId),
-      );
+      const driverIds = relations.map((relation) => relation.driverId);
+      const [busy, withApp] = await Promise.all([
+        this.repository.listDriverIdsOnActiveLoads(tenantId, driverIds),
+        this.repository.listDriverIdsWithApp(driverIds),
+      ]);
       return relations
         .filter(
-          (relation) => driverUnavailableReason(relation, busy.has(relation.driverId)) === null,
+          (relation) =>
+            driverUnavailableReason(
+              relation,
+              busy.has(relation.driverId),
+              withApp.has(relation.driverId),
+            ) === null,
         )
         .map((relation) => ({
           id: relation.driverId,
