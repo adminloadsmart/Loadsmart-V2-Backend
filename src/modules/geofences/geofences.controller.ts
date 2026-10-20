@@ -5,7 +5,6 @@ import { GeofenceService } from './geofence.service';
 import {
   CreateGeofenceInput,
   GeofenceParams,
-  IngestPingsInput,
   ListGeofencesInput,
   UpdateGeofenceInput,
 } from './utils/geofence.interface';
@@ -47,13 +46,5 @@ export class GeofencesController {
   delete = async (req: Request<GeofenceParams>, res: Response) => {
     await this.geofenceService.delete(requireTenantId(req), req.user!.id, req.params.geofenceId);
     respond(res, { success: true });
-  };
-
-  ingestPings = async (req: Request, res: Response) => {
-    const result = await this.geofenceService.processPings(
-      requireTenantId(req),
-      req.body as IngestPingsInput,
-    );
-    respond(res, result);
   };
 }

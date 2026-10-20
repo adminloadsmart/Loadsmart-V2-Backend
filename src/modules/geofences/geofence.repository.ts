@@ -2,12 +2,10 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { GeofenceEntity } from './entities/geofence.entity';
 import { GeofenceVehicleEntity } from './entities/geofence-vehicle.entity';
 import { GeofenceRecipientEntity } from './entities/geofence-recipient.entity';
-import { VehicleGeofenceStateEntity } from './entities/vehicle-geofence-state.entity';
-import { GeofenceEventEntity } from './entities/geofence-event.entity';
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
 import { CustomerDeliveryPointEntity } from '../customers/entities/customer-delivery-point.entity';
-import { GeofenceAlertChannel, GeofenceEventType } from './utils/geofence.types';
+import { GeofenceAlertChannel, GeofenceType } from './utils/geofence.types';
 import { ListGeofencesInput } from './utils/geofence.interface';
 
 export type CreateGeofenceData = Omit<
@@ -26,16 +24,12 @@ const WITH_CHILDREN = { vehicles: true, recipients: true } as const;
 
 export class GeofenceRepository {
   private readonly geofences: Repository<GeofenceEntity>;
-  private readonly states: Repository<VehicleGeofenceStateEntity>;
-  private readonly events: Repository<GeofenceEventEntity>;
   private readonly vehicles: Repository<VehicleEntity>;
   private readonly loadingPoints: Repository<LoadingPointEntity>;
   private readonly deliveryPoints: Repository<CustomerDeliveryPointEntity>;
 
   constructor(private readonly dataSource: DataSource) {
     this.geofences = dataSource.getRepository(GeofenceEntity);
-    this.states = dataSource.getRepository(VehicleGeofenceStateEntity);
-    this.events = dataSource.getRepository(GeofenceEventEntity);
     this.vehicles = dataSource.getRepository(VehicleEntity);
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
     this.deliveryPoints = dataSource.getRepository(CustomerDeliveryPointEntity);
@@ -114,12 +108,10 @@ export class GeofenceRepository {
       .getManyAndCount();
   }
 
-  /** Every live geofence of the tenant with its truck scope — what a ping batch is tested against. */
-  findActiveForTenant(tenantId: string): Promise<GeofenceEntity[]> {
-    return this.geofences.find({
-      where: { tenantId, isActive: true },
-      relations: { vehicles: true, recipients: true },
-    });
+  /** The tenant's active geofences of these types, without children (LS_N_0027's halt check). */
+  listActiveByTypes(tenantId: string, types: readonly GeofenceType[]): Promise<GeofenceEntity[]> {
+    if (types.length === 0) return Promise.resolve([]);
+    return this.geofences.find({ where: { tenantId, isActive: true, type: In([...types]) } });
   }
 
   async softDelete(tenantId: string, id: string): Promise<boolean> {
@@ -152,36 +144,5 @@ export class GeofenceRepository {
 
   deliveryPointExists(tenantId: string, id: string): Promise<boolean> {
     return this.deliveryPoints.existsBy({ tenantId, id });
-  }
-
-  // --- Ping state + events ---
-
-  findStates(tenantId: string, vehicleIds: string[]): Promise<VehicleGeofenceStateEntity[]> {
-    if (vehicleIds.length === 0) return Promise.resolve([]);
-    return this.states.find({ where: { tenantId, vehicleId: In(vehicleIds) } });
-  }
-
-  async saveState(data: {
-    tenantId: string;
-    vehicleId: string;
-    geofenceId: string;
-    inside: boolean;
-    enteredAt: Date | null;
-    lastPingAt: Date;
-  }): Promise<void> {
-    await this.states.upsert(data, ['vehicleId', 'geofenceId']);
-  }
-
-  async createEvent(data: {
-    tenantId: string;
-    geofenceId: string;
-    vehicleId: string;
-    loadId: string | null;
-    event: GeofenceEventType;
-    latitude: string;
-    longitude: string;
-    occurredAt: Date;
-  }): Promise<void> {
-    await this.events.insert(data);
   }
 }

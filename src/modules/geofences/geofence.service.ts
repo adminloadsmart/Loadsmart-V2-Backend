@@ -12,12 +12,8 @@ import {
 import {
   CreateGeofenceInput,
   GeofenceEventNotifier,
-  GeofenceLoadAdvancer,
-  GeofenceTransition,
-  IngestPingsInput,
-  IngestPingsResult,
+  GeofenceTransitionNotice,
   ListGeofencesInput,
-  LocationPingInput,
   UpdateGeofenceInput,
 } from './utils/geofence.interface';
 import {
@@ -27,7 +23,6 @@ import {
   GeoPoint,
   LOAD_LINKED_GEOFENCE_TYPES,
 } from './utils/geofence.types';
-import { isInsideCircle, isInsidePolygon } from './utils/geo.util';
 
 export interface GeofenceView {
   id: string;
@@ -84,20 +79,11 @@ function toView(g: GeofenceEntity): GeofenceView {
   };
 }
 
-function containsPoint(g: GeofenceEntity, point: GeoPoint): boolean {
-  if (g.shape === 'polygon') return isInsidePolygon(point, g.polygon ?? []);
-  const center = { latitude: Number(g.latitude), longitude: Number(g.longitude) };
-  return isInsideCircle(point, center, g.radiusM ?? 0);
-}
-
 export class GeofenceService {
   constructor(
     private readonly repository: GeofenceRepository,
     private readonly authService: AuthService,
     private readonly auditService: AuditService,
-    /** Moves a vehicle's live load forward on entering a linked loading/unloading geofence.
-     *  Optional so the module can be built (and tested) without the loads module. */
-    private readonly advanceLoad?: GeofenceLoadAdvancer,
     private readonly notifyEvent?: GeofenceEventNotifier,
   ) {}
 
@@ -269,130 +255,32 @@ export class GeofenceService {
   }
 
   /**
-   * Location-ping ingestion. Per vehicle only the newest ping in the batch counts. Each applicable
-   * geofence is tested; only a *change* of inside/outside state is an event, so repeated pings
-   * from the same place never re-fire. An enter on a linked loading/unloading geofence advances
-   * the vehicle's live load. A vehicle first seen outside a geofence records state but no event.
+   * Tracking detected an enter/exit (tracking.events `geofence.entered` / `geofence.exited` — the
+   * inside/outside check runs in the tracking service, against these same geofences). Sends the
+   * geofence's own "Send alerts to" notice when that direction is switched on. A geofence deleted
+   * or switched off since is skipped. Load status changes arrive as their own trip events.
    */
-  async processPings(tenantId: string, input: IngestPingsInput): Promise<IngestPingsResult> {
+  async notifyTransition(notice: GeofenceTransitionNotice): Promise<void> {
     try {
-      const latest = new Map<string, LocationPingInput>();
-      for (const ping of input.pings) {
-        const seen = latest.get(ping.vehicleId);
-        if (!seen || Date.parse(ping.recordedAt) > Date.parse(seen.recordedAt)) {
-          latest.set(ping.vehicleId, ping);
-        }
-      }
-
-      const vehicleIds = [...latest.keys()];
-      const known = await this.repository.findExistingVehicleIds(tenantId, vehicleIds);
-      const unknownVehicleIds = vehicleIds.filter((id) => !known.has(id));
-      const knownIds = vehicleIds.filter((id) => known.has(id));
-      if (knownIds.length === 0) return { processed: 0, unknownVehicleIds, transitions: [] };
-
-      const geofences = await this.repository.findActiveForTenant(tenantId);
-      const states = await this.repository.findStates(tenantId, knownIds);
-      const stateOf = new Map(states.map((s) => [`${s.vehicleId}:${s.geofenceId}`, s]));
-      const transitions: GeofenceTransition[] = [];
-
-      for (const vehicleId of knownIds) {
-        const ping = latest.get(vehicleId)!;
-        const at = new Date(ping.recordedAt);
-        const point = { latitude: ping.latitude, longitude: ping.longitude };
-
-        for (const geofence of geofences) {
-          const applies =
-            geofence.appliesToAllVehicles ||
-            geofence.vehicles.some((v) => v.vehicleId === vehicleId);
-          if (!applies) continue;
-
-          const state = stateOf.get(`${vehicleId}:${geofence.id}`);
-          if (state && state.lastPingAt.getTime() >= at.getTime()) continue; // stale / duplicate
-
-          const inside = containsPoint(geofence, point);
-          const wasInside = state?.inside ?? false;
-          await this.repository.saveState({
-            tenantId,
-            vehicleId,
-            geofenceId: geofence.id,
-            inside,
-            enteredAt: inside ? (wasInside ? (state?.enteredAt ?? at) : at) : null,
-            lastPingAt: at,
-          });
-          if (inside === wasInside) continue;
-
-          const event = inside ? 'enter' : 'exit';
-          let loadId: string | null = null;
-          let loadStatus: string | null = null;
-
-          if (
-            event === 'enter' &&
-            this.advanceLoad &&
-            (LOAD_LINKED_GEOFENCE_TYPES as readonly string[]).includes(geofence.type)
-          ) {
-            try {
-              const advanced = await this.advanceLoad({
-                tenantId,
-                vehicleId,
-                geofenceId: geofence.id,
-                geofenceType: geofence.type as 'loading_point' | 'unloading_point',
-                loadingPointId: geofence.loadingPointId,
-                customerDeliveryPointId: geofence.customerDeliveryPointId,
-              });
-              loadId = advanced?.loadId ?? null;
-              loadStatus = advanced?.toStatus ?? null;
-            } catch (error) {
-              // The ping and its event are already recorded — a load that can't move (e.g. on
-              // hold after an incident) must not fail the whole ingestion batch.
-              console.warn(
-                `Geofence ${geofence.id}: could not advance load for vehicle ${vehicleId}`,
-                error,
-              );
-            }
-          }
-
-          await this.repository.createEvent({
-            tenantId,
-            geofenceId: geofence.id,
-            vehicleId,
-            loadId,
-            event,
-            latitude: String(ping.latitude),
-            longitude: String(ping.longitude),
-            occurredAt: at,
-          });
-          transitions.push({
-            geofenceId: geofence.id,
-            geofenceName: geofence.name,
-            vehicleId,
-            event,
-            loadId,
-            loadStatus,
-          });
-
-          const alertWanted = event === 'enter' ? geofence.alertOnEnter : geofence.alertOnExit;
-          if (alertWanted && geofence.recipients.length > 0) {
-            await this.notifyEvent?.({
-              tenantId,
-              geofenceId: geofence.id,
-              geofenceName: geofence.name,
-              vehicleId,
-              vehicleNumber: await this.repository.findVehicleNumber(tenantId, vehicleId),
-              event,
-              loadId,
-              recipients: geofence.recipients.map((r) => ({
-                userId: r.userId,
-                channels: r.channels,
-              })),
-              at,
-            });
-          }
-        }
-      }
-
-      return { processed: knownIds.length, unknownVehicleIds, transitions };
+      const geofence = await this.repository.findById(notice.tenantId, notice.geofenceId);
+      if (!geofence || !geofence.isActive || !this.notifyEvent) return;
+      const alertWanted = notice.event === 'enter' ? geofence.alertOnEnter : geofence.alertOnExit;
+      if (!alertWanted || geofence.recipients.length === 0) return;
+      await this.notifyEvent({
+        tenantId: notice.tenantId,
+        geofenceId: geofence.id,
+        geofenceName: geofence.name,
+        vehicleId: notice.vehicleId,
+        vehicleNumber:
+          notice.vehicleNumber ??
+          (await this.repository.findVehicleNumber(notice.tenantId, notice.vehicleId)),
+        event: notice.event,
+        loadId: notice.loadId,
+        recipients: geofence.recipients.map((r) => ({ userId: r.userId, channels: r.channels })),
+        at: notice.at,
+      });
     } catch (error) {
-      rethrow(error, 'Failed to process location pings');
+      rethrow(error, 'Failed to send the geofence alert');
     }
   }
 

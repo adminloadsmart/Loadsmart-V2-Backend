@@ -56,57 +56,17 @@ export interface ListGeofencesInput {
   isActive?: boolean;
 }
 
-export interface LocationPingInput {
-  vehicleId: string;
-  latitude: number;
-  longitude: number;
-  recordedAt: string;
-  ignitionOn?: boolean;
-}
-
-export interface IngestPingsInput {
-  pings: LocationPingInput[];
-}
-
-export interface GeofenceTransition {
+/** A `geofence.entered` / `geofence.exited` event from tracking (tracking-events.consumer.ts). */
+export interface GeofenceTransitionNotice {
+  tenantId: string;
   geofenceId: string;
-  geofenceName: string;
   vehicleId: string;
+  /** Tracking's plate for the truck, when it knows it (market trucks have no vehicle row). */
+  vehicleNumber: string | null;
   event: GeofenceEventType;
   loadId: string | null;
-  /** Set when this entry moved the load's status. */
-  loadStatus: string | null;
+  at: Date;
 }
-
-export interface IngestPingsResult {
-  processed: number;
-  /** Vehicle ids that aren't in this tenant (or are deleted) — their pings were dropped. */
-  unknownVehicleIds: string[];
-  transitions: GeofenceTransition[];
-}
-
-/** What the geofences module needs from the loads module — kept narrow so geofences never reaches
- *  into load repositories. Implemented by LoadService.advanceFromGeofence. */
-export interface GeofenceLoadAdvance {
-  tenantId: string;
-  vehicleId: string;
-  geofenceId: string;
-  geofenceType: 'loading_point' | 'unloading_point';
-  loadingPointId: string | null;
-  customerDeliveryPointId: string | null;
-}
-
-export interface GeofenceLoadAdvanceResult {
-  loadId: string;
-  loadCode: string;
-  fromStatus: string;
-  /** Null when the vehicle's load matched but wasn't in a state to move. */
-  toStatus: string | null;
-}
-
-export type GeofenceLoadAdvancer = (
-  input: GeofenceLoadAdvance,
-) => Promise<GeofenceLoadAdvanceResult | null>;
 
 /** Fires after an enter/exit transition has been recorded. Never throws — same contract as
  *  LoadEventNotifier. */

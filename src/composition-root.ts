@@ -394,13 +394,12 @@ export function buildContainer(dataSource: DataSource): Container {
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
-  // Geofences — built after loads: entering a linked loading/unloading geofence advances the
-  // vehicle's live load through LoadService.
+  // Geofences — CRUD here; the inside/outside check runs in the tracking service, which reports
+  // enter/exit on its tracking.events stream.
   const geofences = createGeofencesModule(dataSource, {
     auditService: audit.service,
     authService: auth.service,
     notificationsService: notifications.service,
-    advanceLoad: (input) => loads.loadService.advanceFromGeofence(input),
   });
 
   // The driver's own (tenant-independent) identity layer — self-registration and cross-tenant

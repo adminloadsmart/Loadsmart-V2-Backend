@@ -22,7 +22,8 @@ import { GeofenceRecipientEntity } from './geofence-recipient.entity';
  * A named place (Tracking → Geofences → Add geofence): a circle (pin + radius) or a drawn polygon,
  * with alert rules and the trucks/people they apply to. A loading_point / unloading_point geofence
  * can be linked to the master loading point or customer delivery point it stands for — that link
- * is what lets a vehicle entering it advance the right load (see LoadService.advanceFromGeofence).
+ * is what lets a vehicle entering it advance the right load (the tracking service matches it to the
+ * trip's pickup/drop point and sends trip.arrived_at_pickup / trip.arrived_at_drop).
  * Soft-deleted only (FMS-MAS-R002).
  */
 @Entity({ schema: 'tracking', name: 'geofences' })

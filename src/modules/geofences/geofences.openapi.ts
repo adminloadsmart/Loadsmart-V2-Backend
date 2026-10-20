@@ -17,26 +17,11 @@ const manage = (description: string) => permissionGated([GEOFENCES_MANAGE], desc
 export function registerGeofencesOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
     method: 'post',
-    path: `${BASE}/location-pings`,
-    tags: [TAGS.GEOFENCES],
-    operationId: 'geofences.ingestLocationPings',
-    ...manage(
-      'Submit vehicle location pings (max 500 per call). Only the newest ping per vehicle counts. A change of inside/outside state against a geofence is recorded as an enter/exit event; entering a loading/unloading geofence linked to the vehicle’s own load moves that load assigned → at_plant (loading) or in_transit → reached_delivery_point (unloading). Responds with the transitions that happened and any vehicle ids not in the tenant.',
-    ),
-    request: { body: json(geofenceValidators.ingestPings.shape.body) },
-    responses: {
-      200: { description: '{ processed, unknownVehicleIds, transitions }' },
-      400: { description: 'Validation failed', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
-    method: 'post',
     path: BASE,
     tags: [TAGS.GEOFENCES],
     operationId: 'geofences.create',
     ...manage(
-      'Create a geofence: a circle (latitude/longitude + radiusM, 50–5000 m) or a drawn polygon, with alert rules, the trucks it applies to and who is alerted. loadingPointId / customerDeliveryPointId link a loading_point / unloading_point geofence to the master point it stands for — required for it to drive load status.',
+      'Create a geofence: a circle (latitude/longitude + radiusM, 50–5000 m) or a drawn polygon, with alert rules, the trucks it applies to and who is alerted. loadingPointId / customerDeliveryPointId link a loading_point / unloading_point geofence to the master point it stands for — required for the tracking service’s geofence entry to drive load status.',
     ),
     request: { body: json(geofenceValidators.create.shape.body) },
     responses: {

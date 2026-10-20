@@ -16,7 +16,6 @@ import { TrackingEventEntity } from '../modules/tracking/tracking.entity';
 import { GeofenceEntity } from '../modules/geofences/entities/geofence.entity';
 import { GeofenceVehicleEntity } from '../modules/geofences/entities/geofence-vehicle.entity';
 import { GeofenceRecipientEntity } from '../modules/geofences/entities/geofence-recipient.entity';
-import { VehicleGeofenceStateEntity } from '../modules/geofences/entities/vehicle-geofence-state.entity';
 import { GeofenceEventEntity } from '../modules/geofences/entities/geofence-event.entity';
 import { NotificationEntity } from '../modules/notifications/notifications.entity';
 import { NotificationDeliveryEntity } from '../modules/notifications/notification-delivery.entity';
@@ -97,7 +96,6 @@ export const AppDataSource = new DataSource({
     GeofenceEntity,
     GeofenceVehicleEntity,
     GeofenceRecipientEntity,
-    VehicleGeofenceStateEntity,
     GeofenceEventEntity,
     NotificationEntity,
     NotificationDeliveryEntity,

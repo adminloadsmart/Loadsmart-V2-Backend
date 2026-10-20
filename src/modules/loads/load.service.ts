@@ -42,10 +42,6 @@ import {
 import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import {
-  GeofenceLoadAdvance,
-  GeofenceLoadAdvanceResult,
-} from '../geofences/utils/geofence.interface';
-import {
   buildNextAction,
   buildStepper,
   LoadPapers,
@@ -660,81 +656,6 @@ export class LoadService {
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to update load status');
-    }
-  }
-
-  /**
-   * Geofence-driven tracking: a vehicle entered a loading/unloading geofence. Moves the vehicle's
-   * live load forward one step — assigned → at_plant at its pickup, in_transit →
-   * reached_delivery_point at its drop — but only when the geofence is linked to that load's own
-   * point, and only from exactly that prior status (never skips, never goes back). Returns null
-   * when there is no matching load; a matching load that can't move (wrong status, trip on hold,
-   * lost a race) comes back with `toStatus: null`. Written without a user id, like the
-   * driver-initiated path, since there is no acting user.
-   */
-  async advanceFromGeofence(input: GeofenceLoadAdvance): Promise<GeofenceLoadAdvanceResult | null> {
-    try {
-      const { tenantId, vehicleId, geofenceId, geofenceType } = input;
-      const live = await this.repository.findLiveByVehicleWithPoints(tenantId, vehicleId);
-      if (!live) return null;
-      const { load } = live;
-
-      const isLoading = geofenceType === 'loading_point';
-      const matches = isLoading
-        ? !!input.loadingPointId && live.pickupLoadingPointId === input.loadingPointId
-        : (!!input.customerDeliveryPointId &&
-            live.dropCustomerDeliveryPointId === input.customerDeliveryPointId) ||
-          (!!input.loadingPointId && live.dropLoadingPointId === input.loadingPointId);
-      if (!matches) return null;
-
-      const fromStatus: LoadStatus = isLoading ? 'assigned' : 'in_transit';
-      const toStatus: LoadStatus = isLoading ? 'at_plant' : 'reached_delivery_point';
-      const result = (moved: boolean): GeofenceLoadAdvanceResult => ({
-        loadId: load.id,
-        loadCode: load.code,
-        fromStatus: load.status,
-        toStatus: moved ? toStatus : null,
-      });
-      if (load.status !== fromStatus) return result(false);
-      try {
-        await this.assertNotHalted(tenantId, load.id);
-      } catch (error) {
-        if (error instanceof ConflictError) return result(false);
-        throw error;
-      }
-
-      const updated = await this.repository.updateStatus(
-        tenantId,
-        load.id,
-        [fromStatus],
-        toStatus,
-        { [isLoading ? 'atPlantAt' : 'reachedDeliveryPointAt']: new Date(), updatedBy: null },
-      );
-      if (!updated) return result(false);
-
-      await this.loadActivityService.record(
-        tenantId,
-        load.id,
-        null,
-        'STATUS_CHANGED',
-        fromStatus,
-        toStatus,
-        { source: 'geofence', geofenceId, vehicleId },
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: null,
-        action: 'LOAD_STATUS_UPDATED_BY_GEOFENCE',
-        resourceType: 'load',
-        oldData: { id: load.id, status: fromStatus },
-        newData: { id: load.id, status: toStatus, geofenceId, vehicleId },
-      });
-      if (toStatus === 'reached_delivery_point') {
-        await this.onLoadEvent?.({ kind: toStatus, tenantId, loadId: load.id, at: new Date() });
-      }
-      return result(true);
-    } catch (error) {
-      rethrow(error, 'Failed to advance load from geofence');
     }
   }
 
