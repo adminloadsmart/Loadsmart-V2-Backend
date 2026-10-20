@@ -97,7 +97,7 @@ export const geofenceValidators = {
       type: z.enum(GEOFENCE_TYPES).optional(),
       isActive: z
         .enum(['true', 'false'])
-        .transform((v) => v === 'true')
+        .transform((value) => value === 'true')
         .optional(),
     }),
   }),

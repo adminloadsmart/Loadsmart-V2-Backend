@@ -3,79 +3,50 @@ import { paginate, Paginated } from '../../shared/utils/pagination';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { GeofenceEntity } from './entities/geofence.entity';
+import { GeofenceRepository } from './geofence.repository';
 import {
   CreateGeofenceData,
-  GeofenceRepository,
-  ReplaceChildren,
-  UpdateGeofenceData,
-} from './geofence.repository';
-import {
   CreateGeofenceInput,
   GeofenceEventNotifier,
   GeofenceTransitionNotice,
+  GeofenceView,
   ListGeofencesInput,
+  ReplaceChildren,
+  UpdateGeofenceData,
   UpdateGeofenceInput,
 } from './utils/geofence.interface';
-import {
-  GeofenceAlertChannel,
-  GeofenceShape,
-  GeofenceType,
-  GeoPoint,
-  LOAD_LINKED_GEOFENCE_TYPES,
-} from './utils/geofence.types';
+import { LOAD_LINKED_GEOFENCE_TYPES } from './utils/geofence.types';
 
-export interface GeofenceView {
-  id: string;
-  name: string;
-  type: GeofenceType;
-  address: string | null;
-  latitude: number;
-  longitude: number;
-  shape: GeofenceShape;
-  radiusM: number | null;
-  polygon: GeoPoint[] | null;
-  alerts: {
-    onEnter: boolean;
-    onExit: boolean;
-    dwellMinutes: number | null;
-    engineOnMinutes: number | null;
-  };
-  appliesTo: { allVehicles: boolean; vehicleIds: string[] };
-  recipients: { userId: string; channels: GeofenceAlertChannel[] }[];
-  loadingPointId: string | null;
-  customerDeliveryPointId: string | null;
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-function toView(g: GeofenceEntity): GeofenceView {
+function toView(geofence: GeofenceEntity): GeofenceView {
   return {
-    id: g.id,
-    name: g.name,
-    type: g.type,
-    address: g.address,
-    latitude: Number(g.latitude),
-    longitude: Number(g.longitude),
-    shape: g.shape,
-    radiusM: g.radiusM,
-    polygon: g.polygon,
+    id: geofence.id,
+    name: geofence.name,
+    type: geofence.type,
+    address: geofence.address,
+    latitude: Number(geofence.latitude),
+    longitude: Number(geofence.longitude),
+    shape: geofence.shape,
+    radiusM: geofence.radiusM,
+    polygon: geofence.polygon,
     alerts: {
-      onEnter: g.alertOnEnter,
-      onExit: g.alertOnExit,
-      dwellMinutes: g.dwellAlertMinutes,
-      engineOnMinutes: g.engineOnAlertMinutes,
+      onEnter: geofence.alertOnEnter,
+      onExit: geofence.alertOnExit,
+      dwellMinutes: geofence.dwellAlertMinutes,
+      engineOnMinutes: geofence.engineOnAlertMinutes,
     },
     appliesTo: {
-      allVehicles: g.appliesToAllVehicles,
-      vehicleIds: (g.vehicles ?? []).map((v) => v.vehicleId),
+      allVehicles: geofence.appliesToAllVehicles,
+      vehicleIds: (geofence.vehicles ?? []).map((vehicle) => vehicle.vehicleId),
     },
-    recipients: (g.recipients ?? []).map((r) => ({ userId: r.userId, channels: r.channels })),
-    loadingPointId: g.loadingPointId,
-    customerDeliveryPointId: g.customerDeliveryPointId,
-    isActive: g.isActive,
-    createdAt: g.createdAt,
-    updatedAt: g.updatedAt,
+    recipients: (geofence.recipients ?? []).map((recipient) => ({
+      userId: recipient.userId,
+      channels: recipient.channels,
+    })),
+    loadingPointId: geofence.loadingPointId,
+    customerDeliveryPointId: geofence.customerDeliveryPointId,
+    isActive: geofence.isActive,
+    createdAt: geofence.createdAt,
+    updatedAt: geofence.updatedAt,
   };
 }
 
@@ -276,7 +247,10 @@ export class GeofenceService {
           (await this.repository.findVehicleNumber(notice.tenantId, notice.vehicleId)),
         event: notice.event,
         loadId: notice.loadId,
-        recipients: geofence.recipients.map((r) => ({ userId: r.userId, channels: r.channels })),
+        recipients: geofence.recipients.map((recipient) => ({
+          userId: recipient.userId,
+          channels: recipient.channels,
+        })),
         at: notice.at,
       });
     } catch (error) {
@@ -291,23 +265,23 @@ export class GeofenceService {
   }
 
   /** Cross-field rules, applied to the full (merged) geofence on create and PATCH alike. */
-  private assertConsistent(g: CreateGeofenceInput): void {
-    if (g.shape === 'circle' && !g.radiusM) {
+  private assertConsistent(geofence: CreateGeofenceInput): void {
+    if (geofence.shape === 'circle' && !geofence.radiusM) {
       throw new ValidationError('radiusM is required for a circle geofence');
     }
-    if (g.shape === 'polygon' && (!g.polygon || g.polygon.length < 3)) {
+    if (geofence.shape === 'polygon' && (!geofence.polygon || geofence.polygon.length < 3)) {
       throw new ValidationError('polygon needs at least 3 points for a polygon geofence');
     }
-    if (!g.appliesTo.allVehicles && (g.appliesTo.vehicleIds ?? []).length === 0) {
+    if (!geofence.appliesTo.allVehicles && (geofence.appliesTo.vehicleIds ?? []).length === 0) {
       throw new ValidationError('Choose at least one truck, or apply the geofence to all trucks');
     }
-    const loadLinked = (LOAD_LINKED_GEOFENCE_TYPES as readonly string[]).includes(g.type);
-    if (!loadLinked && (g.loadingPointId || g.customerDeliveryPointId)) {
+    const loadLinked = (LOAD_LINKED_GEOFENCE_TYPES as readonly string[]).includes(geofence.type);
+    if (!loadLinked && (geofence.loadingPointId || geofence.customerDeliveryPointId)) {
       throw new ValidationError(
         'Only loading point and unloading point geofences can be linked to a master point',
       );
     }
-    if (g.type === 'loading_point' && g.customerDeliveryPointId) {
+    if (geofence.type === 'loading_point' && geofence.customerDeliveryPointId) {
       throw new ValidationError('A loading point geofence links to a loading point only');
     }
   }
@@ -335,10 +309,12 @@ export class GeofenceService {
     ) {
       throw new ValidationError('Customer delivery point not found');
     }
-    const recipientIds = (input.recipients ?? []).map((r) => r.userId);
+    const recipientIds = (input.recipients ?? []).map((recipient) => recipient.userId);
     if (recipientIds.length > 0) {
       const users = await this.authService.getUsersByIds(recipientIds);
-      const inTenant = new Set(users.filter((u) => u.tenantId === tenantId).map((u) => u.id));
+      const inTenant = new Set(
+        users.filter((user) => user.tenantId === tenantId).map((user) => user.id),
+      );
       const missing = recipientIds.filter((id) => !inTenant.has(id));
       if (missing.length > 0)
         throw new ValidationError(`Unknown recipients: ${missing.join(', ')}`);

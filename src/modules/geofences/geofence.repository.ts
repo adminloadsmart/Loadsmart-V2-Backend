@@ -5,20 +5,13 @@ import { GeofenceRecipientEntity } from './entities/geofence-recipient.entity';
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
 import { CustomerDeliveryPointEntity } from '../customers/entities/customer-delivery-point.entity';
-import { GeofenceAlertChannel, GeofenceType } from './utils/geofence.types';
-import { ListGeofencesInput } from './utils/geofence.interface';
-
-export type CreateGeofenceData = Omit<
-  GeofenceEntity,
-  'id' | 'vehicles' | 'recipients' | 'createdAt' | 'updatedAt' | 'deletedAt'
->;
-export type UpdateGeofenceData = Partial<Omit<CreateGeofenceData, 'tenantId' | 'createdBy'>>;
-
-export interface ReplaceChildren {
-  /** Undefined leaves the existing rows untouched; an array (even empty) replaces them. */
-  vehicleIds?: string[];
-  recipients?: { userId: string; channels: GeofenceAlertChannel[] }[];
-}
+import { GeofenceType } from './utils/geofence.types';
+import {
+  CreateGeofenceData,
+  ListGeofencesInput,
+  ReplaceChildren,
+  UpdateGeofenceData,
+} from './utils/geofence.interface';
 
 const WITH_CHILDREN = { vehicles: true, recipients: true } as const;
 
@@ -78,7 +71,7 @@ export class GeofenceRepository {
       const repo = manager.getRepository(GeofenceRecipientEntity);
       await repo.delete({ geofenceId });
       if (children.recipients.length > 0) {
-        await repo.insert(children.recipients.map((r) => ({ geofenceId, ...r })));
+        await repo.insert(children.recipients.map((recipient) => ({ geofenceId, ...recipient })));
       }
     }
   }
@@ -127,7 +120,7 @@ export class GeofenceRepository {
       select: { id: true },
       where: { tenantId, id: In(ids) },
     });
-    return new Set(rows.map((r) => r.id));
+    return new Set(rows.map((row) => row.id));
   }
 
   async findVehicleNumber(tenantId: string, vehicleId: string): Promise<string | null> {

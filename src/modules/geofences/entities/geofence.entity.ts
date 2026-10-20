@@ -87,10 +87,10 @@ export class GeofenceEntity {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 
-  @OneToMany(() => GeofenceVehicleEntity, (v) => v.geofence)
+  @OneToMany(() => GeofenceVehicleEntity, (vehicle) => vehicle.geofence)
   vehicles!: GeofenceVehicleEntity[];
 
-  @OneToMany(() => GeofenceRecipientEntity, (r) => r.geofence)
+  @OneToMany(() => GeofenceRecipientEntity, (recipient) => recipient.geofence)
   recipients!: GeofenceRecipientEntity[];
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
