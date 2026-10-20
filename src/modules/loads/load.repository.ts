@@ -14,6 +14,7 @@ import {
 } from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
+import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
   COMPLETED_LOAD_STATUSES,
