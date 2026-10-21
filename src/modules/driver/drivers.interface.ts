@@ -23,6 +23,10 @@ import {
   DriverLicenceClassFilter,
   DriverScoreStatus,
   DriverImportErrorCode,
+  DriverListStatusFilter,
+  DriverInviteChannel,
+  DriverInviteSendStep,
+  DriverJoinRequestStatus,
 } from './drivers.types';
 import { Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { DriverEntity } from './entities/driver.entity';
@@ -93,7 +97,8 @@ export interface UpdateDriverInput {
 }
 
 export interface ListDriversInput extends PaginationInput {
-  status?: DriverTenantRelationStatus;
+  /** Omitted = `active` (the roster) — see DRIVER_LIST_STATUS_FILTERS. */
+  status?: DriverListStatusFilter;
   initiatedBy?: DriverTenantRelationInitiator;
   operationalStatus?: DriverOperationalStatus;
   /** "Active Roster" tab — see DRIVER_ROSTER_SEGMENTS. Omitted = no segment narrowing. */
@@ -139,7 +144,7 @@ export interface InviteDriverByPhoneResult {
 }
 
 export interface DriverInvitationDeliveryChannel {
-  channel: 'sms' | 'whatsapp' | 'push';
+  channel: DriverInviteChannel;
   status: DriverInviteDeliveryStatus | null;
   statusAt: Date | null;
 }
@@ -164,6 +169,11 @@ export interface DriverInvitationView {
   /** Whether the driver has ever logged into the driver app — false for a number invited before
    *  its owner installed it. */
   appInstalled: boolean;
+  /** Whether POST …/resend would go through now — drives the Resend button. */
+  canResend: boolean;
+  /** Sends left since the driver first declined (DRIVER_INVITE_SENDS_AFTER_DECLINE); null when
+   *  they never declined, so no cap applies. */
+  sendsLeftAfterDecline: number | null;
 }
 
 /** Invitation detail drawer — the list row plus credentials, timeline and delivery channels. */
@@ -177,19 +187,43 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
   timeline: DriverInvitationTimelineStep[];
 }
 
+/** Staff user behind a timeline entry, as the drawer shows them. */
+export interface DriverInvitationActor {
+  name: string | null;
+  role: string | null;
+}
+
+/** A staff user with their id — who rejected a join request. */
+export interface DriverStaffActor extends DriverInvitationActor {
+  id: string;
+}
+
+/** The in-app notification one send created — `readAt` is when the driver marked it read (opened
+ *  it, or "Mark all read"); null while unread. */
+export interface DriverInvitationNotification {
+  id: string;
+  readAt: Date | null;
+}
+
 /**
- * Latest send only: sent → viewed (once the driver opened the invite notification) → one final
- * step derived from the relation's status (accepted / rejected / cancelled / expired /
- * awaiting_response). `cancelled.at` is the relation's last update — the cancel itself, since a
- * cancelled invite can't be changed afterwards.
+ * The invite's whole history, oldest first — every stored DriverInviteEvent with `by` resolved to
+ * the staff user, then, while the invite is still pending, one derived last step: `expired` (at
+ * expiresAt) once it has run out, otherwise `awaiting_response`.
  */
 export type DriverInvitationTimelineStep =
-  | { step: 'sent'; at: Date; by: { name: string | null; role: string | null } | null }
-  | { step: 'viewed'; at: Date; device: string | null }
+  | {
+      step: DriverInviteSendStep;
+      at: Date;
+      by: DriverInvitationActor | null;
+      /** Null when the send's notification couldn't be saved, or predates this link. */
+      notification: DriverInvitationNotification | null;
+    }
+  | { step: 'viewed'; at: Date; device: string | null; notificationId: string | null }
   | { step: 'accepted'; at: Date | null }
-  | { step: 'rejected'; at: Date | null; reason: string | null }
+  | { step: 'declined'; at: Date | null; reason: string | null }
   | { step: 'expired'; at: Date | null }
-  | { step: 'cancelled'; at: Date }
+  | { step: 'cancelled'; at: Date; by: DriverInvitationActor | null }
+  | { step: 'delivery_failed'; at: Date; channel: DriverInviteChannel }
   | { step: 'awaiting_response'; at: null };
 
 /** Latest Sarathi DL check on the driver; null when the licence was never checked. */
@@ -372,9 +406,28 @@ export interface UnavailableRelationIds {
   left: string[];
 }
 
-/** "Requests to You" list — status/initiatedBy are fixed by the service, so only paging + search. */
+/** "Requests to You" list — paging + search, and which list: pending (default) or rejected. */
 export interface ListJoinRequestsInput extends PaginationInput {
   search?: string;
+  status?: DriverJoinRequestStatus;
+}
+
+/** PATCH /drivers/:driverId/reject body. */
+export interface RejectDriverInput {
+  reason: string | null;
+  /** Send the driver the "request declined" notification — only for their own join request.
+   *  Omitted = true, as before this flag existed. */
+  notifyDriver: boolean;
+}
+
+/** One row of Recently Rejected — the pending list's item plus who rejected it and until when it
+ *  can be restored. */
+export interface DriverRejectedJoinRequestView extends DriverWithRelation {
+  rejectedAt: Date;
+  rejectedBy: DriverStaffActor | null;
+  restorableUntil: Date;
+  /** Whether PATCH …/restore would go through for this caller now — drives the Restore button. */
+  canRestore: boolean;
 }
 
 /** Raw `req.query` shape for the list endpoint — normalized into `ListDriversInput` by the service. */
@@ -524,8 +577,35 @@ export interface UpdateDriverTenantRelationData {
   updatedBy?: string | null;
 }
 
+/** The roster query's filters without paging — shared by the paged list and the export. */
+export type RosterQueryFilters = Omit<ListDriversFilters, 'page' | 'limit'>;
+
+/** GET /drivers/export — the roster's filters minus paging; status is always the roster. */
+export type ExportDriversFilters = Omit<RosterQueryFilters, 'status' | 'initiatedBy'>;
+
+/** One column of the roster export: the cell key driverToExportRow fills, and its header. */
+export interface DriverExportColumn {
+  key: DriverExportColumnKey;
+  header: string;
+}
+
+export type DriverExportColumnKey =
+  | 'fullName'
+  | 'mobileNumber'
+  | 'licenceNumber'
+  | 'licenceClass'
+  | 'licenceValidTo'
+  | 'engagementType'
+  | 'payType'
+  | 'payAmount'
+  | 'trips'
+  | 'onTimePercentage'
+  | 'driverScore'
+  | 'availability'
+  | 'driverAppInstalled';
+
 export interface ListDriversFilters {
-  status?: DriverTenantRelationStatus;
+  status?: DriverListStatusFilter;
   initiatedBy?: DriverTenantRelationInitiator;
   operationalStatus?: DriverOperationalStatus;
   segment?: DriverRosterSegment;

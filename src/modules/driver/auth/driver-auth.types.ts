@@ -63,3 +63,10 @@ export interface SelectDriverRelationInput {
   relationId: string;
   device?: DriverDeviceCaptureInput;
 }
+
+/** What DriverPushNotifier.notifyInvited sent: whether the push reached a device, and the in-app
+ *  notification it saved (null if saving failed) — the invite's timeline links to it. */
+export interface DriverInviteNotifyResult {
+  pushed: boolean;
+  notificationId: string | null;
+}

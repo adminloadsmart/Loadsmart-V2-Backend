@@ -2,6 +2,7 @@ import { NotificationEntity } from '../../notifications/notifications.entity';
 import { PushChannel } from '../../notifications/channels/push.channel';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { DriverSessionRepository } from './driver-auth.repository';
+import { DriverInviteNotifyResult } from './driver-auth.types';
 
 /**
  * Ad hoc push delivery for driver-side link events ("you've been invited", "your join request
@@ -90,25 +91,27 @@ export class DriverPushNotifier {
    * Persists first so the push can carry the in-app notification's id: when the driver opens it,
    * the app calls PATCH /driver-portal/me/notifications/:notificationId/read, which marks this
    * invitation viewed (DriverPortalService.markMyNotificationRead). Returns whether the push
-   * reached at least one device — recorded as the invite's push delivery status.
+   * reached at least one device — recorded as the invite's push delivery status — and the in-app
+   * notification's id (null if it couldn't be saved), which the invite's timeline links to.
    */
   async notifyInvited(
     tenantId: string,
     driverId: string,
     tenantName: string,
     invitationId: string,
-  ): Promise<boolean> {
+  ): Promise<DriverInviteNotifyResult> {
     const type = 'driver.account.invited';
     const title = "You've been invited";
     const body = `${tenantName} has invited you to join their fleet. Open the app to accept or decline.`;
     const notification = await this.persist(tenantId, driverId, type, title, body, {
       invitationId,
     });
-    return this.push(driverId, title, body, {
+    const pushed = await this.push(driverId, title, body, {
       type,
       invitationId,
       ...(notification && { notificationId: notification.id }),
     });
+    return { pushed, notificationId: notification?.id ?? null };
   }
 
   notifyJoinRequestApproved(tenantId: string, driverId: string, tenantName: string): Promise<void> {
