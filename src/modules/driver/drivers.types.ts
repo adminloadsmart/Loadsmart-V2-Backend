@@ -105,6 +105,14 @@ export const DRIVER_TENANT_RELATION_STATUSES = [
 export type DriverTenantRelationStatus = (typeof DRIVER_TENANT_RELATION_STATUSES)[number];
 
 /**
+ * GET /drivers `status`. Omitted = `active` — the roster: every driver who joined, including those
+ * who later left (left = operational status `inactive`, the relation stays `active`). `all` drops
+ * the status filter, so pending/declined/cancelled links come back too.
+ */
+export const DRIVER_LIST_STATUS_FILTERS = [...DRIVER_TENANT_RELATION_STATUSES, 'all'] as const;
+export type DriverListStatusFilter = (typeof DRIVER_LIST_STATUS_FILTERS)[number];
+
+/**
  * "Active Roster" tab bar on My Drivers. Every segment except `left_company` excludes drivers
  * whose company status is `inactive` (left), so `all` is the roster and the rest are slices of it
  * that can overlap (an on-trip driver can also be licence-expired). `on_trip`/`available` use the
@@ -183,6 +191,14 @@ export const DRIVER_INVITE_DELIVERY_STATUSES = [
   'failed',
 ] as const;
 export type DriverInviteDeliveryStatus = (typeof DRIVER_INVITE_DELIVERY_STATUSES)[number];
+
+/** Channels an invite goes out on — one deliveryChannels entry each. */
+export const DRIVER_INVITE_CHANNELS = ['sms', 'whatsapp', 'push'] as const;
+export type DriverInviteChannel = (typeof DRIVER_INVITE_CHANNELS)[number];
+
+/** Timeline steps that are a send of the invite: the first one, then every Resend/re-invite. */
+export const DRIVER_INVITE_SEND_STEPS = ['sent', 'resent'] as const;
+export type DriverInviteSendStep = (typeof DRIVER_INVITE_SEND_STEPS)[number];
 
 /** Who created the driver_tenant_relations row. */
 export const DRIVER_TENANT_RELATION_INITIATORS = ['staff', 'driver', 'fleet_owner'] as const;

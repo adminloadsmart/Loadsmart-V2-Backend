@@ -1,21 +1,26 @@
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { AuditService } from '../audit/audit.service';
 import { UserEntity } from '../auth/entities/user.entity';
+import { NotificationEntity } from '../notifications/notifications.entity';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverDocumentEntity } from './entities/driver-document.entity';
 import { DriverVerificationEntity } from './entities/driver-verification.entity';
 import { DriverBankDetailsEntity } from './entities/driver-bank-details.entity';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
-import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import {
+  DriverInviteEvent,
+  DriverTenantRelationEntity,
+} from './entities/driver-tenant-relation.entity';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { DriverBankVerificationStatus, DriverScoreStatus } from './drivers.types';
 import { DriverRepository } from './driver.repository';
 import {
   DriverTenantRelationRepository,
   inviteSendColumns,
+  isInviteSendEvent,
 } from './driver-tenant-relation.repository';
 import { Paginated, paginate } from '../../shared/utils/pagination';
 import { humanizeStatus } from '../../shared/utils/humanize';
@@ -26,7 +31,7 @@ import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
-import { MIN_SCORED_TRIPS } from './driver.constants';
+import { DRIVER_INVITE_SENDS_AFTER_DECLINE, MIN_SCORED_TRIPS } from './driver.constants';
 import { getCachedLicenceLookup, setCachedLicenceLookup } from './driver-licence-lookup-cache';
 import {
   BankAccountVerificationResult,
@@ -48,6 +53,7 @@ import {
   ListInvitationsInput,
   DriverInvitationView,
   DriverInvitationDetailView,
+  DriverInvitationActor,
   DriverInvitationTimelineStep,
   OnboardDriverInput,
   RecordDriverTripMetricsInput,
@@ -122,6 +128,27 @@ export function isDriverOffPlatform(driver: Pick<DriverEntity, 'deletedAt'>): bo
 // Only ever called on rows listInvitations/resendInvite returned — tenant-initiated, invite sent —
 // so anything that isn't pending/active is a driver decline. A still-pending invite to a driver
 // who has left the platform reads `expired` — nobody is left to accept it.
+/**
+ * Sends still allowed since the driver first declined (see DRIVER_INVITE_SENDS_AFTER_DECLINE),
+ * counted from the invite's timeline — null when they never declined, so no cap applies.
+ */
+function sendsLeftAfterDecline(relation: DriverTenantRelationEntity): number | null {
+  const timeline = relation.inviteTimeline;
+  const firstDecline = timeline.findIndex((event) => event.step === 'declined');
+  if (firstDecline === -1) return null;
+  const sendsSince = timeline.slice(firstDecline + 1).filter(isInviteSendEvent).length;
+  return Math.max(0, DRIVER_INVITE_SENDS_AFTER_DECLINE - sendsSince);
+}
+
+/** Shared by Resend and invite-by-mobile, so neither route gets around the cap. */
+function assertSendAllowedAfterDecline(relation: DriverTenantRelationEntity): void {
+  if (sendsLeftAfterDecline(relation) === 0) {
+    throw new ConflictError(
+      'This driver declined your invitation and it has already been sent once more — it cannot be sent again',
+    );
+  }
+}
+
 function toInvitationView(
   relation: DriverTenantRelationEntity,
   appInstalled: boolean,
@@ -138,6 +165,13 @@ function toInvitationView(
     status = 'expired';
     expiredReason = 'invite_timeout';
   } else status = 'pending';
+
+  const sendsLeft = sendsLeftAfterDecline(relation);
+  // Same rules as assertCanResend, so the Resend button and the endpoint never disagree.
+  const resendable =
+    status === 'pending' ||
+    status === 'rejected' ||
+    (status === 'expired' && expiredReason === 'invite_timeout');
 
   return {
     invitationId: relation.id,
@@ -169,6 +203,8 @@ function toInvitationView(
       },
     ],
     appInstalled,
+    canResend: resendable && sendsLeft !== 0,
+    sendsLeftAfterDecline: sendsLeft,
   };
 }
 
@@ -207,11 +243,38 @@ function assertCanReinvite(relation: DriverTenantRelationEntity): void {
       if (relation.inviteExpiresAt && relation.inviteExpiresAt > new Date()) {
         throw new ConflictError('An invite to this number is already pending — use Resend');
       }
-      return; // expired — invite again
+      break; // expired — invite again
     case 'rejected':
     case 'cancelled':
-      return;
+      break;
   }
+  assertSendAllowedAfterDecline(relation);
+}
+
+/** Whether Resend applies to this invitation — the message is shown to the user as-is. */
+function assertCanResend(invite: DriverTenantRelationEntity & { driver: DriverEntity }): void {
+  switch (invite.status) {
+    case 'active':
+      throw new ConflictError('This driver has already accepted the invitation');
+    case 'cancelled':
+      throw new ConflictError(
+        'This invitation was cancelled and cannot be resent — invite the mobile number again',
+      );
+    case 'pending_staff_review':
+      throw new ConflictError('This invitation is waiting for approval in your organisation');
+    case 'rejected':
+      // Only a driver's decline is resendable — a staff rejection never reached the driver.
+      if (invite.driverRespondedAt === null) {
+        throw new ConflictError('This driver was rejected by your organisation');
+      }
+      break;
+    case 'pending_driver_review':
+      break;
+  }
+  if (isDriverOffPlatform(invite.driver)) {
+    throw new ConflictError('This driver is no longer active on the platform');
+  }
+  assertSendAllowedAfterDecline(invite);
 }
 
 /** Fleet-operational writes (availability, trip metrics) need a driver who has actually joined —
@@ -231,40 +294,60 @@ function formatInviteRequestId(inviteNumber: string): string {
 
 function toInvitationDetailView(
   relation: DriverTenantRelationEntity,
-  sender: UserEntity | null,
+  actorsById: Map<string, UserEntity>,
+  notificationsById: Map<string, NotificationEntity>,
   appInstalled: boolean,
 ): DriverInvitationDetailView {
   const view = toInvitationView(relation, appInstalled);
   const { driver } = relation;
+  const toInvitationActor = (userId: string | null): DriverInvitationActor | null => {
+    const actor = userId ? actorsById.get(userId) : undefined;
+    return actor ? { name: actor.fullName, role: actor.role?.name ?? null } : null;
+  };
 
-  // Latest send only: sent → viewed → one final step derived from the existing status column.
-  const timeline: DriverInvitationTimelineStep[] = [
-    {
-      step: 'sent',
-      at: view.sentAt,
-      by: sender ? { name: sender.fullName, role: sender.role?.name ?? null } : null,
-    },
-  ];
-  if (relation.inviteViewedAt) {
-    timeline.push({
-      step: 'viewed',
-      at: relation.inviteViewedAt,
-      device: relation.inviteViewedDevice,
-    });
-  }
-  if (view.status === 'accepted') {
-    timeline.push({ step: 'accepted', at: relation.driverRespondedAt });
-  } else if (view.status === 'rejected') {
-    timeline.push({
-      step: 'rejected',
-      at: relation.driverRespondedAt,
-      reason: relation.rejectionReason,
-    });
-  } else if (view.status === 'expired') {
+  // The stored log as-is (it's append-only), oldest first. Every invite has at least its first
+  // send there; the fallback only covers a row the log has somehow never seen.
+  const events: DriverInviteEvent[] = relation.inviteTimeline.length
+    ? relation.inviteTimeline
+    : [{ step: 'sent', at: view.sentAt.toISOString(), by: relation.inviteSentBy }];
+  const timeline: DriverInvitationTimelineStep[] = events.map((event) => {
+    const at = new Date(event.at);
+    switch (event.step) {
+      case 'sent':
+      case 'resent': {
+        const notification = event.notificationId
+          ? notificationsById.get(event.notificationId)
+          : undefined;
+        return {
+          step: event.step,
+          at,
+          by: toInvitationActor(event.by),
+          notification: notification ? { id: notification.id, readAt: notification.readAt } : null,
+        };
+      }
+      case 'cancelled':
+        return { step: 'cancelled', at, by: toInvitationActor(event.by) };
+      case 'viewed':
+        return {
+          step: 'viewed',
+          at,
+          device: event.device,
+          notificationId: event.notificationId ?? null,
+        };
+      case 'declined':
+        return { step: 'declined', at, reason: event.reason };
+      case 'delivery_failed':
+        return { step: 'delivery_failed', at, channel: event.channel };
+      case 'expired':
+      case 'accepted':
+        return { step: event.step, at };
+    }
+  });
+  // A pending invite hasn't ended, so its last step is derived, not stored: `expired` once it ran
+  // out (logged for good if it's later resent), otherwise still waiting on the driver.
+  if (view.status === 'expired') {
     timeline.push({ step: 'expired', at: relation.inviteExpiresAt });
-  } else if (view.status === 'cancelled') {
-    timeline.push({ step: 'cancelled', at: relation.updatedAt });
-  } else {
+  } else if (view.status === 'pending') {
     timeline.push({ step: 'awaiting_response', at: null });
   }
 
@@ -1384,18 +1467,40 @@ export class DriverService {
     }
   }
 
-  /** Invitation detail drawer — header, credentials, latest-send timeline, delivery channels. */
+  /** Invitation detail drawer — header, credentials, full timeline, delivery channels. */
   async getInvitation(tenantId: string, invitationId: string): Promise<DriverInvitationDetailView> {
     try {
       const relation = await this.findInvitationOrThrow(tenantId, invitationId);
-      const sender = relation.inviteSentBy
-        ? await this.dataSource
-            .getRepository(UserEntity)
-            .findOne({ where: { id: relation.inviteSentBy }, relations: { role: true } })
-        : null;
+      // Staff behind each send or cancel, and each send's own in-app notification (its readAt is
+      // the driver's "read" for that send).
+      const actorIds = [
+        ...new Set(
+          [
+            relation.inviteSentBy,
+            ...relation.inviteTimeline.map((event) => ('by' in event ? event.by : null)),
+          ].filter((id): id is string => id !== null),
+        ),
+      ];
+      const notificationIds = relation.inviteTimeline
+        .filter(isInviteSendEvent)
+        .flatMap((event) => (event.notificationId ? [event.notificationId] : []));
+      const [actors, notifications] = await Promise.all([
+        actorIds.length
+          ? this.dataSource
+              .getRepository(UserEntity)
+              .find({ where: { id: In(actorIds) }, relations: { role: true } })
+          : [],
+        notificationIds.length
+          ? this.dataSource.getRepository(NotificationEntity).find({
+              select: { id: true, readAt: true },
+              where: { id: In(notificationIds), recipientUserId: relation.driverId },
+            })
+          : [],
+      ]);
       return toInvitationDetailView(
         relation,
-        sender,
+        new Map(actors.map((user) => [user.id, user])),
+        new Map(notifications.map((notification) => [notification.id, notification])),
         await this.hasAppInstalled(relation.driverId),
       );
     } catch (error) {
@@ -1403,7 +1508,11 @@ export class DriverService {
     }
   }
 
-  /** Re-sends a pending, unexpired invite and restarts its DRIVER_INVITE_TTL_DAYS clock. */
+  /**
+   * Re-sends an invite on the same row: a pending one (expired or not) or one the driver declined,
+   * which goes back to pending so they can accept it. Restarts its DRIVER_INVITE_TTL_DAYS clock.
+   * Accepted and cancelled invites can't be resent — each refusal says why, for the frontend.
+   */
   async resendInvite(
     tenantId: string,
     actorId: string,
@@ -1411,35 +1520,55 @@ export class DriverService {
   ): Promise<DriverInvitationView> {
     try {
       const invite = await this.findInvitationOrThrow(tenantId, invitationId);
-      if (invite.status !== 'pending_driver_review') {
-        throw new ConflictError('Only a pending invitation can be resent');
-      }
-      if (isDriverOffPlatform(invite.driver)) {
-        throw new ConflictError('This driver is no longer active on the platform');
-      }
-      if (invite.inviteExpiresAt && invite.inviteExpiresAt <= new Date()) {
-        throw new ConflictError('This invitation has expired and can no longer be resent');
+      assertCanResend(invite);
+      if (invite.status === 'rejected') {
+        // Back to pending takes this tenant's one live slot for the driver (see the entity's
+        // unique index) — refuse if a newer link already holds it.
+        const latest = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
+          tenantId,
+          invite.driverId,
+        );
+        if (latest && latest.id !== invite.id) {
+          throw new ConflictError('This driver already has a newer invite or request');
+        }
       }
 
+      // The decline cap is checked again on the locked row, so two Resends at once can't both
+      // use the one extra send.
       const relation = await this.driverTenantRelationRepository.resendInvite(
         tenantId,
         invite.id,
         actorId,
+        assertSendAllowedAfterDecline,
       );
-      if (!relation) throw new ConflictError('Invitation resend failed');
+      if (!relation) {
+        throw new ConflictError('This invitation just changed — refresh and try again');
+      }
 
       await this.auditService.log({
         tenantId,
         userId: actorId,
         action: 'DRIVER_INVITE_RESENT',
         resourceType: 'driver',
-        oldData: { id: invite.driverId, invitationId, inviteSentAt: invite.inviteSentAt },
-        newData: { id: invite.driverId, invitationId, inviteSentAt: relation.inviteSentAt },
+        oldData: {
+          id: invite.driverId,
+          invitationId,
+          status: invite.status,
+          inviteSentAt: invite.inviteSentAt,
+        },
+        newData: {
+          id: invite.driverId,
+          invitationId,
+          status: relation.status,
+          inviteSentAt: relation.inviteSentAt,
+        },
       });
 
       await this.deliverInvite(tenantId, relation.id, relation.driverId);
+      // Re-read so deliveryChannels carries the push result deliverInvite just recorded.
+      const resentInvitation = await this.findInvitationOrThrow(tenantId, relation.id);
 
-      return toInvitationView(relation, await this.hasAppInstalled(relation.driverId));
+      return toInvitationView(resentInvitation, await this.hasAppInstalled(relation.driverId));
     } catch (error) {
       rethrow(error, 'Failed to resend driver invitation');
     }
@@ -1526,6 +1655,7 @@ export class DriverService {
             latest.id,
             columns,
             actorId,
+            assertCanReinvite,
             manager,
           );
           if (!relation) throw new ConflictError('Invitation could not be sent');
@@ -1626,7 +1756,7 @@ export class DriverService {
   ): Promise<void> {
     const name =
       tenantName ?? (await this.organizationService.getOrganizationStatus(tenantId)).name;
-    const pushed = await this.driverPushNotifier.notifyInvited(
+    const { pushed, notificationId } = await this.driverPushNotifier.notifyInvited(
       tenantId,
       driverId,
       name ?? 'A fleet owner',
@@ -1636,6 +1766,13 @@ export class DriverService {
       invitationId,
       pushed ? 'sent' : 'failed',
     );
+    // Ties this send's timeline entry to the in-app notification the driver will open.
+    if (notificationId) {
+      await this.driverTenantRelationRepository.linkLatestSendNotification(
+        invitationId,
+        notificationId,
+      );
+    }
   }
 
   /**

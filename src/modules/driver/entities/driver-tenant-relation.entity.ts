@@ -16,12 +16,34 @@ import { DriverTripMetricsEntity } from './driver-trip-metrics.entity';
 import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
 import {
   DRIVER_INVITE_DELIVERY_STATUSES,
+  DriverInviteChannel,
   DriverInviteDeliveryStatus,
+  DriverInviteSendStep,
   DRIVER_TENANT_RELATION_INITIATORS,
   DRIVER_TENANT_RELATION_STATUSES,
   DriverTenantRelationInitiator,
   DriverTenantRelationStatus,
 } from '../drivers.types';
+
+/**
+ * One entry of an invite's permanent log (invite_timeline), oldest first. Entries are only ever
+ * appended — a Resend or a fresh invite on the same row adds to the log and never clears it. `at`
+ * is an ISO timestamp; `by` is the staff user's id. `expired` is written when an expired invite is
+ * resent; until then the drawer derives it from invite_expires_at. `notificationId` on a send is
+ * the in-app notification that send created (set right after it is delivered); on `viewed` it is
+ * the notification the driver opened.
+ */
+export type DriverInviteEvent =
+  | { step: DriverInviteSendStep; at: string; by: string | null; notificationId?: string }
+  | { step: 'viewed'; at: string; device: string | null; notificationId?: string }
+  | { step: 'expired'; at: string }
+  | { step: 'declined'; at: string; reason: string | null }
+  | { step: 'cancelled'; at: string; by: string | null }
+  | { step: 'accepted'; at: string }
+  | { step: 'delivery_failed'; at: string; channel: DriverInviteChannel };
+
+/** A send entry of the invite's timeline. */
+export type DriverInviteSendEvent = Extract<DriverInviteEvent, { step: DriverInviteSendStep }>;
 
 // The tenant-scoped employment/membership record a global DriverEntity used to be. Everything
 // employer-specific (salary, dateOfJoining) and the mutual-approval workflow (staff onboarding,
@@ -96,6 +118,16 @@ export class DriverTenantRelationEntity {
   // org_admin for a dispatch-added driver, or whoever pressed Resend last.
   @Column({ name: 'invite_sent_by', type: 'uuid', nullable: true })
   inviteSentBy!: string | null;
+
+  // Permanent, append-only log of this invite — sends, resends, views, expiry, the driver's
+  // answer, cancel, failed deliveries (see DriverInviteEvent). The send/view/channel columns above
+  // only hold the latest send; this keeps every one. Written by the repository's appendToTimeline.
+  @Column({
+    name: 'invite_timeline',
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+  })
+  inviteTimeline!: DriverInviteEvent[];
 
   // Driver opened the latest invite notification on their device (see
   // DriverPortalService.markMyNotificationRead); cleared on every Resend.

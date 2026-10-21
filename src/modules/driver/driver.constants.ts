@@ -10,6 +10,12 @@ export const DRIVING_LICENCE_REGEX = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/;
 /** driver_tenant_relations.note is varchar(500). */
 export const DRIVER_NOTE_MAX_LENGTH = 500;
 
+/**
+ * Once a driver has declined an invite, the fleet may send it this many more times (Resend or
+ * invite-by-mobile on the same number); after that this tenant can't invite them again.
+ */
+export const DRIVER_INVITE_SENDS_AFTER_DECLINE = 1;
+
 /** A driver's score only means something after this many trips — until then they read as `new`. */
 export const MIN_SCORED_TRIPS = 5;
 

@@ -23,6 +23,9 @@ import {
   DriverLicenceClassFilter,
   DriverScoreStatus,
   DriverImportErrorCode,
+  DriverListStatusFilter,
+  DriverInviteChannel,
+  DriverInviteSendStep,
 } from './drivers.types';
 import { Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { DriverEntity } from './entities/driver.entity';
@@ -93,7 +96,8 @@ export interface UpdateDriverInput {
 }
 
 export interface ListDriversInput extends PaginationInput {
-  status?: DriverTenantRelationStatus;
+  /** Omitted = `active` (the roster) — see DRIVER_LIST_STATUS_FILTERS. */
+  status?: DriverListStatusFilter;
   initiatedBy?: DriverTenantRelationInitiator;
   operationalStatus?: DriverOperationalStatus;
   /** "Active Roster" tab — see DRIVER_ROSTER_SEGMENTS. Omitted = no segment narrowing. */
@@ -139,7 +143,7 @@ export interface InviteDriverByPhoneResult {
 }
 
 export interface DriverInvitationDeliveryChannel {
-  channel: 'sms' | 'whatsapp' | 'push';
+  channel: DriverInviteChannel;
   status: DriverInviteDeliveryStatus | null;
   statusAt: Date | null;
 }
@@ -164,6 +168,11 @@ export interface DriverInvitationView {
   /** Whether the driver has ever logged into the driver app — false for a number invited before
    *  its owner installed it. */
   appInstalled: boolean;
+  /** Whether POST …/resend would go through now — drives the Resend button. */
+  canResend: boolean;
+  /** Sends left since the driver first declined (DRIVER_INVITE_SENDS_AFTER_DECLINE); null when
+   *  they never declined, so no cap applies. */
+  sendsLeftAfterDecline: number | null;
 }
 
 /** Invitation detail drawer — the list row plus credentials, timeline and delivery channels. */
@@ -177,19 +186,38 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
   timeline: DriverInvitationTimelineStep[];
 }
 
+/** Staff user behind a timeline entry, as the drawer shows them. */
+export interface DriverInvitationActor {
+  name: string | null;
+  role: string | null;
+}
+
+/** The in-app notification one send created — `readAt` is when the driver marked it read (opened
+ *  it, or "Mark all read"); null while unread. */
+export interface DriverInvitationNotification {
+  id: string;
+  readAt: Date | null;
+}
+
 /**
- * Latest send only: sent → viewed (once the driver opened the invite notification) → one final
- * step derived from the relation's status (accepted / rejected / cancelled / expired /
- * awaiting_response). `cancelled.at` is the relation's last update — the cancel itself, since a
- * cancelled invite can't be changed afterwards.
+ * The invite's whole history, oldest first — every stored DriverInviteEvent with `by` resolved to
+ * the staff user, then, while the invite is still pending, one derived last step: `expired` (at
+ * expiresAt) once it has run out, otherwise `awaiting_response`.
  */
 export type DriverInvitationTimelineStep =
-  | { step: 'sent'; at: Date; by: { name: string | null; role: string | null } | null }
-  | { step: 'viewed'; at: Date; device: string | null }
+  | {
+      step: DriverInviteSendStep;
+      at: Date;
+      by: DriverInvitationActor | null;
+      /** Null when the send's notification couldn't be saved, or predates this link. */
+      notification: DriverInvitationNotification | null;
+    }
+  | { step: 'viewed'; at: Date; device: string | null; notificationId: string | null }
   | { step: 'accepted'; at: Date | null }
-  | { step: 'rejected'; at: Date | null; reason: string | null }
+  | { step: 'declined'; at: Date | null; reason: string | null }
   | { step: 'expired'; at: Date | null }
-  | { step: 'cancelled'; at: Date }
+  | { step: 'cancelled'; at: Date; by: DriverInvitationActor | null }
+  | { step: 'delivery_failed'; at: Date; channel: DriverInviteChannel }
   | { step: 'awaiting_response'; at: null };
 
 /** Latest Sarathi DL check on the driver; null when the licence was never checked. */
@@ -525,7 +553,7 @@ export interface UpdateDriverTenantRelationData {
 }
 
 export interface ListDriversFilters {
-  status?: DriverTenantRelationStatus;
+  status?: DriverListStatusFilter;
   initiatedBy?: DriverTenantRelationInitiator;
   operationalStatus?: DriverOperationalStatus;
   segment?: DriverRosterSegment;

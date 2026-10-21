@@ -20,11 +20,11 @@ import {
   DRIVER_SCORE_STATUSES,
   DRIVER_INVITATION_STATUSES,
   DRIVER_LICENSE_ENDORSEMENTS,
+  DRIVER_LIST_STATUS_FILTERS,
   DRIVER_OPERATIONAL_STATUSES,
   DRIVER_ROSTER_SEGMENTS,
   DRIVER_SALARY_TYPES,
   DRIVER_TENANT_RELATION_INITIATORS,
-  DRIVER_TENANT_RELATION_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   DRIVER_VERIFICATION_TYPES,
 } from './drivers.types';
@@ -239,7 +239,8 @@ export const driverValidators = {
       hazmatEndorsed: booleanString.optional(),
       scoreStatus: normaliseFilter(DRIVER_SCORE_STATUSES).optional(),
       appInstalled: booleanString.optional(),
-      status: z.enum(DRIVER_TENANT_RELATION_STATUSES).optional(),
+      // Omitted = active (the roster, left-the-company included); `all` = every link status.
+      status: z.enum(DRIVER_LIST_STATUS_FILTERS).optional(),
       // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
       initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),
       operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES).optional(),

@@ -24,7 +24,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDrivers',
     ...authenticated(
-      'My Drivers roster, paginated and optionally filtered. `search` matches name, mobile or DL ' +
+      'My Drivers roster, paginated and optionally filtered. `status` defaults to `active` — ' +
+        'drivers who joined, including those who left (operationalStatus `inactive`); pass a ' +
+        'link status (e.g. pending_staff_review) for just those, or `all` for every status. ' +
+        'total/totalPages follow the same filter. `search` matches name, mobile or DL ' +
         'number; "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner. ' +
         '`segment` picks an Active Roster tab (all, on_trip, available, not_available, ' +
         'left_company, licence_expired, hazmat_endorsed, not_verified); every segment but ' +
@@ -47,7 +50,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         description:
           'Paginated drivers — { data: { items, page, limit, total, totalPages, counts } }, ' +
           'counts = { total, all, on_trip, available, not_available, left_company, ' +
-          'licence_expired, hazmat_endorsed, not_verified } under the same filters minus segment.',
+          'licence_expired, hazmat_endorsed, not_verified } under the same search and ' +
+          'filter-panel settings as the list (only `segment` is ignored, and `status` — counts ' +
+          'always cover the roster).',
       },
     },
   });
@@ -197,7 +202,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         '`phoneNumber` searches by mobile only (names are not unique) — partial digits match, ' +
         'spaces/hyphens/+ ignored. Items: { invitationId, requestId (INV-00042), driverId, ' +
         'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
-        'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled }.',
+        'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled, ' +
+        'canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
+        'the driver first declined — once declined, the invite can be sent one more time; null ' +
+        'when never declined) }.',
     ),
     request: { query: driverValidators.listInvitations.shape.query },
     responses: {
@@ -228,7 +236,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Validation failed', ...errorContent },
       409: {
         description:
-          'Driver already in your fleet, already awaiting approval, or an invite is already pending',
+          'Driver already in your fleet, already awaiting approval, an invite is already ' +
+          'pending, or the driver declined and was already sent it once more',
         ...errorContent,
       },
     },
@@ -242,9 +251,16 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Invitation detail drawer — the list item plus `credentials` { licenseNumber, ' +
         'licenseClass, registry: { source: sarathi, status, checkedAt } | null }, `timeline` for ' +
-        'the latest send (sent { at, by: { name, role } } → viewed { at, device }, once the ' +
-        'driver opened the invite notification → accepted | rejected | expired | ' +
-        'awaiting_response) and `deliveryChannels` [{ channel: sms | whatsapp | push, status, ' +
+        'the invite — a permanent log, oldest first, never rewritten: sent { at, by: { name, ' +
+        'role }, notification } (first send), resent { at, by, notification } (each Resend or ' +
+        're-invite) — `notification` { id, readAt } is the in-app notification that send ' +
+        'created (readAt null until the driver reads it; null when none is linked) — viewed ' +
+        '{ at, device, notificationId } (the driver opened that notification; once per ' +
+        'notification), expired { at } (logged when an expired invite is resent), declined { at, ' +
+        'reason }, cancelled { at, by }, accepted { at }, delivery_failed { at, channel: sms | ' +
+        'whatsapp | push } — then, while the invite is pending, a derived last step: expired ' +
+        '{ at: expiresAt } once it ran out, else awaiting_response — and `deliveryChannels` ' +
+        '[{ channel: sms | whatsapp | push, status, ' +
         'statusAt }]. SMS/WhatsApp are recorded as `pending` but not yet actually sent.',
     ),
     request: { params: driverValidators.getInvitation.shape.params },
@@ -260,14 +276,25 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.resendDriverInvitation',
     ...write(
-      'Re-send a pending, unexpired invite: re-notifies the driver, restarts the 7-day expiry, ' +
-        'resets the viewed step and every delivery channel to `pending`. Req ID is unchanged.',
+      'Re-send an invite on the same invitation (id and Req ID unchanged): pending, expired or ' +
+        'declined. It goes back to `pending` with new sentAt/expiresAt, respondedAt and ' +
+        'rejectionReason cleared, so the driver can accept it; the driver is re-notified, every ' +
+        'delivery channel resets to `pending` (push then carries its real result) and the ' +
+        'timeline gains `resent` (after `expired` if it had run out). Once the driver has ' +
+        'declined, the invite can be sent only one more time (Resend or invite-by-mobile); ' +
+        'after that this returns 409.',
     ),
     request: { params: driverValidators.resendInvitation.shape.params },
     responses: {
       200: { description: 'Updated invitation (same item shape as the list)' },
       404: { description: 'Invitation not found', ...errorContent },
-      409: { description: 'Invitation is not pending, or it has expired', ...errorContent },
+      409: {
+        description:
+          'Not resendable — accepted, cancelled, rejected by your organisation, awaiting ' +
+          'approval, driver left the platform, the driver has a newer invite, already sent once ' +
+          'more after a decline, or changed meanwhile. `message` is user-facing.',
+        ...errorContent,
+      },
     },
   });
 
