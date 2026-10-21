@@ -31,7 +31,14 @@ import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
-import { DRIVER_INVITE_SENDS_AFTER_DECLINE, MIN_SCORED_TRIPS } from './driver.constants';
+import {
+  DRIVER_EXPORT_MAX_ROWS,
+  DRIVER_INVITE_SENDS_AFTER_DECLINE,
+  DRIVER_JOIN_REQUEST_RESTORE_DAYS,
+  MIN_SCORED_TRIPS,
+} from './driver.constants';
+import { buildDriverWorkbook } from './driver-export.mapper';
+import { DriverError } from './driver.errors';
 import { getCachedLicenceLookup, setCachedLicenceLookup } from './driver-licence-lookup-cache';
 import {
   BankAccountVerificationResult,
@@ -54,6 +61,9 @@ import {
   DriverInvitationView,
   DriverInvitationDetailView,
   DriverInvitationActor,
+  DriverRejectedJoinRequestView,
+  ExportDriversFilters,
+  RejectDriverInput,
   DriverInvitationTimelineStep,
   OnboardDriverInput,
   RecordDriverTripMetricsInput,
@@ -360,6 +370,18 @@ function toInvitationDetailView(
     },
     timeline,
   };
+}
+
+/** A list row (roster, join requests) — the flattened driver without the raw verification rows,
+ *  which are loaded only to derive licenseClass and carry IDfy's rawResponse. */
+function toListedDriver(relation: DriverTenantRelationEntity): DriverWithRelation {
+  const { verifications: _verifications, ...driver } = flattenRelation(relation);
+  return driver as DriverWithRelation;
+}
+
+/** Last moment a join request rejected at `rejectedAt` can be restored. */
+function joinRequestRestorableUntil(rejectedAt: Date): Date {
+  return new Date(rejectedAt.getTime() + DRIVER_JOIN_REQUEST_RESTORE_DAYS * MS_PER_DAY);
 }
 
 export function flattenRelation(relation: DriverTenantRelationEntity): DriverWithRelation {
@@ -710,11 +732,7 @@ export class DriverService {
       const { items, total } = await this.driverTenantRelationRepository.list(tenantId, input);
       // The list loads driver.verifications only to derive licenseClass — drop the raw rows
       // (they carry IDfy's rawResponse) so the list payload stays as lean as before.
-      const drivers = items.map((relation) => {
-        const { verifications: _verifications, ...driver } = flattenRelation(relation);
-        return driver as DriverWithRelation;
-      });
-      return paginate(drivers, total, input);
+      return paginate(items.map(toListedDriver), total, input);
     } catch (error) {
       rethrow(error, 'Failed to list drivers');
     }
@@ -728,58 +746,98 @@ export class DriverService {
    */
   async listDriverRoster(tenantId: string, input: ListDriversInput): Promise<DriverRosterPage> {
     try {
-      const activeLoads = await this.driverAnalyticsRepository.findActiveDriverLoads(tenantId);
-      const activeLoadByDriver = new Map<string, LoadEntity>();
-      for (const load of activeLoads) {
-        // Newest first, so the first load seen per driver wins.
-        if (!activeLoadByDriver.has(load.driverId!)) activeLoadByDriver.set(load.driverId!, load);
-      }
+      const activeLoadByDriver = await this.findActiveLoadByDriver(tenantId);
       const onLoadDriverIds = [...activeLoadByDriver.keys()];
 
       const [{ items, total }, counts] = await Promise.all([
         this.driverTenantRelationRepository.list(tenantId, input, onLoadDriverIds),
         this.driverTenantRelationRepository.countRosterSegments(tenantId, input, onLoadDriverIds),
       ]);
-      const driverIds = items.map((relation) => relation.driverId);
-      const [tripStats, appActivity] = await Promise.all([
-        this.driverAnalyticsRepository.getTripStatsForDrivers(tenantId, driverIds),
-        this.driverSessionRepository.findLastAppActivityByDriverIds(driverIds),
-      ]);
-
-      const rows = items.map((relation): DriverRosterRow => {
-        const { verifications: _verifications, ...driver } = flattenRelation(relation);
-        const {
-          licence,
-          contact,
-          assignment,
-          availability,
-          performance,
-          behaviour,
-          appInstalled,
-          appLastSeenAt,
-        } = toDriverDetailSections(
-          relation,
-          tripStats.get(relation.driverId) ?? { total: 0, onTimePercentage: null },
-          activeLoadByDriver.get(relation.driverId) ?? null,
-          appActivity.get(relation.driverId) ?? null,
-        );
-        return {
-          ...(driver as DriverWithRelation),
-          licence,
-          contact,
-          assignment,
-          availability,
-          performance,
-          behaviour,
-          appInstalled,
-          appLastSeenAt,
-        };
-      });
+      const rows = await this.toRosterRows(tenantId, items, activeLoadByDriver);
 
       return { ...paginate(rows, total, input), counts };
     } catch (error) {
       rethrow(error, 'Failed to list drivers');
     }
+  }
+
+  /**
+   * Active Roster's "Export CSV" — every roster driver matching `filters` (none from the frontend
+   * today, so the whole roster) as an .xlsx, built from the same rows as GET /drivers so the file
+   * and the screen never disagree. Always the roster: pending and declined links are left out.
+   */
+  async exportDrivers(tenantId: string, filters: ExportDriversFilters): Promise<Buffer> {
+    try {
+      const activeLoadByDriver = await this.findActiveLoadByDriver(tenantId);
+      const relations = await this.driverTenantRelationRepository.listForExport(
+        tenantId,
+        { ...filters, status: 'active' },
+        [...activeLoadByDriver.keys()],
+        DRIVER_EXPORT_MAX_ROWS,
+      );
+      return await buildDriverWorkbook(
+        await this.toRosterRows(tenantId, relations, activeLoadByDriver),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to export drivers');
+    }
+  }
+
+  /** Each driver's live load, from one tenant-wide fetch — feeds the on-trip/available split. */
+  private async findActiveLoadByDriver(tenantId: string): Promise<Map<string, LoadEntity>> {
+    const activeLoads = await this.driverAnalyticsRepository.findActiveDriverLoads(tenantId);
+    const activeLoadByDriver = new Map<string, LoadEntity>();
+    for (const load of activeLoads) {
+      // Newest first, so the first load seen per driver wins.
+      if (!activeLoadByDriver.has(load.driverId!)) activeLoadByDriver.set(load.driverId!, load);
+    }
+    return activeLoadByDriver;
+  }
+
+  /**
+   * Roster rows — each relation flattened, with the same licence/pay/performance/availability
+   * sections as the detail screen.
+   */
+  private async toRosterRows(
+    tenantId: string,
+    relations: DriverTenantRelationEntity[],
+    activeLoadByDriver: Map<string, LoadEntity>,
+  ): Promise<DriverRosterRow[]> {
+    const driverIds = relations.map((relation) => relation.driverId);
+    const [tripStats, appActivity] = await Promise.all([
+      this.driverAnalyticsRepository.getTripStatsForDrivers(tenantId, driverIds),
+      this.driverSessionRepository.findLastAppActivityByDriverIds(driverIds),
+    ]);
+
+    return relations.map((relation): DriverRosterRow => {
+      const { verifications: _verifications, ...driver } = flattenRelation(relation);
+      const {
+        licence,
+        contact,
+        assignment,
+        availability,
+        performance,
+        behaviour,
+        appInstalled,
+        appLastSeenAt,
+      } = toDriverDetailSections(
+        relation,
+        tripStats.get(relation.driverId) ?? { total: 0, onTimePercentage: null },
+        activeLoadByDriver.get(relation.driverId) ?? null,
+        appActivity.get(relation.driverId) ?? null,
+      );
+      return {
+        ...(driver as DriverWithRelation),
+        licence,
+        contact,
+        assignment,
+        availability,
+        performance,
+        behaviour,
+        appInstalled,
+        appLastSeenAt,
+      };
+    });
   }
 
   /** Driver detail screen — the flattened driver plus every screen section in one call. */
@@ -1444,6 +1502,114 @@ export class DriverService {
     });
   }
 
+  /**
+   * Recently Rejected — this tenant's join requests rejected in the last
+   * DRIVER_JOIN_REQUEST_RESTORE_DAYS, newest first, without drivers who have since joined a fleet
+   * or left Loadsmart. `callerCanApprove` is whether the caller may restore (same permission as
+   * approve/reject); every listed row is otherwise restorable, so it decides `canRestore`.
+   */
+  async listRejectedJoinRequests(
+    tenantId: string,
+    input: ListJoinRequestsInput,
+    callerCanApprove: boolean,
+  ): Promise<Paginated<DriverRejectedJoinRequestView>> {
+    try {
+      const { items, total } = await this.driverTenantRelationRepository.listRejectedJoinRequests(
+        tenantId,
+        input,
+        new Date(Date.now() - DRIVER_JOIN_REQUEST_RESTORE_DAYS * MS_PER_DAY),
+      );
+      const rejectorIds = [
+        ...new Set(items.flatMap((relation) => (relation.rejectedBy ? [relation.rejectedBy] : []))),
+      ];
+      const rejectors = rejectorIds.length
+        ? await this.dataSource
+            .getRepository(UserEntity)
+            .find({ where: { id: In(rejectorIds) }, relations: { role: true } })
+        : [];
+      const rejectorsById = new Map(rejectors.map((user) => [user.id, user]));
+
+      const rows = items.map((relation): DriverRejectedJoinRequestView => {
+        const rejector = relation.rejectedBy ? rejectorsById.get(relation.rejectedBy) : undefined;
+        return {
+          ...toListedDriver(relation),
+          rejectedAt: relation.rejectedAt!,
+          rejectedBy: rejector
+            ? { id: rejector.id, name: rejector.fullName, role: rejector.role?.name ?? null }
+            : null,
+          restorableUntil: joinRequestRestorableUntil(relation.rejectedAt!),
+          canRestore: callerCanApprove,
+        };
+      });
+      return paginate(rows, total, input);
+    } catch (error) {
+      rethrow(error, 'Failed to list rejected driver join requests');
+    }
+  }
+
+  /**
+   * Restore — a rejected join request goes back to Requests to You (`pending_staff_review`), where
+   * it can be accepted; the rejection is cleared. The driver isn't notified — they only hear when
+   * it's accepted. Returns the request shaped like a pending-list item.
+   */
+  async restoreJoinRequest(
+    tenantId: string,
+    actorId: string,
+    driverId: string,
+  ): Promise<DriverWithRelation> {
+    try {
+      const request = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
+        tenantId,
+        driverId,
+      );
+      if (!request || request.initiatedBy !== 'driver') {
+        throw new DriverError('REQUEST_NOT_FOUND');
+      }
+      if (request.status !== 'rejected' || !request.rejectedAt) {
+        throw new DriverError('NOT_REJECTED');
+      }
+      if (joinRequestRestorableUntil(request.rejectedAt) <= new Date()) {
+        throw new DriverError('RESTORE_WINDOW_EXPIRED');
+      }
+      const [driver, driverIdsInAFleet] = await Promise.all([
+        this.driverRepository.findById(driverId),
+        this.driverTenantRelationRepository.findDriverIdsInAnyFleet([driverId]),
+      ]);
+      if (!driver || driverIdsInAFleet.has(driverId)) {
+        throw new DriverError('DRIVER_UNAVAILABLE');
+      }
+
+      const restored = await this.driverTenantRelationRepository.restoreJoinRequest(
+        tenantId,
+        request.id,
+        actorId,
+      );
+      if (!restored) {
+        // Restored or answered by someone else in the meantime.
+        throw new DriverError('NOT_REJECTED');
+      }
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'DRIVER_JOIN_REQUEST_RESTORED',
+        resourceType: 'driver',
+        oldData: {
+          id: driverId,
+          status: 'rejected',
+          rejectedAt: request.rejectedAt,
+          rejectedBy: request.rejectedBy,
+          rejectionReason: request.rejectionReason,
+        },
+        newData: { id: driverId, status: 'pending_staff_review', restoredBy: actorId },
+      });
+
+      return toListedDriver(restored);
+    } catch (error) {
+      rethrow(error, 'Failed to restore driver join request');
+    }
+  }
+
   /** "Invitations Sent" — every invite this tenant sent, with its derived display status. */
   async listInvitations(
     tenantId: string,
@@ -1611,11 +1777,10 @@ export class DriverService {
   }
 
   /**
-   * Invitations tab → "Invite by mobile number". Reuses the driver profile on that number, or —
-   * for a number nobody has used on Loadsmart yet — creates a phone-only "Pending driver" profile
-   * for the invite to point at. When that person installs the driver app and registers with the
-   * number, DriverIdentityService.verifyOtp picks up this same profile and the invite is already
-   * waiting for them. A previous expired, declined or cancelled invite is re-sent on its own row.
+   * Invitations tab → "Invite by mobile number". Only a number that already belongs to a driver —
+   * added by any organisation, or registered through the driver app — can be invited; anything
+   * else is refused before anything is created or sent (add them under Add a Driver first). A
+   * previous expired, declined or cancelled invite is re-sent on its own row.
    */
   async inviteDriverByPhone(
     tenantId: string,
@@ -1625,43 +1790,37 @@ export class DriverService {
   ): Promise<InviteDriverByPhoneResult> {
     try {
       const { phoneNumber } = input;
-      const { driverId, relationId, created } = await this.dataSource.transaction(
-        async (manager) => {
-          const existingDriver = await this.driverRepository.findByPhoneNumber(phoneNumber);
-          const driver =
-            existingDriver ??
-            (await this.createPendingDriverProfile(actorId, phoneNumber, manager));
+      const driver = await this.driverRepository.findByPhoneNumber(phoneNumber);
+      if (!driver) throw new DriverError('DRIVER_NOT_FOUND');
 
-          const latest = existingDriver
-            ? await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
-                tenantId,
-                driver.id,
-                manager,
-              )
-            : null;
-          const columns = newRelationColumns(actorId, actorRole);
+      const { driverId, relationId } = await this.dataSource.transaction(async (manager) => {
+        const latest = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
+          tenantId,
+          driver.id,
+          manager,
+        );
+        const columns = newRelationColumns(actorId, actorRole);
 
-          if (!latest) {
-            const relation = await this.driverTenantRelationRepository.create(
-              { tenantId, driverId: driver.id, ...columns, createdBy: actorId },
-              manager,
-            );
-            return { driverId: driver.id, relationId: relation.id, created: !existingDriver };
-          }
-
-          assertCanReinvite(latest);
-          const relation = await this.driverTenantRelationRepository.reinvite(
-            tenantId,
-            latest.id,
-            columns,
-            actorId,
-            assertCanReinvite,
+        if (!latest) {
+          const relation = await this.driverTenantRelationRepository.create(
+            { tenantId, driverId: driver.id, ...columns, createdBy: actorId },
             manager,
           );
-          if (!relation) throw new ConflictError('Invitation could not be sent');
-          return { driverId: driver.id, relationId: relation.id, created: false };
-        },
-      );
+          return { driverId: driver.id, relationId: relation.id };
+        }
+
+        assertCanReinvite(latest);
+        const relation = await this.driverTenantRelationRepository.reinvite(
+          tenantId,
+          latest.id,
+          columns,
+          actorId,
+          assertCanReinvite,
+          manager,
+        );
+        if (!relation) throw new ConflictError('Invitation could not be sent');
+        return { driverId: driver.id, relationId: relation.id };
+      });
 
       const awaitingApproval = actorRole !== ORG_ADMIN_ROLE;
       await this.auditService.log({
@@ -1673,7 +1832,6 @@ export class DriverService {
           id: driverId,
           invitationId: relationId,
           phoneNumber,
-          newProfile: created,
           status: awaitingApproval ? 'pending_staff_review' : 'pending_driver_review',
         },
       });
@@ -1693,40 +1851,6 @@ export class DriverService {
     } catch (error) {
       rethrow(error, 'Failed to invite driver');
     }
-  }
-
-  /** Phone-only profile for a number with no Loadsmart account yet — same shell the driver app's
-   *  own registration starts from (DriverIdentityService.verifyOtp), filled in when they register. */
-  private createPendingDriverProfile(
-    actorId: string,
-    phoneNumber: string,
-    manager: EntityManager,
-  ): Promise<DriverEntity> {
-    return this.driverRepository.create(
-      {
-        fullName: 'Pending driver',
-        phoneNumber,
-        licenseNumber: null,
-        licenseExpiry: null,
-        dateOfJoining: null,
-        salaryType: null,
-        salaryAmount: null,
-        dateOfBirth: null,
-        bloodGroup: null,
-        addressLine1: null,
-        addressLine2: null,
-        city: null,
-        pinCode: null,
-        emergencyContactName: null,
-        emergencyContactPhone: null,
-        emergencyContactRelation: null,
-        hasLifeInsurance: 'no',
-        hasHealthInsurance: 'no',
-        registrationSource: 'staff_created',
-        createdBy: actorId,
-      },
-      manager,
-    );
   }
 
   private async hasAppInstalled(driverId: string): Promise<boolean> {
@@ -1869,8 +1993,9 @@ export class DriverService {
     tenantId: string,
     actorId: string,
     driverId: string,
-    reason: string | null,
+    input: RejectDriverInput,
   ): Promise<DriverWithRelation> {
+    const { reason, notifyDriver } = input;
     try {
       const existing = await this.assertDriverExists(tenantId, driverId);
       if (existing.status !== 'pending_staff_review') {
@@ -1903,7 +2028,8 @@ export class DriverService {
         reason: reason ?? 'Not specified',
       });
 
-      if (existing.initiatedBy === 'driver') {
+      // Only a driver's own join request tells them; the reject modal can switch that off.
+      if (existing.initiatedBy === 'driver' && notifyDriver) {
         const organization = await this.organizationService.getOrganizationStatus(tenantId);
         await this.driverPushNotifier.notifyJoinRequestRejected(
           tenantId,

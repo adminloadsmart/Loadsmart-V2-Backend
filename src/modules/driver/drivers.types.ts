@@ -154,6 +154,14 @@ export const DRIVER_ROSTER_SEGMENTS = [
 ] as const;
 export type DriverRosterSegment = (typeof DRIVER_ROSTER_SEGMENTS)[number];
 
+/**
+ * "Requests to You" list (GET /drivers/join-requests `status`): `pending` = awaiting this tenant's
+ * answer (the default), `rejected` = the Recently Rejected panel — rejected in the last
+ * DRIVER_JOIN_REQUEST_RESTORE_DAYS and still restorable.
+ */
+export const DRIVER_JOIN_REQUEST_STATUSES = ['pending', 'rejected'] as const;
+export type DriverJoinRequestStatus = (typeof DRIVER_JOIN_REQUEST_STATUSES)[number];
+
 /** How long a tenant's invite stays acceptable after it's sent (or re-sent). */
 export const DRIVER_INVITE_TTL_DAYS = 7;
 

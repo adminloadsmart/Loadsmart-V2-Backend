@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 // Invitation drawer's permanent timeline. The send/view/channel columns only hold the latest send,
 // so every event is now also appended to invite_timeline (see DriverInviteEvent). Existing invites
@@ -6,214 +6,108 @@ import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 // there was one), every Resend (DRIVER_INVITE_RESENT audit rows), the latest view, a failed push,
 // and the driver's answer or the cancel. Anything a re-invite overwrote before this can't be
 // recovered. Each send is then linked to the in-app invite notification it created (the first one
-// for that invitation within NOTIFICATION_MATCH_WINDOW_MS of the send) so the drawer can show its
-// read state.
-//
-// Reads by table and column name. The write goes through the entity's `inviteTimeline` property:
-// TypeORM resolves any registered table path to its entity, so an update can't bypass it — renaming
-// that property later means updating this migration too.
-
-const RELATIONS_TABLE = 'masters.driver_tenant_relations';
-const TIMELINE_COLUMN = 'invite_timeline';
-const TIMELINE_PROPERTY = 'inviteTimeline';
-const NOTIFICATION_MATCH_WINDOW_MS = 2 * 60 * 1000;
-
-interface InviteRow {
-  id: string;
-  driverId: string;
-  status: string;
-  initiatedBy: string;
-  initiatedByUserId: string | null;
-  approvedBy: string | null;
-  inviteSentAt: Date;
-  inviteSentBy: string | null;
-  inviteViewedAt: Date | null;
-  inviteViewedDevice: string | null;
-  pushDeliveryStatus: string | null;
-  pushDeliveryStatusAt: Date | null;
-  driverRespondedAt: Date | null;
-  rejectionReason: string | null;
-  updatedAt: Date;
-  updatedBy: string | null;
-}
-
-interface ResendAuditRow {
-  userId: string | null;
-  oldData: { invitationId?: string; inviteSentAt?: string } | null;
-  newData: { invitationId?: string; inviteSentAt?: string } | null;
-}
-
-interface InviteNotificationRow {
-  id: string;
-  recipientUserId: string;
-  metadata: { invitationId?: string } | null;
-  createdAt: Date;
-}
-
-type TimelineEvent = { step: string; at: string } & Record<string, unknown>;
-
-const isSend = (event: TimelineEvent) => event.step === 'sent' || event.step === 'resent';
-
-function buildTimeline(invite: InviteRow, resends: ResendAuditRow[]): TimelineEvent[] {
-  const events: TimelineEvent[] = [
-    {
-      step: 'sent',
-      at: resends[0]?.oldData?.inviteSentAt ?? invite.inviteSentAt.toISOString(),
-      // invite_sent_by was overwritten by the first Resend — fall back to who started the invite.
-      by: resends.length
-        ? invite.initiatedBy === 'staff'
-          ? invite.approvedBy
-          : invite.initiatedByUserId
-        : invite.inviteSentBy,
-    },
-  ];
-  for (const resend of resends) {
-    if (resend.newData?.inviteSentAt) {
-      events.push({ step: 'resent', at: resend.newData.inviteSentAt, by: resend.userId });
-    }
-  }
-  if (invite.inviteViewedAt) {
-    events.push({
-      step: 'viewed',
-      at: invite.inviteViewedAt.toISOString(),
-      device: invite.inviteViewedDevice,
-    });
-  }
-  if (invite.pushDeliveryStatus === 'failed' && invite.pushDeliveryStatusAt) {
-    events.push({
-      step: 'delivery_failed',
-      at: invite.pushDeliveryStatusAt.toISOString(),
-      channel: 'push',
-    });
-  }
-  if (invite.status === 'active') {
-    events.push({
-      step: 'accepted',
-      at: (invite.driverRespondedAt ?? invite.updatedAt).toISOString(),
-    });
-  } else if (invite.status === 'rejected' && invite.driverRespondedAt) {
-    events.push({
-      step: 'declined',
-      at: invite.driverRespondedAt.toISOString(),
-      reason: invite.rejectionReason,
-    });
-  } else if (invite.status === 'cancelled') {
-    events.push({ step: 'cancelled', at: invite.updatedAt.toISOString(), by: invite.updatedBy });
-  }
-  return events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
-}
-
-/** Adds `notificationId` to each send that has a matching invite notification. */
-function linkNotifications(
-  timeline: TimelineEvent[],
-  notifications: InviteNotificationRow[],
-): TimelineEvent[] {
-  const unused = [...notifications];
-  return timeline.map((event) => {
-    if (!isSend(event)) return event;
-    const sentAt = new Date(event.at).getTime();
-    const index = unused.findIndex((notification) => {
-      const createdAt = notification.createdAt.getTime();
-      return createdAt >= sentAt && createdAt < sentAt + NOTIFICATION_MATCH_WINDOW_MS;
-    });
-    if (index === -1) return event;
-    const [notification] = unused.splice(index, 1);
-    return { ...event, notificationId: notification.id };
-  });
-}
+// for that invitation within two minutes of the send) so the drawer can show its read state.
+// Events on the same timestamp keep their natural order (send → view → failed push → answer).
+const ISO = (column: string) =>
+  `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 export class AddDriverInviteTimeline1792500000000 implements MigrationInterface {
   name = 'AddDriverInviteTimeline1792500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.addColumn(
-      RELATIONS_TABLE,
-      new TableColumn({
-        name: TIMELINE_COLUMN,
-        type: 'jsonb',
-        isNullable: false,
-        default: "'[]'::jsonb",
-      }),
+    await queryRunner.query(
+      `ALTER TABLE "masters"."driver_tenant_relations" ADD "invite_timeline" jsonb NOT NULL DEFAULT '[]'::jsonb`,
     );
-
-    const manager = queryRunner.manager;
-    const invites: InviteRow[] = await manager
-      .createQueryBuilder()
-      .select('relation.id', 'id')
-      .addSelect('relation.driver_id', 'driverId')
-      .addSelect('relation.status', 'status')
-      .addSelect('relation.initiated_by', 'initiatedBy')
-      .addSelect('relation.initiated_by_user_id', 'initiatedByUserId')
-      .addSelect('relation.approved_by', 'approvedBy')
-      .addSelect('relation.invite_sent_at', 'inviteSentAt')
-      .addSelect('relation.invite_sent_by', 'inviteSentBy')
-      .addSelect('relation.invite_viewed_at', 'inviteViewedAt')
-      .addSelect('relation.invite_viewed_device', 'inviteViewedDevice')
-      .addSelect('relation.push_delivery_status', 'pushDeliveryStatus')
-      .addSelect('relation.push_delivery_status_at', 'pushDeliveryStatusAt')
-      .addSelect('relation.driver_responded_at', 'driverRespondedAt')
-      .addSelect('relation.rejection_reason', 'rejectionReason')
-      .addSelect('relation.updated_at', 'updatedAt')
-      .addSelect('relation.updated_by', 'updatedBy')
-      .from(RELATIONS_TABLE, 'relation')
-      .where('relation.invite_sent_at IS NOT NULL')
-      .getRawMany();
-    if (!invites.length) return;
-
-    const resendAudits: ResendAuditRow[] = await manager
-      .createQueryBuilder()
-      .select('audit.user_id', 'userId')
-      .addSelect('audit.old_data', 'oldData')
-      .addSelect('audit.new_data', 'newData')
-      .from('audit.audit_logs', 'audit')
-      .where('audit.action = :action', { action: 'DRIVER_INVITE_RESENT' })
-      .orderBy('audit.created_at', 'ASC')
-      .getRawMany();
-    const resendsByInvite = new Map<string, ResendAuditRow[]>();
-    for (const audit of resendAudits) {
-      const invitationId = audit.newData?.invitationId;
-      if (!invitationId) continue;
-      resendsByInvite.set(invitationId, [...(resendsByInvite.get(invitationId) ?? []), audit]);
-    }
-
-    const inviteNotifications: InviteNotificationRow[] = await manager
-      .createQueryBuilder()
-      .select('notification.id', 'id')
-      .addSelect('notification.recipient_user_id', 'recipientUserId')
-      .addSelect('notification.metadata', 'metadata')
-      .addSelect('notification.created_at', 'createdAt')
-      .from('notifications.notifications', 'notification')
-      .where('notification.type = :type', { type: 'driver.account.invited' })
-      .orderBy('notification.created_at', 'ASC')
-      .getRawMany();
-    const notificationsByInvite = new Map<string, InviteNotificationRow[]>();
-    for (const notification of inviteNotifications) {
-      const invitationId = notification.metadata?.invitationId;
-      if (!invitationId) continue;
-      notificationsByInvite.set(invitationId, [
-        ...(notificationsByInvite.get(invitationId) ?? []),
-        notification,
-      ]);
-    }
-
-    for (const invite of invites) {
-      const ownNotifications = (notificationsByInvite.get(invite.id) ?? []).filter(
-        (notification) => notification.recipientUserId === invite.driverId,
-      );
-      const timeline = linkNotifications(
-        buildTimeline(invite, resendsByInvite.get(invite.id) ?? []),
-        ownNotifications,
-      );
-      await manager
-        .createQueryBuilder()
-        .update(RELATIONS_TABLE)
-        .set({ [TIMELINE_PROPERTY]: timeline })
-        .where('id = :id', { id: invite.id })
-        .execute();
-    }
+    await queryRunner.query(`
+      WITH sent AS (
+        SELECT * FROM "masters"."driver_tenant_relations" WHERE "invite_sent_at" IS NOT NULL
+      ),
+      resends AS (
+        SELECT a."new_data"->>'invitationId' AS "relation_id", a."user_id",
+               a."old_data"->>'inviteSentAt' AS "previous_sent_at",
+               a."new_data"->>'inviteSentAt' AS "sent_at",
+               row_number() OVER (PARTITION BY a."new_data"->>'invitationId' ORDER BY a."created_at") AS n
+        FROM "audit"."audit_logs" a
+        WHERE a."action" = 'DRIVER_INVITE_RESENT' AND a."new_data" ? 'invitationId'
+      ),
+      events AS (
+        -- First send: before any Resend overwrote invite_sent_at/_by.
+        SELECT r."id", 0 AS "rank", jsonb_build_object(
+          'step', 'sent',
+          'at', COALESCE(first."previous_sent_at", ${ISO('r."invite_sent_at"')}),
+          'by', CASE WHEN first."relation_id" IS NULL THEN r."invite_sent_by"
+                     WHEN r."initiated_by" = 'staff' THEN r."approved_by"
+                     ELSE r."initiated_by_user_id" END
+        ) AS e
+        FROM sent r
+        LEFT JOIN resends first ON first."relation_id" = r."id"::text AND first.n = 1
+        UNION ALL
+        SELECT r."id", 1, jsonb_build_object('step', 'resent', 'at', x."sent_at", 'by', x."user_id")
+        FROM sent r JOIN resends x ON x."relation_id" = r."id"::text
+        WHERE x."sent_at" IS NOT NULL
+        UNION ALL
+        SELECT "id", 2, jsonb_build_object('step', 'viewed', 'at', ${ISO('"invite_viewed_at"')},
+                                           'device', "invite_viewed_device")
+        FROM sent WHERE "invite_viewed_at" IS NOT NULL
+        UNION ALL
+        SELECT "id", 3, jsonb_build_object('step', 'delivery_failed',
+                                           'at', ${ISO('"push_delivery_status_at"')}, 'channel', 'push')
+        FROM sent WHERE "push_delivery_status" = 'failed' AND "push_delivery_status_at" IS NOT NULL
+        UNION ALL
+        SELECT "id", 4, jsonb_build_object('step', 'accepted',
+                                           'at', ${ISO('COALESCE("driver_responded_at", "updated_at")')})
+        FROM sent WHERE "status" = 'active'
+        UNION ALL
+        SELECT "id", 4, jsonb_build_object('step', 'declined', 'at', ${ISO('"driver_responded_at"')},
+                                           'reason', "rejection_reason")
+        FROM sent WHERE "status" = 'rejected' AND "driver_responded_at" IS NOT NULL
+        UNION ALL
+        SELECT "id", 4, jsonb_build_object('step', 'cancelled', 'at', ${ISO('"updated_at"')},
+                                           'by', "updated_by")
+        FROM sent WHERE "status" = 'cancelled'
+      )
+      UPDATE "masters"."driver_tenant_relations" r
+      SET "invite_timeline" = t."timeline"
+      FROM (
+        SELECT "id", jsonb_agg(e ORDER BY (e->>'at')::timestamptz, "rank") AS "timeline"
+        FROM events GROUP BY "id"
+      ) t
+      WHERE r."id" = t."id"
+    `);
+    // notifications.created_at is a plain timestamp written in the session time zone, so the
+    // ::timestamptz cast reads it back the same way.
+    await queryRunner.query(`
+      UPDATE "masters"."driver_tenant_relations" r
+      SET "invite_timeline" = linked."timeline"
+      FROM (
+        SELECT r2."id", jsonb_agg(
+          CASE WHEN n."id" IS NULL THEN e.v
+               ELSE e.v || jsonb_build_object('notificationId', n."id"::text) END
+          ORDER BY e.ord
+        ) AS "timeline"
+        FROM "masters"."driver_tenant_relations" r2
+        CROSS JOIN LATERAL jsonb_array_elements(r2."invite_timeline") WITH ORDINALITY e(v, ord)
+        LEFT JOIN LATERAL (
+          SELECT n."id" FROM "notifications"."notifications" n
+          WHERE e.v->>'step' IN ('sent', 'resent')
+            AND n."type" = 'driver.account.invited'
+            AND n."recipient_user_id" = r2."driver_id"
+            AND n."metadata"->>'invitationId' = r2."id"::text
+            AND n."created_at"::timestamptz >= (e.v->>'at')::timestamptz
+            AND n."created_at"::timestamptz < (e.v->>'at')::timestamptz + interval '2 minutes'
+          ORDER BY n."created_at"
+          LIMIT 1
+        ) n ON true
+        WHERE r2."invite_timeline" <> '[]'::jsonb
+        GROUP BY r2."id"
+      ) linked
+      WHERE r."id" = linked."id"
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropColumn(RELATIONS_TABLE, TIMELINE_COLUMN);
+    await queryRunner.query(
+      `ALTER TABLE "masters"."driver_tenant_relations" DROP COLUMN "invite_timeline"`,
+    );
   }
 }

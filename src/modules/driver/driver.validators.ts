@@ -19,6 +19,7 @@ import {
   DRIVER_ROSTER_EMPLOYMENT_FILTERS,
   DRIVER_SCORE_STATUSES,
   DRIVER_INVITATION_STATUSES,
+  DRIVER_JOIN_REQUEST_STATUSES,
   DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_LIST_STATUS_FILTERS,
   DRIVER_OPERATIONAL_STATUSES,
@@ -197,6 +198,24 @@ const driverOperationalStatusBody = z.object({
 /** A fleet's own free-text note about the driver — kept on its relation, not the shared profile. */
 const driverNote = z.string().trim().min(1).max(DRIVER_NOTE_MAX_LENGTH);
 
+/**
+ * The roster's filters, shared by GET /drivers and GET /drivers/export. Filter panel lists arrive
+ * as one comma-separated string each ("fixed,vendor"); yes/no keys as "true"/"false". A key is
+ * simply absent when nothing in its section is ticked.
+ */
+const rosterFilterFields = {
+  employmentType: normaliseFilter(DRIVER_ROSTER_EMPLOYMENT_FILTERS).optional(),
+  licenceValidity: normaliseFilter(DRIVER_LICENCE_VALIDITY_FILTERS).optional(),
+  licenceClass: normaliseFilter(DRIVER_LICENCE_CLASS_FILTERS, (value) =>
+    value.toUpperCase(),
+  ).optional(),
+  hazmatEndorsed: booleanString.optional(),
+  scoreStatus: normaliseFilter(DRIVER_SCORE_STATUSES).optional(),
+  appInstalled: booleanString.optional(),
+  operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES).optional(),
+  segment: z.enum(DRIVER_ROSTER_SEGMENTS).optional(),
+};
+
 const onboardDriverBody = z.object({
   ...driverCoreFields,
   note: driverNote.optional(),
@@ -228,24 +247,17 @@ export const driverValidators = {
     }),
   }),
   listDrivers: z.object({
-    // Filter panel lists arrive as one comma-separated string each ("fixed,vendor"); yes/no keys
-    // as "true"/"false". A key is simply absent when nothing in its section is ticked.
     query: pagination.extend({
-      employmentType: normaliseFilter(DRIVER_ROSTER_EMPLOYMENT_FILTERS).optional(),
-      licenceValidity: normaliseFilter(DRIVER_LICENCE_VALIDITY_FILTERS).optional(),
-      licenceClass: normaliseFilter(DRIVER_LICENCE_CLASS_FILTERS, (value) =>
-        value.toUpperCase(),
-      ).optional(),
-      hazmatEndorsed: booleanString.optional(),
-      scoreStatus: normaliseFilter(DRIVER_SCORE_STATUSES).optional(),
-      appInstalled: booleanString.optional(),
+      ...rosterFilterFields,
       // Omitted = active (the roster, left-the-company included); `all` = every link status.
       status: z.enum(DRIVER_LIST_STATUS_FILTERS).optional(),
       // e.g. "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner
       initiatedBy: z.enum(DRIVER_TENANT_RELATION_INITIATORS).optional(),
-      operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES).optional(),
-      segment: z.enum(DRIVER_ROSTER_SEGMENTS).optional(),
     }),
+  }),
+  /** Same filters as listDrivers, minus paging and status — the export is always the roster. */
+  exportDrivers: z.object({
+    query: z.object({ search: pagination.shape.search, ...rosterFilterFields }),
   }),
   getDriver: z.object({ params: driverParams }),
   updateDriver: z.object({
@@ -292,10 +304,19 @@ export const driverValidators = {
     params: driverParams,
     // Optional — the "Requests to You" screen rejects in one click with no reason prompt. Defaulted
     // because Express 5 leaves req.body undefined when the request has no body at all.
-    body: z.object({ reason: z.string().trim().min(1).optional() }).default({}),
+    body: z
+      .object({
+        reason: z.string().trim().min(1).optional(),
+        // The reject modal's "Notify Driver" box; omitted = notify, as before it existed.
+        notifyDriver: z.boolean().default(true),
+      })
+      .default({ notifyDriver: true }),
   }),
+  restoreDriver: z.object({ params: driverParams }),
 
-  listJoinRequests: z.object({ query: pagination }),
+  listJoinRequests: z.object({
+    query: pagination.extend({ status: z.enum(DRIVER_JOIN_REQUEST_STATUSES).optional() }),
+  }),
 
   listInvitations: z.object({
     // Mobile number only — names aren't unique. Partial numbers match ("98720" finds every

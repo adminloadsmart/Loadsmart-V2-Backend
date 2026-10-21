@@ -59,6 +59,25 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/drivers/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportDrivers',
+    ...authenticated(
+      'Download the Active Roster as an Excel file (.xlsx) — every driver who joined, including ' +
+        'those who left the company; pending and declined links are never included. Optionally ' +
+        'filtered like GET /drivers (search, segment, filter panel); no paging. Columns: Full ' +
+        'Name, Mobile Number, Licence Number, Licence Class, Licence Valid To, Engagement Type, ' +
+        'Pay Type, Pay Amount, Trips, On-Time %, Driver Score, Availability, Driver App ' +
+        'Installed. Up to 5000 drivers.',
+    ),
+    request: { query: driverValidators.exportDrivers.shape.query },
+    responses: {
+      200: { description: 'Excel file (.xlsx) attachment' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/drivers/{driverId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getDriver',
@@ -145,7 +164,12 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectDriver',
-    ...approve('Reject a pending driver, with an optional reason. org_admin only.'),
+    ...approve(
+      'Reject a pending driver, with an optional reason. org_admin only. Records when and by ' +
+        'whom (rejectedAt/rejectedBy); a rejected join request can be restored for 30 days via ' +
+        'PATCH /drivers/{driverId}/restore. `notifyDriver` (default true) sends the driver the ' +
+        '"request declined" notification — only for their own join request.',
+    ),
     request: {
       params: driverValidators.rejectDriver.shape.params,
       body: json(driverValidators.rejectDriver.shape.body),
@@ -155,6 +179,32 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Driver not found', ...errorContent },
       409: { description: 'Driver is not pending', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/drivers/{driverId}/restore`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.restoreDriverJoinRequest',
+    ...approve(
+      'Recently Rejected → Restore: a join request this organisation rejected goes back to ' +
+        'Requests to You (`pending_staff_review`), where it can be approved; rejectedAt, ' +
+        'rejectedBy and rejectionReason are cleared and the restore is audited. The driver is ' +
+        'not notified. Same permission as approve/reject. No body.',
+    ),
+    request: { params: driverValidators.restoreDriver.shape.params },
+    responses: {
+      200: { description: 'The restored join request — same shape as a pending-list item' },
+      403: { description: 'Not allowed to approve/reject requests', ...errorContent },
+      404: { description: '`REQUEST_NOT_FOUND` — no such request here', ...errorContent },
+      409: {
+        description:
+          '`NOT_REJECTED` (already restored/approved) · `RESTORE_WINDOW_EXPIRED` (rejected over ' +
+          '30 days ago) · `DRIVER_UNAVAILABLE` (joined a fleet or left Loadsmart). `message` ' +
+          'is user-facing.',
+        ...errorContent,
+      },
     },
   });
 
@@ -176,7 +226,11 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'awaiting approval, which surface via GET /drivers?status=pending_staff_review instead. ' +
         'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above. `search` matches ' +
         'name, mobile or DL number. Each item carries `requestedAt` (when the request was made) ' +
-        'and `licenseClass` (latest licence verification’s class, or null).',
+        'and `licenseClass` (latest licence verification’s class, or null). `status=rejected` ' +
+        'lists Recently Rejected instead: requests this organisation rejected in the last 30 ' +
+        'days, newest rejection first, without drivers who have since joined a fleet or left ' +
+        'Loadsmart. Each adds `rejectedAt`, `rejectedBy` { id, name, role }, `rejectionReason`, ' +
+        '`restorableUntil` and `canRestore` (whether this caller can restore it now).',
     ),
     request: { query: driverValidators.listJoinRequests.shape.query },
     responses: {
@@ -221,10 +275,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.inviteDriverByPhone',
     ...write(
-      'Invite a driver by mobile number from the Invitations tab. Reuses the driver profile on ' +
-        'that number, or creates a phone-only "Pending driver" profile when the number has no ' +
-        'Loadsmart account yet — when its owner installs the driver app and registers with it, ' +
-        'the invite is waiting for them. A previous expired, declined or cancelled invite is ' +
+      'Invite a driver by mobile number from the Invitations tab. Only a number that already ' +
+        'belongs to a driver on Loadsmart (added by any organisation, or registered through the ' +
+        'driver app) can be invited — any other number returns 404 `DRIVER_NOT_FOUND` before ' +
+        'anything is created or sent. A previous expired, declined or cancelled invite is ' +
         "re-sent on its own row. org_admin's invite goes out immediately (`invitation` set); " +
         "dispatch's waits for org_admin approval (`awaitingApproval: true`, `invitation: null`) " +
         'and is sent by PATCH /drivers/{driverId}/approve. Delivery is push today; WhatsApp is ' +
@@ -234,6 +288,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: '{ driverId, invitationId, awaitingApproval, invitation }' },
       400: { description: 'Validation failed', ...errorContent },
+      404: {
+        description: '`DRIVER_NOT_FOUND` — no driver on Loadsmart has this number',
+        ...errorContent,
+      },
       409: {
         description:
           'Driver already in your fleet, already awaiting approval, an invite is already ' +

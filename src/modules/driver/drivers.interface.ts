@@ -26,6 +26,7 @@ import {
   DriverListStatusFilter,
   DriverInviteChannel,
   DriverInviteSendStep,
+  DriverJoinRequestStatus,
 } from './drivers.types';
 import { Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { DriverEntity } from './entities/driver.entity';
@@ -190,6 +191,11 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
 export interface DriverInvitationActor {
   name: string | null;
   role: string | null;
+}
+
+/** A staff user with their id — who rejected a join request. */
+export interface DriverStaffActor extends DriverInvitationActor {
+  id: string;
 }
 
 /** The in-app notification one send created — `readAt` is when the driver marked it read (opened
@@ -400,9 +406,28 @@ export interface UnavailableRelationIds {
   left: string[];
 }
 
-/** "Requests to You" list — status/initiatedBy are fixed by the service, so only paging + search. */
+/** "Requests to You" list — paging + search, and which list: pending (default) or rejected. */
 export interface ListJoinRequestsInput extends PaginationInput {
   search?: string;
+  status?: DriverJoinRequestStatus;
+}
+
+/** PATCH /drivers/:driverId/reject body. */
+export interface RejectDriverInput {
+  reason: string | null;
+  /** Send the driver the "request declined" notification — only for their own join request.
+   *  Omitted = true, as before this flag existed. */
+  notifyDriver: boolean;
+}
+
+/** One row of Recently Rejected — the pending list's item plus who rejected it and until when it
+ *  can be restored. */
+export interface DriverRejectedJoinRequestView extends DriverWithRelation {
+  rejectedAt: Date;
+  rejectedBy: DriverStaffActor | null;
+  restorableUntil: Date;
+  /** Whether PATCH …/restore would go through for this caller now — drives the Restore button. */
+  canRestore: boolean;
 }
 
 /** Raw `req.query` shape for the list endpoint — normalized into `ListDriversInput` by the service. */
@@ -551,6 +576,33 @@ export interface UpdateDriverTenantRelationData {
   note?: string | null;
   updatedBy?: string | null;
 }
+
+/** The roster query's filters without paging — shared by the paged list and the export. */
+export type RosterQueryFilters = Omit<ListDriversFilters, 'page' | 'limit'>;
+
+/** GET /drivers/export — the roster's filters minus paging; status is always the roster. */
+export type ExportDriversFilters = Omit<RosterQueryFilters, 'status' | 'initiatedBy'>;
+
+/** One column of the roster export: the cell key driverToExportRow fills, and its header. */
+export interface DriverExportColumn {
+  key: DriverExportColumnKey;
+  header: string;
+}
+
+export type DriverExportColumnKey =
+  | 'fullName'
+  | 'mobileNumber'
+  | 'licenceNumber'
+  | 'licenceClass'
+  | 'licenceValidTo'
+  | 'engagementType'
+  | 'payType'
+  | 'payAmount'
+  | 'trips'
+  | 'onTimePercentage'
+  | 'driverScore'
+  | 'availability'
+  | 'driverAppInstalled';
 
 export interface ListDriversFilters {
   status?: DriverListStatusFilter;

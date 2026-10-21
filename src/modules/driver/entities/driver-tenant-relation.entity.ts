@@ -183,6 +183,15 @@ export class DriverTenantRelationEntity {
   @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })
   rejectionReason!: string | null;
 
+  // When this tenant rejected the link (PATCH /drivers/:driverId/reject) and which staff user did
+  // it — Recently Rejected lists, and restore allows, DRIVER_JOIN_REQUEST_RESTORE_DAYS from here.
+  // Cleared by restore.
+  @Column({ name: 'rejected_at', type: 'timestamptz', nullable: true })
+  rejectedAt!: Date | null;
+
+  @Column({ name: 'rejected_by', type: 'uuid', nullable: true })
+  rejectedBy!: string | null;
+
   @OneToOne(() => DriverOperationalStatusEntity, (status) => status.driverTenantRelation)
   operationalStatus!: DriverOperationalStatusEntity;
 

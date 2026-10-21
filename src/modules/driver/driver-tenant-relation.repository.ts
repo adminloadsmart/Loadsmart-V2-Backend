@@ -5,6 +5,7 @@ import {
   DataSource,
   EntityManager,
   FindOperator,
+  FindOptionsRelations,
   FindOptionsWhere,
   ILike,
   In,
@@ -36,6 +37,8 @@ import {
   InviteSendColumns,
   ListDriversFilters,
   ListInvitationsInput,
+  ListJoinRequestsInput,
+  RosterQueryFilters,
   UpdateDriverTenantRelationData,
   UnavailableRelationIds,
 } from './drivers.interface';
@@ -76,6 +79,15 @@ export function inviteSendColumns(actorId: string | null, now: Date): InviteSend
     pushDeliveryStatusAt: now,
   };
 }
+
+/** What a roster row needs loaded — verifications only feed DriverService's licenseClass and are
+ *  stripped from the list response. */
+const ROSTER_ROW_RELATIONS: FindOptionsRelations<DriverTenantRelationEntity> = {
+  driver: { verifications: true },
+  operationalStatus: true,
+  tripMetrics: true,
+  vehicleLinks: { vehicle: { truckType: true } },
+};
 
 /** Whether a timeline entry is a send of the invite (`sent` or `resent`). */
 export function isInviteSendEvent(event: DriverInviteEvent): event is DriverInviteSendEvent {
@@ -230,7 +242,7 @@ function hasLicenceClass(licenseClass: string, classes: DriverLicenceClassFilter
   return classes.some((code) => codes.includes(code));
 }
 
-function hasRosterFilters(filters: ListDriversFilters): boolean {
+function hasRosterFilters(filters: RosterQueryFilters): boolean {
   return Boolean(
     filters.employmentType?.length ||
     filters.licenceValidity?.length ||
@@ -262,7 +274,7 @@ export class DriverTenantRelationRepository {
    */
   private async findRosterFilterRelationIds(
     tenantId: string,
-    filters: ListDriversFilters,
+    filters: RosterQueryFilters,
   ): Promise<string[] | null> {
     if (!hasRosterFilters(filters)) return null;
     const { employmentType, licenceValidity, licenceClass, hazmatEndorsed, scoreStatus } = filters;
@@ -485,14 +497,17 @@ export class DriverTenantRelationRepository {
     });
   }
 
-  /** `onLoadDriverIds` — drivers currently on an active load; only the on_trip/available
-   *  segments read it. */
-  async list(
+  /**
+   * The roster query's where-clauses under `filters` (segment, filter panel, search, status), or
+   * null when they can't match anything. `onLoadDriverIds` — drivers currently on an active load;
+   * only the on_trip/available segments read it. Shared by list() and listForExport().
+   */
+  private async findRosterWhere(
     tenantId: string,
-    filters: ListDriversFilters,
-    onLoadDriverIds: readonly string[] = [],
-  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
-    const { segment, page, limit } = filters;
+    filters: RosterQueryFilters,
+    onLoadDriverIds: readonly string[],
+  ): Promise<FindOptionsWhere<DriverTenantRelationEntity>[] | null> {
+    const { segment } = filters;
     const segmentWhere = segment
       ? rosterSegmentWhere(
           segment,
@@ -500,25 +515,47 @@ export class DriverTenantRelationRepository {
           await this.findUnavailableRelationIds(tenantId),
         )
       : {};
-    if (!segmentWhere) return { items: [], total: 0 };
+    if (!segmentWhere) return null;
     const filterIds = await this.findRosterFilterRelationIds(tenantId, filters);
-    if (filterIds?.length === 0) return { items: [], total: 0 };
+    if (filterIds?.length === 0) return null;
+    return this.listWhere(tenantId, filters, segmentWhere, filterIds);
+  }
+
+  async list(
+    tenantId: string,
+    filters: ListDriversFilters,
+    onLoadDriverIds: readonly string[] = [],
+  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
+    const { page, limit } = filters;
+    const where = await this.findRosterWhere(tenantId, filters, onLoadDriverIds);
+    if (!where) return { items: [], total: 0 };
 
     const [items, total] = await this.relations.findAndCount({
-      where: this.listWhere(tenantId, filters, segmentWhere, filterIds),
-      relations: {
-        // verifications only feed DriverService's licenseClass — stripped from the list response.
-        driver: { verifications: true },
-        operationalStatus: true,
-        tripMetrics: true,
-        vehicleLinks: { vehicle: { truckType: true } },
-      },
+      where,
+      relations: ROSTER_ROW_RELATIONS,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
 
     return { items, total };
+  }
+
+  /** Same filters as `list` but unpaged (capped at `limit`) — the roster export. */
+  async listForExport(
+    tenantId: string,
+    filters: RosterQueryFilters,
+    onLoadDriverIds: readonly string[],
+    limit: number,
+  ): Promise<DriverTenantRelationEntity[]> {
+    const where = await this.findRosterWhere(tenantId, filters, onLoadDriverIds);
+    if (!where) return [];
+    return this.relations.find({
+      where,
+      relations: ROSTER_ROW_RELATIONS,
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
   }
 
   /** Every roster tab's badge count, under the same status/initiatedBy/search filters as list(). */
@@ -575,7 +612,7 @@ export class DriverTenantRelationRepository {
 
   private listWhere(
     tenantId: string,
-    filters: ListDriversFilters,
+    filters: RosterQueryFilters,
     segmentWhere: FindOptionsWhere<DriverTenantRelationEntity>,
     filterIds: string[] | null,
   ): FindOptionsWhere<DriverTenantRelationEntity>[] {
@@ -705,9 +742,103 @@ export class DriverTenantRelationRepository {
   ): Promise<DriverTenantRelationEntity | null> {
     const result = await this.relations.update(
       { id, tenantId, status: 'pending_staff_review', deletedAt: IsNull() },
-      { status: 'rejected', rejectionReason: reason, updatedBy: actorId },
+      {
+        status: 'rejected',
+        rejectionReason: reason,
+        rejectedAt: new Date(),
+        rejectedBy: actorId,
+        updatedBy: actorId,
+      },
     );
     return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+
+  /**
+   * Restore — puts a rejected driver join request back to `pending_staff_review`, so it's in
+   * Requests to You again, and clears the rejection. Only a still-rejected driver-initiated row
+   * qualifies; the caller checks the restore window and the driver's state first.
+   */
+  async restoreJoinRequest(
+    tenantId: string,
+    id: string,
+    actorId: string,
+  ): Promise<DriverTenantRelationEntity | null> {
+    const result = await this.relations.update(
+      { id, tenantId, status: 'rejected', initiatedBy: 'driver', deletedAt: IsNull() },
+      {
+        status: 'pending_staff_review',
+        rejectionReason: null,
+        rejectedAt: null,
+        rejectedBy: null,
+        updatedBy: actorId,
+      },
+    );
+    return result.affected === 1 ? this.findRosterRowById(tenantId, id) : null;
+  }
+
+  /**
+   * Recently Rejected — this tenant's driver join requests rejected since `rejectedSince`, newest
+   * rejection first, leaving out drivers who have since joined any fleet or left Loadsmart.
+   * `search` matches name, mobile or DL number, as on the pending list.
+   */
+  async listRejectedJoinRequests(
+    tenantId: string,
+    filters: ListJoinRequestsInput,
+    rejectedSince: Date,
+  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
+    const { search, page, limit } = filters;
+    const base: FindOptionsWhere<DriverTenantRelationEntity> = {
+      tenantId,
+      status: 'rejected',
+      initiatedBy: 'driver',
+      rejectedAt: MoreThanOrEqual(rejectedSince),
+      deletedAt: IsNull(),
+    };
+    const candidates = await this.relations.find({ select: { driverId: true }, where: base });
+    const joinedDriverIds = await this.findDriverIdsInAnyFleet(
+      candidates.map((relation) => relation.driverId),
+    );
+    if (joinedDriverIds.size) base.driverId = Not(In([...joinedDriverIds]));
+
+    // A driver who deleted their account is soft-deleted too — they've left Loadsmart.
+    const onPlatform: FindOptionsWhere<DriverEntity> = { deletedAt: IsNull() };
+    const patterns = search ? driverSearchPatterns(search) : null;
+    const where: FindOptionsWhere<DriverTenantRelationEntity>[] = patterns
+      ? [
+          { ...base, driver: { ...onPlatform, fullName: ILike(patterns.name) } },
+          { ...base, driver: { ...onPlatform, licenseNumber: ILike(patterns.license) } },
+          ...(patterns.phone
+            ? [{ ...base, driver: { ...onPlatform, phoneNumber: ILike(patterns.phone) } }]
+            : []),
+        ]
+      : [{ ...base, driver: onPlatform }];
+
+    const [items, total] = await this.relations.findAndCount({
+      where,
+      relations: ROSTER_ROW_RELATIONS,
+      order: { rejectedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { items, total };
+  }
+
+  /** Which of these drivers are active in any fleet (any tenant) — they're no longer free to join. */
+  async findDriverIdsInAnyFleet(driverIds: string[]): Promise<Set<string>> {
+    if (!driverIds.length) return new Set();
+    const relations = await this.relations.find({
+      select: { driverId: true },
+      where: { driverId: In(driverIds), status: 'active', deletedAt: IsNull() },
+    });
+    return new Set(relations.map((relation) => relation.driverId));
+  }
+
+  /** One relation with what a roster/join-request row needs loaded (see ROSTER_ROW_RELATIONS). */
+  findRosterRowById(tenantId: string, id: string): Promise<DriverTenantRelationEntity | null> {
+    return this.relations.findOne({
+      where: { id, tenantId, deletedAt: IsNull() },
+      relations: ROSTER_ROW_RELATIONS,
+    });
   }
 
   /**
