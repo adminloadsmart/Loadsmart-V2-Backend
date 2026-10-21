@@ -3,7 +3,7 @@ import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
-import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
+import { importUpload, requireImportFile } from '../../../shared/import/upload';
 import { ProductController } from './product.controller';
 import { productValidators } from './product.validators';
 import { ProductImportController } from './product-import.controller';
@@ -19,10 +19,11 @@ export function createProductRoutes(
   router.post(
     '/products/import',
     canWrite,
-    mastersExcelUpload.single('file'),
-    requireMastersExcelFile,
+    importUpload,
+    requireImportFile,
     asyncHandler(productImportController.import),
   );
+  router.get('/products/import/sample', canWrite, asyncHandler(productImportController.sample));
 
   router.post(
     '/products',

@@ -7,6 +7,7 @@ import { MasterApprovalNotifier } from '../notifications/master-approvals';
 import { CodeSequenceRepository } from '../loads/code-sequence.repository';
 import { formatCustomerCode } from '../loads/utils/code.util';
 import { GstVerificationService, gstNameMatches } from '../masters/gst/gst.service';
+import { GstVerificationEntity } from '../masters/gst/entities/gst-verification.entity';
 import { MasterUsageRepository } from '../masters/masters.usage';
 import { gstStateName } from '../../shared/constants/gst-state-codes';
 import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../shared/utils/csv';
@@ -63,6 +64,25 @@ function primaryContactColumns(contacts: CustomerContactInput[]): CustomerColumn
     contactPersonNumber: primary?.phone ?? null,
     contactPersonEmail: primary?.email ?? null,
     contactPersonDesignation: primary?.designation ?? null,
+  };
+}
+
+/** GST bookkeeping columns for a verified register lookup — shared by the save path (a lookup
+ *  attached from the Verify button) and the bulk-import 'gst-verification' worker. */
+export function verifiedGstColumns(
+  verified: GstVerificationEntity,
+  gstin: string,
+  name: string,
+): CustomerColumns {
+  return {
+    gstVerificationStatus: 'verified',
+    gstVerificationId: verified.id,
+    gstVerifiedAt: verified.createdAt,
+    gstRegistryName: verified.legalName,
+    gstNameMatched: gstNameMatches(name, verified),
+    gstVerificationError: null,
+    placeOfSupply: verified.addressParts?.state || gstStateName(gstin),
+    registeredCity: verified.addressParts?.city || null,
   };
 }
 
@@ -123,18 +143,11 @@ export class CustomerService {
         gstVerifiedAt: null,
         gstRegistryName: null,
         gstNameMatched: null,
+        gstVerificationError: null,
         placeOfSupply: gstStateName(gstin),
       };
     }
-    return {
-      gstVerificationStatus: 'verified',
-      gstVerificationId: verified.id,
-      gstVerifiedAt: verified.createdAt,
-      gstRegistryName: verified.legalName,
-      gstNameMatched: gstNameMatches(name, verified),
-      placeOfSupply: verified.addressParts?.state || gstStateName(gstin),
-      registeredCity: verified.addressParts?.city || null,
-    };
+    return verifiedGstColumns(verified, gstin!, name);
   }
 
   private async assertGstinFree(tenantId: string, gstin: string | null | undefined, id?: string) {
@@ -157,6 +170,9 @@ export class CustomerService {
     role: string,
     input: CreateCustomerInput,
     source: 'manual' | 'csv_import' = 'manual',
+    // Bulk import: an unverified GSTIN is saved as 'pending' — the caller enqueues the
+    // 'gst-verification' job (CustomerGstVerificationService.enqueue) once the row exists.
+    options: { queueGstVerification?: boolean } = {},
   ) {
     try {
       this.assertRole(role, CUSTOMER_CREATOR_ROLES);
@@ -170,6 +186,8 @@ export class CustomerService {
           : {}),
         ...(input.contacts?.length ? primaryContactColumns(contacts) : {}),
       };
+      if (options.queueGstVerification && input.gstin && extra.gstVerificationStatus !== 'verified')
+        extra.gstVerificationStatus = 'pending';
       const status = role === ORG_ADMIN_ROLE ? 'active' : 'pending';
       const customer = await this.dataSource.transaction(async (manager) => {
         const code = formatCustomerCode(

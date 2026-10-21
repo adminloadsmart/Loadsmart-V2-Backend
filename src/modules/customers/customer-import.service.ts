@@ -1,57 +1,54 @@
 import { DataSource } from 'typeorm';
 import { customerValidators } from './customer.validators';
 import { CustomerService } from './customer.service';
-import { parseCustomerExcel, ParsedCustomerExcel } from './customer-import.mapper';
+import { parseCustomerSheet, ParsedCustomerSheet } from './customer-import.mapper';
+import { IMPORT_COLUMNS } from './customer-import.columns';
 import { CreateCustomerInput } from './customer.types';
 import { CustomerEntity } from './entities/customer.entity';
 import { ValidationError } from '../../shared/errors';
+import {
+  finishReport,
+  ImportReport,
+  ImportRowError,
+  rowErrors,
+  startReport,
+} from '../../shared/import/report';
+import { ImportSource } from '../../shared/import/upload';
 import { AuditService } from '../audit/audit.service';
+import { CustomerGstVerificationService } from './customer-gst-verification.service';
 
-export interface ImportRowError {
-  row: number;
-  field?: string;
-  message: string;
-}
-export interface ImportReport {
-  totalRows: number;
-  validRows: number;
-  created: number;
-  skipped: number;
-  failed: number;
-  columnMapping: Record<string, string>;
-  errors: ImportRowError[];
-}
+export type { ImportReport, ImportRowError } from '../../shared/import/report';
 
 export class CustomerImportService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly customers: CustomerService,
     private readonly audit: AuditService,
+    private readonly gstVerification: CustomerGstVerificationService,
   ) {}
 
   private async inspect(
-    parsed: ParsedCustomerExcel,
+    parsed: ParsedCustomerSheet,
     tenantId: string,
   ): Promise<{
     valid: { row: number; input: CreateCustomerInput }[];
     errors: ImportRowError[];
-    skipped: number;
   }> {
     const errors: ImportRowError[] = [];
     const valid: { row: number; input: CreateCustomerInput }[] = [];
     // Dedupe within the file on whichever identifier a row carries (mobile and/or GSTIN).
     const seen = new Set<string>();
-    let skipped = 0;
     for (const item of parsed.rows) {
       const result = customerValidators.importRow.safeParse({ body: item.input });
       if (!result.success) {
-        for (const issue of result.error.issues) {
-          errors.push({
-            row: item.row,
-            field: issue.path[1]?.toString() ?? issue.path[0]?.toString(),
-            message: issue.message,
-          });
-        }
+        errors.push(
+          ...rowErrors(
+            IMPORT_COLUMNS,
+            item.row,
+            result.error.issues.map((issue) => ({ ...issue, path: issue.path.slice(1) })),
+            item.slots,
+          ),
+        );
         continue;
       }
       const input = result.data.body as CreateCustomerInput;
@@ -59,23 +56,32 @@ export class CustomerImportService {
         input.mobile ? `mobile:${input.mobile}` : null,
         input.gstin ? `gstin:${input.gstin}` : null,
       ].filter((key): key is string => Boolean(key));
-      if (keys.some((key) => seen.has(key))) {
+      const repeated = keys.find((key) => seen.has(key));
+      if (repeated) {
+        const isGstin = repeated.startsWith('gstin:');
         errors.push({
           row: item.row,
-          field: input.mobile ? 'mobile' : 'gstin',
-          message: 'Duplicate mobile number or GSTIN in this file',
+          field: isGstin ? 'GSTIN' : 'Mobile',
+          message: `Duplicate ${isGstin ? 'GSTIN' : 'mobile number'} — already used by an earlier row in this file`,
         });
         continue;
       }
       keys.forEach((key) => seen.add(key));
       const existing = await this.findExisting(tenantId, input);
       if (existing) {
-        skipped += 1;
+        const isGstin = Boolean(input.gstin && existing.gstin === input.gstin);
+        errors.push({
+          row: item.row,
+          field: isGstin ? 'GSTIN' : 'Mobile',
+          message: isGstin
+            ? `A customer with GSTIN "${input.gstin}" already exists`
+            : `A customer with mobile "${input.mobile}" already exists`,
+        });
         continue;
       }
       valid.push({ row: item.row, input });
     }
-    return { valid, errors, skipped };
+    return { valid, errors };
   }
 
   private findExisting(tenantId: string, input: CreateCustomerInput) {
@@ -99,72 +105,72 @@ export class CustomerImportService {
     return query.getOne();
   }
 
-  async preview(tenantId: string, buffer: Buffer): Promise<ImportReport> {
-    const parsed = await this.parse(buffer);
+  async preview(tenantId: string, source: ImportSource): Promise<ImportReport> {
+    const parsed = await this.parse(source);
     const inspected = await this.inspect(parsed, tenantId);
-    const report: ImportReport = {
-      totalRows: parsed.rows.length,
-      validRows: inspected.valid.length,
-      created: 0,
-      skipped: inspected.skipped,
-      failed: inspected.errors.length,
-      columnMapping: parsed.mapping,
-      errors: inspected.errors,
-    };
-    return report;
+    return startReport(parsed, inspected.valid.length, inspected.errors);
   }
 
+  /** Creates every valid row on its own (one bad row never rolls back the others) and queues a
+   *  background GST verification for each created customer with an unverified GSTIN. */
   async import(
     tenantId: string,
     actorId: string,
     role: string,
-    fileName: string,
-    buffer: Buffer,
+    source: ImportSource,
   ): Promise<ImportReport> {
-    const parsed = await this.parse(buffer);
+    const parsed = await this.parse(source);
     const inspected = await this.inspect(parsed, tenantId);
+    const errors = [...inspected.errors];
     const report: ImportReport = {
-      totalRows: parsed.rows.length,
-      validRows: inspected.valid.length,
-      created: 0,
-      skipped: inspected.skipped,
-      failed: inspected.errors.length,
-      columnMapping: parsed.mapping,
-      errors: [...inspected.errors],
+      ...startReport(parsed, inspected.valid.length, errors),
+      gstVerificationQueued: 0,
     };
     for (const item of inspected.valid) {
+      let customer: Awaited<ReturnType<CustomerService['create']>>;
       try {
-        await this.customers.create(tenantId, actorId, role, item.input, 'csv_import');
+        customer = await this.customers.create(tenantId, actorId, role, item.input, 'csv_import', {
+          queueGstVerification: true,
+        });
         report.created += 1;
       } catch (error) {
-        report.failed += 1;
-        report.errors.push({
+        errors.push({
           row: item.row,
           message: error instanceof Error ? error.message : 'Failed to create customer',
         });
+        continue;
+      }
+      if (customer.gstin && customer.gstVerificationStatus === 'pending') {
+        const queued = await this.gstVerification.enqueue({
+          tenantId,
+          recordId: customer.id,
+          actorId,
+        });
+        if (queued) report.gstVerificationQueued! += 1;
       }
     }
+    finishReport(report);
     await this.audit.log({
       tenantId,
       userId: actorId,
       action: 'CUSTOMER_BULK_IMPORTED',
       resourceType: 'customer',
       newData: {
-        fileName,
-        totalRows: report.totalRows,
+        fileName: source.fileName,
+        totalRows: report.total,
         created: report.created,
-        skipped: report.skipped,
         failed: report.failed,
+        gstVerificationQueued: report.gstVerificationQueued,
       },
     });
     return report;
   }
 
-  private async parse(buffer: Buffer): Promise<ParsedCustomerExcel> {
+  private async parse(source: ImportSource): Promise<ParsedCustomerSheet> {
     try {
-      return await parseCustomerExcel(buffer);
+      return await parseCustomerSheet(source.buffer, source.fileType);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid file');
     }
   }
 }

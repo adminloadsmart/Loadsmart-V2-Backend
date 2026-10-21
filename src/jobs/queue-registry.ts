@@ -4,7 +4,10 @@ import { getQueueConnection } from './queue-connection';
 // Optional per-job settings. `deduplication` (BullMQ's own) collapses adds sharing an id while
 // the job is pending, releasing the id once it completes or fails — unlike a fixed `jobId`, a
 // permanently failed job never blocks a later genuine re-add. See notification-triggers.ts.
-export interface EnqueueOptions {
+export interface EnqueueOptions extends Pick<
+  JobsOptions,
+  'attempts' | 'backoff' | 'removeOnComplete' | 'removeOnFail'
+> {
   delay?: number;
   jobId?: string;
   deduplication?: DeduplicationOptions;

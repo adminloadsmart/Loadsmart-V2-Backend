@@ -1,3 +1,4 @@
+import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { productValidators } from './product.validators';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
@@ -16,13 +17,22 @@ const write = (description: string) => permissionGated([MASTERS_WRITE], descript
 const approve = (description: string) => permissionGated([MASTERS_APPROVE], description);
 
 export function registerProductOpenApi(registry: OpenAPIRegistry): void {
+  registerImportSampleOpenApi(registry, {
+    path: `${BASE}/products/import/sample`,
+    operationId: 'masters.productImportSample',
+    permission: MASTERS_WRITE,
+    label: 'product',
+    filename: 'product-bulk-upload-template.xlsx',
+  });
   registry.registerPath({
     method: 'post',
     path: `${BASE}/products/import`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.importProductsExcel',
     ...write(
-      'Bulk import products from an Excel file. Each row creates one product and optional sub-items.',
+      'Bulk upload products from the template (GET /products/import/sample). A repeated name + ' +
+        'HSN (in the file or of an existing product) is skipped. ' +
+        'Rows are validated like single create and created one by one; rows that fail are reported in errors and skipped. Unknown columns are ignored (ignoredColumns).',
     ),
     request: {
       body: {
@@ -35,7 +45,7 @@ export function registerProductOpenApi(registry: OpenAPIRegistry): void {
                 file: {
                   type: 'string',
                   format: 'binary',
-                  description: 'Excel file (.xlsx), maximum 5 MB.',
+                  description: '.xlsx or .csv file, maximum 5 MB / 1000 rows.',
                 },
               },
             },
@@ -45,7 +55,7 @@ export function registerProductOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       201: { description: 'Import report with created and failed row counts' },
-      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      400: { description: 'Invalid or missing .xlsx/.csv file', ...errorContent },
     },
   });
   registry.registerPath({

@@ -1,3 +1,4 @@
+import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { transporterValidators } from './transporter.validators';
 import { MASTERS_WRITE } from '../../../shared/constants/permissions';
@@ -15,6 +16,13 @@ const BASE = `${API_VERSION_PREFIX}/masters`; // absolute path — must match it
 const write = (description: string) => permissionGated([MASTERS_WRITE], description);
 
 export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
+  registerImportSampleOpenApi(registry, {
+    path: `${BASE}/transporters/import/sample`,
+    operationId: 'masters.transporterImportSample',
+    permission: MASTERS_WRITE,
+    label: 'transporter',
+    filename: 'transporter-bulk-upload-template.xlsx',
+  });
   registry.registerPath({
     method: 'post',
     path: `${BASE}/transporters`,
@@ -66,7 +74,13 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters/import`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.importTransportersExcel',
-    ...write('Bulk upload transporters from an Excel file. Organization admin only.'),
+    ...write(
+      'Bulk upload transporters from the template (GET /transporters/import/sample). Organization ' +
+        'admin only. Phone repeats (in the file or of an existing transporter) are skipped. ' +
+        'Transporters with a GSTIN are saved with gstVerificationStatus "pending" and verified in ' +
+        'the background (gst-verification queue). ' +
+        'Rows are validated like single create and created one by one; rows that fail are reported in errors and skipped. Unknown columns are ignored (ignoredColumns).',
+    ),
     request: {
       body: {
         content: {
@@ -78,7 +92,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
                 file: {
                   type: 'string',
                   format: 'binary',
-                  description: 'Excel file (.xlsx), maximum 5 MB.',
+                  description: '.xlsx or .csv file, maximum 5 MB / 1000 rows.',
                 },
               },
             },

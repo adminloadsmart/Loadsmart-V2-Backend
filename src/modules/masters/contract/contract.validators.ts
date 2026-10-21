@@ -43,9 +43,11 @@ const listFilters = {
   sortOrder: z.enum(['asc', 'desc']).optional(),
 };
 
-/** One bulk-upload row — the transporter is named by code, GSTIN or exact name. */
+/** One bulk-upload row — the transporter is named by the template's dropdown value
+ *  ("TRP-0001 · ABC Logistics"), or by code, GSTIN or exact name. */
 export const contractImportRowSchema = z
   .object({
+    transporter: z.string().trim().min(1).optional(),
     transporterCode: z.string().trim().min(1).optional(),
     transporterGstin: z.string().trim().min(1).optional(),
     transporterName: z.string().trim().min(1).optional(),
@@ -61,8 +63,8 @@ export const contractImportRowSchema = z
   .strict()
   .refine(validityOrder, VALIDITY_MESSAGE)
   .refine(
-    (row) => row.transporterCode || row.transporterGstin || row.transporterName,
-    'transporterCode, transporterGstin or transporterName is required',
+    (row) => row.transporter || row.transporterCode || row.transporterGstin || row.transporterName,
+    { message: 'Transporter is required', path: ['transporter'] },
   );
 
 export const contractValidators = {

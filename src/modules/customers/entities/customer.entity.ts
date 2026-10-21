@@ -8,12 +8,13 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import {
+  CustomerGstStatus,
   CustomerInvoiceAgainst,
   CustomerStatus,
+  CUSTOMER_GST_STATUSES,
   CUSTOMER_INVOICE_AGAINST,
   CUSTOMER_STATUSES,
 } from '../utils/customer.status';
-import { GST_RECORD_STATUSES, GstRecordStatus } from '../../masters/gst/gst.types';
 import { CustomerDeliveryPointEntity } from './customer-delivery-point.entity';
 import { CustomerContactEntity } from './customer-contact.entity';
 
@@ -83,14 +84,18 @@ export class CustomerEntity {
   /** State of the GSTIN — from the register when verified, else from the GSTIN's state code. */
   @Column({ name: 'place_of_supply', type: 'varchar', length: 100, nullable: true })
   placeOfSupply!: string | null;
-  /** 'verified' only when saved with a verified masters.gst_verifications row (never client-set). */
+  /** 'verified' only when saved with a verified masters.gst_verifications row (never client-set);
+   *  'pending'/'failed' come from the bulk-import 'gst-verification' queue. */
   @Column({
     name: 'gst_verification_status',
     type: 'enum',
-    enum: [...GST_RECORD_STATUSES],
+    enum: [...CUSTOMER_GST_STATUSES],
     default: 'unverified',
   })
-  gstVerificationStatus!: GstRecordStatus;
+  gstVerificationStatus!: CustomerGstStatus;
+  /** Why the background verification failed (register answer or last vendor error). */
+  @Column({ name: 'gst_verification_error', type: 'varchar', length: 500, nullable: true })
+  gstVerificationError!: string | null;
   @Column({ name: 'gst_verification_id', type: 'uuid', nullable: true })
   gstVerificationId!: string | null;
   @Column({ name: 'gst_verified_at', type: 'timestamptz', nullable: true })

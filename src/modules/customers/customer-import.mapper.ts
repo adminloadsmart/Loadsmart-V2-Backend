@@ -1,201 +1,29 @@
-import { parseSpreadsheetRows } from '../../shared/utils/spreadsheet';
+import { IMPORT_MAX_ROWS } from '../../shared/import/upload';
+import { ImportFileType, parseImportSheet, ParsedImportSheet } from '../../shared/import/parse';
 import { CreateCustomerInput } from './customer.types';
+import { IMPORT_COLUMNS } from './customer-import.columns';
 
-export const CUSTOMER_IMPORT_MAX_ROWS = 5000;
+export type ParsedCustomerSheet = ParsedImportSheet<CreateCustomerInput>;
 
-const aliases: Partial<Record<keyof CreateCustomerInput, string[]>> = {
-  name: ['name', 'customername', 'customer', 'companyname', 'clientname', 'customerfullname'],
-  mobile: [
-    'mobile',
-    'mobileno',
-    'mobilenumber',
-    'phone',
-    'phonenumber',
-    'contactnumber',
-    'contact',
-  ],
-  email: ['email', 'emailid', 'emailaddress', 'mail'],
-  gstin: ['gstin', 'gst', 'gstnumber', 'gstno', 'taxnumber'],
-  contactPersonName: ['contactpersonname', 'contactname', 'personname'],
-  contactPersonNumber: [
-    'contactpersonnumber',
-    'contactpersonmobile',
-    'contactmobile',
-    'contactphone',
-  ],
-  contactPersonEmail: ['contactpersonemail', 'contactemail'],
-  contactPersonDesignation: ['contactpersondesignation', 'contactdesignation', 'designation'],
-  contactPersonDesignationOther: ['contactpersondesignationother', 'otherdesignation'],
-  advancePercentage: ['advancepercentage', 'advance', 'advancepercent', 'advancepct'],
-  balancePercentage: ['balancepercentage', 'balance', 'balancepercent', 'balancepct'],
-  creditDays: ['creditdays', 'paymentdays', 'paymentterms', 'creditperiod'],
-  rateContract: ['ratecontract', 'contract', 'contractname', 'ratetype'],
-  deliveryPoints: [
-    'deliverypoints',
-    'deliverypoint',
-    'deliveryunloadingpoints',
-    'deliverylocations',
-    'locations',
-    'unloadingpoints',
-    'deliveryaddress',
-  ],
-  billingAddressLine1: ['billingaddressline1', 'billingaddress1', 'billingaddress'],
-  billingAddressLine2: ['billingaddressline2', 'billingaddress2'],
-  billingLandmark: ['billinglandmark'],
-  billingAreaLocality: ['billingarealocality', 'billinglocality'],
-  billingCity: ['billingcity'],
-  billingState: ['billingstate'],
-  billingPinCode: ['billingpincode', 'billingpin', 'billingzip'],
-  registeredAddress: ['registeredaddress', 'address', 'gstaddress'],
-  invoiceAgainst: ['invoiceagainst', 'invoicebasis', 'podbasis'],
-  creditLimit: ['creditlimit'],
-  balanceAmount: ['balanceamount', 'outstandingbalance', 'openingbalance'],
-  freeHoursAtDrop: ['freehoursatdrop', 'freehours'],
-  notes: ['notes', 'customnotes', 'remarks'],
-};
-
-const NUMERIC_FIELDS = new Set<keyof CreateCustomerInput>([
-  'advancePercentage',
-  'balancePercentage',
-  'creditDays',
-  'creditLimit',
-  'balanceAmount',
-  'freeHoursAtDrop',
-]);
-
-/** "Original POD" / "soft copy" → the enum value; anything else is passed through for the
- *  validator to reject with a clear message. */
-function invoiceAgainstValue(raw: string | undefined): string | undefined {
-  if (raw === undefined) return undefined;
-  const normalized = normalizeHeader(raw);
-  if (normalized.includes('original')) return 'original_pod';
-  if (normalized.includes('soft')) return 'soft_copy';
-  return raw;
-}
-
-export interface ParsedImportRow {
-  row: number;
-  input: Partial<CreateCustomerInput>;
-}
-
-export interface ParsedCustomerExcel {
-  rows: ParsedImportRow[];
-  mapping: Record<string, keyof CreateCustomerInput>;
-}
-
-export function normalizeHeader(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLowerCase();
-}
-
-function findField(header: string): keyof CreateCustomerInput | undefined {
-  const normalized = normalizeHeader(header);
-  const matches = (Object.keys(aliases) as (keyof CreateCustomerInput)[]).filter((field) =>
-    aliases[field]?.includes(normalized),
-  );
-  if (matches.length > 1) throw new Error(`Ambiguous column "${header}"`);
-  return matches[0];
-}
-
-function value(row: Record<string, string>, header: string): string | undefined {
-  const raw = row[header];
-  return raw === undefined || raw.trim() === '' ? undefined : raw.trim();
-}
-
-function numberValue(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
-  const cleaned = raw.replace(/%|days?|hours?|hrs?|₹|,|rs\.?/gi, '').trim();
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
-}
-
-function paymentTermsValue(raw: string | undefined): Partial<CreateCustomerInput> {
-  if (raw === undefined) return {};
-
-  const result: Partial<CreateCustomerInput> = {};
-  const creditDays = raw.match(/credit\s*(\d+(?:\.\d+)?)\s*days?/i);
-  const advancePercentage = raw.match(/advance\s*(\d+(?:\.\d+)?)\s*%/i);
-  const balancePercentage = raw.match(/balance\s*(\d+(?:\.\d+)?)\s*%/i);
-
-  if (creditDays) result.creditDays = Number(creditDays[1]);
-  if (advancePercentage) result.advancePercentage = Number(advancePercentage[1]);
-  if (balancePercentage) result.balancePercentage = Number(balancePercentage[1]);
-
-  // Also support a plain numeric value when this column is used for credit days.
-  if (!creditDays && !advancePercentage && !balancePercentage) {
-    const parsed = numberValue(raw);
-    if (parsed !== undefined && Number.isFinite(parsed)) result.creditDays = parsed;
-  }
-
-  return result;
-}
-
-function deliveryPointsValue(raw: string | undefined): CreateCustomerInput['deliveryPoints'] {
-  if (raw === undefined) return undefined;
-
-  // The preferred cell representation is JSON so it can carry the exact same
-  // delivery point objects accepted by POST /customers. Keep the pipe format
-  // for existing Excel files that only contain location names.
-  if (raw.startsWith('[')) {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [{ location: '' }];
-      return parsed as CreateCustomerInput['deliveryPoints'];
-    } catch {
-      return [{ location: '' }];
-    }
-  }
-
-  return raw
-    .split(/[|;]/)
-    .map((location) => ({ location: location.trim() }))
-    .filter((p) => p.location);
-}
-
-export async function parseCustomerExcel(buffer: Buffer): Promise<ParsedCustomerExcel> {
-  const records = await parseSpreadsheetRows(buffer);
-  if (!records.length)
-    throw new Error('Excel file must contain a header and at least one data row');
-  if (records.length > CUSTOMER_IMPORT_MAX_ROWS) {
-    throw new Error(`Excel file cannot contain more than ${CUSTOMER_IMPORT_MAX_ROWS} rows`);
-  }
-
-  const headers = Object.keys(records[0]);
-  const mapping: Record<string, keyof CreateCustomerInput> = {};
-  for (const header of headers) {
-    const field = findField(header);
-    if (field) {
-      if (Object.values(mapping).includes(field))
-        throw new Error(`Multiple columns map to "${field}"`);
-      mapping[header] = field;
-    }
-  }
-  const mapped = Object.values(mapping);
-  if (!mapped.includes('name')) throw new Error('Missing required column "name"');
-  if (!mapped.includes('mobile') && !mapped.includes('gstin'))
-    throw new Error('Missing required column "gstin" or "mobile"');
-
-  const rows = records.map((record, index) => {
-    const data: Partial<CreateCustomerInput> = {};
-    for (const [header, field] of Object.entries(mapping)) {
-      const raw = value(record, header);
-      if (field === 'invoiceAgainst') {
-        (data as Record<string, unknown>)[field] = invoiceAgainstValue(raw);
-      } else if (NUMERIC_FIELDS.has(field)) {
-        if (field === 'creditDays' && normalizeHeader(header) === 'paymentterms') {
-          Object.assign(data, paymentTermsValue(raw));
-        } else {
-          (data as Record<string, unknown>)[field] = numberValue(raw);
-        }
-      } else if (field === 'deliveryPoints') {
-        data.deliveryPoints = deliveryPointsValue(raw);
-      } else {
-        (data as Record<string, unknown>)[field] = raw;
-      }
-    }
-    return { row: index + 2, input: data };
+/** Reads a customer upload: contacts / delivery point groups become the POST /customers arrays. */
+export function parseCustomerSheet(
+  buffer: Buffer,
+  fileType: ImportFileType = 'xlsx',
+): Promise<ParsedCustomerSheet> {
+  return parseImportSheet<CreateCustomerInput>(buffer, fileType, IMPORT_COLUMNS, {
+    maxRows: IMPORT_MAX_ROWS,
+    requiredColumns: [['name'], ['gstin', 'mobile']],
+    // The delivery point schema wants every address key present (nullable), not missing.
+    groupDefaults: {
+      deliveryPoints: {
+        addressLine1: null,
+        addressLine2: null,
+        landmark: null,
+        areaLocality: null,
+        city: null,
+        state: null,
+        pinCode: null,
+      },
+    },
   });
-  return { rows, mapping };
 }

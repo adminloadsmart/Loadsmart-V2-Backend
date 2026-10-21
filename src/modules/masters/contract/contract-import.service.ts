@@ -1,69 +1,69 @@
 import { DataSource, IsNull } from 'typeorm';
+import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors';
-import { parseSpreadsheetRows } from '../../../shared/utils/spreadsheet';
+import { GSTIN_REGEX } from '../../../shared/constants/gst-state-codes';
+import { ImportReport } from '../../../shared/import/report';
+import { importRows } from '../../../shared/import/run';
+import { buildImportSample } from '../../../shared/import/sample';
+import { ImportFileType, parseImportSheet, ParsedImportSheet } from '../../../shared/import/parse';
+import { IMPORT_MAX_ROWS, ImportSource } from '../../../shared/import/upload';
 import { AuditService } from '../../audit/audit.service';
 import { TransporterEntity } from '../transporter/entities/transporter.entity';
 import { ContractService } from './contract.service';
 import { contractImportRowSchema } from './contract.validators';
 import { CreateContractInput } from './contract.interface';
+import {
+  IMPORT_COLUMNS,
+  TEMPLATE_COLUMNS,
+  TRANSPORTER_LIST,
+  transporterOptionLabel,
+} from './contract-import.columns';
 
-export const CONTRACT_IMPORT_MAX_ROWS = 5000;
+export const CONTRACT_IMPORT_SAMPLE_FILENAME = 'contract-bulk-upload-template.xlsx';
 
-/** Normalised header → import field. Matches the export's headers. */
-const FIELD_BY_HEADER: Record<string, string> = {
-  transportercode: 'transporterCode',
-  code: 'transporterCode',
-  transportergstin: 'transporterGstin',
-  gstin: 'transporterGstin',
-  transportername: 'transporterName',
-  transporter: 'transporterName',
-  sourcecity: 'sourceCity',
-  sourcestate: 'sourceState',
-  destinationcity: 'destinationCity',
-  destinationstate: 'destinationState',
-  agreedrate: 'agreedRate',
-  rate: 'agreedRate',
-  billingunit: 'billingUnit',
-  validfrom: 'validFrom',
-  validto: 'validTo',
-  expirydate: 'validTo',
-  priority: 'priority',
-  ranking: 'priority',
-  sharepercentage: 'sharePercentage',
-  share: 'sharePercentage',
-  notes: 'notes',
-};
-const IGNORED_HEADERS = new Set(['status', 'daystoexpiry']);
-const NUMERIC_FIELDS = new Set(['agreedRate', 'sharePercentage']);
+/** Transporters listed in the template's dropdown — beyond this, type the code instead. */
+const TEMPLATE_TRANSPORTER_LIMIT = 2000;
 
-const normalize = (value: string) =>
-  value
-    .normalize('NFKD')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLowerCase();
+type ContractImportRow = z.infer<typeof contractImportRowSchema>;
+type TransporterRef = Pick<TransporterEntity, 'id' | 'code' | 'name'>;
 
-/** "P1" / "1" → 1; "Per ton" / "per_truck" → enum value. */
-function coerce(field: string, raw: string): unknown {
-  if (NUMERIC_FIELDS.has(field)) {
-    const parsed = Number(raw.replace(/%|₹|,/g, '').trim());
-    return Number.isFinite(parsed) ? parsed : Number.NaN;
-  }
-  if (field === 'priority') return Number(raw.replace(/^p/i, '').trim());
-  if (field === 'billingUnit') return normalize(raw).includes('truck') ? 'per_truck' : 'per_ton';
-  return raw;
+export function parseContractSheet(
+  buffer: Buffer,
+  fileType: ImportFileType = 'xlsx',
+): Promise<ParsedImportSheet<ContractImportRow>> {
+  return parseImportSheet<ContractImportRow>(buffer, fileType, IMPORT_COLUMNS, {
+    maxRows: IMPORT_MAX_ROWS,
+    requiredColumns: [
+      ['transporter', 'transporterCode', 'transporterGstin', 'transporterName'],
+      ['sourceCity'],
+      ['destinationCity'],
+      ['agreedRate'],
+      ['validFrom'],
+      ['validTo'],
+    ],
+  });
 }
 
-export interface ContractImportReport {
-  totalRows: number;
-  validRows: number;
-  created: number;
-  failed: number;
-  columnMapping: Record<string, string>;
-  errors: { row: number; field?: string; message: string }[];
+/** A validated sheet row → the POST /masters/contracts payload, with the resolved transporter. */
+function toContractInput(row: ContractImportRow, transporterId: string): CreateContractInput {
+  return {
+    transporterId,
+    sourceCity: row.sourceCity,
+    sourceState: row.sourceState,
+    destinationCity: row.destinationCity,
+    destinationState: row.destinationState,
+    agreedRate: row.agreedRate,
+    billingUnit: row.billingUnit,
+    validFrom: row.validFrom,
+    validTo: row.validTo,
+    priority: row.priority,
+    sharePercentage: row.sharePercentage,
+    notes: row.notes,
+  };
 }
 
-/** Settings → Contracts "Bulk Upload" (.xlsx). Each row goes through ContractService.create, so
- *  the same lane rules (one per transporter, unique priority, ≤100% share) apply row by row. */
+/** Settings → Contracts "Bulk Upload". Each row goes through ContractService.create, so the same
+ *  lane rules (one per transporter, unique priority, ≤100% share) apply row by row. */
 export class ContractImportService {
   constructor(
     private readonly dataSource: DataSource,
@@ -71,72 +71,58 @@ export class ContractImportService {
     private readonly audit: AuditService,
   ) {}
 
+  /** The template with this tenant's active transporters as the Transporter dropdown. */
+  async sample(tenantId: string): Promise<Buffer> {
+    const transporters = await this.dataSource.getRepository(TransporterEntity).find({
+      select: { id: true, code: true, name: true },
+      where: { tenantId, status: 'active', deletedAt: IsNull() },
+      order: { code: 'ASC' },
+      take: TEMPLATE_TRANSPORTER_LIMIT,
+    });
+    const options = transporters.map(transporterOptionLabel);
+    return buildImportSample({
+      sheetName: 'Contracts',
+      columns: TEMPLATE_COLUMNS,
+      lists: { [TRANSPORTER_LIST]: options },
+      examples: options.length ? { transporter: options[0] } : {},
+      notes: [
+        options.length
+          ? 'Transporter: pick from the dropdown (your active transporters), or type a transporter code, GSTIN or exact name.'
+          : 'You have no active transporters yet — add them first (Transporters tab), then type their code, GSTIN or name in the Transporter column.',
+        'A transporter can hold one contract per lane; priorities on a lane must be unique and shares add up to 100% at most. Rows breaking these are reported and skipped.',
+      ],
+    });
+  }
+
   async import(
     tenantId: string,
     actorId: string,
     role: string,
-    fileName: string,
-    buffer: Buffer,
-  ): Promise<ContractImportReport> {
-    const { rows, mapping } = await this.parse(buffer);
-    const report: ContractImportReport = {
-      totalRows: rows.length,
-      validRows: 0,
-      created: 0,
-      failed: 0,
-      columnMapping: mapping,
-      errors: [],
-    };
-    for (const item of rows) {
-      const parsed = contractImportRowSchema.safeParse(item.input);
-      if (!parsed.success) {
-        report.failed += 1;
-        for (const issue of parsed.error.issues)
-          report.errors.push({
-            row: item.row,
-            field: issue.path[0]?.toString(),
-            message: issue.message,
-          });
-        continue;
-      }
-      const { transporterCode, transporterGstin, transporterName, ...rest } = parsed.data;
-      const transporter = await this.findTransporter(tenantId, {
-        transporterCode,
-        transporterGstin,
-        transporterName,
-      });
-      if (!transporter) {
-        report.failed += 1;
-        report.errors.push({
-          row: item.row,
-          field: 'transporterCode',
-          message: 'Transporter not found',
-        });
-        continue;
-      }
-      report.validRows += 1;
-      try {
-        await this.contracts.create(tenantId, actorId, role, {
-          ...rest,
-          transporterId: transporter.id,
-        } as CreateContractInput);
-        report.created += 1;
-      } catch (error) {
-        report.failed += 1;
-        report.errors.push({
-          row: item.row,
-          message: error instanceof Error ? error.message : 'Failed to create contract',
-        });
-      }
-    }
+    source: ImportSource,
+  ): Promise<ImportReport> {
+    const parsed = await this.parse(source);
+    const resolve = this.transporterResolver(tenantId);
+    const report = await importRows(parsed, {
+      columns: IMPORT_COLUMNS,
+      schema: contractImportRowSchema,
+      check: async (row) =>
+        (await resolve(row)) ? null : { field: 'Transporter', message: 'Transporter not found' },
+      create: async (row) =>
+        this.contracts.create(
+          tenantId,
+          actorId,
+          role,
+          toContractInput(row, (await resolve(row))!.id),
+        ),
+    });
     await this.audit.log({
       tenantId,
       userId: actorId,
       action: 'TRANSPORTER_CONTRACT_BULK_IMPORTED',
       resourceType: 'transporter_contract',
       newData: {
-        fileName,
-        totalRows: report.totalRows,
+        fileName: source.fileName,
+        totalRows: report.total,
         created: report.created,
         failed: report.failed,
       },
@@ -144,46 +130,46 @@ export class ContractImportService {
     return report;
   }
 
-  private findTransporter(
-    tenantId: string,
-    ref: { transporterCode?: string; transporterGstin?: string; transporterName?: string },
-  ) {
+  /** Row → transporter, cached per import. The Transporter cell may be the dropdown value
+   *  ("TRP-1049 · ABC Logistics"), a code, a GSTIN or the exact name (any case). */
+  private transporterResolver(tenantId: string) {
+    const cache = new Map<string, Promise<TransporterRef | null>>();
     const repo = this.dataSource.getRepository(TransporterEntity);
     const base = { tenantId, deletedAt: IsNull() };
-    if (ref.transporterCode) return repo.findOneBy({ ...base, code: ref.transporterCode });
-    if (ref.transporterGstin)
-      return repo.findOneBy({ ...base, gstin: ref.transporterGstin.toUpperCase() });
-    return repo.findOneBy({ ...base, name: ref.transporterName });
+    const select = { id: true, code: true, name: true } as const;
+
+    const lookup = (ref: string): Promise<TransporterRef | null> => {
+      const value = ref.trim();
+      const code = value.split('·')[0].trim().toUpperCase();
+      if (/^[A-Z]{2,5}-\d+$/.test(code)) return repo.findOne({ select, where: { ...base, code } });
+      if (GSTIN_REGEX.test(value.toUpperCase()))
+        return repo.findOne({ select, where: { ...base, gstin: value.toUpperCase() } });
+      return repo
+        .createQueryBuilder('transporter')
+        .select(['transporter.id', 'transporter.code', 'transporter.name'])
+        .where('transporter.tenant_id = :tenantId', { tenantId })
+        .andWhere('transporter.deleted_at IS NULL')
+        .andWhere('LOWER(TRIM(transporter.name)) = LOWER(:name)', { name: value })
+        .getOne();
+    };
+
+    return (row: ContractImportRow) => {
+      const ref =
+        row.transporter ?? row.transporterCode ?? row.transporterGstin ?? row.transporterName!;
+      let found = cache.get(ref);
+      if (!found) {
+        found = lookup(ref);
+        cache.set(ref, found);
+      }
+      return found;
+    };
   }
 
-  private async parse(buffer: Buffer) {
+  private async parse(source: ImportSource): Promise<ParsedImportSheet<ContractImportRow>> {
     try {
-      const records = await parseSpreadsheetRows(buffer);
-      if (!records.length)
-        throw new Error('Excel file must contain a header and at least one data row');
-      if (records.length > CONTRACT_IMPORT_MAX_ROWS)
-        throw new Error(`Excel file cannot contain more than ${CONTRACT_IMPORT_MAX_ROWS} rows`);
-      const mapping: Record<string, string> = {};
-      for (const header of Object.keys(records[0])) {
-        const key = normalize(header);
-        if (IGNORED_HEADERS.has(key)) continue;
-        const field = FIELD_BY_HEADER[key];
-        if (!field) throw new Error(`Unexpected column "${header}"`);
-        if (Object.values(mapping).includes(field))
-          throw new Error(`Multiple columns map to "${field}"`);
-        mapping[header] = field;
-      }
-      const rows = records.map((record, index) => {
-        const input: Record<string, unknown> = {};
-        for (const [header, field] of Object.entries(mapping)) {
-          const raw = record[header]?.trim();
-          if (raw) input[field] = coerce(field, raw);
-        }
-        return { row: index + 2, input };
-      });
-      return { rows, mapping };
+      return await parseContractSheet(source.buffer, source.fileType);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid file');
     }
   }
 }
