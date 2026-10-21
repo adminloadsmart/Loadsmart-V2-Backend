@@ -83,9 +83,8 @@ export function createVehicleDocumentAlerts(
   ): Promise<number> => {
     const [row] = await dataSource.query(
       `SELECT count(*)::int AS n FROM loads.loads l
-         JOIN loads.requisitions r ON r.id = l.requisition_id
         WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'assigned')
-          AND r.pickup_date ${strictlyAfter ? '>' : '>='} $3::date`,
+          AND l.pickup_date ${strictlyAfter ? '>' : '>='} $3::date`,
       [tenantId, vehicleId, fromDate],
     );
     return row?.n ?? 0;
@@ -121,10 +120,10 @@ export function createVehicleDocumentAlerts(
   const driverTrips = async (tenantId: string, driverId: string, today: string) => {
     const [row] = await dataSource.query(
       `SELECT count(*)::int AS n,
-              count(*) FILTER (WHERE r.pickup_date = $3::date)::int AS today
-         FROM loads.loads l JOIN loads.requisitions r ON r.id = l.requisition_id
+              count(*) FILTER (WHERE l.pickup_date = $3::date)::int AS today
+         FROM loads.loads l
         WHERE l.tenant_id = $1 AND l.driver_id = $2 AND l.status IN ('created', 'assigned')
-          AND r.pickup_date >= $3::date`,
+          AND l.pickup_date >= $3::date`,
       [tenantId, driverId, today],
     );
     return { upcoming: (row?.n as number) ?? 0, pickupToday: ((row?.today as number) ?? 0) > 0 };

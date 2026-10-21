@@ -69,9 +69,8 @@ export function createServiceAlerts(dataSource: DataSource, triggers: Notificati
   const plannedTrips = async (tenantId: string, vehicleId: string, from: string, days: number) => {
     const [row] = await dataSource.query(
       `SELECT count(*)::int AS n FROM loads.loads l
-         JOIN loads.requisitions r ON r.id = l.requisition_id
         WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'assigned')
-          AND r.pickup_date BETWEEN $3::date AND $3::date + $4::int`,
+          AND l.pickup_date BETWEEN $3::date AND $3::date + $4::int`,
       [tenantId, vehicleId, from, days],
     );
     return (row?.n as number) ?? 0;

@@ -43,6 +43,12 @@ export interface CreateLoadData {
   code?: string;
   requisitionId?: string | null;
   postingId?: string | null;
+  customerId?: string | null;
+  loadingPointId?: string | null;
+  customerDeliveryPointId?: string | null;
+  dropLoadingPointId?: string | null;
+  pickupDate?: string | null;
+  expectedDeliveryDate?: string | null;
   title?: string | null;
   sourceType: LoadSourceType;
   status?: LoadStatus; // own-fleet lands 'assigned' directly (R-35); market defaults to 'created'
@@ -73,6 +79,10 @@ export type UpdateLoadData = Partial<
     | 'tenantId'
     | 'requisitionId'
     | 'requisition'
+    | 'customer'
+    | 'loadingPoint'
+    | 'customerDeliveryPoint'
+    | 'dropLoadingPoint'
     | 'truckType'
     | 'vehicle'
     | 'coversVehicle'
@@ -124,7 +134,11 @@ export class LoadRepository {
         driver: true,
         transporter: true,
         truckType: true,
-        requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+        requisition: true,
+        customer: true,
+        loadingPoint: true,
+        customerDeliveryPoint: true,
+        dropLoadingPoint: true,
       },
     });
   }
@@ -226,13 +240,11 @@ export class LoadRepository {
     if (group) {
       base.status = In(LOAD_STATUS_GROUP_FILTERS[group]);
     }
-    // Upcoming means the pickup is still ahead — a created/assigned load whose requisition
+    // Upcoming means the pickup is still ahead — a created/assigned load whose
     // pickupDate has already passed isn't "upcoming" anymore. Today counts as upcoming. The date
     // is the server's UTC day, matching how fromDate/toDate are read below.
-    const requisitionWhere: FindOptionsWhere<LoadEntity['requisition']> = {};
     if (group === 'upcoming') {
-      requisitionWhere.pickupDate = MoreThanOrEqual(new Date().toISOString().slice(0, 10));
-      base.requisition = requisitionWhere;
+      base.pickupDate = MoreThanOrEqual(new Date().toISOString().slice(0, 10));
     }
     if (sourceType) base.sourceType = sourceType;
     if (transporterId) base.transporterId = transporterId;
@@ -251,17 +263,14 @@ export class LoadRepository {
             : LessThanOrEqual(to);
     }
 
-    // Matches the load's own LOAD-nnnn code, its title or its requisition's customer name — a dispatcher
+    // Matches the load's own LOAD-nnnn code, its title or its customer's name — a dispatcher
     // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS
     // for the same convention on the requisition side).
     const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
       ? [
           { ...base, code: ILike(`%${search}%`) },
           { ...base, title: ILike(`%${search}%`) },
-          {
-            ...base,
-            requisition: { ...requisitionWhere, customer: { name: ILike(`%${search}%`) } },
-          },
+          { ...base, customer: { name: ILike(`%${search}%`) } },
         ]
       : base;
 
@@ -277,7 +286,11 @@ export class LoadRepository {
         truckType: true,
         driver: true,
         transporter: true,
-        requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+        requisition: true,
+        customer: true,
+        loadingPoint: true,
+        customerDeliveryPoint: true,
+        dropLoadingPoint: true,
         cargoItems: { product: true },
       },
       order: { createdAt: 'DESC' },
@@ -307,14 +320,14 @@ export class LoadRepository {
       ? [
           { ...base, code: ILike(`%${filters.search}%`) },
           { ...base, title: ILike(`%${filters.search}%`) },
-          { ...base, requisition: { customer: { name: ILike(`%${filters.search}%`) } } },
+          { ...base, customer: { name: ILike(`%${filters.search}%`) } },
         ]
       : base;
 
     const findOptions: FindManyOptions<LoadEntity> = { where };
     // Only needed to join in the customer for the search filter above — every other filter
     // here targets a plain column on `load` itself.
-    if (filters.search) findOptions.relations = { requisition: { customer: true } };
+    if (filters.search) findOptions.relations = { customer: true };
 
     const rows = await this.loads
       .createQueryBuilder('load')

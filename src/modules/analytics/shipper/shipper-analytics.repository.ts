@@ -45,15 +45,14 @@ export class ShipperAnalyticsRepository {
           100.0 * SUM(
             CASE
               WHEN load.delivered_at IS NOT NULL
-                AND load.delivered_at::date <= requisition.expected_delivery_date
+                AND load.delivered_at::date <= load.expected_delivery_date
               THEN 1 ELSE 0
             END
-          ) / NULLIF(COUNT(load.delivered_at), 0),
+          ) / NULLIF(COUNT(CASE WHEN load.expected_delivery_date IS NOT NULL THEN load.delivered_at END), 0),
           NULL
         )`,
         'onTimePercentage',
       )
-      .innerJoin('load.requisition', 'requisition')
       .where('load.tenant_id = :tenantId', { tenantId })
       .andWhere(MOVED_LOADS);
     const row = await applyDateRange(query, range).getRawOne<{
@@ -128,15 +127,14 @@ export class ShipperAnalyticsRepository {
         `100.0 * SUM(
           CASE
             WHEN load.delivered_at IS NOT NULL
-              AND load.delivered_at::date <= requisition.expected_delivery_date
+              AND load.delivered_at::date <= load.expected_delivery_date
             THEN 1 ELSE 0
           END
-        ) / NULLIF(COUNT(load.delivered_at), 0)`,
+        ) / NULLIF(COUNT(CASE WHEN load.expected_delivery_date IS NOT NULL THEN load.delivered_at END), 0)`,
         'onTimePercentage',
       )
-      .innerJoin('load.requisition', 'requisition')
-      .innerJoin('requisition.loadingPoint', 'loading_point')
-      .innerJoin('requisition.customerDeliveryPoint', 'delivery_point')
+      .innerJoin('load.loadingPoint', 'loading_point')
+      .innerJoin('load.customerDeliveryPoint', 'delivery_point')
       .where('load.tenant_id = :tenantId', { tenantId })
       .andWhere(MOVED_LOADS)
       .groupBy('loading_point.city')

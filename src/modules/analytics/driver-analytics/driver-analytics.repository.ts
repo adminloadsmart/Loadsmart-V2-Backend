@@ -40,8 +40,8 @@ function toCreatedAtWhere(
 function isOnTime(load: LoadEntity): boolean {
   if (!load.deliveredAt) return false;
   const deliveredDate = load.deliveredAt.toISOString().slice(0, 10);
-  // Loads posted without a requisition carry no committed date, so they never count as late.
-  return load.requisition ? deliveredDate <= load.requisition.expectedDeliveryDate : true;
+  // Loads posted without a delivery-by time carry no committed date, so they never count as late.
+  return load.expectedDeliveryDate ? deliveredDate <= load.expectedDeliveryDate : true;
 }
 
 function toTripStats(loads: LoadEntity[]): DriverAnalyticsTripStats {
@@ -104,7 +104,7 @@ export class DriverAnalyticsRepository {
   }
 
   /** Trip count/on-time/late for the driver, plus a monthly on-time trend bucketed by
-   *  deliveredAt. One fetch (loads + their requisition's expectedDeliveryDate), both derived
+   *  deliveredAt. One fetch (loads, with their expectedDeliveryDate), both derived
    *  from it in application code. */
   async getTripStatsAndTrend(
     tenantId: string,
@@ -113,7 +113,6 @@ export class DriverAnalyticsRepository {
   ): Promise<{ stats: DriverAnalyticsTripStats; trend: DriverAnalyticsTrendPoint[] }> {
     const loads = await this.loads.find({
       where: { tenantId, driverId, ...toCreatedAtWhere(range) },
-      relations: { requisition: true },
     });
 
     const stats = toTripStats(loads);
@@ -148,7 +147,6 @@ export class DriverAnalyticsRepository {
     if (!driverIds.length) return new Map();
     const loads = await this.loads.find({
       where: { tenantId, driverId: In(driverIds) },
-      relations: { requisition: true },
     });
     const byDriver = new Map<string, LoadEntity[]>();
     for (const load of loads) {

@@ -265,7 +265,7 @@ export function isDelivered(load: LoadEntity): boolean {
 
 /** Due time: the promised delivery. Only a date is recorded, so the end of that IST day. */
 export function dueAt(load: LoadEntity): Date | null {
-  const date = load.requisition?.expectedDeliveryDate;
+  const date = load.expectedDeliveryDate;
   return date ? endOfIstDate(date) : null;
 }
 
@@ -319,7 +319,17 @@ export function laneOfRequisition(requisition: RequisitionEntity | null | undefi
 }
 
 export function laneOf(load: LoadEntity): Lane | null {
-  return laneOfRequisition(load.requisition);
+  if (!load.loadingPointId) return null;
+  const delivery = load.customerDeliveryPoint ?? load.dropLoadingPoint;
+  const to =
+    load.customerDeliveryPoint?.city ??
+    load.customerDeliveryPoint?.location ??
+    load.dropLoadingPoint?.city ??
+    'Unknown';
+  return {
+    key: `${load.loadingPointId}:${load.customerDeliveryPointId ?? load.dropLoadingPointId}`,
+    label: `${load.loadingPoint?.city ?? 'Unknown'} → ${delivery ? to : 'Unknown'}`,
+  };
 }
 
 // ─── Documents (§18) ─────────────────────────────────────────────────────────

@@ -243,6 +243,14 @@ export class LoadPostingService {
           tenantId,
           code,
           postingId: posting.id,
+          customerId: customer?.id ?? null,
+          loadingPointId: pickupMasterId,
+          customerDeliveryPointId: drop2.customerDeliveryPointId,
+          dropLoadingPointId: drop2.loadingPointId,
+          pickupDate: pickupAt.toISOString().slice(0, 10),
+          expectedDeliveryDate: input.deliverByAt
+            ? new Date(input.deliverByAt).toISOString().slice(0, 10)
+            : null,
           title: input.title || null,
           sourceType:
             input.mode === 'market_fleet'
