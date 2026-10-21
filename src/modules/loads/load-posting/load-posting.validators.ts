@@ -80,11 +80,14 @@ const price = z
   })
   .strict();
 
+/** 0 (or null) means "No advance"; otherwise a whole number 1–100. */
 const advancePercentage = z
   .number()
   .int('Enter a percentage from 1 to 100')
-  .min(1, 'Enter a percentage from 1 to 100')
-  .max(100, 'Enter a percentage from 1 to 100');
+  .min(0, 'Enter a percentage from 1 to 100')
+  .max(100, 'Enter a percentage from 1 to 100')
+  .nullable()
+  .transform((v) => v ?? 0);
 
 /** Field-level shape only — cross-record rules (pickup lead time, contracts, vehicle state,
  *  body-type match) live in LoadPostingService since they need the database or the clock. */

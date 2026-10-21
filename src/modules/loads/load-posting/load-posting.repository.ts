@@ -1,5 +1,6 @@
 import { DataSource, EntityManager, ILike, In, IsNull, Not, Repository } from 'typeorm';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import { DriverSessionEntity } from '../../driver/entities/driver-session.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { LoadEntity } from '../entities/load.entity';
 import { RequisitionEntity } from '../entities/requisition.entity';
@@ -22,7 +23,16 @@ const contains = (value: string) => ILike(`%${escapeLike(value)}%`);
 /** Case-insensitive equality — ILIKE without wildcards. */
 const equalsIgnoreCase = (value: string) => ILike(escapeLike(value));
 
-export type CreatePostingData = Omit<LoadPostingEntity, 'id' | 'createdAt' | 'updatedAt'>;
+export type CreatePostingData = Omit<
+  LoadPostingEntity,
+  | 'id'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'customer'
+  | 'pickupLoadingPoint'
+  | 'dropCustomerDeliveryPoint'
+  | 'dropLoadingPoint'
+>;
 
 export interface CreateRecipientData {
   tenantId: string;
@@ -45,6 +55,7 @@ export class LoadPostingRepository {
   private readonly loads: Repository<LoadEntity>;
   private readonly maintenanceJobs: Repository<MaintenanceJobEntity>;
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
+  private readonly driverSessions: Repository<DriverSessionEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
   private readonly contracts: Repository<CustomerContractEntity>;
   private readonly customers: Repository<CustomerEntity>;
@@ -62,6 +73,7 @@ export class LoadPostingRepository {
     this.loads = dataSource.getRepository(LoadEntity);
     this.maintenanceJobs = dataSource.getRepository(MaintenanceJobEntity);
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
+    this.driverSessions = dataSource.getRepository(DriverSessionEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
     this.contracts = dataSource.getRepository(CustomerContractEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
@@ -186,6 +198,19 @@ export class LoadPostingRepository {
       },
     });
     return new Set(rows.map((row) => row.driverId as string));
+  }
+
+  /** Which of these drivers have the driver app — any session row at all (revoked or expired
+   *  included) means they logged in at least once, same rule as My Drivers' "app installed" icon.
+   *  Sessions are per global driver, so this is not tenant-scoped. */
+  async listDriverIdsWithApp(driverIds: string[]): Promise<Set<string>> {
+    if (!driverIds.length) return new Set();
+    const rows = await this.driverSessions
+      .createQueryBuilder('driver_session')
+      .select('DISTINCT driver_session.driver_id', 'driverId')
+      .where('driver_session.driver_id IN (:...driverIds)', { driverIds })
+      .getRawMany<{ driverId: string }>();
+    return new Set(rows.map((row) => row.driverId));
   }
 
   // --- Recipients ---

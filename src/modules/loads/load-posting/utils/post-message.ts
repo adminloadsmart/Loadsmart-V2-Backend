@@ -50,7 +50,7 @@ export function buildPostMessage(input: PostMessageInput): string {
   const cargo = [input.commodityName, input.packaging];
   if (input.weightTonnes) cargo.push(`${Number(input.weightTonnes)} T`);
   lines.push(`Cargo: ${cargo.join(', ')}`);
-  if (input.advancePercentage)
+  if (input.advancePercentage && Number(input.advancePercentage) > 0)
     lines.push(`Advance: ${Number(input.advancePercentage)}% before loading`);
   if (input.note) lines.push(`Note: ${input.note}`);
   lines.push(

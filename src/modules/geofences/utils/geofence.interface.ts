@@ -1,3 +1,4 @@
+import type { GeofenceEntity } from '../entities/geofence.entity';
 import {
   GeofenceAlertChannel,
   GeofenceEventType,
@@ -82,3 +83,42 @@ export interface GeofenceAlertEvent {
   at: Date;
 }
 export type GeofenceEventNotifier = (event: GeofenceAlertEvent) => Promise<void>;
+
+/** A geofence as the API returns it (GeofenceService). */
+export interface GeofenceView {
+  id: string;
+  name: string;
+  type: GeofenceType;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  shape: GeofenceShape;
+  radiusM: number | null;
+  polygon: GeoPoint[] | null;
+  alerts: {
+    onEnter: boolean;
+    onExit: boolean;
+    dwellMinutes: number | null;
+    engineOnMinutes: number | null;
+  };
+  appliesTo: { allVehicles: boolean; vehicleIds: string[] };
+  recipients: { userId: string; channels: GeofenceAlertChannel[] }[];
+  loadingPointId: string | null;
+  customerDeliveryPointId: string | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Repository write shapes (GeofenceRepository). */
+export type CreateGeofenceData = Omit<
+  GeofenceEntity,
+  'id' | 'vehicles' | 'recipients' | 'createdAt' | 'updatedAt' | 'deletedAt'
+>;
+export type UpdateGeofenceData = Partial<Omit<CreateGeofenceData, 'tenantId' | 'createdBy'>>;
+
+export interface ReplaceChildren {
+  /** Undefined leaves the existing rows untouched; an array (even empty) replaces them. */
+  vehicleIds?: string[];
+  recipients?: { userId: string; channels: GeofenceAlertChannel[] }[];
+}

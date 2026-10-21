@@ -12,7 +12,7 @@ export class GeofenceRecipientEntity {
   @Column({ name: 'geofence_id', type: 'uuid' })
   geofenceId!: string;
 
-  @ManyToOne(() => GeofenceEntity, (g) => g.recipients, { onDelete: 'CASCADE' })
+  @ManyToOne(() => GeofenceEntity, (geofence) => geofence.recipients, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'geofence_id' })
   geofence!: GeofenceEntity;
 

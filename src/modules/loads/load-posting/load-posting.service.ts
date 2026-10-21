@@ -627,11 +627,14 @@ export class LoadPostingService {
       throw new ValidationError('This truck has no driver linked. Choose an idle driver.');
     }
     const [relation] = await this.repository.listDriverRelationsByDriverIds(tenantId, [driverId]);
-    const busy = await this.repository.listDriverIdsOnActiveLoads(tenantId, [driverId]);
-    const reason = driverUnavailableReason(relation, busy.has(driverId));
+    const [busy, withApp] = await Promise.all([
+      this.repository.listDriverIdsOnActiveLoads(tenantId, [driverId]),
+      this.repository.listDriverIdsWithApp([driverId]),
+    ]);
+    const reason = driverUnavailableReason(relation, busy.has(driverId), withApp.has(driverId));
     if (reason) {
       throw new ConflictError(
-        `${relation?.driver?.fullName ?? 'This driver'} is not available (${reason.replace('_', ' ')}). Choose an idle driver.`,
+        `${relation?.driver?.fullName ?? 'This driver'} is not available (${reason.replaceAll('_', ' ')}). Choose an idle driver.`,
         { driverId, reason },
       );
     }

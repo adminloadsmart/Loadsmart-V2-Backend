@@ -454,8 +454,8 @@ export function buildContainer(dataSource: DataSource): Container {
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
   });
 
-  // Geofences — CRUD here; the inside/outside check runs in the tracking service, whose
-  // tracking.events drive load status and the geofence alerts (tracking-events.consumer.ts).
+  // Geofences — CRUD here; the inside/outside check runs in the tracking service, which reports
+  // enter/exit on its tracking.events stream.
   const geofences = createGeofencesModule(dataSource, {
     auditService: audit.service,
     authService: auth.service,

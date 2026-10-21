@@ -14,6 +14,8 @@ import {
 } from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
+import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
+import { RequisitionEntity } from './entities/requisition.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
   COMPLETED_LOAD_STATUSES,
@@ -34,6 +36,14 @@ const ACTIVE_VEHICLE_STATUSES: LoadStatus[] = [
   'in_transit',
   'reached_delivery_point',
 ];
+
+/** Customer and route of a load posted without a requisition live on its posting. */
+const ORIGIN_POSTING_RELATIONS = {
+  customer: true,
+  pickupLoadingPoint: true,
+  dropCustomerDeliveryPoint: true,
+  dropLoadingPoint: true,
+} as const;
 
 export interface CreateLoadData {
   tenantId: string;
@@ -72,6 +82,7 @@ export type UpdateLoadData = Partial<
     | 'tenantId'
     | 'requisitionId'
     | 'requisition'
+    | 'posting'
     | 'truckType'
     | 'vehicle'
     | 'coversVehicle'
@@ -124,6 +135,7 @@ export class LoadRepository {
         transporter: true,
         truckType: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+        posting: ORIGIN_POSTING_RELATIONS,
       },
     });
   }
@@ -228,41 +240,40 @@ export class LoadRepository {
     // Upcoming means the pickup is still ahead — a created/assigned load whose requisition
     // pickupDate has already passed isn't "upcoming" anymore. Today counts as upcoming. The date
     // is the server's UTC day, matching how fromDate/toDate are read below.
-    const requisitionWhere: FindOptionsWhere<LoadEntity['requisition']> = {};
-    if (group === 'upcoming') {
-      requisitionWhere.pickupDate = MoreThanOrEqual(new Date().toISOString().slice(0, 10));
-      base.requisition = requisitionWhere;
-    }
-    if (sourceType) base.sourceType = sourceType;
-    if (transporterId) base.transporterId = transporterId;
-    if (vehicleId) base.vehicleId = vehicleId;
-    if (driverId) base.driverId = driverId;
-    if (podStatus) base.podStatus = podStatus;
-    const dateColumn = group === 'completed' ? 'deliveredAt' : 'createdAt';
-    if (fromDate || toDate) {
-      const from = new Date(`${fromDate ?? toDate}T00:00:00.000Z`);
-      const to = new Date(`${toDate ?? fromDate}T23:59:59.999Z`);
-      base[dateColumn] =
-        fromDate && toDate
-          ? Between(from, to)
-          : fromDate
-            ? MoreThanOrEqual(from)
-            : LessThanOrEqual(to);
-    }
-
     // Matches the load's own LOAD-nnnn code, its title or its requisition's customer name — a dispatcher
     // searches by whichever one they have in hand (see requisition.repository.ts's SEARCH_FIELDS
     // for the same convention on the requisition side).
-    const where: FindOptionsWhere<LoadEntity> | FindOptionsWhere<LoadEntity>[] = search
-      ? [
-          { ...base, code: ILike(`%${search}%`) },
-          { ...base, title: ILike(`%${search}%`) },
-          {
-            ...base,
-            requisition: { ...requisitionWhere, customer: { name: ILike(`%${search}%`) } },
-          },
-        ]
-      : base;
+    // Upcoming means the pickup is still ahead — requisition loads carry a pickup date, posted
+    // loads a pickup timestamp on their posting, so a load matches if either source is ahead.
+    // Today counts as upcoming. The date is the server's UTC day, matching fromDate/toDate above.
+    const today = new Date().toISOString().slice(0, 10);
+    const requisitionWhere: FindOptionsWhere<RequisitionEntity> =
+      group === 'upcoming' ? { pickupDate: MoreThanOrEqual(today) } : {};
+    const postingWhere: FindOptionsWhere<LoadPostingEntity> =
+      group === 'upcoming' ? { pickupAt: MoreThanOrEqual(new Date(`${today}T00:00:00.000Z`)) } : {};
+    const sources: FindOptionsWhere<LoadEntity>[] =
+      group === 'upcoming' ? [{ requisition: requisitionWhere }, { posting: postingWhere }] : [{}];
+    const like = search ? ILike(`%${search}%`) : null;
+    const where: FindOptionsWhere<LoadEntity>[] = sources.flatMap((source) => {
+      const scoped = { ...base, ...source };
+      if (!like) return [scoped];
+      return [
+        { ...scoped, code: like },
+        { ...scoped, title: like },
+        ...(group === 'upcoming' && !source.posting
+          ? [{ ...base, requisition: { ...requisitionWhere, customer: { name: like } } }]
+          : []),
+        ...(group === 'upcoming' && !source.requisition
+          ? [{ ...base, posting: { ...postingWhere, customer: { name: like } } }]
+          : []),
+        ...(group !== 'upcoming'
+          ? [
+              { ...base, requisition: { customer: { name: like } } },
+              { ...base, posting: { customer: { name: like } } },
+            ]
+          : []),
+      ];
+    });
 
     return this.loads.findAndCount({
       where,
@@ -277,6 +288,7 @@ export class LoadRepository {
         driver: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+        posting: ORIGIN_POSTING_RELATIONS,
         cargoItems: { product: true },
       },
       order: { createdAt: 'DESC' },
@@ -307,13 +319,15 @@ export class LoadRepository {
           { ...base, code: ILike(`%${filters.search}%`) },
           { ...base, title: ILike(`%${filters.search}%`) },
           { ...base, requisition: { customer: { name: ILike(`%${filters.search}%`) } } },
+          { ...base, posting: { customer: { name: ILike(`%${filters.search}%`) } } },
         ]
       : base;
 
     const findOptions: FindManyOptions<LoadEntity> = { where };
     // Only needed to join in the customer for the search filter above — every other filter
     // here targets a plain column on `load` itself.
-    if (filters.search) findOptions.relations = { requisition: { customer: true } };
+    if (filters.search)
+      findOptions.relations = { requisition: { customer: true }, posting: { customer: true } };
 
     const rows = await this.loads
       .createQueryBuilder('load')
