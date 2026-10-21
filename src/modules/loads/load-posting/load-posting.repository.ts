@@ -23,7 +23,16 @@ const contains = (value: string) => ILike(`%${escapeLike(value)}%`);
 /** Case-insensitive equality — ILIKE without wildcards. */
 const equalsIgnoreCase = (value: string) => ILike(escapeLike(value));
 
-export type CreatePostingData = Omit<LoadPostingEntity, 'id' | 'createdAt' | 'updatedAt'>;
+export type CreatePostingData = Omit<
+  LoadPostingEntity,
+  | 'id'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'customer'
+  | 'pickupLoadingPoint'
+  | 'dropCustomerDeliveryPoint'
+  | 'dropLoadingPoint'
+>;
 
 export interface CreateRecipientData {
   tenantId: string;

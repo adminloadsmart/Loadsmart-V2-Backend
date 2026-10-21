@@ -3,9 +3,14 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { CustomerEntity } from '../../../customers/entities/customer.entity';
+import { CustomerDeliveryPointEntity } from '../../../customers/entities/customer-delivery-point.entity';
+import { LoadingPointEntity } from '../../../masters/loading-point/entities/loading-point.entity';
 import {
   BALANCE_PAID_BY,
   BalancePaidBy,
@@ -46,8 +51,18 @@ export class LoadPostingEntity {
   @Column({ name: 'customer_id', type: 'uuid', nullable: true })
   customerId!: string | null;
 
+  // Read-only relations so loads posted without a requisition can show customer and route — the
+  // columns above/below already exist, so no FK is (re)created from here.
+  @ManyToOne(() => CustomerEntity, { nullable: true, createForeignKeyConstraints: false })
+  @JoinColumn({ name: 'customer_id' })
+  customer!: CustomerEntity | null;
+
   @Column({ name: 'pickup_loading_point_id', type: 'uuid', nullable: true })
   pickupLoadingPointId!: string | null;
+
+  @ManyToOne(() => LoadingPointEntity, { nullable: true, createForeignKeyConstraints: false })
+  @JoinColumn({ name: 'pickup_loading_point_id' })
+  pickupLoadingPoint!: LoadingPointEntity | null;
 
   @Column({ name: 'pickup_address', type: 'jsonb' })
   pickupAddress!: PostAddress;
@@ -56,9 +71,20 @@ export class LoadPostingEntity {
   @Column({ name: 'drop_customer_delivery_point_id', type: 'uuid', nullable: true })
   dropCustomerDeliveryPointId!: string | null;
 
+  @ManyToOne(() => CustomerDeliveryPointEntity, {
+    nullable: true,
+    createForeignKeyConstraints: false,
+  })
+  @JoinColumn({ name: 'drop_customer_delivery_point_id' })
+  dropCustomerDeliveryPoint!: CustomerDeliveryPointEntity | null;
+
   /** Set when there is no customer and the drop is one of the shipper's own saved locations. */
   @Column({ name: 'drop_loading_point_id', type: 'uuid', nullable: true })
   dropLoadingPointId!: string | null;
+
+  @ManyToOne(() => LoadingPointEntity, { nullable: true, createForeignKeyConstraints: false })
+  @JoinColumn({ name: 'drop_loading_point_id' })
+  dropLoadingPoint!: LoadingPointEntity | null;
 
   @Column({ name: 'drop_address', type: 'jsonb' })
   dropAddress!: PostAddress;

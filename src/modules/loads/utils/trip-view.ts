@@ -4,6 +4,7 @@ import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 import { EwayBillExpiry } from './load.interface';
+import { resolveLoadOrigin } from './load-origin';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
   HALTING_ISSUE_CATEGORIES,
@@ -161,6 +162,7 @@ export interface TripNextAction {
 
 export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripListRow {
   const req = load.requisition;
+  const origin = resolveLoadOrigin(load);
 
   // Own-fleet loads snapshot the vehicle's driver at Dispatch Planning time (see
   // dispatch-planning.service.ts's buildOwnFleetLine), so `load.driver` is null whenever the
@@ -186,16 +188,17 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     status: load.status,
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,
-    pickupDate: req?.pickupDate ?? null,
-    route: req
-      ? {
-          loadingPointTitle: req.loadingPoint.title,
-          loadingPointCity: req.loadingPoint.city,
-          deliveryPointLocation: req.customerDeliveryPoint.location,
-          deliveryPointCity: req.customerDeliveryPoint.city ?? null,
-        }
-      : null,
-    customer: req ? { id: req.customer.id, name: req.customer.name } : null,
+    pickupDate: origin.pickupDate,
+    route:
+      origin.pickup && origin.drop
+        ? {
+            loadingPointTitle: origin.pickup.title,
+            loadingPointCity: origin.pickup.city,
+            deliveryPointLocation: origin.drop.location,
+            deliveryPointCity: origin.drop.city ?? null,
+          }
+        : null,
+    customer: origin.customer,
     vehicleNumber: load.vehicleNumber,
     vehicle: buildVehicleDetails(load),
     driver: driver
@@ -267,8 +270,8 @@ export interface TripDoneDetail {
     addressLine1: string | null;
     addressLine2: string | null;
     city: string;
-    state: string;
-    pinCode: string;
+    state: string | null;
+    pinCode: string | null;
     /** ISO timestamp — loadingConfirmedAt, when the truck was loaded and left the pickup point. */
     at: string | null;
   } | null;
@@ -296,7 +299,7 @@ export interface TripDoneDetail {
 }
 
 export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
-  const req = load.requisition;
+  const { pickup, drop } = resolveLoadOrigin(load);
   const cargoItems = (load.cargoItems ?? []).map((item) => ({
     productId: item.productId,
     productDetails: item.product.productDetails,
@@ -314,25 +317,25 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
     cargoItems,
     plannedCapacityTonnes: load.plannedCapacityTonnes,
     podQuantityReceived: load.podQuantityReceived,
-    pickup: req
+    pickup: pickup
       ? {
-          title: req.loadingPoint.title,
-          addressLine1: req.loadingPoint.addressLine1,
-          addressLine2: req.loadingPoint.addressLine2,
-          city: req.loadingPoint.city,
-          state: req.loadingPoint.state,
-          pinCode: req.loadingPoint.pinCode,
+          title: pickup.title,
+          addressLine1: pickup.addressLine1,
+          addressLine2: pickup.addressLine2,
+          city: pickup.city,
+          state: pickup.state,
+          pinCode: pickup.pinCode,
           at: load.loadingConfirmedAt?.toISOString() ?? null,
         }
       : null,
-    drop: req
+    drop: drop
       ? {
-          location: req.customerDeliveryPoint.location,
-          addressLine1: req.customerDeliveryPoint.addressLine1,
-          addressLine2: req.customerDeliveryPoint.addressLine2,
-          city: req.customerDeliveryPoint.city,
-          state: req.customerDeliveryPoint.state,
-          pinCode: req.customerDeliveryPoint.pinCode,
+          location: drop.location,
+          addressLine1: drop.addressLine1,
+          addressLine2: drop.addressLine2,
+          city: drop.city,
+          state: drop.state,
+          pinCode: drop.pinCode,
           deliveredAt: load.deliveredAt?.toISOString() ?? null,
           sealStatus: load.sealStatus,
           shortageOrDamage: load.shortageOrDamage,
@@ -382,7 +385,7 @@ export function toLoadPapers(
   fileUrls: Record<LoadPaperType, string | null>,
   ewayBillExpiry: EwayBillExpiry,
 ): LoadPapers {
-  const req = load.requisition;
+  const { pickup, drop } = resolveLoadOrigin(load);
   const paper = (
     type: LoadPaperType,
     number: string | null,
@@ -399,15 +402,13 @@ export function toLoadPapers(
     loadCode: load.code,
     status: load.status,
     vehicleNumber: load.vehicleNumber,
-    route: req
-      ? {
-          from: { title: req.loadingPoint.title, city: req.loadingPoint.city },
-          to: {
-            location: req.customerDeliveryPoint.location,
-            city: req.customerDeliveryPoint.city ?? null,
-          },
-        }
-      : null,
+    route:
+      pickup && drop
+        ? {
+            from: { title: pickup.title, city: pickup.city },
+            to: { location: drop.location, city: drop.city ?? null },
+          }
+        : null,
     documents: [
       {
         ...paper('eway_bill', load.ewayBillNumber, load.ewayBillFileKey),

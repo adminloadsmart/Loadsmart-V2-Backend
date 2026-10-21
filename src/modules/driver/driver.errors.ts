@@ -9,8 +9,14 @@ export type DriverErrorCode =
   | 'RESTORE_WINDOW_EXPIRED'
   | 'DRIVER_UNAVAILABLE';
 
-/** Status and user-facing message (shown as-is, Title Case to match the UI) for each code. */
-const DRIVER_ERRORS: Record<DriverErrorCode, { statusCode: 404 | 409; message: string }> = {
+/** How one code is sent: its HTTP status, and the message shown to the user as-is (Title Case to
+ *  match the UI). */
+interface DriverErrorDefinition {
+  statusCode: 404 | 409;
+  message: string;
+}
+
+const DRIVER_ERRORS: Record<DriverErrorCode, DriverErrorDefinition> = {
   // Invite by mobile number — only a number that already belongs to a driver can be invited.
   DRIVER_NOT_FOUND: {
     statusCode: 404,

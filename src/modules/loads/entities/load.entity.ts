@@ -10,6 +10,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { RequisitionEntity } from './requisition.entity';
+import { LoadPostingEntity } from '../load-posting/entities/load-posting.entity';
 import { LoadCargoItemEntity } from './load-cargo-item.entity';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
@@ -77,6 +78,12 @@ export class LoadEntity {
    *  holds the form answers and recipients. No FK: keeps loads independent of the posting table. */
   @Column({ name: 'posting_id', type: 'uuid', nullable: true })
   postingId!: string | null;
+
+  /** Read-only join for loads posted without a requisition — the customer, route and dates live
+   *  on the posting. createForeignKeyConstraints:false keeps the column FK-less, as above. */
+  @ManyToOne(() => LoadPostingEntity, { nullable: true, createForeignKeyConstraints: false })
+  @JoinColumn({ name: 'posting_id' })
+  posting!: LoadPostingEntity | null;
 
   @Column({ name: 'source_type', type: 'enum', enum: [...LOAD_SOURCE_TYPES] })
   sourceType!: LoadSourceType;

@@ -84,6 +84,10 @@ export const AUDIT_ACTIONS = [
   'LOAD_LOADING_CONFIRMED',
   'LOAD_STATUS_UPDATED',
   'LOAD_STATUS_UPDATED_BY_DRIVER',
+  'LOAD_STATUS_UPDATED_BY_GEOFENCE',
+  'GEOFENCE_CREATED',
+  'GEOFENCE_UPDATED',
+  'GEOFENCE_DELETED',
   'LOAD_POD_RECORDED',
   'LOAD_POD_RECORDED_BY_DRIVER',
   'LOAD_POD_ACCEPTED',
@@ -143,5 +147,6 @@ export const AUDIT_RESOURCE_TYPES = [
   'battery_pack',
   'gst_verification',
   'transporter_contract',
+  'geofence',
 ] as const;
 export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];

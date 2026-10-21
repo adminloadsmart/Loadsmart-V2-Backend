@@ -1793,33 +1793,34 @@ export class DriverService {
       const driver = await this.driverRepository.findByPhoneNumber(phoneNumber);
       if (!driver) throw new DriverError('DRIVER_NOT_FOUND');
 
-      const { driverId, relationId } = await this.dataSource.transaction(async (manager) => {
-        const latest = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
-          tenantId,
-          driver.id,
-          manager,
-        );
+      const invitationId = await this.dataSource.transaction(async (manager) => {
+        const latestRelation =
+          await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
+            tenantId,
+            driver.id,
+            manager,
+          );
         const columns = newRelationColumns(actorId, actorRole);
 
-        if (!latest) {
+        if (!latestRelation) {
           const relation = await this.driverTenantRelationRepository.create(
             { tenantId, driverId: driver.id, ...columns, createdBy: actorId },
             manager,
           );
-          return { driverId: driver.id, relationId: relation.id };
+          return relation.id;
         }
 
-        assertCanReinvite(latest);
+        assertCanReinvite(latestRelation);
         const relation = await this.driverTenantRelationRepository.reinvite(
           tenantId,
-          latest.id,
+          latestRelation.id,
           columns,
           actorId,
           assertCanReinvite,
           manager,
         );
         if (!relation) throw new ConflictError('Invitation could not be sent');
-        return { driverId: driver.id, relationId: relation.id };
+        return relation.id;
       });
 
       const awaitingApproval = actorRole !== ORG_ADMIN_ROLE;
@@ -1829,24 +1830,24 @@ export class DriverService {
         action: 'DRIVER_INVITED',
         resourceType: 'driver',
         newData: {
-          id: driverId,
-          invitationId: relationId,
+          id: driver.id,
+          invitationId,
           phoneNumber,
           status: awaitingApproval ? 'pending_staff_review' : 'pending_driver_review',
         },
       });
 
       if (awaitingApproval) {
-        return { driverId, invitationId: relationId, awaitingApproval, invitation: null };
+        return { driverId: driver.id, invitationId, awaitingApproval, invitation: null };
       }
 
-      await this.deliverInvite(tenantId, relationId, driverId);
-      const relation = await this.findInvitationOrThrow(tenantId, relationId);
+      await this.deliverInvite(tenantId, invitationId, driver.id);
+      const sentInvitation = await this.findInvitationOrThrow(tenantId, invitationId);
       return {
-        driverId,
-        invitationId: relationId,
+        driverId: driver.id,
+        invitationId,
         awaitingApproval,
-        invitation: toInvitationView(relation, await this.hasAppInstalled(driverId)),
+        invitation: toInvitationView(sentInvitation, await this.hasAppInstalled(driver.id)),
       };
     } catch (error) {
       rethrow(error, 'Failed to invite driver');

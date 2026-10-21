@@ -25,6 +25,7 @@ import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
 import {
   COMPLETED_LOAD_STATUSES,
   LOAD_STATUSES,
+  LoadStatus,
   MANUAL_TRACKING_STATUSES,
   ManualTrackingStatus,
   PodReviewDecision,
