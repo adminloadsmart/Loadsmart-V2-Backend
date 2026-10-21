@@ -1,3 +1,4 @@
+import { GstVerificationEntity } from '../gst/entities/gst-verification.entity';
 import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { AuditService } from '../../audit/audit.service';
@@ -100,6 +101,35 @@ const TRANSPORTER_EXPORT_COLUMNS: CsvColumn<TransporterView>[] = [
   { header: 'status', value: (t) => t.status },
 ];
 
+/** GST columns for a verified register lookup — shared by the save path (a lookup attached from
+ *  the Verify button) and the bulk-import 'gst-verification' worker. Fills constitution, company
+ *  type and the base address from the register where the record left them blank. */
+export function verifiedTransporterGstColumns(
+  verified: GstVerificationEntity,
+  name: string,
+  current: Pick<
+    Partial<TransporterEntity>,
+    'companyType' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'pinCode'
+  >,
+): TransporterColumns {
+  const address = verified.addressParts;
+  return {
+    gstVerificationStatus: 'verified',
+    gstVerificationId: verified.id,
+    gstVerifiedAt: verified.createdAt,
+    gstRegistryName: verified.legalName,
+    gstNameMatched: gstNameMatches(name, verified),
+    gstVerificationError: null,
+    constitution: verified.constitution,
+    companyType: current.companyType ?? companyTypeFromConstitution(verified.constitution),
+    addressLine1: current.addressLine1 || address?.addressLine1 || null,
+    addressLine2: current.addressLine2 || address?.addressLine2 || null,
+    city: current.city || address?.city || null,
+    state: current.state || address?.state || null,
+    pinCode: current.pinCode || address?.pinCode || null,
+  };
+}
+
 export class TransporterService {
   constructor(
     private readonly repository: TransporterRepository,
@@ -139,24 +169,10 @@ export class TransporterService {
         gstVerifiedAt: null,
         gstRegistryName: null,
         gstNameMatched: null,
+        gstVerificationError: null,
       };
     }
-    const address = verified.addressParts;
-    return {
-      ...base,
-      gstVerificationStatus: 'verified',
-      gstVerificationId: verified.id,
-      gstVerifiedAt: verified.createdAt,
-      gstRegistryName: verified.legalName,
-      gstNameMatched: gstNameMatches(name, verified),
-      constitution: verified.constitution,
-      companyType: current.companyType ?? companyTypeFromConstitution(verified.constitution),
-      addressLine1: current.addressLine1 || address?.addressLine1 || null,
-      addressLine2: current.addressLine2 || address?.addressLine2 || null,
-      city: current.city || address?.city || null,
-      state: current.state || address?.state || null,
-      pinCode: current.pinCode || address?.pinCode || null,
-    };
+    return { ...base, ...verifiedTransporterGstColumns(verified, name, current) };
   }
 
   /** "Penny Drop Verified" — IDfy penny-less/penny-drop check, same as driver bank details. */
@@ -178,7 +194,9 @@ export class TransporterService {
     actorId: string,
     role: string,
     input: CreateTransporterInput,
-    options: { verifyBank?: boolean } = {},
+    // Bulk import: no per-row penny drop, and an unverified GSTIN is saved as 'pending' — the
+    // caller enqueues the 'verify-transporter' job (TransporterGstVerificationService).
+    options: { verifyBank?: boolean; queueGstVerification?: boolean } = {},
   ) {
     try {
       this.assertAdmin(role);
@@ -194,6 +212,8 @@ export class TransporterService {
           ? await this.bankColumns(input.bankAccountNumber, input.bankIfsc)
           : {}),
       };
+      if (options.queueGstVerification && input.gstin && extra.gstVerificationStatus !== 'verified')
+        extra.gstVerificationStatus = 'pending';
       const transporter = await this.repository.transaction(async (manager) => {
         const code = formatTransporterCode(
           await this.codeSequences.next('transporter', tenantId, manager),

@@ -3,7 +3,7 @@ import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
-import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
+import { importUpload, requireImportFile } from '../../../shared/import/upload';
 import { LoadingPointController } from './loading-point.controller';
 import { loadingPointValidators } from './loading-point.validators';
 import { LoadingPointImportController } from './loading-point-import.controller';
@@ -20,9 +20,14 @@ export function createLoadingPointRoutes(
   router.post(
     '/loading-points/import',
     canWrite,
-    mastersExcelUpload.single('file'),
-    requireMastersExcelFile,
+    importUpload,
+    requireImportFile,
     asyncHandler(loadingPointImportController.import),
+  );
+  router.get(
+    '/loading-points/import/sample',
+    canWrite,
+    asyncHandler(loadingPointImportController.sample),
   );
   router.post(
     '/loading-points',

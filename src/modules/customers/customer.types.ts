@@ -1,5 +1,4 @@
-import { CustomerInvoiceAgainst, CustomerStatus } from './utils/customer.status';
-import { GstRecordStatus } from '../masters/gst/gst.types';
+import { CustomerGstStatus, CustomerInvoiceAgainst, CustomerStatus } from './utils/customer.status';
 
 /** An unloading point. With `id` on update it edits that row in place; without one it's new. */
 export interface DeliveryPointInput {
@@ -103,7 +102,7 @@ export interface ListCustomersInput {
   limit: number;
   search?: string;
   status?: CustomerStatus;
-  gstVerificationStatus?: GstRecordStatus;
+  gstVerificationStatus?: CustomerGstStatus;
 }
 
 export interface CustomerParams {

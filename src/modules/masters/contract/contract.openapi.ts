@@ -1,3 +1,4 @@
+import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import { MASTERS_WRITE } from '../../../shared/constants/permissions';
@@ -14,6 +15,13 @@ import { contractValidators } from './contract.validators';
 const BASE = `${API_VERSION_PREFIX}/masters/contracts`;
 
 export function registerContractOpenApi(registry: OpenAPIRegistry): void {
+  registerImportSampleOpenApi(registry, {
+    path: `${BASE}/import/sample`,
+    operationId: 'masters.contractImportSample',
+    permission: MASTERS_WRITE,
+    label: 'contract',
+    filename: 'contract-bulk-upload-template.xlsx',
+  });
   registry.registerPath({
     method: 'post',
     path: BASE,
@@ -73,9 +81,10 @@ export function registerContractOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.importContracts',
     ...permissionGated(
       [MASTERS_WRITE],
-      'Bulk upload contracts (.xlsx, same columns as the export). The transporter is matched by ' +
-        'transporterCode, then transporterGstin, then exact transporterName. Each row is created ' +
-        'through the same lane rules as POST.',
+      'Bulk upload contracts from the template (GET /contracts/import/sample, built per tenant ' +
+        'with a Transporter dropdown). The Transporter cell may be the dropdown value, a code, a ' +
+        'GSTIN or the exact name; each row goes through the same lane rules as POST. ' +
+        'Rows are validated like single create and created one by one; rows that fail are reported in errors and skipped. Unknown columns are ignored (ignoredColumns).',
     ),
     request: {
       body: {

@@ -1,10 +1,11 @@
-import { IdfyClient } from '../../../adapters/idfy.client';
-import { rethrow } from '../../../shared/errors';
+import { IdfyClient, IdfyHttpError } from '../../../adapters/idfy.client';
+import { RateLimitError, rethrow } from '../../../shared/errors';
 import { gstStateName, panFromGstin } from '../../../shared/constants/gst-state-codes';
 import { extractRegistryDetails } from '../../organization/organization-document-registry-details';
 import { AuditService } from '../../audit/audit.service';
 import { GstVerificationEntity } from './entities/gst-verification.entity';
 import { GstVerificationRepository } from './gst.repository';
+import { GstRateGate } from './gst-rate-gate';
 import { GST_VERIFICATION_TTL_MS, GstVerificationResult, VerifyGstInput } from './gst.types';
 
 const GST_TASK_TYPE = 'ind_gst_certificate';
@@ -44,6 +45,43 @@ export function gstNameMatches(
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value.trim() : null;
 
+type LookupFields = Pick<
+  GstVerificationEntity,
+  | 'requestId'
+  | 'status'
+  | 'legalName'
+  | 'tradeName'
+  | 'constitution'
+  | 'taxpayerType'
+  | 'gstinStatus'
+  | 'registeredSince'
+  | 'registeredAddress'
+  | 'addressParts'
+  | 'rawResponse'
+>;
+
+/** One lookup's row fields plus why it has no verdict. `transient` (network, IDfy 429/5xx, a
+ *  failed or slow task) is worth retrying; a register answer (not found / inactive) or a missing
+ *  IDfy configuration is not. */
+interface LookupOutcome {
+  fields: LookupFields;
+  transient: boolean;
+  error: string | null;
+}
+
+/** What the background worker gets back from verifyInBackground. */
+export interface BackgroundGstLookup {
+  row: GstVerificationEntity;
+  transient: boolean;
+  error: string | null;
+}
+
+function isTransientError(error: unknown): boolean {
+  // Anything that isn't an HTTP answer (fetch TypeError, DNS, reset) is a network problem.
+  if (!(error instanceof IdfyHttpError)) return true;
+  return error.status === 429 || error.status >= 500;
+}
+
 export interface GstVerificationResponse {
   verificationId: string;
   status: GstVerificationResult;
@@ -74,7 +112,14 @@ export class GstVerificationService {
     private readonly repository: GstVerificationRepository,
     private readonly idfyClient: IdfyClient,
     private readonly audit: AuditService,
+    // Shared one-lookup-per-window slot with the bulk-import worker. Optional so tests and
+    // scripts can build the service without Redis.
+    private readonly rateGate?: GstRateGate,
   ) {}
+
+  isConfigured(): boolean {
+    return this.idfyClient.isConfigured();
+  }
 
   async verify(
     tenantId: string,
@@ -83,13 +128,23 @@ export class GstVerificationService {
   ): Promise<GstVerificationResponse> {
     try {
       const { gstin } = input;
-      const lookup = await this.lookup(gstin);
+      if (this.rateGate && this.idfyClient.isConfigured()) {
+        const slot = await this.rateGate.tryAcquire();
+        if (!slot.ok) {
+          const retryAfterSeconds = Math.ceil(slot.retryInMs / 1000);
+          throw new RateLimitError(
+            `GST verification is busy — try again in ${retryAfterSeconds}s`,
+            { retryAfterSeconds },
+          );
+        }
+      }
+      const { fields } = await this.lookup(gstin);
       const row = await this.repository.create({
         tenantId,
         gstin,
         stateCode: gstin.slice(0, 2),
         createdBy: actorId,
-        ...lookup,
+        ...fields,
       });
       await this.audit.log({
         tenantId,
@@ -102,6 +157,26 @@ export class GstVerificationService {
     } catch (error) {
       rethrow(error, 'Failed to verify GSTIN');
     }
+  }
+
+  /**
+   * The 'gst-verification' worker's lookup — the caller already holds a GstRateGate slot. Records
+   * the lookup like verify() does, so the row is also reusable from the drawer for 24h.
+   */
+  async verifyInBackground(
+    tenantId: string,
+    actorId: string | null,
+    gstin: string,
+  ): Promise<BackgroundGstLookup> {
+    const { fields, transient, error } = await this.lookup(gstin);
+    const row = await this.repository.create({
+      tenantId,
+      gstin,
+      stateCode: gstin.slice(0, 2),
+      createdBy: actorId,
+      ...fields,
+    });
+    return { row, transient, error };
   }
 
   /**
@@ -121,24 +196,7 @@ export class GstVerificationService {
     return row;
   }
 
-  private async lookup(
-    gstin: string,
-  ): Promise<
-    Pick<
-      GstVerificationEntity,
-      | 'requestId'
-      | 'status'
-      | 'legalName'
-      | 'tradeName'
-      | 'constitution'
-      | 'taxpayerType'
-      | 'gstinStatus'
-      | 'registeredSince'
-      | 'registeredAddress'
-      | 'addressParts'
-      | 'rawResponse'
-    >
-  > {
+  private async lookup(gstin: string): Promise<LookupOutcome> {
     const empty = {
       legalName: null,
       tradeName: null,
@@ -150,8 +208,17 @@ export class GstVerificationService {
       addressParts: null,
       rawResponse: null,
     };
+    const unavailable = (
+      requestId: string | null,
+      transient: boolean,
+      error: string,
+    ): LookupOutcome => ({
+      fields: { ...empty, requestId, status: 'unavailable' },
+      transient,
+      error,
+    });
     if (!this.idfyClient.isConfigured()) {
-      return { ...empty, requestId: null, status: 'unavailable' };
+      return unavailable(null, false, 'GST verification is not configured');
     }
 
     let requestId: string | null = null;
@@ -162,30 +229,44 @@ export class GstVerificationService {
         if (task && !IN_PROGRESS_STATUSES.has(task.status)) {
           const output = task.result?.source_output;
           if (task.status !== 'completed' || !output) {
-            return { ...empty, requestId, status: 'unavailable' };
+            return unavailable(requestId, true, `GST lookup task ${task.status}`);
           }
           const details = extractRegistryDetails('gst_certificate', output);
-          if (!details) return { ...empty, requestId, status: 'not_found', rawResponse: output };
+          if (!details) {
+            return {
+              fields: { ...empty, requestId, status: 'not_found', rawResponse: output },
+              transient: false,
+              error: 'GSTIN not found in the GST register',
+            };
+          }
           return {
-            requestId,
-            status: details.active ? 'verified' : 'inactive',
-            legalName: details.legalName,
-            tradeName: text(output.trade_name),
-            constitution: text(output.constitution_of_business),
-            taxpayerType: text(output.taxpayer_type),
-            gstinStatus: details.status,
-            registeredSince: details.registeredSince,
-            registeredAddress: details.address,
-            addressParts: details.addressParts,
-            rawResponse: output,
+            fields: {
+              requestId,
+              status: details.active ? 'verified' : 'inactive',
+              legalName: details.legalName,
+              tradeName: text(output.trade_name),
+              constitution: text(output.constitution_of_business),
+              taxpayerType: text(output.taxpayer_type),
+              gstinStatus: details.status,
+              registeredSince: details.registeredSince,
+              registeredAddress: details.address,
+              addressParts: details.addressParts,
+              rawResponse: output,
+            },
+            transient: false,
+            error: details.active ? null : `GSTIN is ${details.status ?? 'inactive'}`,
           };
         }
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       }
-      return { ...empty, requestId, status: 'unavailable' };
+      return unavailable(requestId, true, 'GST lookup timed out');
     } catch (error) {
       console.warn(`IDfy GSTIN lookup failed for ${gstin}`, error);
-      return { ...empty, requestId, status: 'unavailable' };
+      return unavailable(
+        requestId,
+        isTransientError(error),
+        error instanceof Error ? error.message : 'GST lookup failed',
+      );
     }
   }
 

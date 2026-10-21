@@ -57,6 +57,16 @@ class RedisManager {
     return count as number;
   }
 
+  /** SET NX PX — true when this call created the key (i.e. took the slot). */
+  async setIfAbsent(key: string, value: string, pxMs: number): Promise<boolean> {
+    return (await this.getClient().set(key, value, 'PX', pxMs, 'NX')) === 'OK';
+  }
+
+  /** Milliseconds until `key` expires; negative when it is missing or has no expiry. */
+  async pttl(key: string): Promise<number> {
+    return this.getClient().pttl(key);
+  }
+
   private getClient(): Redis {
     if (!this.client) {
       throw new Error('Redis client not connected. Call connect() first.');
@@ -65,4 +75,5 @@ class RedisManager {
   }
 }
 
+export type { RedisManager };
 export const redisManager = new RedisManager();

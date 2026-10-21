@@ -3,7 +3,8 @@ import { respond } from '../../../shared/responses/respond';
 import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
 import { sendCsv } from '../../../shared/utils/csv';
 import { ContractService } from './contract.service';
-import { ContractImportService } from './contract-import.service';
+import { CONTRACT_IMPORT_SAMPLE_FILENAME, ContractImportService } from './contract-import.service';
+import { importSource, sendXlsx } from '../../../shared/import/upload';
 import {
   CreateContractInput,
   LaneAllocationInput,
@@ -50,6 +51,12 @@ export class ContractController {
         req.validatedQuery as LaneAllocationInput,
       ),
     );
+  importSample = async (req: Request, res: Response) =>
+    sendXlsx(
+      res,
+      CONTRACT_IMPORT_SAMPLE_FILENAME,
+      await this.importService.sample(requireTenantId(req)),
+    );
   import = async (req: Request, res: Response) =>
     respond(
       res,
@@ -57,8 +64,7 @@ export class ContractController {
         requireTenantId(req),
         req.user!.id,
         req.user!.role,
-        req.file!.originalname,
-        req.file!.buffer,
+        importSource(req.file!),
       ),
       201,
     );

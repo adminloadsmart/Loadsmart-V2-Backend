@@ -17,6 +17,19 @@ export class ProductRepository {
     this.products = dataSource.getRepository(ProductEntity);
     this.subItems = dataSource.getRepository(ProductSubItemEntity);
   }
+  /** Bulk-upload duplicate check: same name (case-insensitive) and HSN (blank = none). */
+  findByNameAndHsn(tenantId: string, productDetails: string, hsnCode?: string | null) {
+    return this.products
+      .createQueryBuilder('product')
+      .where('product.tenant_id = :tenantId', { tenantId })
+      .andWhere('LOWER(TRIM(product.product_details)) = LOWER(TRIM(:name))', {
+        name: productDetails,
+      })
+      .andWhere("COALESCE(product.hsn_code, '') = :hsn", { hsn: hsnCode?.trim() ?? '' })
+      .andWhere('product.deleted_at IS NULL')
+      .getOne();
+  }
+
   async create(
     data: Partial<ProductEntity>,
     subItems: string[],

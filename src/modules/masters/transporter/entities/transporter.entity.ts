@@ -15,9 +15,10 @@ import {
   TransporterBankVerificationStatus,
   TransporterCompanyType,
   TransporterGstTreatment,
+  TRANSPORTER_GST_STATUSES,
+  TransporterGstStatus,
   TransporterStatus,
 } from '../transporter.types';
-import { GST_RECORD_STATUSES, GstRecordStatus } from '../../gst/gst.types';
 import { PICKER_BODIES, PickerBody } from '../../vehicle/truck-type-picker.constants';
 import { TransporterContactEntity } from './transporter-contact.entity';
 import { TransporterLaneEntity } from './transporter-lane.entity';
@@ -80,10 +81,13 @@ export class TransporterEntity {
   @Column({
     name: 'gst_verification_status',
     type: 'enum',
-    enum: [...GST_RECORD_STATUSES],
+    enum: [...TRANSPORTER_GST_STATUSES],
     default: 'unverified',
   })
-  gstVerificationStatus!: GstRecordStatus;
+  gstVerificationStatus!: TransporterGstStatus;
+  /** Why the background verification failed (register answer or last vendor error). */
+  @Column({ name: 'gst_verification_error', type: 'varchar', length: 500, nullable: true })
+  gstVerificationError!: string | null;
   @Column({ name: 'gst_verification_id', type: 'uuid', nullable: true })
   gstVerificationId!: string | null;
   @Column({ name: 'gst_verified_at', type: 'timestamptz', nullable: true })

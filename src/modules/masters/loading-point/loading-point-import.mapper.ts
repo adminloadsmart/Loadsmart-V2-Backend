@@ -1,119 +1,30 @@
-import { parseSpreadsheetRows } from '../../../shared/utils/spreadsheet';
+import { IMPORT_MAX_ROWS } from '../../../shared/import/upload';
+import { ImportFileType, parseImportSheet, ParsedImportSheet } from '../../../shared/import/parse';
+import { buildImportSample } from '../../../shared/import/sample';
 import { CreateLoadingPointInput } from './loading-point.interface';
+import { IMPORT_COLUMNS, TEMPLATE_COLUMNS } from './loading-point-import.columns';
 
-export const LOADING_POINT_IMPORT_MAX_ROWS = 5000;
+export type ParsedLoadingPointSheet = ParsedImportSheet<CreateLoadingPointInput>;
 
-export interface ParsedLoadingPointRow {
-  row: number;
-  input: Partial<CreateLoadingPointInput>;
-}
+export const LOADING_POINT_IMPORT_SAMPLE_FILENAME = 'loading-point-bulk-upload-template.xlsx';
 
-export interface ParsedLoadingPointExcel {
-  rows: ParsedLoadingPointRow[];
-  mapping: Record<string, keyof CreateLoadingPointInput>;
-}
-
-function normalizeHeader(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLowerCase();
-}
-
-function value(row: Record<string, string>, header: string): string | undefined {
-  const raw = row[header];
-  return raw === undefined || raw.trim() === '' ? undefined : raw.trim();
-}
-
-/** Fields stored as a number on `CreateLoadingPointInput` — parsed from the raw CSV string. */
-const NUMERIC_FIELDS = new Set<keyof CreateLoadingPointInput>([
-  'latitude',
-  'longitude',
-  'geofenceRadiusM',
-]);
-
-/** Columns the export writes that are derived/read-only — accepted and ignored on re-upload. */
-const IGNORED_HEADERS = new Set(['status', 'source']);
-
-/** Normalized header (see `normalizeHeader`) → `CreateLoadingPointInput` field it maps to. */
-const FIELD_BY_HEADER: Record<string, keyof CreateLoadingPointInput> = {
-  title: 'title',
-  name: 'title',
-  addressline1: 'addressLine1',
-  address1: 'addressLine1',
-  address: 'addressLine1',
-  addressline2: 'addressLine2',
-  address2: 'addressLine2',
-  landmark: 'landmark',
-  arealocality: 'areaLocality',
-  locality: 'areaLocality',
-  area: 'areaLocality',
-  city: 'city',
-  state: 'state',
-  pincode: 'pinCode',
-  pin: 'pinCode',
-  zipcode: 'pinCode',
-  latitude: 'latitude',
-  lat: 'latitude',
-  longitude: 'longitude',
-  lng: 'longitude',
-  long: 'longitude',
-  contactpersonname: 'contactPersonName',
-  contactname: 'contactPersonName',
-  contactpersonnumber: 'contactPersonNumber',
-  contactnumber: 'contactPersonNumber',
-  contactphone: 'contactPersonNumber',
-  contactpersonemail: 'contactPersonEmail',
-  contactemail: 'contactPersonEmail',
-  geofenceradiusm: 'geofenceRadiusM',
-  geofenceradius: 'geofenceRadiusM',
-  geofence: 'geofenceRadiusM',
-  gateopensat: 'gateOpensAt',
-  gateopen: 'gateOpensAt',
-  gateclosesat: 'gateClosesAt',
-  gateclose: 'gateClosesAt',
-  googleplaceid: 'googlePlaceId',
-  placeid: 'googlePlaceId',
-  notes: 'notes',
-  remarks: 'notes',
-};
-
-export async function parseLoadingPointExcel(buffer: Buffer): Promise<ParsedLoadingPointExcel> {
-  const records = await parseSpreadsheetRows(buffer);
-
-  if (!records.length)
-    throw new Error('Excel file must contain a header and at least one data row');
-  if (records.length > LOADING_POINT_IMPORT_MAX_ROWS)
-    throw new Error(`Excel file cannot contain more than ${LOADING_POINT_IMPORT_MAX_ROWS} rows`);
-
-  const headers = Object.keys(records[0]);
-  const mapping: Record<string, keyof CreateLoadingPointInput> = {};
-  for (const header of headers) {
-    const normalized = normalizeHeader(header);
-    if (IGNORED_HEADERS.has(normalized)) continue;
-    const field = FIELD_BY_HEADER[normalized];
-    if (!field) throw new Error(`Unexpected column "${header}"`);
-    if (Object.values(mapping).includes(field))
-      throw new Error(`Multiple columns map to "${field}"`);
-    mapping[header] = field;
-  }
-
-  for (const required of ['title', 'city', 'state', 'pinCode'] as const) {
-    if (!Object.values(mapping).includes(required))
-      throw new Error(`Missing required column "${required}"`);
-  }
-
-  const rows = records.map((record, index) => {
-    const input: Partial<CreateLoadingPointInput> = {};
-    for (const [header, field] of Object.entries(mapping)) {
-      const raw = value(record, header);
-      if (NUMERIC_FIELDS.has(field)) {
-        (input as Record<string, unknown>)[field] = raw === undefined ? undefined : Number(raw);
-      } else {
-        (input as Record<string, unknown>)[field] = raw;
-      }
-    }
-    return { row: index + 2, input };
+export function parseLoadingPointSheet(
+  buffer: Buffer,
+  fileType: ImportFileType = 'xlsx',
+): Promise<ParsedLoadingPointSheet> {
+  return parseImportSheet<CreateLoadingPointInput>(buffer, fileType, IMPORT_COLUMNS, {
+    maxRows: IMPORT_MAX_ROWS,
+    requiredColumns: [['title'], ['city'], ['state'], ['pinCode']],
   });
-  return { rows, mapping };
+}
+
+export function buildLoadingPointImportSample(): Promise<Buffer> {
+  return buildImportSample({
+    sheetName: 'Loading Points',
+    columns: TEMPLATE_COLUMNS,
+    notes: [
+      'A loading point with the same Title and PIN as an earlier row, or an existing loading point, is reported and skipped.',
+      'Latitude and Longitude are optional; without them the point is saved as a manual address. Pin it on the map in the app later for geofencing.',
+    ],
+  });
 }

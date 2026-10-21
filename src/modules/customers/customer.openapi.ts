@@ -36,6 +36,29 @@ const excelFileBody = {
 
 export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/import/sample`,
+    tags: [TAGS.CUSTOMERS],
+    operationId: 'customers.importSample',
+    ...permissionGated(
+      [CUSTOMERS_CREATE],
+      'Download the bulk-upload template (.xlsx): a "Customers" sheet whose columns are exactly ' +
+        'the ones the import reads (with an example row and dropdowns), plus an "Instructions" ' +
+        'sheet listing required columns and formats.',
+    ),
+    responses: {
+      200: {
+        description: 'customer-bulk-upload-template.xlsx',
+        content: {
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+            schema: { type: 'string', format: 'binary' },
+          },
+        },
+      },
+      403: { description: 'Forbidden', ...errorContent },
+    },
+  });
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/import/preview`,
     tags: [TAGS.CUSTOMERS],
@@ -49,7 +72,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     request: { body: excelFileBody },
     responses: {
       200: { description: 'Import report (nothing created)' },
-      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      400: { description: 'Invalid or missing .xlsx/.csv file', ...errorContent },
       403: { description: 'Forbidden', ...errorContent },
     },
   });
@@ -60,15 +83,20 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'customers.import',
     ...permissionGated(
       [CUSTOMERS_CREATE],
-      'Bulk import customers from an Excel file. Column headers are fuzzy-matched (e.g. ' +
-        '"Customer Name", "Mobile No"); only name and mobile are required columns. Rows that ' +
-        'fail validation or duplicate an existing customer (by mobile, or mobile/GSTIN) are ' +
-        'skipped rather than overwritten.',
+      'Bulk import customers from the template (.xlsx or .csv, up to 5 MB / 1000 rows). Headers ' +
+        "follow GET /customers/import/sample; older sheets' headers are still matched. Each " +
+        'row is validated like POST /customers and created on its own — rows that fail, or ' +
+        'repeat a GSTIN/mobile in the file or of an existing customer, are reported in errors ' +
+        '[{ row, field, message }] and skipped. Customers with a GSTIN are saved with ' +
+        'gstVerificationStatus "pending" and verified in the background (gst-verification queue).',
     ),
     request: { body: excelFileBody },
     responses: {
-      201: { description: 'Import report with created/skipped/failed row counts' },
-      400: { description: 'Invalid Excel file or missing file', ...errorContent },
+      201: {
+        description:
+          'Import report: { total, validRows, created, failed, gstVerificationQueued, columnMapping, errors }',
+      },
+      400: { description: 'Invalid or missing .xlsx/.csv file', ...errorContent },
       403: { description: 'Forbidden', ...errorContent },
     },
   });

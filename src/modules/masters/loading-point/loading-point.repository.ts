@@ -33,6 +33,17 @@ export class LoadingPointRepository {
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
   }
 
+  /** Bulk-upload duplicate check: same title (case-insensitive) and PIN, not deleted. */
+  findByTitleAndPin(tenantId: string, title: string, pinCode: string) {
+    return this.loadingPoints
+      .createQueryBuilder('point')
+      .where('point.tenant_id = :tenantId', { tenantId })
+      .andWhere('LOWER(TRIM(point.title)) = LOWER(TRIM(:title))', { title })
+      .andWhere('point.pin_code = :pinCode', { pinCode: pinCode.trim() })
+      .andWhere('point.deleted_at IS NULL')
+      .getOne();
+  }
+
   async create(data: CreateLoadingPointData, manager?: EntityManager): Promise<LoadingPointEntity> {
     const repo = manager?.getRepository(LoadingPointEntity) ?? this.loadingPoints;
     const loadingPoint = repo.create({ ...data, deletedAt: null });

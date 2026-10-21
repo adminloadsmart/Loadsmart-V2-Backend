@@ -3,7 +3,7 @@ import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
 import { MASTERS_WRITE } from '../../../shared/constants/permissions';
-import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
+import { importUpload, requireImportFile } from '../../../shared/import/upload';
 import { TransporterController } from './transporter.controller';
 import { transporterValidators } from './transporter.validators';
 import { TransporterImportController } from './transporter-import.controller';
@@ -22,9 +22,15 @@ export function createTransporterRoutes(
   router.post(
     '/transporters/import',
     requirePermission(MASTERS_WRITE),
-    mastersExcelUpload.single('file'),
-    requireMastersExcelFile,
+    importUpload,
+    requireImportFile,
     asyncHandler(transporterImportController.import),
+  );
+  // Literal segment — declared before '/transporters/:transporterId'.
+  router.get(
+    '/transporters/import/sample',
+    requirePermission(MASTERS_WRITE),
+    asyncHandler(transporterImportController.sample),
   );
   router.get(
     '/transporters',
