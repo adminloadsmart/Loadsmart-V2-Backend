@@ -43,14 +43,14 @@ export function createBreakdownResolver(dataSource: DataSource) {
               COALESCE(i.location_captured_at, i.created_at) AS reported_at,
               l.code AS load_code, COALESCE(l.vehicle_number, v.registration_number) AS vehicle_no,
               COALESCE(d.full_name, l.driver_name) AS driver_name, d.phone_number AS driver_phone,
-              c.name AS consignee, COALESCE(dp.location, dp.city, dlp.title) AS destination
+              c.name AS consignee, COALESCE(dp.location, dp.city) AS destination
          FROM loads.load_issue_reports i
          JOIN loads.loads l ON l.id = i.load_id
+         JOIN loads.requisitions r ON r.id = l.requisition_id
          LEFT JOIN masters.vehicles v ON v.id = l.vehicle_id
          LEFT JOIN masters.drivers d ON d.id = l.driver_id
-         LEFT JOIN customers.customers c ON c.id = l.customer_id
-         LEFT JOIN customers.customer_delivery_points dp ON dp.id = l.customer_delivery_point_id
-         LEFT JOIN masters.loading_points dlp ON dlp.id = l.drop_loading_point_id
+         LEFT JOIN customers.customers c ON c.id = r.customer_id
+         LEFT JOIN customers.customer_delivery_points dp ON dp.id = r.customer_delivery_point_id
         WHERE i.id = $1 AND i.tenant_id = $2`,
       [context.issueId, tenantId],
     );

@@ -1058,8 +1058,9 @@ export class FleetAnalyticsService {
       const onTimeByLane: FleetLaneOnTimeRow[] = [...byLane.values()]
         .map(({ lane, rows }) => {
           const committed = rows.flatMap(({ load }) => {
-            return load.pickupDate && load.expectedDeliveryDate
-              ? [daysBetween(load.pickupDate, load.expectedDeliveryDate)]
+            const requisition = load.requisition;
+            return requisition?.pickupDate && requisition.expectedDeliveryDate
+              ? [daysBetween(requisition.pickupDate, requisition.expectedDeliveryDate)]
               : [];
           });
           const turnaround = rows.flatMap(({ load }) => {
@@ -1429,7 +1430,8 @@ export class FleetAnalyticsService {
   /** Customer and lane narrow loads only (§10); truck-level numbers don't change. */
   private applyLoadFilters(loads: LoadEntity[], filters: FleetAnalyticsFilters): LoadEntity[] {
     return loads.filter((load) => {
-      if (filters.customerId && load.customerId !== filters.customerId) return false;
+      const requisition = load.requisition;
+      if (filters.customerId && requisition?.customerId !== filters.customerId) return false;
       if (filters.laneKey && laneOf(load)?.key !== filters.laneKey) return false;
       return true;
     });

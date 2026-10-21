@@ -86,7 +86,7 @@ export class FleetAnalyticsRepository {
   ): Promise<LoadEntity[]> {
     if (vehicleIds.length === 0) return Promise.resolve([]);
     const [loadingPointId, customerDeliveryPointId] = filters.laneKey?.split(':') ?? [];
-    const laneWhere: FindOptionsWhere<LoadEntity> = {
+    const requisition: FindOptionsWhere<RequisitionEntity> = {
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
       ...(filters.laneKey ? { loadingPointId, customerDeliveryPointId } : {}),
     };
@@ -95,14 +95,16 @@ export class FleetAnalyticsRepository {
       vehicleId: In(vehicleIds),
       status: Not('created'),
       createdAt: LessThanOrEqual(range.to),
-      ...laneWhere,
+      ...(Object.keys(requisition).length ? { requisition } : {}),
     };
     return this.loads.find({
       where: [
         { ...base, deliveredAt: IsNull() },
         { ...base, deliveredAt: MoreThanOrEqual(range.from) },
       ],
-      relations: { loadingPoint: true, customerDeliveryPoint: true, dropLoadingPoint: true },
+      relations: {
+        requisition: { loadingPoint: true, customerDeliveryPoint: true },
+      },
       order: { createdAt: 'ASC' },
     });
   }
@@ -275,7 +277,7 @@ export class FleetAnalyticsRepository {
     if (vehicleIds.length === 0) return Promise.resolve([]);
     return this.loads.find({
       where: { tenantId, vehicleId: In(vehicleIds), status: In([...ON_THE_ROAD_STATUSES]) },
-      relations: { loadingPoint: true, customerDeliveryPoint: true, dropLoadingPoint: true },
+      relations: { requisition: true },
     });
   }
 

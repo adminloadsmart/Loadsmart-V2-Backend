@@ -110,13 +110,6 @@ export class DispatchPlanningService {
         // Promise.all: each call takes a row lock on the same counter row, so awaiting one at a
         // time is both correct and no slower than they'd serialize to anyway.
         for (const row of allRows) {
-          // Customer, points and dates are copied onto the load so it reads them without joining
-          // the requisition (posted loads have none).
-          row.customerId = requisition.customerId;
-          row.loadingPointId = requisition.loadingPointId;
-          row.customerDeliveryPointId = requisition.customerDeliveryPointId;
-          row.pickupDate = requisition.pickupDate;
-          row.expectedDeliveryDate = requisition.expectedDeliveryDate;
           const loadSequenceValue = await this.codeSequenceRepository.next(
             'load',
             tenantId,
