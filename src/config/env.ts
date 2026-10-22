@@ -134,6 +134,9 @@ export const env = {
   // IDfy's GST lookup allows one call per window, account-wide: the 'gst-verification' worker's
   // limiter and the drawer's Verify button share this window (modules/masters/gst/gst-rate-gate.ts).
   gstVerificationRateLimitMs: numberWithDefault('GST_VERIFICATION_RATE_LIMIT_MS', 120_000),
+  // Background VAHAN checks of bulk-imported trucks ('vahan-verification' worker limiter): one
+  // ULIP lookup per window, across every API instance.
+  vahanVerificationRateLimitMs: numberWithDefault('VAHAN_VERIFICATION_RATE_LIMIT_MS', 120_000),
   // ULIP (DPIIT) VAHAN vehicle lookup (UlipClient). Optional: POST /vehicles/verify-vahan fails
   // loudly per-request when the credentials are unset instead of crashing boot. ULIP only accepts
   // whitelisted server IPs, so this only works from a deployed environment.

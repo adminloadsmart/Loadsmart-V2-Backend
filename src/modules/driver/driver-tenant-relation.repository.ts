@@ -686,6 +686,22 @@ export class DriverTenantRelationRepository {
     });
   }
 
+  /** The active driver of this tenant with this phone (digits only, with or without the 91
+   *  country code) — the vehicle bulk upload's "Driver Phone" column. */
+  async findActiveDriverByPhone(tenantId: string, phone: string): Promise<DriverEntity | null> {
+    let digits = phone.replace(/\D+/g, '');
+    if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
+    if (!digits) return null;
+    const relation = await this.relations.findOne({
+      where: [
+        { tenantId, status: 'active', deletedAt: IsNull(), driver: { phoneNumber: digits } },
+        { tenantId, status: 'active', deletedAt: IsNull(), driver: { phoneNumber: `91${digits}` } },
+      ],
+      relations: { driver: true },
+    });
+    return relation?.driver ?? null;
+  }
+
   listActiveByDriver(driverId: string): Promise<DriverTenantRelationEntity[]> {
     return this.relations.find({
       where: { driverId, status: 'active', deletedAt: IsNull() },

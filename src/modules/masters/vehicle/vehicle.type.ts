@@ -138,3 +138,7 @@ export const VEHICLE_VERIFICATION_STATUSES = [
   'manual_review',
 ] as const;
 export type VehicleVerificationStatus = (typeof VEHICLE_VERIFICATION_STATUSES)[number];
+
+/** The fleet list's VAHAN badge — the newest snapshot's status, or 'unverified' when there is none. */
+export const VEHICLE_VAHAN_STATUSES = ['unverified', ...VEHICLE_VERIFICATION_STATUSES] as const;
+export type VehicleVahanStatus = (typeof VEHICLE_VAHAN_STATUSES)[number];
