@@ -65,10 +65,15 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Download the Active Roster as an Excel file (.xlsx) — every driver who joined, including ' +
         'those who left the company; pending and declined links are never included. Optionally ' +
-        'filtered like GET /drivers (search, segment, filter panel); no paging. Columns: Full ' +
-        'Name, Mobile Number, Licence Number, Licence Class, Licence Valid To, Engagement Type, ' +
-        'Pay Type, Pay Amount, Trips, On-Time %, Driver Score, Availability, Driver App ' +
-        'Installed. Up to 5000 drivers.',
+        'filtered like GET /drivers (search, segment, filter panel); no paging. One column per ' +
+        'field of the driver detail screen — profile (name, mobile, date of birth, address), ' +
+        'licence credentials (number, class, endorsements, validity, days left, Sarathi ' +
+        'verification and check date, eligible to drive), contact & engagement (blood group, ' +
+        'emergency contact, engagement, joining date, tenure, pay, bhatta, advance outstanding), ' +
+        'assignment (vehicle, truck type, home base), availability (status, reason, ' +
+        'current load), performance (trips, on-time %, score), driver app (installed, last ' +
+        'seen) and the fleet note. Bank details, insurance answers and documents are not included. ' +
+        'Up to 5000 drivers.',
     ),
     request: { query: driverValidators.exportDrivers.shape.query },
     responses: {
