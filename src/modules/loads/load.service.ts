@@ -1180,6 +1180,23 @@ export class LoadService {
     }
   }
 
+  /** The tenant a driver's load lives in, for the driver portal's per-load routes — the driver can
+   *  be linked to several tenants, so it is derived from the load. Not-found when the load isn't
+   *  this driver's in any of their tenants (same masking as the ownership checks below). */
+  async resolveDriverLoadTenant(
+    driverId: string,
+    tenantIds: string[],
+    loadId: string,
+  ): Promise<string> {
+    try {
+      const tenantId = await this.repository.findTenantIdForDriverLoad(loadId, driverId, tenantIds);
+      if (!tenantId) throw new NotFoundError(`Load ${loadId} not found`);
+      return tenantId;
+    } catch (error) {
+      rethrow(error, 'Failed to resolve load');
+    }
+  }
+
   /** Driver-app "Trip Done" detail screen — a lean, single-pickup/single-drop summary for a
    *  completed trip, distinct from get() above (whose payments/stepper/nextAction are staff
    *  planning-oriented and meaningless once a trip is closed). See TripDoneDetail's doc comment
@@ -1226,7 +1243,7 @@ export class LoadService {
    *  plus tenant-wide Active/Completed tab counts (independent of which group, if any, was
    *  requested) so the UI can render both tab badges from a single call. */
   async list(
-    tenantId: string,
+    tenantId: string | string[],
     input: ListLoadsInput,
     locale: Locale = DEFAULT_LOCALE,
   ): Promise<ListTripsResult> {
@@ -1258,7 +1275,7 @@ export class LoadService {
 
   /** Driver-app "Trips Done" screen — see TripsDoneResult's doc comment for scope/omissions. */
   async getMyTripsDone(
-    tenantId: string,
+    tenantId: string | string[],
     driverId: string,
     input: PaginationInput,
     locale: Locale = DEFAULT_LOCALE,

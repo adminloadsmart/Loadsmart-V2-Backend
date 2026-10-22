@@ -689,6 +689,7 @@ export class DriverTenantRelationRepository {
   listActiveByDriver(driverId: string): Promise<DriverTenantRelationEntity[]> {
     return this.relations.find({
       where: { driverId, status: 'active', deletedAt: IsNull() },
+      order: { createdAt: 'ASC' },
     });
   }
 

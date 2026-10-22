@@ -119,6 +119,8 @@ export const driverPortalValidators = {
         fileName: z.string().trim().min(1).max(255),
         mimeType: z.string().trim().min(1).max(255),
         sizeBytes: z.coerce.number().int().positive(),
+        // Which fleet's load this upload is for — needed only when linked to several fleets.
+        loadId: uuid.optional(),
       })
       .strict(),
   }),

@@ -57,6 +57,10 @@ export interface AuthenticatedDriver {
   // with zero or not-yet-selected active tenant relations. See driver-auth.service.ts.
   tenantId?: string;
   driverTenantRelationId?: string;
+  // Every tenant this driver has an active relation with RIGHT NOW — resolved from the database
+  // on each request by createDriverAuth, never read from the JWT, so joining a fleet takes effect
+  // without a re-login. Portal handlers scope to these instead of `tenantId` above.
+  tenantIds?: string[];
   jti?: string;
   // The id of the masters.driver_sessions row created alongside this access token — same
   // rotates-on-refresh, identifies-the-current-session convention as AuthenticatedUser.sid.

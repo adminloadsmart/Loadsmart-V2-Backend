@@ -14,7 +14,17 @@ import { LoadStatus } from '../../loads/utils/loads.types';
  * `documentStatus` (a derived summary) is deliberately named apart from the entity's own
  * `documents` array (the raw DriverDocumentEntity rows) so neither shadows the other.
  */
+export interface DriverFleetView {
+  tenantId: string;
+  organizationName: string | null;
+  vehicle: DriverProfileView['vehicle'];
+  performance: DriverProfileView['performance'];
+}
+
 export interface DriverProfileView extends DriverWithRelation {
+  /** One entry per active fleet the driver is linked to. The top-level organizationName/vehicle/
+   *  performance below mirror the first (oldest) link, kept for older app builds. */
+  fleets: DriverFleetView[];
   organizationName: string | null;
   experienceYears: number | null;
   vehicle: {
