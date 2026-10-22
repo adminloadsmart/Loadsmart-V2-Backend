@@ -3,6 +3,7 @@ import { PushChannel } from '../../notifications/channels/push.channel';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { DriverSessionRepository } from './driver-auth.repository';
 import { DriverInviteNotifyResult } from './driver-auth.types';
+import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
 
 /**
  * Ad hoc push delivery for driver-side link events ("you've been invited", "your join request
@@ -100,7 +101,7 @@ export class DriverPushNotifier {
     tenantName: string,
     invitationId: string,
   ): Promise<DriverInviteNotifyResult> {
-    const type = 'driver.account.invited';
+    const type = DRIVER_INVITED_NOTIFICATION_TYPE;
     const title = "You've been invited";
     const body = `${tenantName} has invited you to join their fleet. Open the app to accept or decline.`;
     const notification = await this.persist(tenantId, driverId, type, title, body, {

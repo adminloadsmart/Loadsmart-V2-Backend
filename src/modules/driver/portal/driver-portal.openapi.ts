@@ -215,7 +215,12 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         '+ `metadata.actionRoute` (the "→ Job Detail" style button) and `metadata.tag` + ' +
         "`metadata.tagVariant` ('default' | 'warning' | 'success' — the right-side status " +
         'chip, e.g. "Action required", "Resolved") when the producer set them; both are optional, ' +
-        'producer-defined fields on the existing jsonb `metadata` column, not new schema.',
+        'producer-defined fields on the existing jsonb `metadata` column, not new schema. Every ' +
+        'item has `invitation`: null, except a "You’ve been invited" card ' +
+        '(type driver.account.invited), where it is { invitationId, status: pending | accepted | ' +
+        'declined | cancelled | expired | replaced, actionable }. Each Resend adds a card for the ' +
+        'same invite; only the newest one is `actionable` (show Accept / Decline only then) — ' +
+        'older ones read `replaced`.',
     ),
     request: { query: driverPortalValidators.getMyNotifications.shape.query },
     responses: {

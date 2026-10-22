@@ -1,5 +1,11 @@
 import { DriverExportColumn, DriverImportColumn } from './drivers.interface';
-import { DriverEngagementType, DriverSalaryType, DriverScoreStatus } from './drivers.types';
+import {
+  DriverEngagementType,
+  DriverLicenseEndorsement,
+  DriverSalaryType,
+  DriverScoreStatus,
+  DriverVerificationStatus,
+} from './drivers.types';
 
 /**
  * Sarathi's standard driving-licence number, once spaces and hyphens are stripped: 2-letter state
@@ -22,6 +28,17 @@ export const DRIVER_JOIN_REQUEST_RESTORE_DAYS = 30;
  * invite-by-mobile on the same number); after that this tenant can't invite them again.
  */
 export const DRIVER_INVITE_SENDS_AFTER_DECLINE = 1;
+
+/**
+ * Once those sends are used, the fleet may send once more this many days after the driver's latest
+ * decline or the latest send, whichever is later — at most one send per this many days from then
+ * on. The driver can always ask to join the fleet themselves meanwhile.
+ */
+export const DRIVER_INVITE_COOL_OFF_DAYS = 30;
+
+/** The driver's "You've been invited" notification — one per send of the invite, each carrying
+ *  the invitationId in its metadata. */
+export const DRIVER_INVITED_NOTIFICATION_TYPE = 'driver.account.invited';
 
 /** A driver's score only means something after this many trips — until then they read as `new`. */
 export const MIN_SCORED_TRIPS = 5;
@@ -110,19 +127,50 @@ export const DRIVER_EXPORT_MAX_ROWS = 5000;
 
 /** Sheet columns, in order — the roster's own columns, readable rather than import-shaped. */
 export const DRIVER_EXPORT_COLUMNS: DriverExportColumn[] = [
+  // Profile
   { key: 'fullName', header: 'Full Name' },
   { key: 'mobileNumber', header: 'Mobile Number' },
+  { key: 'dateOfBirth', header: 'Date of Birth' },
+  { key: 'address', header: 'Address' },
+  { key: 'city', header: 'City' },
+  { key: 'pinCode', header: 'PIN Code' },
+  // Licence credentials
   { key: 'licenceNumber', header: 'Licence Number' },
   { key: 'licenceClass', header: 'Licence Class' },
+  { key: 'licenceEndorsements', header: 'Endorsements' },
   { key: 'licenceValidTo', header: 'Licence Valid To' },
+  { key: 'licenceDaysLeft', header: 'Licence Days Left' },
+  { key: 'sarathiVerification', header: 'Sarathi Verification' },
+  { key: 'sarathiCheckedOn', header: 'Sarathi Checked On' },
+  { key: 'eligibleToDrive', header: 'Eligible to Drive' },
+  // Contact & engagement
+  { key: 'bloodGroup', header: 'Blood Group' },
+  { key: 'emergencyContactName', header: 'Emergency Contact Name' },
+  { key: 'emergencyContactPhone', header: 'Emergency Contact Phone' },
+  { key: 'emergencyContactRelation', header: 'Emergency Contact Relation' },
   { key: 'engagementType', header: 'Engagement Type' },
+  { key: 'dateOfJoining', header: 'Date of Joining' },
+  { key: 'tenureYears', header: 'Tenure (Years)' },
   { key: 'payType', header: 'Pay Type' },
   { key: 'payAmount', header: 'Pay Amount' },
+  { key: 'bhattaPerDay', header: 'Bhatta per Day' },
+  { key: 'advanceOutstanding', header: 'Advance Outstanding' },
+  // Assignment
+  { key: 'assignedVehicle', header: 'Assigned Vehicle' },
+  { key: 'truckType', header: 'Truck Type' },
+  { key: 'homeBase', header: 'Home Base' },
+  // Availability
+  { key: 'availability', header: 'Availability' },
+  { key: 'availabilityReason', header: 'Availability Reason' },
+  { key: 'currentLoad', header: 'Current Load' },
+  // Performance
   { key: 'trips', header: 'Trips' },
   { key: 'onTimePercentage', header: 'On-Time %' },
   { key: 'driverScore', header: 'Driver Score' },
-  { key: 'availability', header: 'Availability' },
+  // App
   { key: 'driverAppInstalled', header: 'Driver App Installed' },
+  { key: 'appLastSeen', header: 'App Last Seen' },
+  { key: 'note', header: 'Note' },
 ];
 
 /** Engagement as the Add-a-driver form labels it. */
@@ -146,6 +194,22 @@ export const DRIVER_EXPORT_AVAILABILITY_LABELS = {
   not_available: 'Not Available',
   available: 'Available',
 } as const;
+
+/** Latest Sarathi DL check, as the export writes it; DRIVER_EXPORT_NOT_CHECKED when never run. */
+export const DRIVER_VERIFICATION_STATUS_LABELS: Record<DriverVerificationStatus, string> = {
+  pending: 'Pending',
+  verified: 'Verified',
+  not_found: 'Not Found',
+  manual_review: 'Manual Review',
+};
+export const DRIVER_EXPORT_NOT_CHECKED = 'Not Checked';
+
+export const DRIVER_LICENSE_ENDORSEMENT_LABELS: Record<DriverLicenseEndorsement, string> = {
+  hazmat: 'Hazmat',
+};
+
+/** How the export writes a yes/no column. */
+export const DRIVER_EXPORT_BOOLEAN_LABELS = { true: 'Yes', false: 'No' } as const;
 
 /** Score badge text — what the export writes while a driver has no numeric score. */
 export const DRIVER_SCORE_STATUS_LABELS: Record<DriverScoreStatus, string> = {
