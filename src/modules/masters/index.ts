@@ -40,6 +40,10 @@ import { GstRateGate } from './gst/gst-rate-gate';
 import { GST_VERIFICATION_QUEUE } from './gst/gst-background-verification';
 import { TransporterGstVerificationService } from './transporter/transporter-gst-verification.service';
 import { TransporterEntity } from './transporter/entities/transporter.entity';
+import {
+  VAHAN_VERIFICATION_QUEUE,
+  VehicleVahanVerificationService,
+} from './vehicle/vehicle-vahan-verification.service';
 import { createJobQueue } from '../../jobs/queue-registry';
 import { redisManager } from '../../db/redis';
 import { GstVerificationRepository } from './gst/gst.repository';
@@ -160,6 +164,7 @@ export function createMastersModule(
   const productImportController = new ProductImportController(productImportService);
 
   const vehicleRepository = new VehicleRepository(dataSource);
+  const ulipClient = new UlipClient();
 
   // Built on the repositories (not VehicleService/DriverService) so it has no dependency on
   // VehicleService — which itself depends on this service to link a driver during onboarding.
@@ -178,11 +183,25 @@ export function createMastersModule(
     fleetDriverLinkService,
     dataSource,
     deps.auditService,
-    new UlipClient(),
+    ulipClient,
     deps.masterApprovalNotifier,
   );
   const vehicleController = new VehicleController(vehicleService);
-  const vehicleImportService = new VehicleImportService(vehicleService, deps.auditService);
+  // Bulk-imported trucks are checked against VAHAN in the background ('vahan-verification').
+  const vehicleVahanVerification = new VehicleVahanVerificationService(
+    vehicleRepository,
+    vehicleService,
+    ulipClient,
+    deps.auditService,
+    createJobQueue(VAHAN_VERIFICATION_QUEUE),
+  );
+  const vehicleImportService = new VehicleImportService(
+    vehicleService,
+    vehicleRepository,
+    deps.driverTenantRelationRepository,
+    deps.auditService,
+    vehicleVahanVerification,
+  );
   const vehicleImportController = new VehicleImportController(vehicleImportService);
 
   const protectedRouter = createMastersProtectedRoutes(
@@ -207,6 +226,7 @@ export function createMastersModule(
     gstVerificationService,
     gstRateGate,
     transporterGstVerification,
+    vehicleVahanVerification,
     contractService,
     vehicleService,
     fleetDriverLinkService,

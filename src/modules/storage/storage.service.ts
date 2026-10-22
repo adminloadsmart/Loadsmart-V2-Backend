@@ -96,6 +96,17 @@ export class StorageService {
     }
   }
 
+  // For a caller linked to several tenants (a driver) that only has the file id: the upload
+  // belongs to whichever of their tenants it was requested under.
+  async confirmUploadForTenants(tenantIds: string[], fileId: string): Promise<FileEntity> {
+    for (const tenantId of tenantIds) {
+      if (await this.repository.findById(tenantId, fileId)) {
+        return this.confirmUpload(tenantId, fileId);
+      }
+    }
+    throw new NotFoundError(`File ${fileId} not found`);
+  }
+
   // Server-side upload counterpart to generateUploadUrl/confirmUpload. Use this when the client
   // submits the binary to our API rather than uploading directly through a presigned S3 POST.
   async uploadTenantFile(

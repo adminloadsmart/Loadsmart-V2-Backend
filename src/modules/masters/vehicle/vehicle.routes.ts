@@ -5,7 +5,7 @@ import { requirePermission } from '../../../shared/middleware/require-permission
 import { createIpRateLimit } from '../../../shared/middleware/rate-limit.middleware';
 import { env } from '../../../config/env';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
-import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
+import { importUpload, requireImportFile } from '../../../shared/import/upload';
 import { VehicleController } from './vehicle.controller';
 import { VehicleImportController } from './vehicle-import.controller';
 import { vehicleValidators } from './vehicle.validators';
@@ -49,10 +49,11 @@ export function createVehicleRoutes(
   router.post(
     '/vehicles/import',
     canWrite,
-    mastersExcelUpload.single('file'),
-    requireMastersExcelFile,
+    importUpload,
+    requireImportFile,
     asyncHandler(vehicleImportController.import),
   );
+  router.get('/vehicles/import/sample', canWrite, asyncHandler(vehicleImportController.sample));
   router.get(
     '/vehicles/export',
     validate(vehicleValidators.exportVehicles),
