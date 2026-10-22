@@ -388,6 +388,13 @@ export class DriverTenantRelationRepository {
     return relations.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
+  /** The driver's own relations with these ids, any tenant — the invites behind their
+   *  notification cards (see DriverPortalService.getMyNotifications). */
+  findByIdsForDriver(driverId: string, ids: string[]): Promise<DriverTenantRelationEntity[]> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.relations.find({ where: { id: In(ids), driverId, deletedAt: IsNull() } });
+  }
+
   // Used only where the caller doesn't yet know the tenant — e.g. an already-authenticated driver
   // switching context to a relation by id (driver-auth.service.ts's selectRelation).
   findByIdForDriver(driverId: string, id: string): Promise<DriverTenantRelationEntity | null> {
@@ -399,24 +406,27 @@ export class DriverTenantRelationRepository {
     driverId: string,
     manager?: EntityManager,
   ): Promise<DriverTenantRelationEntity | null> {
+    // Newest first: a driver can hold several rows here (a declined invite, then their own join
+    // request), and the live one is always the newest — callers checking the driver's standing
+    // (session refresh, assertDriverExists) must see it, not an older declined one.
     const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
-    return relations.findOneBy({ tenantId, driverId, deletedAt: IsNull() });
+    return relations.findOne({
+      where: { tenantId, driverId, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   /**
    * This tenant's newest row for the driver. A driver can hold several (older declined or
-   * cancelled ones plus the current one); findByTenantAndDriver above returns any of them.
+   * cancelled ones plus the current one) — same lookup as findByTenantAndDriver, named for the
+   * callers that choose between them.
    */
   findLatestByTenantAndDriver(
     tenantId: string,
     driverId: string,
     manager?: EntityManager,
   ): Promise<DriverTenantRelationEntity | null> {
-    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
-    return relations.findOne({
-      where: { tenantId, driverId, deletedAt: IsNull() },
-      order: { createdAt: 'DESC' },
-    });
+    return this.findByTenantAndDriver(tenantId, driverId, manager);
   }
 
   /**
@@ -472,6 +482,8 @@ export class DriverTenantRelationRepository {
   ): Promise<DriverTenantRelationEntity | null> {
     return this.relations.findOne({
       where: { tenantId, driverId, deletedAt: IsNull() },
+      // Newest first, like findByTenantAndDriver — the live row, not an older declined one.
+      order: { createdAt: 'DESC' },
       relations: {
         driver: { documents: true, verifications: true, bankDetails: true },
         operationalStatus: true,
@@ -489,6 +501,7 @@ export class DriverTenantRelationRepository {
   ): Promise<DriverTenantRelationEntity | null> {
     return this.relations.findOne({
       where: { tenantId, driverId, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
       relations: {
         driver: { documents: true, verifications: true, bankDetails: true },
         tripMetrics: true,

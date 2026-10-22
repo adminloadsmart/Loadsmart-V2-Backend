@@ -65,10 +65,15 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Download the Active Roster as an Excel file (.xlsx) — every driver who joined, including ' +
         'those who left the company; pending and declined links are never included. Optionally ' +
-        'filtered like GET /drivers (search, segment, filter panel); no paging. Columns: Full ' +
-        'Name, Mobile Number, Licence Number, Licence Class, Licence Valid To, Engagement Type, ' +
-        'Pay Type, Pay Amount, Trips, On-Time %, Driver Score, Availability, Driver App ' +
-        'Installed. Up to 5000 drivers.',
+        'filtered like GET /drivers (search, segment, filter panel); no paging. One column per ' +
+        'field of the driver detail screen — profile (name, mobile, date of birth, address), ' +
+        'licence credentials (number, class, endorsements, validity, days left, Sarathi ' +
+        'verification and check date, eligible to drive), contact & engagement (blood group, ' +
+        'emergency contact, engagement, joining date, tenure, pay, bhatta, advance outstanding), ' +
+        'assignment (vehicle, truck type, home base), availability (status, reason, ' +
+        'current load), performance (trips, on-time %, score), driver app (installed, last ' +
+        'seen) and the fleet note. Bank details, insurance answers and documents are not included. ' +
+        'Up to 5000 drivers.',
     ),
     request: { query: driverValidators.exportDrivers.shape.query },
     responses: {
@@ -258,8 +263,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
         'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled, ' +
         'canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
-        'the driver first declined — once declined, the invite can be sent one more time; null ' +
-        'when never declined) }.',
+        'the driver first declined — once declined, the invite can be sent one more time, then ' +
+        'once more every 30 days after the latest decline or send; null when never declined), ' +
+        'canSendAgainAt (while no send is left, when the next one opens up; else null) }.',
     ),
     request: { query: driverValidators.listInvitations.shape.query },
     responses: {

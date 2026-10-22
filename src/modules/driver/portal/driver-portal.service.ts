@@ -4,7 +4,10 @@ import { msg } from '../../../shared/i18n/translate';
 import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagination';
 import { DriverService, flattenRelation } from '../driver.service';
 import { DriverRepository } from '../driver.repository';
-import { DriverTenantRelationRepository } from '../driver-tenant-relation.repository';
+import {
+  DriverTenantRelationRepository,
+  isInviteSendEvent,
+} from '../driver-tenant-relation.repository';
 import { AddBankDetailsInput, SetDriverOperationalStatusInput } from '../drivers.interface';
 import { DriverEntity } from '../entities/driver.entity';
 import { DriverOperationalStatusEntity } from '../entities/driver-operational-status.entity';
@@ -21,8 +24,62 @@ import {
   DriverHomeCurrentTrip,
   DriverHomeNextTrip,
   DriverNotificationCategory,
+  DriverInviteCardStatus,
+  DriverNotificationItem,
   NOTIFICATION_TYPE_PREFIXES,
 } from './driver-portal.types';
+import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
+import { DriverTenantRelationEntity } from '../entities/driver-tenant-relation.entity';
+import { NotificationEntity } from '../../notifications/notifications.entity';
+
+/** The invitationId an invite card carries; null on any other notification. */
+function invitationIdOf(notification: NotificationEntity): string | null {
+  const invitationId = notification.metadata?.invitationId;
+  return notification.type === DRIVER_INVITED_NOTIFICATION_TYPE && typeof invitationId === 'string'
+    ? invitationId
+    : null;
+}
+
+/**
+ * Whether this card is the invite's newest send — the one a Resend just created. Each send records
+ * its notification on the timeline; a send from before that was recorded falls back to time (the
+ * newest send's card is created after that send).
+ */
+function isNewestSendCard(
+  notification: NotificationEntity,
+  relation: DriverTenantRelationEntity,
+): boolean {
+  const newestSend = relation.inviteTimeline.filter(isInviteSendEvent).at(-1);
+  if (!newestSend) return false;
+  return newestSend.notificationId
+    ? newestSend.notificationId === notification.id
+    : notification.createdAt.getTime() >= Date.parse(newestSend.at);
+}
+
+/** Where the invite behind a card stands now. A missing relation was deleted with its fleet link
+ *  — nothing left to act on. */
+function inviteCardStatusOf(
+  notification: NotificationEntity,
+  relation: DriverTenantRelationEntity | undefined,
+): DriverInviteCardStatus {
+  if (!relation) return 'cancelled';
+  switch (relation.status) {
+    case 'active':
+      return 'accepted';
+    case 'rejected':
+      return 'declined';
+    case 'cancelled':
+      return 'cancelled';
+    case 'pending_staff_review':
+      // Re-invited by dispatch, waiting for an org admin — a new card comes with that send.
+      return 'replaced';
+    case 'pending_driver_review':
+      if (!isNewestSendCard(notification, relation)) return 'replaced';
+      return relation.inviteExpiresAt && relation.inviteExpiresAt <= new Date()
+        ? 'expired'
+        : 'pending';
+  }
+}
 
 function toHomeCurrentTrip(
   job: TripListRow,
@@ -370,15 +427,42 @@ export class DriverPortalService {
   // --- Notifications — not tenant-scoped: a driver's inbox spans every tenant relation they've
   // ever had, so these work the same whether or not tenantId is set. ---
 
-  getMyNotifications(
+  /**
+   * Each "You've been invited" card also gets its invite's live state (`invitation`): every Resend
+   * adds a card for the same invite, and only the newest send's card is actionable — older ones
+   * read `replaced`, and every card follows the invite once it's accepted, declined, cancelled or
+   * expired. Nothing is deleted; the cards and the invite's timeline stay as they are.
+   */
+  async getMyNotifications(
     driverId: string,
     category: DriverNotificationCategory | undefined,
     query: ListNotificationsInput,
-  ) {
-    return this.notificationsService.listForDriver(driverId, {
+  ): Promise<Paginated<DriverNotificationItem>> {
+    const page = await this.notificationsService.listForDriver(driverId, {
       ...query,
       typePrefix: category ? NOTIFICATION_TYPE_PREFIXES[category] : undefined,
     });
+    const invitationIds = [
+      ...new Set(page.items.map(invitationIdOf).filter((id): id is string => id !== null)),
+    ];
+    const relations = await this.driverTenantRelationRepository.findByIdsForDriver(
+      driverId,
+      invitationIds,
+    );
+    const relationsById = new Map(relations.map((relation) => [relation.id, relation]));
+
+    return {
+      ...page,
+      items: page.items.map((notification) => {
+        const invitationId = invitationIdOf(notification);
+        if (!invitationId) return { ...notification, invitation: null };
+        const status = inviteCardStatusOf(notification, relationsById.get(invitationId));
+        return {
+          ...notification,
+          invitation: { invitationId, status, actionable: status === 'pending' },
+        };
+      }),
+    };
   }
 
   /**
@@ -392,8 +476,8 @@ export class DriverPortalService {
       driverId,
       notificationId,
     );
-    const invitationId = notification.metadata?.invitationId;
-    if (notification.type === 'driver.account.invited' && typeof invitationId === 'string') {
+    const invitationId = invitationIdOf(notification);
+    if (invitationId) {
       await this.driverTenantRelationRepository.markInviteViewed(
         invitationId,
         driverId,

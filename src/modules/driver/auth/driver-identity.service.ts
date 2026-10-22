@@ -42,6 +42,12 @@ import {
 } from './driver-identity.interface';
 import { DriverDeviceCaptureInput } from './driver-auth.types';
 
+/** A fleet's invite this driver declined — not a tenant's rejection, which sets rejectedAt. */
+const isInviteDeclinedByDriver = (relation: DriverTenantRelationEntity): boolean =>
+  relation.status === 'rejected' &&
+  relation.initiatedBy !== 'driver' &&
+  relation.rejectedAt === null;
+
 export interface DriverInsuranceFlags {
   hasHealthInsurance: DriverInsuranceAnswer;
   hasLifeInsurance: DriverInsuranceAnswer;
@@ -512,7 +518,7 @@ export class DriverIdentityService {
       // Throws NotFoundError if the tenant doesn't exist — the only thing this call needs to do here.
       await this.organizationService.getOrganizationStatus(input.tenantId);
 
-      const existing = await this.driverTenantRelationRepository.findByTenantAndDriver(
+      const existing = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
         input.tenantId,
         driverId,
       );
@@ -520,7 +526,10 @@ export class DriverIdentityService {
         // This tenant withdrew its invite — the driver can't ask their way back in.
         throw new ConflictError(msg('errors.driver.joinBlocked'));
       }
-      if (existing) {
+      // Having declined this fleet's invite doesn't stop the driver asking to join later — even
+      // once the fleet can't send it again (DRIVER_INVITE_SENDS_AFTER_DECLINE). The request is a
+      // new row awaiting the fleet's approval; the declined invite and its history stay as they are.
+      if (existing && !isInviteDeclinedByDriver(existing)) {
         throw new ConflictError(msg('errors.driver.relationExists'));
       }
 
