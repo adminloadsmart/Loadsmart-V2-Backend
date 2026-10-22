@@ -1,6 +1,7 @@
 import { DriverWithRelation } from '../drivers.interface';
 import { TripListRow } from '../../loads/utils/trip-view';
 import { LoadStatus } from '../../loads/utils/loads.types';
+import { NotificationEntity } from '../../notifications/notifications.entity';
 
 /**
  * Driver-portal profile screen — everything getDriver/findByIdWithRelations already returns
@@ -51,6 +52,31 @@ export const NOTIFICATION_TYPE_PREFIXES = {
   account: 'driver.account.',
 } as const;
 export type DriverNotificationCategory = keyof typeof NOTIFICATION_TYPE_PREFIXES;
+
+/** Where the invite behind a "You've been invited" card stands now. `replaced` — a newer send of
+ *  the same invite is the one to act on (each Resend adds a card). */
+export const DRIVER_INVITE_CARD_STATUSES = [
+  'pending',
+  'accepted',
+  'declined',
+  'cancelled',
+  'expired',
+  'replaced',
+] as const;
+export type DriverInviteCardStatus = (typeof DRIVER_INVITE_CARD_STATUSES)[number];
+
+/** The driver's notification list item — the notification plus, on an invite card, its live
+ *  state. Older cards stay in the list (and on the invite's timeline); only the newest one is
+ *  actionable. */
+export type DriverNotificationItem = NotificationEntity & {
+  /** Null on every notification that isn't an invite card. */
+  invitation: {
+    invitationId: string;
+    status: DriverInviteCardStatus;
+    /** Show Accept / Decline — only on the newest send's card, while the invite is pending. */
+    actionable: boolean;
+  } | null;
+};
 
 /** Home-screen "current trip" card — a display-ready projection of `currentJob`, so the app
  *  doesn't have to stitch route/organization/directions together from a TripListRow. */

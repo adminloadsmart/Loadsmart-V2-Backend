@@ -171,9 +171,20 @@ export interface DriverInvitationView {
   appInstalled: boolean;
   /** Whether POST …/resend would go through now — drives the Resend button. */
   canResend: boolean;
-  /** Sends left since the driver first declined (DRIVER_INVITE_SENDS_AFTER_DECLINE); null when
-   *  they never declined, so no cap applies. */
+  /** Sends left since the driver first declined (DRIVER_INVITE_SENDS_AFTER_DECLINE, then one per
+   *  DRIVER_INVITE_COOL_OFF_DAYS); null when they never declined, so no cap applies. */
   sendsLeftAfterDecline: number | null;
+  /** While no send is left: when the next one opens up ("You can send it again on 31 Oct").
+   *  Null otherwise. */
+  canSendAgainAt: Date | null;
+}
+
+/** Where an invite stands against the decline cap (see driver.service.ts's sendsAfterDeclineOf). */
+export interface DriverInviteSendsAfterDecline {
+  /** Sends allowed right now. */
+  left: number;
+  /** While none is left: when the next send opens up. Null otherwise. */
+  sendAgainAt: Date | null;
 }
 
 /** Invitation detail drawer — the list row plus credentials, timeline and delivery channels. */

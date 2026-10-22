@@ -33,10 +33,13 @@ import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-
 import { DriverSessionRepository } from './auth/driver-auth.repository';
 import {
   DRIVER_EXPORT_MAX_ROWS,
+  DRIVER_INVITE_COOL_OFF_DAYS,
   DRIVER_INVITE_SENDS_AFTER_DECLINE,
   DRIVER_JOIN_REQUEST_RESTORE_DAYS,
   MIN_SCORED_TRIPS,
 } from './driver.constants';
+import { formatDate } from '../../shared/i18n/format';
+import { DEFAULT_LOCALE } from '../../shared/i18n/locales';
 import { buildDriverWorkbook } from './driver-export.mapper';
 import { DriverError } from './driver.errors';
 import { getCachedLicenceLookup, setCachedLicenceLookup } from './driver-licence-lookup-cache';
@@ -60,6 +63,7 @@ import {
   ListInvitationsInput,
   DriverInvitationView,
   DriverInvitationDetailView,
+  DriverInviteSendsAfterDecline,
   DriverInvitationActor,
   DriverRejectedJoinRequestView,
   ExportDriversFilters,
@@ -139,22 +143,38 @@ export function isDriverOffPlatform(driver: Pick<DriverEntity, 'deletedAt'>): bo
 // so anything that isn't pending/active is a driver decline. A still-pending invite to a driver
 // who has left the platform reads `expired` — nobody is left to accept it.
 /**
- * Sends still allowed since the driver first declined (see DRIVER_INVITE_SENDS_AFTER_DECLINE),
- * counted from the invite's timeline — null when they never declined, so no cap applies.
+ * Sends still allowed since the driver first declined, counted from the invite's timeline:
+ * DRIVER_INVITE_SENDS_AFTER_DECLINE, then — once those are used — one more each time
+ * DRIVER_INVITE_COOL_OFF_DAYS pass after the latest decline or send, whichever is later.
+ * `sendAgainAt` is when that next send opens up, while none is left (null otherwise). Null when
+ * they never declined, so no cap applies.
  */
-function sendsLeftAfterDecline(relation: DriverTenantRelationEntity): number | null {
+function sendsAfterDeclineOf(
+  relation: DriverTenantRelationEntity,
+): DriverInviteSendsAfterDecline | null {
   const timeline = relation.inviteTimeline;
   const firstDecline = timeline.findIndex((event) => event.step === 'declined');
   if (firstDecline === -1) return null;
-  const sendsSince = timeline.slice(firstDecline + 1).filter(isInviteSendEvent).length;
-  return Math.max(0, DRIVER_INVITE_SENDS_AFTER_DECLINE - sendsSince);
+  const sinceDecline = timeline.slice(firstDecline);
+  const sendsSince = sinceDecline.filter(isInviteSendEvent).length;
+  const left = DRIVER_INVITE_SENDS_AFTER_DECLINE - sendsSince;
+  if (left > 0) return { left, sendAgainAt: null };
+
+  const lastDeclineOrSendAt = Math.max(
+    ...sinceDecline
+      .filter((event) => event.step === 'declined' || isInviteSendEvent(event))
+      .map((event) => Date.parse(event.at)),
+  );
+  const sendAgainAt = new Date(lastDeclineOrSendAt + DRIVER_INVITE_COOL_OFF_DAYS * MS_PER_DAY);
+  return sendAgainAt <= new Date() ? { left: 1, sendAgainAt: null } : { left: 0, sendAgainAt };
 }
 
 /** Shared by Resend and invite-by-mobile, so neither route gets around the cap. */
 function assertSendAllowedAfterDecline(relation: DriverTenantRelationEntity): void {
-  if (sendsLeftAfterDecline(relation) === 0) {
+  const sendsAfterDecline = sendsAfterDeclineOf(relation);
+  if (sendsAfterDecline?.sendAgainAt) {
     throw new ConflictError(
-      'This driver declined your invitation and it has already been sent once more — it cannot be sent again',
+      `This driver declined your invitation and it has already been sent again — you can send it once more from ${formatDate(sendsAfterDecline.sendAgainAt, DEFAULT_LOCALE)}`,
     );
   }
 }
@@ -176,7 +196,7 @@ function toInvitationView(
     expiredReason = 'invite_timeout';
   } else status = 'pending';
 
-  const sendsLeft = sendsLeftAfterDecline(relation);
+  const sendsAfterDecline = sendsAfterDeclineOf(relation);
   // Same rules as assertCanResend, so the Resend button and the endpoint never disagree.
   const resendable =
     status === 'pending' ||
@@ -213,8 +233,9 @@ function toInvitationView(
       },
     ],
     appInstalled,
-    canResend: resendable && sendsLeft !== 0,
-    sendsLeftAfterDecline: sendsLeft,
+    canResend: resendable && sendsAfterDecline?.left !== 0,
+    sendsLeftAfterDecline: sendsAfterDecline?.left ?? null,
+    canSendAgainAt: sendsAfterDecline?.sendAgainAt ?? null,
   };
 }
 

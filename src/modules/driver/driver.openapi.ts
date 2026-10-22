@@ -258,8 +258,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
         'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled, ' +
         'canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
-        'the driver first declined — once declined, the invite can be sent one more time; null ' +
-        'when never declined) }.',
+        'the driver first declined — once declined, the invite can be sent one more time, then ' +
+        'once more every 30 days after the latest decline or send; null when never declined), ' +
+        'canSendAgainAt (while no send is left, when the next one opens up; else null) }.',
     ),
     request: { query: driverValidators.listInvitations.shape.query },
     responses: {

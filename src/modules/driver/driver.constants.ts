@@ -23,6 +23,17 @@ export const DRIVER_JOIN_REQUEST_RESTORE_DAYS = 30;
  */
 export const DRIVER_INVITE_SENDS_AFTER_DECLINE = 1;
 
+/**
+ * Once those sends are used, the fleet may send once more this many days after the driver's latest
+ * decline or the latest send, whichever is later — at most one send per this many days from then
+ * on. The driver can always ask to join the fleet themselves meanwhile.
+ */
+export const DRIVER_INVITE_COOL_OFF_DAYS = 30;
+
+/** The driver's "You've been invited" notification — one per send of the invite, each carrying
+ *  the invitationId in its metadata. */
+export const DRIVER_INVITED_NOTIFICATION_TYPE = 'driver.account.invited';
+
 /** A driver's score only means something after this many trips — until then they read as `new`. */
 export const MIN_SCORED_TRIPS = 5;
 
