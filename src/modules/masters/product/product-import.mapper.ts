@@ -1,108 +1,30 @@
-import { parseSpreadsheetRows } from '../../../shared/utils/spreadsheet';
+import { IMPORT_MAX_ROWS } from '../../../shared/import/upload';
+import { ImportFileType, parseImportSheet, ParsedImportSheet } from '../../../shared/import/parse';
+import { buildImportSample } from '../../../shared/import/sample';
 import { CreateProductInput } from './product.interface';
+import { IMPORT_COLUMNS, TEMPLATE_COLUMNS } from './product-import.columns';
 
-export const PRODUCT_IMPORT_MAX_ROWS = 5000;
+export type ParsedProductSheet = ParsedImportSheet<CreateProductInput>;
 
-export interface ParsedProductExcelRow {
-  row: number;
-  input: Partial<CreateProductInput>;
-}
+export const PRODUCT_IMPORT_SAMPLE_FILENAME = 'product-bulk-upload-template.xlsx';
 
-export interface ParsedProductExcel {
-  rows: ParsedProductExcelRow[];
-  mapping: Record<string, string>;
-}
-
-const aliases: Partial<Record<keyof CreateProductInput, string[]>> = {
-  productDetails: ['productdetails', 'product', 'productname', 'name'],
-  hsnCode: ['hsncode', 'hsn', 'hsnnumber'],
-  packaging: ['packaging', 'package', 'packagetype'],
-  invoiceValue: ['invoicevalue', 'invoice', 'rate', 'price'],
-  billingUnit: ['billingunit', 'unit', 'billing'],
-  dimensions: ['dimensions', 'dimension', 'size'],
-  weight: ['weight'],
-  weightUnit: ['weightunit', 'weightmeasurementunit'],
-  subItems: ['subitems', 'subitem', 'variants', 'variant'],
-  classification: ['classification', 'hazardclass', 'hazardous'],
-  length: ['length'],
-  width: ['width'],
-  height: ['height'],
-  dimensionUnit: ['dimensionunit', 'scaleunit'],
-  conversionModel: ['conversionmodel'],
-};
-
-const NUMERIC_FIELDS = new Set<string>(['invoiceValue', 'weight', 'length', 'width', 'height']);
-
-function normalizeHeader(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLowerCase();
-}
-
-function parseNumber(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  const value = Number(raw.trim());
-  return Number.isFinite(value) ? value : Number.NaN;
-}
-
-function parseSubItems(raw: string | undefined): { name: string }[] | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  if (raw.trim().startsWith('[')) {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error('subItems must be a JSON array');
-    return parsed.map((item) => {
-      if (
-        !item ||
-        typeof item !== 'object' ||
-        typeof (item as { name?: unknown }).name !== 'string'
-      )
-        throw new Error('Each subItems entry must contain a name');
-      return { name: (item as { name: string }).name.trim() };
-    });
-  }
-  return raw
-    .split('|')
-    .map((name) => name.trim())
-    .filter(Boolean)
-    .map((name) => ({ name }));
-}
-
-export async function parseProductExcel(buffer: Buffer): Promise<ParsedProductExcel> {
-  const records = await parseSpreadsheetRows(buffer);
-  if (!records.length)
-    throw new Error('Excel file must contain a header and at least one data row');
-  if (records.length > PRODUCT_IMPORT_MAX_ROWS)
-    throw new Error(`Excel file cannot contain more than ${PRODUCT_IMPORT_MAX_ROWS} rows`);
-
-  const mapping: Record<string, string> = {};
-  for (const header of Object.keys(records[0])) {
-    const field = (Object.keys(aliases) as (keyof CreateProductInput)[]).find((key) =>
-      aliases[key]?.includes(normalizeHeader(header)),
-    );
-    if (field) {
-      if (Object.values(mapping).includes(field))
-        throw new Error(`Multiple columns map to "${field}"`);
-      mapping[header] = field;
-    }
-  }
-  if (!Object.values(mapping).includes('productDetails'))
-    throw new Error('Missing required column "productDetails"');
-
-  const rows = records.map((record, index) => {
-    const input: Partial<CreateProductInput> = {};
-    for (const [header, field] of Object.entries(mapping)) {
-      const raw = record[header]?.trim();
-      if (!raw) continue;
-      if (NUMERIC_FIELDS.has(field)) (input as Record<string, unknown>)[field] = parseNumber(raw);
-      else if (field === 'subItems') input.subItems = parseSubItems(raw);
-      else if (field === 'classification')
-        input.classification = raw
-          .toLowerCase()
-          .replace(/[\s-]+/g, '_') as CreateProductInput['classification'];
-      else (input as Record<string, unknown>)[field] = raw;
-    }
-    return { row: index + 2, input };
+export function parseProductSheet(
+  buffer: Buffer,
+  fileType: ImportFileType = 'xlsx',
+): Promise<ParsedProductSheet> {
+  return parseImportSheet<CreateProductInput>(buffer, fileType, IMPORT_COLUMNS, {
+    maxRows: IMPORT_MAX_ROWS,
+    requiredColumns: [['productDetails']],
   });
-  return { rows, mapping };
+}
+
+export function buildProductImportSample(): Promise<Buffer> {
+  return buildImportSample({
+    sheetName: 'Products',
+    columns: TEMPLATE_COLUMNS,
+    notes: [
+      'A product with the same name (any case) and HSN code as an earlier row, or an existing product, is reported and skipped.',
+      'Length, Width and Height together give the volumetric weight; fill all three or none.',
+    ],
+  });
 }

@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { paginationQuery } from '../../shared/validators/pagination';
-import { CUSTOMER_INVOICE_AGAINST, CUSTOMER_STATUSES } from './utils/customer.status';
+import {
+  CUSTOMER_GST_STATUSES,
+  CUSTOMER_INVOICE_AGAINST,
+  CUSTOMER_STATUSES,
+} from './utils/customer.status';
 import { gstinSchema } from '../masters/gst/gst.validators';
-import { GST_RECORD_STATUSES } from '../masters/gst/gst.types';
 
 const uuid = z.string().uuid();
 const mobile = z
@@ -108,24 +111,20 @@ const params = z.object({ customerId: uuid });
 const deleteParams = z.object({ customer_id: uuid });
 const listQuery = paginationQuery.extend({
   status: z.enum(CUSTOMER_STATUSES).optional(),
-  gstVerificationStatus: z.enum(GST_RECORD_STATUSES).optional(),
+  gstVerificationStatus: z.enum(CUSTOMER_GST_STATUSES).optional(),
 });
 
 export const customerValidators = {
   create: z.object({ body: z.object({ ...fields, ...legacyFields }).strict() }),
-  /** One bulk-upload row: same fields, but GSTIN, address and contacts may be missing (older
-   *  sheets only carry name + mobile) — the row needs a mobile or a GSTIN to be identifiable. */
+  /** One bulk-upload row: same field rules, but GSTIN, address and contacts may be missing (older
+   *  sheets only carry name + mobile) — the row needs a mobile or a GSTIN to be identifiable. A
+   *  GSTIN, when present, must be well-formed: it is queued for a paid IDfy lookup. */
   importRow: z.object({
     body: z
       .object({
         ...legacyFields,
         ...fields,
-        gstin: z
-          .string()
-          .trim()
-          .transform((value) => value.toUpperCase())
-          .pipe(z.string().min(1).max(15))
-          .optional(),
+        gstin: gstinSchema.optional(),
         registeredAddress: fields.registeredAddress.optional(),
         contacts: z.array(contact).max(20).optional(),
       })

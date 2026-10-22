@@ -1,28 +1,24 @@
 import { ValidationError } from '../../../shared/errors';
+import { ImportReport } from '../../../shared/import/report';
+import { importRows } from '../../../shared/import/run';
+import { ImportSource } from '../../../shared/import/upload';
 import { AuditService } from '../../audit/audit.service';
 import { productValidators } from './product.validators';
 import { ProductService } from './product.service';
 import { CreateProductInput } from './product.interface';
-import { parseProductExcel, ParsedProductExcel } from './product-import.mapper';
+import { ProductRepository } from './product.repository';
+import { parseProductSheet, ParsedProductSheet } from './product-import.mapper';
+import { IMPORT_COLUMNS } from './product-import.columns';
 
-export interface ProductImportRowError {
-  row: number;
-  field?: string;
-  message: string;
-}
-export interface ProductImportReport {
-  totalRows: number;
-  validRows: number;
-  created: number;
-  skipped: number;
-  failed: number;
-  columnMapping: Record<string, string>;
-  errors: ProductImportRowError[];
-}
+const naturalKey = (input: CreateProductInput) =>
+  `${input.productDetails.trim().toLowerCase()}|${input.hsnCode?.trim() ?? ''}`;
 
+/** Settings → Products "Bulk Upload": rows validated like POST /masters/products, deduped on
+ *  name + HSN (in the file and against existing products), created one by one. */
 export class ProductImportService {
   constructor(
     private readonly products: ProductService,
+    private readonly repository: Pick<ProductRepository, 'findByNameAndHsn'>,
     private readonly audit: AuditService,
   ) {}
 
@@ -30,73 +26,47 @@ export class ProductImportService {
     tenantId: string,
     actorId: string,
     role: string,
-    fileName: string,
-    buffer: Buffer,
-  ): Promise<ProductImportReport> {
-    const parsed = await this.parse(buffer);
-    const valid: { row: number; input: CreateProductInput }[] = [];
-    const errors: ProductImportRowError[] = [];
-    for (const item of parsed.rows) {
-      let result;
-      try {
-        result = productValidators.create.safeParse({ body: item.input });
-      } catch (error) {
-        errors.push({
-          row: item.row,
-          field: 'subItems',
-          message: error instanceof Error ? error.message : 'Invalid row',
-        });
-        continue;
-      }
-      if (!result.success) {
-        for (const issue of result.error.issues)
-          errors.push({
-            row: item.row,
-            field: issue.path[1]?.toString() ?? issue.path[0]?.toString(),
-            message: issue.message,
-          });
-        continue;
-      }
-      valid.push({ row: item.row, input: result.data.body as CreateProductInput });
-    }
+    source: ImportSource,
+  ): Promise<ImportReport> {
+    const parsed = await this.parse(source);
+    const report = await importRows(parsed, {
+      columns: IMPORT_COLUMNS,
+      schema: productValidators.create.shape.body,
+      duplicateKey: naturalKey,
+      duplicateError: {
+        field: 'Product Details',
+        message: 'Duplicate product name + HSN — already used by an earlier row in this file',
+      },
+      check: async (input) =>
+        (await this.repository.findByNameAndHsn(tenantId, input.productDetails, input.hsnCode))
+          ? {
+              field: 'Product Details',
+              message: `A product "${input.productDetails}"${input.hsnCode ? ` with HSN ${input.hsnCode}` : ''} already exists`,
+            }
+          : null,
+      create: (input) => this.products.create(tenantId, actorId, role, input),
+    });
 
-    const report: ProductImportReport = {
-      totalRows: parsed.rows.length,
-      validRows: valid.length,
-      created: 0,
-      skipped: 0,
-      failed: errors.length,
-      columnMapping: parsed.mapping,
-      errors,
-    };
-    for (const item of valid) {
-      try {
-        await this.products.create(tenantId, actorId, role, item.input);
-        report.created += 1;
-      } catch (error) {
-        report.failed += 1;
-        report.errors.push({
-          row: item.row,
-          field: 'productDetails',
-          message: error instanceof Error ? error.message : 'Failed to create product',
-        });
-      }
-    }
     await this.audit.log({
       tenantId,
       userId: actorId,
       action: 'PRODUCT_BULK_IMPORTED',
       resourceType: 'product',
-      newData: { fileName, ...report },
+      newData: {
+        fileName: source.fileName,
+        totalRows: report.total,
+        created: report.created,
+        failed: report.failed,
+      },
     });
     return report;
   }
 
-  private async parse(buffer: Buffer): Promise<ParsedProductExcel> {
+  private async parse(source: ImportSource): Promise<ParsedProductSheet> {
     try {
-      return await parseProductExcel(buffer);
+      return await parseProductSheet(source.buffer, source.fileType);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid file');
     }
   }
 }

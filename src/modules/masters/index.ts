@@ -36,6 +36,16 @@ import { ProductController } from './product/product.controller';
 import { ProductImportService } from './product/product-import.service';
 import { ProductImportController } from './product/product-import.controller';
 import { IdfyClient } from '../../adapters/idfy.client';
+import { GstRateGate } from './gst/gst-rate-gate';
+import { GST_VERIFICATION_QUEUE } from './gst/gst-background-verification';
+import { TransporterGstVerificationService } from './transporter/transporter-gst-verification.service';
+import { TransporterEntity } from './transporter/entities/transporter.entity';
+import {
+  VAHAN_VERIFICATION_QUEUE,
+  VehicleVahanVerificationService,
+} from './vehicle/vehicle-vahan-verification.service';
+import { createJobQueue } from '../../jobs/queue-registry';
+import { redisManager } from '../../db/redis';
 import { GstVerificationRepository } from './gst/gst.repository';
 import { GstVerificationService } from './gst/gst.service';
 import { GstController } from './gst/gst.controller';
@@ -73,11 +83,14 @@ export function createMastersModule(
 
   // Settings → Masters "Verify GST" — also handed to the customers module (composition-root).
   const idfyClient = new IdfyClient();
+  // One IDfy GST lookup per window across the Verify button and the bulk-import worker.
+  const gstRateGate = new GstRateGate(redisManager);
   const masterUsageRepository = new MasterUsageRepository(dataSource);
   const gstVerificationService = new GstVerificationService(
     new GstVerificationRepository(dataSource),
     idfyClient,
     deps.auditService,
+    gstRateGate,
   );
   const gstController = new GstController(gstVerificationService);
 
@@ -91,9 +104,19 @@ export function createMastersModule(
     idfyClient,
   );
   const transporterController = new TransporterController(transporterService);
+  // Bulk-imported GSTINs are verified in the background on the shared 'gst-verification' queue.
+  const transporterGstVerification = new TransporterGstVerificationService(
+    dataSource.getRepository(TransporterEntity),
+    gstVerificationService,
+    gstRateGate,
+    deps.auditService,
+    createJobQueue(GST_VERIFICATION_QUEUE),
+  );
   const transporterImportService = new TransporterImportService(
     transporterService,
+    transporterRepository,
     deps.auditService,
+    transporterGstVerification,
   );
   const transporterImportController = new TransporterImportController(transporterImportService);
 
@@ -121,6 +144,7 @@ export function createMastersModule(
   const loadingPointController = new LoadingPointController(loadingPointService);
   const loadingPointImportService = new LoadingPointImportService(
     loadingPointService,
+    loadingPointRepository,
     deps.auditService,
   );
   const loadingPointImportController = new LoadingPointImportController(loadingPointImportService);
@@ -132,10 +156,15 @@ export function createMastersModule(
     deps.masterApprovalNotifier,
   );
   const productController = new ProductController(productService);
-  const productImportService = new ProductImportService(productService, deps.auditService);
+  const productImportService = new ProductImportService(
+    productService,
+    productRepository,
+    deps.auditService,
+  );
   const productImportController = new ProductImportController(productImportService);
 
   const vehicleRepository = new VehicleRepository(dataSource);
+  const ulipClient = new UlipClient();
 
   // Built on the repositories (not VehicleService/DriverService) so it has no dependency on
   // VehicleService — which itself depends on this service to link a driver during onboarding.
@@ -154,11 +183,25 @@ export function createMastersModule(
     fleetDriverLinkService,
     dataSource,
     deps.auditService,
-    new UlipClient(),
+    ulipClient,
     deps.masterApprovalNotifier,
   );
   const vehicleController = new VehicleController(vehicleService);
-  const vehicleImportService = new VehicleImportService(vehicleService, deps.auditService);
+  // Bulk-imported trucks are checked against VAHAN in the background ('vahan-verification').
+  const vehicleVahanVerification = new VehicleVahanVerificationService(
+    vehicleRepository,
+    vehicleService,
+    ulipClient,
+    deps.auditService,
+    createJobQueue(VAHAN_VERIFICATION_QUEUE),
+  );
+  const vehicleImportService = new VehicleImportService(
+    vehicleService,
+    vehicleRepository,
+    deps.driverTenantRelationRepository,
+    deps.auditService,
+    vehicleVahanVerification,
+  );
   const vehicleImportController = new VehicleImportController(vehicleImportService);
 
   const protectedRouter = createMastersProtectedRoutes(
@@ -181,6 +224,9 @@ export function createMastersModule(
 
   return {
     gstVerificationService,
+    gstRateGate,
+    transporterGstVerification,
+    vehicleVahanVerification,
     contractService,
     vehicleService,
     fleetDriverLinkService,

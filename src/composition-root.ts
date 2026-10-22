@@ -53,6 +53,12 @@ import { createServiceAlerts } from './modules/notifications/service-alerts';
 import { createTyreAlerts } from './modules/notifications/tyre-alerts';
 import { createDigests, digestJobs, scheduleDigests } from './modules/notifications/digests';
 import { createJobQueue } from './jobs/queue-registry';
+import { createGstVerificationWorker } from './modules/masters/gst/workers/gst-verification.worker';
+import { createVehicleVahanVerificationWorker } from './modules/masters/vehicle/workers/vehicle-vahan-verification.worker';
+import {
+  GstBackgroundVerification,
+  GstTargetRecord,
+} from './modules/masters/gst/gst-background-verification';
 import {
   createMasterApprovalNotifier,
   createMasterApprovalResolvers,
@@ -436,6 +442,7 @@ export function buildContainer(dataSource: DataSource): Container {
     dataSource,
     audit.service,
     masters.gstVerificationService,
+    masters.gstRateGate,
     masterApprovalNotifier,
   );
 
@@ -582,6 +589,12 @@ export function buildContainer(dataSource: DataSource): Container {
           notifyGeofenceTransition: (notice) => geofences.service.notifyTransition(notice),
         }),
       ),
+      // One worker for every background GSTIN check, so one limiter covers them all.
+      createGstVerificationWorker([
+        customers.gstBackgroundVerification,
+        masters.transporterGstVerification,
+      ] as GstBackgroundVerification<GstTargetRecord>[]),
+      createVehicleVahanVerificationWorker(masters.vehicleVahanVerification),
     ],
   };
 }

@@ -5,7 +5,7 @@ import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagi
 import { DriverService, flattenRelation } from '../driver.service';
 import { DriverRepository } from '../driver.repository';
 import { DriverTenantRelationRepository } from '../driver-tenant-relation.repository';
-import { AddBankDetailsInput } from '../drivers.interface';
+import { AddBankDetailsInput, SetDriverOperationalStatusInput } from '../drivers.interface';
 import { DriverEntity } from '../entities/driver.entity';
 import { DriverOperationalStatusEntity } from '../entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity';
@@ -157,8 +157,16 @@ export class DriverPortalService {
             )
           : null;
 
+      const performance = {
+        tripsCompleted,
+        onTimeDeliveryPercentage,
+        kmsDriven: null, // not tracked anywhere in this build
+        settlementDue: null, // no driver settlement/earnings module exists yet
+      };
+      const fleet = { tenantId, organizationName: organization.name, vehicle, performance };
       return {
         ...driver, // fullName, phoneNumber, documents, verifications, bankDetails, vehicleLinks, etc. — unchanged
+        fleets: [fleet],
         organizationName: organization.name,
         experienceYears: null, // not tracked — no field distinguishes this from dateOfJoining
         vehicle,
@@ -170,12 +178,7 @@ export class DriverPortalService {
             ? { uploaded: true, verified: !!identityProofDoc.verifiedAt }
             : null,
         },
-        performance: {
-          tripsCompleted,
-          onTimeDeliveryPercentage,
-          kmsDriven: null, // not tracked anywhere in this build
-          settlementDue: null, // no driver settlement/earnings module exists yet
-        },
+        performance,
         settings: {
           notificationsEnabled: null, // no driver notification-preference field exists yet
           language: null, // no driver locale/language field exists yet
@@ -189,36 +192,63 @@ export class DriverPortalService {
   }
 
   /** Profile screen. A driver not yet linked to any tenant still gets their own global profile
-   *  back; once linked, this becomes the full aggregated view — see fetchTenantProfile's own doc
-   *  comment for which fields are real data vs. explicit null. */
-  getMyProfile(
+   *  back; once linked, this becomes the full aggregated view with one `fleets` entry per active
+   *  tenant — see fetchTenantProfile's own doc comment for which fields are real data vs.
+   *  explicit null. */
+  async getMyProfile(
     driverId: string,
-    tenantId: string | null,
+    tenantIds: string[],
   ): Promise<DriverProfileView | DriverEntity> {
-    return tenantId
-      ? this.fetchTenantProfile(tenantId, driverId)
-      : this.fetchGlobalProfile(driverId);
+    if (tenantIds.length === 0) return this.fetchGlobalProfile(driverId);
+    const views = await Promise.all(
+      tenantIds.map((tenantId) => this.fetchTenantProfile(tenantId, driverId)),
+    );
+    return { ...views[0], fleets: views.flatMap((view) => view.fleets) };
   }
 
-  /** A driver with no active tenant relation has no operational status anywhere — null, not a
-   *  permissions error. */
-  getMyStatus(
+  /** The driver's availability in every fleet they're linked to — an empty list with no active
+   *  relation, not a permissions error. */
+  async getMyStatus(
     driverId: string,
-    tenantId: string | null,
-  ): Promise<DriverOperationalStatusEntity | null> {
-    if (!tenantId) return Promise.resolve(null);
-    return this.driverService.getOperationalStatus(tenantId, driverId);
+    tenantIds: string[],
+  ): Promise<DriverOperationalStatusEntity[]> {
+    const statuses = await Promise.all(
+      tenantIds.map((tenantId) =>
+        this.driverService.getOperationalStatus(tenantId, driverId).catch((error) => {
+          // A fleet that hasn't recorded a status for this driver yet just has nothing to show.
+          if (error instanceof NotFoundError) return null;
+          throw error;
+        }),
+      ),
+    );
+    return statuses.filter((status): status is DriverOperationalStatusEntity => status !== null);
   }
 
-  /** Read-only ops-computed KPIs. No tenant relation means no metrics anywhere — empty array,
-   *  not a permissions error. */
-  getMyTripMetrics(driverId: string, tenantId: string | null): Promise<DriverTripMetricsEntity[]> {
-    if (!tenantId) return Promise.resolve([]);
-    return this.driverService.listTripMetrics(tenantId, driverId);
+  /** Read-only ops-computed KPIs across every fleet. No tenant relation means no metrics
+   *  anywhere — empty array, not a permissions error. */
+  async getMyTripMetrics(
+    driverId: string,
+    tenantIds: string[],
+  ): Promise<DriverTripMetricsEntity[]> {
+    const perTenant = await Promise.all(
+      tenantIds.map((tenantId) => this.driverService.listTripMetrics(tenantId, driverId)),
+    );
+    return perTenant.flat();
   }
 
-  /** No tenant relation means this driver cannot be assigned to any load in any tenant — an
-   *  empty page, not a permissions error. */
+  /** Availability is per fleet relation, so one change from the driver applies to all of them. */
+  async setMyStatus(
+    driverId: string,
+    tenantIds: string[],
+    input: SetDriverOperationalStatusInput,
+  ): Promise<DriverOperationalStatusEntity[]> {
+    return Promise.all(
+      tenantIds.map((tenantId) =>
+        this.driverService.setOperationalStatus(tenantId, driverId, driverId, input),
+      ),
+    );
+  }
+
   /** Bank-account preflight — see DriverService.checkBankAccount. Nothing is saved. */
   checkMyBankAccount(accountNumber: string, ifsc: string) {
     return this.driverService.checkBankAccount(accountNumber, ifsc);
@@ -240,30 +270,30 @@ export class DriverPortalService {
 
   getMyLoads(
     driverId: string,
-    tenantId: string | null,
+    tenantIds: string[],
     query: ListLoadsInput,
     locale: Locale = DEFAULT_LOCALE,
   ): Promise<Paginated<TripListRow> & { counts?: { active: number; completed: number } }> {
-    if (!tenantId) return Promise.resolve(paginate([], 0, query));
-    return this.loadService.list(tenantId, { ...query, driverId }, locale);
+    if (tenantIds.length === 0) return Promise.resolve(paginate([], 0, query));
+    return this.loadService.list(tenantIds, { ...query, driverId }, locale);
   }
 
   /** Driver-app "Trips Done" screen — always completed-only. No tenant relation means no
    *  completed trips anywhere — a zeroed/empty result, same reasoning as getMyLoads above. */
   getMyTripsDone(
     driverId: string,
-    tenantId: string | null,
+    tenantIds: string[],
     query: PaginationInput,
     locale: Locale = DEFAULT_LOCALE,
   ): Promise<TripsDoneResult> {
-    if (!tenantId) {
+    if (tenantIds.length === 0) {
       return Promise.resolve({
         ...paginate([], 0, query),
         totalTrips: 0,
         epodVerifiedPercentage: 0,
       });
     }
-    return this.loadService.getMyTripsDone(tenantId, driverId, query, locale);
+    return this.loadService.getMyTripsDone(tenantIds, driverId, query, locale);
   }
 
   /** Home screen — bundles driver name/vehicle, on-time %/trips-done/open-trips stats, the
@@ -278,12 +308,12 @@ export class DriverPortalService {
    *  them yet. */
   async getMyHome(
     driverId: string,
-    tenantId: string | null,
+    tenantIds: string[],
     locale: Locale = DEFAULT_LOCALE,
   ): Promise<DriverHomeView> {
     const unreadNotificationCount = await this.notificationsService.countUnreadForDriver(driverId);
 
-    if (!tenantId) {
+    if (tenantIds.length === 0) {
       const driver = await this.fetchGlobalProfile(driverId);
       return {
         driver: {
@@ -303,12 +333,14 @@ export class DriverPortalService {
     }
 
     const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
-      this.fetchTenantProfile(tenantId, driverId),
-      this.loadService.getMyTripsDone(tenantId, driverId, { page: 1, limit: 1 }, locale),
-      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'active' }, locale),
-      this.loadService.list(tenantId, { page: 1, limit: 5, driverId, status: 'assigned' }, locale),
-      this.loadService.list(tenantId, { page: 1, limit: 1, driverId, group: 'open' }, locale),
+      this.getMyProfile(driverId, tenantIds) as Promise<DriverProfileView>,
+      this.loadService.getMyTripsDone(tenantIds, driverId, { page: 1, limit: 1 }, locale),
+      this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'active' }, locale),
+      this.loadService.list(tenantIds, { page: 1, limit: 5, driverId, status: 'assigned' }, locale),
+      this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
+    const organizationOf = (job: TripListRow) =>
+      profile.fleets.find((fleet) => fleet.tenantId === job.tenantId)?.organizationName ?? null;
 
     return {
       driver: {
@@ -325,10 +357,10 @@ export class DriverPortalService {
       currentJob: activeJobs.items[0] ?? null,
       upcomingJobs: upcomingJobs.items,
       currentTrip: activeJobs.items[0]
-        ? toHomeCurrentTrip(activeJobs.items[0], profile.organizationName)
+        ? toHomeCurrentTrip(activeJobs.items[0], organizationOf(activeJobs.items[0]))
         : null,
       nextTrip: upcomingJobs.items[0]
-        ? toHomeNextTrip(upcomingJobs.items[0], profile.organizationName)
+        ? toHomeNextTrip(upcomingJobs.items[0], organizationOf(upcomingJobs.items[0]))
         : null,
       money: { cashHeld: null, organizationName: profile.organizationName },
       unreadNotificationCount,
@@ -350,9 +382,10 @@ export class DriverPortalService {
   }
 
   /**
-   * Opening the "You've been invited" notification (push tap or in-app list) is what marks that
-   * invitation viewed for the fleet owner's drawer — see DriverPushNotifier.notifyInvited, which
-   * stores the invitationId on the notification. Device comes from the calling session.
+   * Opening a "You've been invited" notification (push tap or in-app list) logs it as viewed on
+   * that invitation's timeline, against the send that created it — see
+   * DriverPushNotifier.notifyInvited, which stores the invitationId on the notification. Device
+   * comes from the calling session.
    */
   async markMyNotificationRead(driverId: string, notificationId: string, sessionId?: string) {
     const notification = await this.notificationsService.markReadForDriver(
@@ -364,7 +397,7 @@ export class DriverPortalService {
       await this.driverTenantRelationRepository.markInviteViewed(
         invitationId,
         driverId,
-        notification.createdAt,
+        notification,
         sessionId,
       );
     }

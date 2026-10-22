@@ -80,6 +80,13 @@ export function createDriverRoutes(
     validate(driverValidators.importDrivers),
     asyncHandler(importController.import),
   );
+  // Active Roster's "Export CSV" (an .xlsx, like the fleet export). Declared before
+  // '/drivers/:driverId' so "export" isn't parsed as a driverId.
+  router.get(
+    '/drivers/export',
+    validate(driverValidators.exportDrivers),
+    asyncHandler(controller.exportDrivers),
+  );
   router.get(
     '/drivers',
     validate(driverValidators.listDrivers),
@@ -158,6 +165,14 @@ export function createDriverRoutes(
     canApprove,
     validate(driverValidators.rejectDriver),
     asyncHandler(controller.rejectDriver),
+  );
+  // Recently Rejected → Restore: a rejected join request back into Requests to You. Same
+  // permission as approve/reject.
+  router.patch(
+    '/drivers/:driverId/restore',
+    canApprove,
+    validate(driverValidators.restoreDriver),
+    asyncHandler(controller.restoreDriver),
   );
 
   router.post(

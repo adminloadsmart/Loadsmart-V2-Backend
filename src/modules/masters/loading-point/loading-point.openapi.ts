@@ -1,3 +1,4 @@
+import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { loadingPointValidators } from './loading-point.validators';
 import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
@@ -16,12 +17,23 @@ const write = (description: string) => permissionGated([MASTERS_WRITE], descript
 const approve = (description: string) => permissionGated([MASTERS_APPROVE], description);
 
 export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
+  registerImportSampleOpenApi(registry, {
+    path: `${BASE}/loading-points/import/sample`,
+    operationId: 'masters.loadingPointImportSample',
+    permission: MASTERS_WRITE,
+    label: 'loading point',
+    filename: 'loading-point-bulk-upload-template.xlsx',
+  });
   registry.registerPath({
     method: 'post',
     path: `${BASE}/loading-points/import`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.importLoadingPointsExcel',
-    ...write('Bulk import loading points from an Excel file.'),
+    ...write(
+      'Bulk upload loading points from the template (GET /loading-points/import/sample). A ' +
+        'repeated Title + PIN (in the file or of an existing point) is skipped. ' +
+        'Rows are validated like single create and created one by one; rows that fail are reported in errors and skipped. Unknown columns are ignored (ignoredColumns).',
+    ),
     request: {
       body: {
         content: {
@@ -33,7 +45,7 @@ export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
                 file: {
                   type: 'string',
                   format: 'binary',
-                  description: 'Excel file (.xlsx), maximum 5 MB.',
+                  description: '.xlsx or .csv file, maximum 5 MB / 1000 rows.',
                 },
               },
             },

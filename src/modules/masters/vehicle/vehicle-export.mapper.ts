@@ -2,7 +2,6 @@ import { Workbook } from 'exceljs';
 import { toIstDateString } from '../../../shared/utils/ist-time';
 import { VehicleEntity } from './entities/vehicle.entity';
 import { VehicleDocumentEntity } from './entities/vehicle-document.entity';
-import { VEHICLE_IMPORT_COLUMNS } from './vehicle-import.mapper';
 
 export const VEHICLE_EXPORT_MAX_ROWS = 5000;
 
@@ -35,6 +34,70 @@ function monthsLeft(endDate: string | null | undefined): number | undefined {
 function yesNo(value: boolean | null | undefined): string | undefined {
   return value === null || value === undefined ? undefined : value ? 'yes' : 'no';
 }
+
+/** The export's columns: the flat keys the bulk upload reads back (vehicle-import.columns.ts keeps
+ *  every one as a column key or legacy alias), so an exported sheet can be re-uploaded. */
+const EXPORT_COLUMN_KEYS = [
+  'registrationNumber',
+  'truckTypeId',
+  'truckBody',
+  'wheelCount',
+  'axleType',
+  'capacityTons',
+  'bodyLengthFt',
+  'fuelType',
+  'makeModel',
+  'ownershipType',
+  'financierName',
+  'grossVehicleWeightKg',
+  'unladenWeightKg',
+  'emissionNorm',
+  'vahanBodyType',
+  'emiAmount',
+  'emiMonthsLeft',
+  'insurancePremiumYearly',
+  'leaseRentMonthly',
+  'leaseEndDate',
+  'fuelPaidBy',
+  'tollPaidBy',
+  'hasGps',
+  'gpsProvider',
+  'gpsDeviceImei',
+  'odometerKm',
+  'lastServiceDate',
+  'lastServiceOdometerKm',
+  'lastTyreChangeBrand',
+  'lastTyreChangeDate',
+  'serviceIntervalKm',
+  'serviceIntervalMonths',
+  'tyrePreset',
+  'operationalStatus',
+  'operationalStatusReason',
+  'rcNumber',
+  'rcIssueDate',
+  'rcExpiryDate',
+  'insuranceNumber',
+  'insuranceProvider',
+  'insuranceIssueDate',
+  'insuranceExpiryDate',
+  'permitNumber',
+  'permitIssueDate',
+  'permitExpiryDate',
+  'pucNumber',
+  'pucIssueDate',
+  'pucExpiryDate',
+  'fitnessNumber',
+  'fitnessIssueDate',
+  'fitnessExpiryDate',
+  'roadTaxNumber',
+  'roadTaxIssueDate',
+  'roadTaxExpiryDate',
+  'rcFrontUrl',
+  'rcBackUrl',
+  'driverId',
+  'driverIsPrimary',
+  'driverLinkedFrom',
+] as const;
 
 /**
  * One vehicle → one row keyed by the import's column names, so an export can be edited and
@@ -107,10 +170,10 @@ export function vehicleToExportRow(vehicle: VehicleEntity): Record<string, Cell 
 export async function buildVehicleWorkbook(vehicles: VehicleEntity[]): Promise<Buffer> {
   const workbook = new Workbook();
   const sheet = workbook.addWorksheet('Vehicles');
-  sheet.addRow(VEHICLE_IMPORT_COLUMNS.map(({ key }) => key)).font = { bold: true };
+  sheet.addRow([...EXPORT_COLUMN_KEYS]).font = { bold: true };
   for (const vehicle of vehicles) {
     const row = vehicleToExportRow(vehicle);
-    sheet.addRow(VEHICLE_IMPORT_COLUMNS.map(({ key }) => row[key] ?? ''));
+    sheet.addRow(EXPORT_COLUMN_KEYS.map((key) => row[key] ?? ''));
   }
   sheet.columns.forEach((column) => {
     column.width = 22;

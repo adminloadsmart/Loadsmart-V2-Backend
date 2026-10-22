@@ -5,12 +5,14 @@ import {
   DriverBankDetailsParams,
   DriverDocumentParams,
   DriverParams,
+  ExportDriversFilters,
   ListDriversInput,
   ListJoinRequestsInput,
   ListInvitationsInput,
   InvitationParams,
 } from './drivers.interface';
 import { DriverService } from './driver.service';
+import { canApproveJoinRequests } from './utils/join-request-permissions';
 
 export class DriverController {
   constructor(private readonly driverService: DriverService) {}
@@ -24,6 +26,22 @@ export class DriverController {
       req.validatedQuery as ListDriversInput,
     );
     respond(res, drivers);
+  };
+
+  exportDrivers = async (req: Request, res: Response) => {
+    const buffer = await this.driverService.exportDrivers(
+      requireTenantId(req),
+      req.validatedQuery as ExportDriversFilters,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="drivers-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    );
+    res.send(buffer);
   };
 
   getDriver = async (req: Request<DriverParams>, res: Response) => {
@@ -173,9 +191,18 @@ export class DriverController {
       requireTenantId(req),
       req.user!.id,
       req.params.driverId,
-      req.body.reason ?? null,
+      { reason: req.body.reason ?? null, notifyDriver: req.body.notifyDriver },
     );
     respond(res, driver);
+  };
+
+  restoreDriver = async (req: Request<DriverParams>, res: Response) => {
+    const request = await this.driverService.restoreJoinRequest(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.driverId,
+    );
+    respond(res, request);
   };
 
   getDriverOperationalStatus = async (req: Request<DriverParams>, res: Response) => {
@@ -260,10 +287,15 @@ export class DriverController {
 
   // Driver-initiated join requests only — see DriverService.listJoinRequests.
   listJoinRequests = async (req: Request, res: Response) => {
-    const requests = await this.driverService.listJoinRequests(
-      requireTenantId(req),
-      req.validatedQuery as ListJoinRequestsInput,
-    );
+    const input = req.validatedQuery as ListJoinRequestsInput;
+    const requests =
+      input.status === 'rejected'
+        ? await this.driverService.listRejectedJoinRequests(
+            requireTenantId(req),
+            input,
+            canApproveJoinRequests(req),
+          )
+        : await this.driverService.listJoinRequests(requireTenantId(req), input);
     respond(res, requests);
   };
 }

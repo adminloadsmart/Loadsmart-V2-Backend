@@ -3,7 +3,7 @@ import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
 import { MASTERS_WRITE } from '../../../shared/constants/permissions';
-import { mastersExcelUpload, requireMastersExcelFile } from '../masters.upload';
+import { importUpload, requireImportFile } from '../../../shared/import/upload';
 import { ContractController } from './contract.controller';
 import { contractValidators } from './contract.validators';
 
@@ -34,10 +34,12 @@ export function createContractRoutes(controller: ContractController): Router {
   router.post(
     '/contracts/import',
     canWrite,
-    mastersExcelUpload.single('file'),
-    requireMastersExcelFile,
+    importUpload,
+    requireImportFile,
     asyncHandler(controller.import),
   );
+  // Literal segment — declared before '/contracts/:contractId'.
+  router.get('/contracts/import/sample', canWrite, asyncHandler(controller.importSample));
   router.get(
     '/contracts/:contractId',
     validate(contractValidators.get),

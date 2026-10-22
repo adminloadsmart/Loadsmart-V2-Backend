@@ -1,29 +1,24 @@
 import { ValidationError } from '../../../shared/errors';
+import { ImportReport } from '../../../shared/import/report';
+import { importRows } from '../../../shared/import/run';
+import { ImportSource } from '../../../shared/import/upload';
 import { AuditService } from '../../audit/audit.service';
 import { loadingPointValidators } from './loading-point.validators';
 import { LoadingPointService } from './loading-point.service';
 import { CreateLoadingPointInput } from './loading-point.interface';
-import { parseLoadingPointExcel, ParsedLoadingPointExcel } from './loading-point-import.mapper';
+import { LoadingPointRepository } from './loading-point.repository';
+import { parseLoadingPointSheet, ParsedLoadingPointSheet } from './loading-point-import.mapper';
+import { IMPORT_COLUMNS } from './loading-point-import.columns';
 
-export interface LoadingPointImportRowError {
-  row: number;
-  field?: string;
-  message: string;
-}
+const naturalKey = (input: CreateLoadingPointInput) =>
+  `${input.title.trim().toLowerCase()}|${input.pinCode.trim()}`;
 
-export interface LoadingPointImportReport {
-  totalRows: number;
-  validRows: number;
-  created: number;
-  skipped: number;
-  failed: number;
-  columnMapping: Record<string, string>;
-  errors: LoadingPointImportRowError[];
-}
-
+/** Settings → Loading Points "Bulk Upload": rows validated like POST /masters/loading-points,
+ *  deduped on Title + PIN (in the file and against existing points), created one by one. */
 export class LoadingPointImportService {
   constructor(
     private readonly loadingPoints: LoadingPointService,
+    private readonly repository: Pick<LoadingPointRepository, 'findByTitleAndPin'>,
     private readonly audit: AuditService,
   ) {}
 
@@ -31,62 +26,47 @@ export class LoadingPointImportService {
     tenantId: string,
     actorId: string,
     actorRole: string,
-    fileName: string,
-    buffer: Buffer,
-  ): Promise<LoadingPointImportReport> {
-    const parsed = await this.parse(buffer);
-    const valid: { row: number; input: CreateLoadingPointInput }[] = [];
-    const errors: LoadingPointImportRowError[] = [];
-
-    for (const item of parsed.rows) {
-      const result = loadingPointValidators.create.safeParse({ body: item.input });
-      if (!result.success) {
-        for (const issue of result.error.issues) {
-          errors.push({ row: item.row, field: issue.path[1]?.toString(), message: issue.message });
-        }
-        continue;
-      }
-      valid.push({ row: item.row, input: result.data.body as CreateLoadingPointInput });
-    }
-
-    const report: LoadingPointImportReport = {
-      totalRows: parsed.rows.length,
-      validRows: valid.length,
-      created: 0,
-      skipped: 0,
-      failed: errors.length,
-      columnMapping: parsed.mapping,
-      errors,
-    };
-
-    for (const item of valid) {
-      try {
-        await this.loadingPoints.create(tenantId, actorId, actorRole, item.input);
-        report.created += 1;
-      } catch (error) {
-        report.failed += 1;
-        report.errors.push({
-          row: item.row,
-          message: error instanceof Error ? error.message : 'Failed to create loading point',
-        });
-      }
-    }
+    source: ImportSource,
+  ): Promise<ImportReport> {
+    const parsed = await this.parse(source);
+    const report = await importRows(parsed, {
+      columns: IMPORT_COLUMNS,
+      schema: loadingPointValidators.create.shape.body,
+      duplicateKey: naturalKey,
+      duplicateError: {
+        field: 'Title',
+        message: 'Duplicate Title + PIN — already used by an earlier row in this file',
+      },
+      check: async (input) =>
+        (await this.repository.findByTitleAndPin(tenantId, input.title, input.pinCode))
+          ? {
+              field: 'Title',
+              message: `A loading point "${input.title}" with PIN ${input.pinCode} already exists`,
+            }
+          : null,
+      create: (input) => this.loadingPoints.create(tenantId, actorId, actorRole, input),
+    });
 
     await this.audit.log({
       tenantId,
       userId: actorId,
       action: 'LOADING_POINT_BULK_IMPORTED',
       resourceType: 'loading_point',
-      newData: { fileName, ...report },
+      newData: {
+        fileName: source.fileName,
+        totalRows: report.total,
+        created: report.created,
+        failed: report.failed,
+      },
     });
     return report;
   }
 
-  private async parse(buffer: Buffer): Promise<ParsedLoadingPointExcel> {
+  private async parse(source: ImportSource): Promise<ParsedLoadingPointSheet> {
     try {
-      return await parseLoadingPointExcel(buffer);
+      return await parseLoadingPointSheet(source.buffer, source.fileType);
     } catch (error) {
-      throw new ValidationError(error instanceof Error ? error.message : 'Invalid Excel file');
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid file');
     }
   }
 }

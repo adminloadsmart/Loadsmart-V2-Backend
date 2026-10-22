@@ -15,10 +15,10 @@ import { DriverTenantRelationRepository } from '../../modules/driver/driver-tena
  * carries no permissions to go stale, only a lifecycle status (checked fresh below on every
  * request — no existence cache yet, see docs/driver-auth.md's known gaps).
  *
- * `requireTenant` gates which token purposes are accepted: tenant-scoped routes (the driver
- * portal) require `purpose: 'driver-access'` and an active tenant relation; identity-level routes
- * (managing relations across tenants) accept either that or `purpose: 'driver-identity-access'`,
- * since a driver with zero or not-yet-selected active relations still needs to reach them.
+ * Both token purposes are accepted everywhere; `requireTenant` only demands at least one active
+ * tenant relation (the driver portal's action routes), while identity-level routes (managing
+ * relations across tenants) let a driver with none through. The active tenants are resolved fresh
+ * on every request and exposed as `req.driver.tenantIds`.
  */
 export const createDriverAuth = (
   driverRepository: DriverRepository,
@@ -43,9 +43,7 @@ export const createDriverAuth = (
     // driver-tenant-select token (both self-obtainable, unauthenticated) must not be accepted
     // here just because it verifies. Same generic message on every failure branch below, so a
     // caller can't tell which check failed.
-    const allowedPurposes = options.requireTenant
-      ? ['driver-access']
-      : ['driver-access', 'driver-identity-access'];
+    const allowedPurposes = ['driver-access', 'driver-identity-access'];
     if (!decoded.purpose || !allowedPurposes.includes(decoded.purpose)) {
       throw new AuthenticationError('Invalid or expired token');
     }
@@ -59,19 +57,15 @@ export const createDriverAuth = (
       throw new AuthenticationError('Driver no longer active');
     }
 
-    if (decoded.tenantId) {
-      const relation = await driverTenantRelationRepository.findByTenantAndDriver(
-        decoded.tenantId,
-        decoded.id,
-      );
-      if (!relation || relation.status !== 'active') {
-        throw new AuthenticationError('Driver no longer active');
-      }
-    } else if (options.requireTenant) {
-      throw new AuthenticationError('Invalid or expired token');
+    // A driver can be linked to several tenants at once and all of them work together, so the
+    // tenant set comes from the live relations rather than from the token — a fleet joined after
+    // login is picked up on the very next request.
+    const activeRelations = await driverTenantRelationRepository.listActiveByDriver(decoded.id);
+    if (options.requireTenant && activeRelations.length === 0) {
+      throw new AuthenticationError('Driver no longer active');
     }
 
-    req.driver = decoded;
+    req.driver = { ...decoded, tenantIds: activeRelations.map((relation) => relation.tenantId) };
     next();
   };
 };

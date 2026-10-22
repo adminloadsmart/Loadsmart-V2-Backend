@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { ValidationError } from '../../../shared/errors';
 import { respond } from '../../../shared/responses/respond';
 import { PaginationInput } from '../../../shared/utils/pagination';
 import { DriverService } from '../driver.service';
@@ -40,10 +41,35 @@ export class DriverPortalController {
     private readonly storageService: StorageService,
   ) {}
 
+  // A driver can be linked to several fleets at once, so the tenant for a per-load action is the
+  // one the load belongs to (404 when it isn't theirs), never something on the token.
+  private tenantForLoad(req: Request<LoadParams>): Promise<string> {
+    return this.loadService.resolveDriverLoadTenant(
+      req.driver!.id,
+      req.driver!.tenantIds ?? [],
+      req.params.loadId,
+    );
+  }
+
+  // Uploads are stored under a tenant. An optional `loadId` in the body picks it from the load;
+  // without one it is only unambiguous for a driver in a single fleet.
+  private async uploadTenant(req: Request): Promise<string> {
+    const tenantIds = req.driver!.tenantIds ?? [];
+    const { loadId, ...input } = req.body as GenerateUploadUrlInput & { loadId?: string };
+    req.body = input;
+    if (loadId) {
+      return this.loadService.resolveDriverLoadTenant(req.driver!.id, tenantIds, loadId);
+    }
+    if (tenantIds.length !== 1) {
+      throw new ValidationError('loadId is required when linked to more than one fleet');
+    }
+    return tenantIds[0];
+  }
+
   getMe = async (req: Request, res: Response) => {
     const profile = await this.driverPortalService.getMyProfile(
       req.driver!.id,
-      req.driver!.tenantId ?? null,
+      req.driver!.tenantIds ?? [],
     );
     respond(res, profile);
   };
@@ -51,21 +77,16 @@ export class DriverPortalController {
   getMyStatus = async (req: Request, res: Response) => {
     const status = await this.driverPortalService.getMyStatus(
       req.driver!.id,
-      req.driver!.tenantId ?? null,
+      req.driver!.tenantIds ?? [],
     );
     respond(res, status);
   };
 
-  // actorId === driverId here — the driver is setting their own status, same
-  // DriverService.setOperationalStatus code path staff already use (driver.controller.ts), just
-  // invoked by the driver themselves. Genuinely tenant-required (there's no "set my status" with
-  // no tenant to set it for), so this stays a direct call rather than routing through
-  // DriverPortalService's "or empty" branching.
+  // Availability is per fleet relation — one change from the driver applies to every active one.
   updateMyStatus = async (req: Request, res: Response) => {
-    const status = await this.driverService.setOperationalStatus(
-      req.driver!.tenantId!,
+    const status = await this.driverPortalService.setMyStatus(
       req.driver!.id,
-      req.driver!.id,
+      req.driver!.tenantIds ?? [],
       req.body,
     );
     respond(res, status);
@@ -91,7 +112,7 @@ export class DriverPortalController {
   getMyTripMetrics = async (req: Request, res: Response) => {
     const metrics = await this.driverPortalService.getMyTripMetrics(
       req.driver!.id,
-      req.driver!.tenantId ?? null,
+      req.driver!.tenantIds ?? [],
     );
     respond(res, metrics);
   };
@@ -99,7 +120,7 @@ export class DriverPortalController {
   getMyLoads = async (req: Request, res: Response) => {
     const loads = await this.driverPortalService.getMyLoads(
       req.driver!.id,
-      req.driver!.tenantId ?? null,
+      req.driver!.tenantIds ?? [],
       req.validatedQuery as ListLoadsInput,
       req.locale,
     );
@@ -109,7 +130,7 @@ export class DriverPortalController {
   getMyTripsDone = async (req: Request, res: Response) => {
     const trips = await this.driverPortalService.getMyTripsDone(
       req.driver!.id,
-      req.driver!.tenantId ?? null,
+      req.driver!.tenantIds ?? [],
       req.validatedQuery as PaginationInput,
       req.locale,
     );
@@ -122,7 +143,7 @@ export class DriverPortalController {
   // load that isn't this driver's, same convention as updateMyLoadStatus/uploadMyPod below.
   getMyLoad = async (req: Request<LoadParams>, res: Response) => {
     const result = await this.loadService.get(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       'driver',
       req.params.loadId,
       req.driver!.id,
@@ -135,7 +156,7 @@ export class DriverPortalController {
   // from getMyLoad above. Same ownership-check-as-404 convention.
   getMyTripDetail = async (req: Request<LoadParams>, res: Response) => {
     const result = await this.loadService.getMyTripDetail(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       req.params.loadId,
     );
@@ -146,7 +167,7 @@ export class DriverPortalController {
   // caller. Same ownership-check-as-404 convention as getMyTripDetail above.
   getLoadDocuments = async (req: Request<LoadParams>, res: Response) => {
     const result = await this.loadService.getLoadDocuments(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       req.params.loadId,
     );
@@ -159,7 +180,7 @@ export class DriverPortalController {
   // load that isn't this driver's.
   updateMyLoadStatus = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.updateStatus(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       req.params.loadId,
       (req.body as UpdateLoadStatusInput).toStatus,
@@ -174,7 +195,7 @@ export class DriverPortalController {
   // convention as uploadMyPod below.
   confirmMyLoading = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.confirmLoading(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       'driver',
       req.params.loadId,
@@ -189,7 +210,7 @@ export class DriverPortalController {
   // LoadService.updateDocuments.
   updateMyDocuments = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.updateDocuments(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       'driver',
       req.params.loadId,
@@ -204,7 +225,7 @@ export class DriverPortalController {
   // is falsy, which is never true for a driver-scoped call.
   uploadMyPod = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.uploadPod(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       'driver',
       req.params.loadId,
@@ -217,7 +238,7 @@ export class DriverPortalController {
   // Step 1 of the delivery flow — texts the receiver a 4-digit code; verified at uploadMyPod.
   sendMyPodReceiverCode = async (req: Request<LoadParams>, res: Response) => {
     await this.loadService.sendPodReceiverCode(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.params.loadId,
       req.body.mobile,
       req.driver!.id,
@@ -228,7 +249,7 @@ export class DriverPortalController {
   // Step 1b — checks the code the receiver read out; uploadMyPod then relies on this having passed.
   verifyMyPodReceiverCode = async (req: Request<LoadParams>, res: Response) => {
     await this.loadService.verifyPodReceiverCode(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.params.loadId,
       req.body.mobile,
       req.body.code,
@@ -242,7 +263,7 @@ export class DriverPortalController {
   // updateMyLoadStatus/uploadMyPod above). actorRole is a literal, same reasoning as uploadMyPod.
   reportMyIssue = async (req: Request<LoadParams>, res: Response) => {
     const issue = await this.loadService.reportIssue(
-      req.driver!.tenantId!,
+      await this.tenantForLoad(req),
       req.driver!.id,
       'driver',
       req.params.loadId,
@@ -259,7 +280,7 @@ export class DriverPortalController {
   // request through this route.
   requestUploadUrl = async (req: Request, res: Response) => {
     const file = await this.storageService.generateUploadUrl(
-      req.driver!.tenantId!,
+      await this.uploadTenant(req),
       req.driver!.id,
       req.body as GenerateUploadUrlInput,
     );
@@ -269,8 +290,8 @@ export class DriverPortalController {
   // Step 2 — confirms the direct-to-S3 upload from step 1. The resulting key is what gets passed
   // as podFileKey to uploadMyPod, or as one of photoFileKeys to reportMyIssue, above.
   confirmUpload = async (req: Request, res: Response) => {
-    const file = await this.storageService.confirmUpload(
-      req.driver!.tenantId!,
+    const file = await this.storageService.confirmUploadForTenants(
+      req.driver!.tenantIds ?? [],
       (req.params as unknown as FileParams).fileId,
     );
     respond(res, file);
@@ -310,7 +331,7 @@ export class DriverPortalController {
   getMyHome = async (req: Request, res: Response) => {
     const home = await this.driverPortalService.getMyHome(
       req.driver!.id,
-      req.driver!.tenantId ?? null,
+      req.driver!.tenantIds ?? [],
       req.locale,
     );
     respond(res, home);

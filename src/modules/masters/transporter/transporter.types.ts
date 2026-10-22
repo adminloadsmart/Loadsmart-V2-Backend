@@ -1,3 +1,5 @@
+import { GST_RECORD_STATUSES } from '../gst/gst.types';
+
 /**
  * Transporter-side value sets. Declared once here as a `const` tuple so the entity's
  * `@Column({ enum: [...] })` and the request schema in masters.validators.ts can never drift
@@ -34,3 +36,8 @@ export type TransporterBankVerificationStatus =
 
 /** "Shared master" (verified against the GST register) vs "Own record" (typed in, unverified). */
 export type MasterRecordSource = 'shared_master' | 'own_record';
+
+/** The shared verified/unverified pair plus the bulk-import queue's states: 'pending' while the
+ *  'gst-verification' job waits, 'failed' when the register rejected it or retries ran out. */
+export const TRANSPORTER_GST_STATUSES = [...GST_RECORD_STATUSES, 'pending', 'failed'] as const;
+export type TransporterGstStatus = (typeof TRANSPORTER_GST_STATUSES)[number];

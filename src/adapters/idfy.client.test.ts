@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IdfyClient } from './idfy.client';
+import { IdfyClient, IdfyHttpError } from './idfy.client';
 
 function build(getTask: unknown[], configured = true) {
   const client = new IdfyClient();
@@ -49,5 +49,23 @@ describe('IdfyClient.verifyBankAccount', () => {
     const broken = build([]);
     broken.idfy.submit.mockRejectedValue(new Error('boom'));
     expect((await broken.client.verifyBankAccount('1', 'X')).verificationStatus).toBe('pending');
+  });
+});
+
+describe('IdfyClient HTTP errors', () => {
+  it('carries the status so callers can tell a retryable 429/5xx from a hard 4xx', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 502 }));
+    const client = new IdfyClient();
+    await expect(client.submit('ind_gst_certificate', {})).rejects.toMatchObject({
+      name: 'IdfyHttpError',
+      status: 429,
+    });
+    const error = await client.getTask('req-1').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(IdfyHttpError);
+    expect(error).toMatchObject({ status: 502 });
+    fetchMock.mockRestore();
   });
 });

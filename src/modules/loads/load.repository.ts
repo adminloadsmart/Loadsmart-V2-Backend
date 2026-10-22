@@ -29,6 +29,10 @@ import {
 /** Between Assignment and Delivered — a vehicle on a load in one of these statuses is "on a live
  *  trip elsewhere" (C-02). Deliberately excludes 'created' (own-fleet loads never sit there, per
  *  R-35) and 'delivered'/'closed' (no longer "live"). */
+// A single tenant for staff, several for a driver linked to more than one fleet.
+const scopeToTenants = (tenantId: string | string[]) =>
+  Array.isArray(tenantId) ? In(tenantId) : tenantId;
+
 const ACTIVE_VEHICLE_STATUSES: LoadStatus[] = [
   'assigned',
   'loading_confirmed',
@@ -211,7 +215,10 @@ export class LoadRepository {
     return this.loads.findOneBy({ tenantId, code });
   }
 
-  async list(tenantId: string, filters: ListLoadsFilters): Promise<[LoadEntity[], number]> {
+  async list(
+    tenantId: string | string[],
+    filters: ListLoadsFilters,
+  ): Promise<[LoadEntity[], number]> {
     const {
       page,
       limit,
@@ -228,7 +235,7 @@ export class LoadRepository {
       search,
     } = filters;
 
-    const base: FindOptionsWhere<LoadEntity> = { tenantId };
+    const base: FindOptionsWhere<LoadEntity> = { tenantId: scopeToTenants(tenantId) };
     if (requisitionId) base.requisitionId = requisitionId;
     if (status) base.status = status;
     // Mutually exclusive with `status` — enforced by the validator's .refine(), see
@@ -236,6 +243,23 @@ export class LoadRepository {
     // app's Open Trips filter — see LOAD_STATUS_GROUP_FILTERS' own doc comment.
     if (group) {
       base.status = In(LOAD_STATUS_GROUP_FILTERS[group]);
+    }
+    if (sourceType) base.sourceType = sourceType;
+    if (transporterId) base.transporterId = transporterId;
+    if (vehicleId) base.vehicleId = vehicleId;
+    // The driver app's lists rely on this one — without it a driver sees every load in the fleet.
+    if (driverId) base.driverId = driverId;
+    if (podStatus) base.podStatus = podStatus;
+    const dateColumn = group === 'completed' ? 'deliveredAt' : 'createdAt';
+    if (fromDate || toDate) {
+      const from = new Date(`${fromDate ?? toDate}T00:00:00.000Z`);
+      const to = new Date(`${toDate ?? fromDate}T23:59:59.999Z`);
+      base[dateColumn] =
+        fromDate && toDate
+          ? Between(from, to)
+          : fromDate
+            ? MoreThanOrEqual(from)
+            : LessThanOrEqual(to);
     }
     // Upcoming means the pickup is still ahead — a created/assigned load whose requisition
     // pickupDate has already passed isn't "upcoming" anymore. Today counts as upcoming. The date
@@ -301,13 +325,13 @@ export class LoadRepository {
    *  counts. Runs alongside the paginated list() call (see LoadService.list) so the whole
    *  endpoint costs 2 queries, not N+1. */
   async countByGroup(
-    tenantId: string,
+    tenantId: string | string[],
     filters: Pick<
       ListLoadsFilters,
       'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
     >,
   ): Promise<{ active: number; completed: number }> {
-    const base: FindOptionsWhere<LoadEntity> = { tenantId };
+    const base: FindOptionsWhere<LoadEntity> = { tenantId: scopeToTenants(tenantId) };
     if (filters.requisitionId) base.requisitionId = filters.requisitionId;
     if (filters.sourceType) base.sourceType = filters.sourceType;
     if (filters.transporterId) base.transporterId = filters.transporterId;
@@ -354,16 +378,17 @@ export class LoadRepository {
    *  but this is a real query rather than an assumed 100% so the two can genuinely diverge if
    *  that invariant ever changes. */
   async getCompletedStatsForDriver(
-    tenantId: string,
+    tenantId: string | string[],
     driverId: string,
   ): Promise<{ totalCompleted: number; podVerifiedCount: number }> {
+    const tenantScope = scopeToTenants(tenantId);
     const [totalCompleted, podVerifiedCount] = await Promise.all([
       this.loads.count({
-        where: { tenantId, driverId, status: In(COMPLETED_LOAD_STATUSES) },
+        where: { tenantId: tenantScope, driverId, status: In(COMPLETED_LOAD_STATUSES) },
       }),
       this.loads.count({
         where: {
-          tenantId,
+          tenantId: tenantScope,
           driverId,
           status: In(COMPLETED_LOAD_STATUSES),
           podFileKey: Not(IsNull()),
@@ -371,6 +396,22 @@ export class LoadRepository {
       }),
     ]);
     return { totalCompleted, podVerifiedCount };
+  }
+
+  /** Which of the driver's tenants a load belongs to — null when it isn't this driver's load in
+   *  any of them. Backs the driver portal's per-load routes, where the tenant comes from the load
+   *  rather than from the token. */
+  async findTenantIdForDriverLoad(
+    loadId: string,
+    driverId: string,
+    tenantIds: string[],
+  ): Promise<string | null> {
+    if (tenantIds.length === 0) return null;
+    const load = await this.loads.findOne({
+      select: { id: true, tenantId: true },
+      where: { id: loadId, driverId, tenantId: In(tenantIds) },
+    });
+    return load?.tenantId ?? null;
   }
 
   async createMany(rows: CreateLoadData[], manager: EntityManager): Promise<LoadEntity[]> {

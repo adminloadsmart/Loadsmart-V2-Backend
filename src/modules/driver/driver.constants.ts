@@ -1,4 +1,5 @@
-import { DriverImportColumn } from './drivers.interface';
+import { DriverExportColumn, DriverImportColumn } from './drivers.interface';
+import { DriverEngagementType, DriverSalaryType, DriverScoreStatus } from './drivers.types';
 
 /**
  * Sarathi's standard driving-licence number, once spaces and hyphens are stripped: 2-letter state
@@ -9,6 +10,18 @@ export const DRIVING_LICENCE_REGEX = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/;
 
 /** driver_tenant_relations.note is varchar(500). */
 export const DRIVER_NOTE_MAX_LENGTH = 500;
+
+/**
+ * How long after a rejection a driver's join request can be restored (and is listed in Recently
+ * Rejected). Older rejections are only hidden, never deleted.
+ */
+export const DRIVER_JOIN_REQUEST_RESTORE_DAYS = 30;
+
+/**
+ * Once a driver has declined an invite, the fleet may send it this many more times (Resend or
+ * invite-by-mobile on the same number); after that this tenant can't invite them again.
+ */
+export const DRIVER_INVITE_SENDS_AFTER_DECLINE = 1;
 
 /** A driver's score only means something after this many trips — until then they read as `new`. */
 export const MIN_SCORED_TRIPS = 5;
@@ -88,4 +101,55 @@ export const DRIVER_IMPORT_BANK_COLUMN_BY_FIELD: Record<string, string> = {
   ifsc: 'bankIfsc',
   accountHolderName: 'bankAccountHolderName',
   upiId: 'bankUpiId',
+};
+
+/* Roster export (driver-export.mapper.ts) — GET /drivers/export. */
+
+/** Same cap as the vehicle export. */
+export const DRIVER_EXPORT_MAX_ROWS = 5000;
+
+/** Sheet columns, in order — the roster's own columns, readable rather than import-shaped. */
+export const DRIVER_EXPORT_COLUMNS: DriverExportColumn[] = [
+  { key: 'fullName', header: 'Full Name' },
+  { key: 'mobileNumber', header: 'Mobile Number' },
+  { key: 'licenceNumber', header: 'Licence Number' },
+  { key: 'licenceClass', header: 'Licence Class' },
+  { key: 'licenceValidTo', header: 'Licence Valid To' },
+  { key: 'engagementType', header: 'Engagement Type' },
+  { key: 'payType', header: 'Pay Type' },
+  { key: 'payAmount', header: 'Pay Amount' },
+  { key: 'trips', header: 'Trips' },
+  { key: 'onTimePercentage', header: 'On-Time %' },
+  { key: 'driverScore', header: 'Driver Score' },
+  { key: 'availability', header: 'Availability' },
+  { key: 'driverAppInstalled', header: 'Driver App Installed' },
+];
+
+/** Engagement as the Add-a-driver form labels it. */
+export const DRIVER_ENGAGEMENT_TYPE_LABELS: Record<DriverEngagementType, string> = {
+  on_roll: 'On-roll Salaried',
+  per_trip: 'Per Trip',
+  vendor: "Vendor's Driver",
+};
+
+/** How the driver is paid; Pay Amount is per month, per trip or per km accordingly. */
+export const DRIVER_SALARY_TYPE_LABELS: Record<DriverSalaryType, string> = {
+  fixed: 'Fixed Monthly',
+  per_trip: 'Per Trip',
+  per_km: 'Per Km',
+};
+
+/** The roster's availability split, as the export's Availability column writes it. */
+export const DRIVER_EXPORT_AVAILABILITY_LABELS = {
+  left_company: 'Left Company',
+  on_trip: 'On Trip',
+  not_available: 'Not Available',
+  available: 'Available',
+} as const;
+
+/** Score badge text — what the export writes while a driver has no numeric score. */
+export const DRIVER_SCORE_STATUS_LABELS: Record<DriverScoreStatus, string> = {
+  new: 'New',
+  strong: 'Strong',
+  watch: 'Watch',
 };

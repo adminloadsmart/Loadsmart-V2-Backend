@@ -24,7 +24,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDrivers',
     ...authenticated(
-      'My Drivers roster, paginated and optionally filtered. `search` matches name, mobile or DL ' +
+      'My Drivers roster, paginated and optionally filtered. `status` defaults to `active` — ' +
+        'drivers who joined, including those who left (operationalStatus `inactive`); pass a ' +
+        'link status (e.g. pending_staff_review) for just those, or `all` for every status. ' +
+        'total/totalPages follow the same filter. `search` matches name, mobile or DL ' +
         'number; "Invitations Sent" = status=pending_driver_review&initiatedBy=fleet_owner. ' +
         '`segment` picks an Active Roster tab (all, on_trip, available, not_available, ' +
         'left_company, licence_expired, hazmat_endorsed, not_verified); every segment but ' +
@@ -47,8 +50,29 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         description:
           'Paginated drivers — { data: { items, page, limit, total, totalPages, counts } }, ' +
           'counts = { total, all, on_trip, available, not_available, left_company, ' +
-          'licence_expired, hazmat_endorsed, not_verified } under the same filters minus segment.',
+          'licence_expired, hazmat_endorsed, not_verified } under the same search and ' +
+          'filter-panel settings as the list (only `segment` is ignored, and `status` — counts ' +
+          'always cover the roster).',
       },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/drivers/export`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.exportDrivers',
+    ...authenticated(
+      'Download the Active Roster as an Excel file (.xlsx) — every driver who joined, including ' +
+        'those who left the company; pending and declined links are never included. Optionally ' +
+        'filtered like GET /drivers (search, segment, filter panel); no paging. Columns: Full ' +
+        'Name, Mobile Number, Licence Number, Licence Class, Licence Valid To, Engagement Type, ' +
+        'Pay Type, Pay Amount, Trips, On-Time %, Driver Score, Availability, Driver App ' +
+        'Installed. Up to 5000 drivers.',
+    ),
+    request: { query: driverValidators.exportDrivers.shape.query },
+    responses: {
+      200: { description: 'Excel file (.xlsx) attachment' },
     },
   });
 
@@ -140,7 +164,12 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectDriver',
-    ...approve('Reject a pending driver, with an optional reason. org_admin only.'),
+    ...approve(
+      'Reject a pending driver, with an optional reason. org_admin only. Records when and by ' +
+        'whom (rejectedAt/rejectedBy); a rejected join request can be restored for 30 days via ' +
+        'PATCH /drivers/{driverId}/restore. `notifyDriver` (default true) sends the driver the ' +
+        '"request declined" notification — only for their own join request.',
+    ),
     request: {
       params: driverValidators.rejectDriver.shape.params,
       body: json(driverValidators.rejectDriver.shape.body),
@@ -150,6 +179,32 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Driver not found', ...errorContent },
       409: { description: 'Driver is not pending', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/drivers/{driverId}/restore`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.restoreDriverJoinRequest',
+    ...approve(
+      'Recently Rejected → Restore: a join request this organisation rejected goes back to ' +
+        'Requests to You (`pending_staff_review`), where it can be approved; rejectedAt, ' +
+        'rejectedBy and rejectionReason are cleared and the restore is audited. The driver is ' +
+        'not notified. Same permission as approve/reject. No body.',
+    ),
+    request: { params: driverValidators.restoreDriver.shape.params },
+    responses: {
+      200: { description: 'The restored join request — same shape as a pending-list item' },
+      403: { description: 'Not allowed to approve/reject requests', ...errorContent },
+      404: { description: '`REQUEST_NOT_FOUND` — no such request here', ...errorContent },
+      409: {
+        description:
+          '`NOT_REJECTED` (already restored/approved) · `RESTORE_WINDOW_EXPIRED` (rejected over ' +
+          '30 days ago) · `DRIVER_UNAVAILABLE` (joined a fleet or left Loadsmart). `message` ' +
+          'is user-facing.',
+        ...errorContent,
+      },
     },
   });
 
@@ -171,7 +226,11 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'awaiting approval, which surface via GET /drivers?status=pending_staff_review instead. ' +
         'Approve/reject reuse PATCH /drivers/{driverId}/approve|reject above. `search` matches ' +
         'name, mobile or DL number. Each item carries `requestedAt` (when the request was made) ' +
-        'and `licenseClass` (latest licence verification’s class, or null).',
+        'and `licenseClass` (latest licence verification’s class, or null). `status=rejected` ' +
+        'lists Recently Rejected instead: requests this organisation rejected in the last 30 ' +
+        'days, newest rejection first, without drivers who have since joined a fleet or left ' +
+        'Loadsmart. Each adds `rejectedAt`, `rejectedBy` { id, name, role }, `rejectionReason`, ' +
+        '`restorableUntil` and `canRestore` (whether this caller can restore it now).',
     ),
     request: { query: driverValidators.listJoinRequests.shape.query },
     responses: {
@@ -197,7 +256,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         '`phoneNumber` searches by mobile only (names are not unique) — partial digits match, ' +
         'spaces/hyphens/+ ignored. Items: { invitationId, requestId (INV-00042), driverId, ' +
         'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
-        'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled }.',
+        'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled, ' +
+        'canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
+        'the driver first declined — once declined, the invite can be sent one more time; null ' +
+        'when never declined) }.',
     ),
     request: { query: driverValidators.listInvitations.shape.query },
     responses: {
@@ -213,10 +275,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.inviteDriverByPhone',
     ...write(
-      'Invite a driver by mobile number from the Invitations tab. Reuses the driver profile on ' +
-        'that number, or creates a phone-only "Pending driver" profile when the number has no ' +
-        'Loadsmart account yet — when its owner installs the driver app and registers with it, ' +
-        'the invite is waiting for them. A previous expired, declined or cancelled invite is ' +
+      'Invite a driver by mobile number from the Invitations tab. Only a number that already ' +
+        'belongs to a driver on Loadsmart (added by any organisation, or registered through the ' +
+        'driver app) can be invited — any other number returns 404 `DRIVER_NOT_FOUND` before ' +
+        'anything is created or sent. A previous expired, declined or cancelled invite is ' +
         "re-sent on its own row. org_admin's invite goes out immediately (`invitation` set); " +
         "dispatch's waits for org_admin approval (`awaitingApproval: true`, `invitation: null`) " +
         'and is sent by PATCH /drivers/{driverId}/approve. Delivery is push today; WhatsApp is ' +
@@ -226,9 +288,14 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: '{ driverId, invitationId, awaitingApproval, invitation }' },
       400: { description: 'Validation failed', ...errorContent },
+      404: {
+        description: '`DRIVER_NOT_FOUND` — no driver on Loadsmart has this number',
+        ...errorContent,
+      },
       409: {
         description:
-          'Driver already in your fleet, already awaiting approval, or an invite is already pending',
+          'Driver already in your fleet, already awaiting approval, an invite is already ' +
+          'pending, or the driver declined and was already sent it once more',
         ...errorContent,
       },
     },
@@ -242,9 +309,16 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Invitation detail drawer — the list item plus `credentials` { licenseNumber, ' +
         'licenseClass, registry: { source: sarathi, status, checkedAt } | null }, `timeline` for ' +
-        'the latest send (sent { at, by: { name, role } } → viewed { at, device }, once the ' +
-        'driver opened the invite notification → accepted | rejected | expired | ' +
-        'awaiting_response) and `deliveryChannels` [{ channel: sms | whatsapp | push, status, ' +
+        'the invite — a permanent log, oldest first, never rewritten: sent { at, by: { name, ' +
+        'role }, notification } (first send), resent { at, by, notification } (each Resend or ' +
+        're-invite) — `notification` { id, readAt } is the in-app notification that send ' +
+        'created (readAt null until the driver reads it; null when none is linked) — viewed ' +
+        '{ at, device, notificationId } (the driver opened that notification; once per ' +
+        'notification), expired { at } (logged when an expired invite is resent), declined { at, ' +
+        'reason }, cancelled { at, by }, accepted { at }, delivery_failed { at, channel: sms | ' +
+        'whatsapp | push } — then, while the invite is pending, a derived last step: expired ' +
+        '{ at: expiresAt } once it ran out, else awaiting_response — and `deliveryChannels` ' +
+        '[{ channel: sms | whatsapp | push, status, ' +
         'statusAt }]. SMS/WhatsApp are recorded as `pending` but not yet actually sent.',
     ),
     request: { params: driverValidators.getInvitation.shape.params },
@@ -260,14 +334,25 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.resendDriverInvitation',
     ...write(
-      'Re-send a pending, unexpired invite: re-notifies the driver, restarts the 7-day expiry, ' +
-        'resets the viewed step and every delivery channel to `pending`. Req ID is unchanged.',
+      'Re-send an invite on the same invitation (id and Req ID unchanged): pending, expired or ' +
+        'declined. It goes back to `pending` with new sentAt/expiresAt, respondedAt and ' +
+        'rejectionReason cleared, so the driver can accept it; the driver is re-notified, every ' +
+        'delivery channel resets to `pending` (push then carries its real result) and the ' +
+        'timeline gains `resent` (after `expired` if it had run out). Once the driver has ' +
+        'declined, the invite can be sent only one more time (Resend or invite-by-mobile); ' +
+        'after that this returns 409.',
     ),
     request: { params: driverValidators.resendInvitation.shape.params },
     responses: {
       200: { description: 'Updated invitation (same item shape as the list)' },
       404: { description: 'Invitation not found', ...errorContent },
-      409: { description: 'Invitation is not pending, or it has expired', ...errorContent },
+      409: {
+        description:
+          'Not resendable — accepted, cancelled, rejected by your organisation, awaiting ' +
+          'approval, driver left the platform, the driver has a newer invite, already sent once ' +
+          'more after a decline, or changed meanwhile. `message` is user-facing.',
+        ...errorContent,
+      },
     },
   });
 

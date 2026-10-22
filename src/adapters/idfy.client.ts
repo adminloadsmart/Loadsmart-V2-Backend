@@ -30,6 +30,17 @@ export function toBankVerificationColumns(result: BankAccountVerificationResult)
   };
 }
 
+/** A non-2xx IDfy answer. `status` lets callers tell a retryable 429/5xx from a hard 4xx. */
+export class IdfyHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'IdfyHttpError';
+  }
+}
+
 const BANK_TASK_TYPE = 'validate_bank_account';
 const BANK_POLL_INTERVAL_MS = 1500;
 // ~15s ceiling, same budget as SarathiClient — penny-less usually answers in a few seconds.
@@ -58,7 +69,10 @@ export class IdfyClient {
       },
     );
     if (!response.ok) {
-      throw new Error(`IDfy submit (${taskType}) failed with status ${response.status}`);
+      throw new IdfyHttpError(
+        `IDfy submit (${taskType}) failed with status ${response.status}`,
+        response.status,
+      );
     }
     const body = (await response.json()) as { request_id?: string };
     if (!body.request_id) {
@@ -73,7 +87,7 @@ export class IdfyClient {
       { headers: this.headers() },
     );
     if (!response.ok) {
-      throw new Error(`IDfy poll failed with status ${response.status}`);
+      throw new IdfyHttpError(`IDfy poll failed with status ${response.status}`, response.status);
     }
     // An unknown request_id comes back as 200 `{ message }` rather than an array.
     const body = (await response.json()) as unknown;

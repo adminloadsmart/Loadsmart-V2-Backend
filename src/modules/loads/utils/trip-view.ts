@@ -63,6 +63,8 @@ function buildVehicleDetails(load: LoadEntity): TripVehicleDetails | null {
  *  its requisition's route/customer (neither of which the LoadEntity carries directly). */
 export interface TripListRow {
   id: string;
+  /** The tenant (fleet) the load belongs to — a driver linked to several fleets sees them all. */
+  tenantId: string;
   /** Display code `LOAD-nnnn` — see load.entity.ts's doc comment. */
   code: string;
   /** Title given when the load was posted; null if none. */
@@ -183,6 +185,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
 
   return {
     id: load.id,
+    tenantId: load.tenantId,
     code: load.code,
     title: load.title,
     status: load.status,
