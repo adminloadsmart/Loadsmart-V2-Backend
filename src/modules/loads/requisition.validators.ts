@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { isoDateSchema } from '../../shared/utils/date';
-import { REQUISITION_ITEM_UNITS, REQUISITION_STATUSES } from './utils/loads.types';
+import {
+  MAX_CARGO_VALUE_PER_TONNE,
+  REQUISITION_ITEM_UNITS,
+  REQUISITION_STATUSES,
+} from './utils/loads.types';
 
 const uuid = z.string().uuid();
 const params = z.object({ requisitionId: uuid });
@@ -40,6 +44,8 @@ export const requisitionValidators = {
         pickupDate: isoDateSchema,
         expectedDeliveryDate: isoDateSchema,
         customerPoNumber: z.string().trim().min(1).max(100),
+        // Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034).
+        cargoValuePerTonne: z.number().positive().max(MAX_CARGO_VALUE_PER_TONNE).optional(),
         overrides: z.array(override).max(1).optional(),
       })
       .strict(),

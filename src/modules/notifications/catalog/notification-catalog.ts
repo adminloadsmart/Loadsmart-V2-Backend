@@ -15,13 +15,15 @@ import { NotificationTemplates, NotificationTypeDefinition } from './notificatio
 import { LoadPersonRef, NextPlannedTrip } from '../notifications.interface';
 import {
   ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
+  CLAIM_REMINDER_DAYS_BEFORE,
   MS_PER_HOUR,
+  POD_PENDING_ALERT_HOURS,
   MS_PER_MINUTE,
   VehicleHaltStep,
 } from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
 import { formatIndiaDateTime } from '../utils/trip-time';
-import type { AssignmentComplianceSubject } from '../../loads/utils/loads.types';
+import type { AssignmentComplianceSubject, LoadIssueCategory } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 
@@ -648,6 +650,85 @@ export interface PodUploadedContext extends LoadSummary {
   quantityReceived?: string | null;
   tonnesShort?: string | null;
   shortageOrDamage?: string | null;
+  // LS_N_0038, filled in by the resolver:
+  createdBy?: string | null;
+  driverName?: string | null;
+  lrNumber?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  /** "₹28,000" — the transporter's balance this POD holds up (freight minus advance); null for
+   *  own-fleet loads, no agreed freight, or a balance already paid. */
+  balanceAmount?: string | null;
+}
+
+/** LS_N_0039 — queued by the trip-timing sweep POD_PENDING_ALERT_HOURS into a wait for the POD. */
+export interface PodPendingContext extends LoadSummary {
+  /** When the wait started (ISO): the arrival at the delivery point, or the E-POD's rejection. A
+   *  new arrival or rejection makes this one stale. */
+  since: string;
+  /** Index into POD_PENDING_ALERT_HOURS — the last step goes to org admins only. */
+  step: number;
+  // Filled in by the resolver:
+  /** The E-POD was rejected and hasn't been re-uploaded (the wait runs from the rejection). */
+  rejected?: boolean;
+  hoursSince?: number;
+  createdBy?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  /** "₹24,000" — the transporter's freight; null for own-fleet loads or no agreed freight. */
+  amount?: string | null;
+}
+
+/** LS_N_0040 (rejected) / LS_N_0041 (accepted) — queued by LoadService.reviewPod. */
+export interface PodReviewedContext extends LoadSummary {
+  /** The review this alert is for (ISO podReviewedAt) — a later review makes it stale. */
+  reviewedAt: string;
+  // Filled in by the resolver:
+  createdBy?: string | null;
+  verifierName?: string | null;
+  reason?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  lrNumber?: string | null;
+  /** "₹24,000" — the transporter's freight; null for own-fleet loads or no agreed freight. */
+  amount?: string | null;
+  /** A market load whose transporter balance isn't paid yet (LS_N_0041). */
+  balanceDue?: boolean;
+}
+
+/** LS_N_0034 — queued on the E-POD (once), and by the trip-timing sweep CLAIM_REMINDER_DAYS_BEFORE
+ *  days before the claim window closes (`reminder`). */
+export interface ShortageRecordedContext extends LoadSummary {
+  reminder?: boolean;
+  // Filled in by the resolver:
+  createdBy?: string | null;
+  /** A shortage was recorded; `shortTonnes` is how much ("0.5"), when the E-POD says. */
+  shortage?: boolean;
+  shortTonnes?: string | null;
+  /** Damage (or wet cargo) was recorded. */
+  damaged?: boolean;
+  lrNumber?: string | null;
+  /** "₹3,000" — MT short × the cargo value per MT; null when either is unknown. */
+  claimValue?: string | null;
+  claimWindowDays?: number;
+  /** When the claim window closes (ISO). */
+  claimDeadline?: string;
+}
+
+/** LS_N_0037 — queued when a driver reports an accident, road block, police check, strike, bad
+ *  weather or another problem (breakdown-alerts.ts). */
+export interface DriverProblemReportedContext extends LoadSummary {
+  issueId: string;
+  // Filled in by the resolver (breakdown-alerts.ts) from the report and its trip:
+  category?: LoadIssueCategory;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  location?: string | null;
+  /** When the driver reported it (ISO). */
+  reportedAt?: string;
+  driverNote?: string | null;
+  /** The report's expected delay; null until something estimates it. */
+  etaImpactMinutes?: number | null;
 }
 
 export interface AdvanceDueContext extends LoadSummary {
@@ -744,6 +825,19 @@ const formatIndiaDate = (iso: string) =>
     day: 'numeric',
     month: 'short',
   }).format(new Date(iso));
+
+/** LS_N_0037's "{{issue_type}}" — how a driver's report reads in "Ramesh reported … on LD-1001". */
+const DRIVER_PROBLEM_LABELS: Record<LoadIssueCategory, string> = {
+  accident: 'an accident',
+  road_blocked: 'a road block',
+  police_rto_check: 'a police/RTO check',
+  strike: 'a strike',
+  weather: 'bad weather',
+  other: 'a problem',
+  breakdown: 'a breakdown',
+  traffic_jam: 'a traffic jam',
+  halt_rest_stop: 'a halt',
+};
 
 /** LS_N_0031's "{{early_late}}": "2 h early" / "1 day 3 h late" / "on time" against `due`. */
 function earlyLateOf(at: string, due: string): string {
@@ -2091,8 +2185,9 @@ export const NOTIFICATION_CATALOG = {
   // LS_N_0031 — the vehicle reached the delivery point: fired by the manual "Reached delivery
   // point" step (LoadService.updateStatus) or tracking's `trip.arrived_at_drop` geofence entry
   // (which also moves the load there), whichever comes first — once per trip. Early/late is
-  // against the promised delivery date (the end of that day — only a date is recorded; Post-a-load
-  // loads have none, so it's left out); free time is the customer's free hours at drop, else the
+  // against the promised delivery: the requisition's expected delivery date (the end of that day —
+  // only a date is recorded) or a posted load's "deliver by" time; left out when there's neither.
+  // Free time is the customer's free hours at drop, else the
   // company's. In-app + push + SMS, P3, to trip.track holders. Replaces the old generic
   // 'load.stage_handoff' card.
   'load.vehicle_reached_drop': {
@@ -2510,34 +2605,346 @@ export const NOTIFICATION_CATALOG = {
     },
   },
 
-  // E-POD uploaded (driver app or staff) and waiting for review — fired by LoadService.uploadPod,
-  // including a resubmission after rejection. In-app + push to E-POD reviewers, P2.
+  // LS_N_0038 — E-POD uploaded (driver app or staff) and waiting for review: fired by
+  // LoadService.uploadPod, including a resubmission after rejection (one per upload). Names the
+  // transporter balance the review holds up (freight minus advance — market loads only); the
+  // sheet's "{{page_count}} pages" is left out (the E-POD is one file; its pages aren't known).
+  // P2, in-app + push + SMS + email to E-POD reviewers (loads.documents.manage — the sheet's
+  // "pod.verify") plus the user who created the load.
   'load.pod_uploaded': {
     label: 'POD uploaded',
     category: 'pod_billing',
     description: 'An E-POD is waiting for your review.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: LOADS_DOCUMENTS_MANAGE }),
-    channels: [...ALL_CHANNELS],
-    defaultChannels: ['push'],
+    alsoNotifyUserId: (context: PodUploadedContext) => context.createdBy ?? null,
+    channels: ['push', 'sms', 'email'],
+    defaultChannels: ['push', 'sms', 'email'],
     severity: 'p2_action',
     dedupeKey: (context: PodUploadedContext) => `${context.loadId}-${context.uploadedAt}`,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplatePodUploaded,
+        variables: { var1: 'load_code' },
+      },
+      email: {
+        templateId: env.msg91EmailTemplatePodUploaded,
+        variables: {
+          load_id: 'load_code',
+          origin: 'origin',
+          destination: 'destination',
+          driver_name: 'driver_name',
+          lr_no: 'lr_no',
+          upload_time: 'upload_time',
+          amount: 'amount',
+        },
+      },
+    },
     buildContent: (context: PodUploadedContext) => {
-      const receivedSentence = `${context.receiverName ? `Received by ${context.receiverName}` : 'Delivered'}${
-        context.quantityReceived ? `, ${context.quantityReceived} t` : ''
-      }${context.consignee ? ` at ${context.consignee}` : ''}.`;
+      const uploader = context.driverName ?? 'The driver';
+      const lr = context.lrNumber ?? 'the lorry receipt';
+      const uploadTime = formatIndiaTime(context.uploadedAt);
+      const action = context.balanceAmount
+        ? `Verify it to release the ${context.balanceAmount} balance${
+            context.transporterName ? ` to ${context.transporterName}` : ''
+          }.`
+        : 'Verify it to close the trip.';
       return {
         title: `POD uploaded for ${context.loadCode}`,
-        body: `${receivedSentence}${podExceptionSentenceOf(context)} Review and accept to close the trip.`,
-        highlights: context.loadCode ? [context.loadCode] : [],
+        body: `${uploader} uploaded the POD against ${lr} at ${uploadTime}.${podExceptionSentenceOf(context)} ${action}`,
+        highlights: [context.loadCode ?? '', context.balanceAmount ?? ''].filter(Boolean),
         metadata: {
           ...loadMetadataOf(context),
+          driver_name: context.driverName ?? '',
+          lr_no: context.lrNumber ?? '',
+          upload_time: uploadTime,
+          uploaded_at: context.uploadedAt,
+          amount: context.balanceAmount ?? '',
+          origin: context.origin ?? '',
+          destination: context.destination ?? '',
           receiver_name: context.receiverName ?? '',
           quantity_received: context.quantityReceived ?? '',
           tonnes_short: context.tonnesShort ?? '',
           shortage_or_damage: context.shortageOrDamage ?? '',
           cta_label: 'Verify POD',
           cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0039 — no POD in yet: the trip-timing sweep sends this 24 h and 48 h after the vehicle
+  // reached the delivery point (in this app the E-POD is what marks a load Delivered), or after a
+  // rejected E-POD that hasn't been re-uploaded; at 72 h it goes to org admins only, and after
+  // that the daily brief's "PODs pending" count carries it. The amount is the transporter's
+  // freight (no customer billing amount exists yet), left out for own-fleet loads. "Chase POD"
+  // has no action behind it yet (no cta_path). P2, in-app + push + WhatsApp to E-POD reviewers
+  // (loads.documents.manage — the sheet's "pod.verify") and trip.track holders.
+  'load.pod_pending': {
+    label: 'POD still pending',
+    category: 'pod_billing',
+    description: 'A delivered load still has no POD, so it cannot be billed.',
+    recipientRoles: [],
+    recipientPermission: (context: PodPendingContext) =>
+      context.step >= POD_PENDING_ALERT_HOURS.length - 1
+        ? []
+        : [{ permission: LOADS_DOCUMENTS_MANAGE }, { permission: TRIP_TRACK }],
+    extraRecipientRoles: (context: PodPendingContext) =>
+      context.step >= POD_PENDING_ALERT_HOURS.length - 1 ? [ORG_ADMIN_ROLE] : [],
+    channels: ['push', 'whatsapp'],
+    defaultChannels: ['push', 'whatsapp'],
+    severity: 'p2_action',
+    dedupeKey: (context: PodPendingContext) => `${context.loadId}-${context.since}-${context.step}`,
+    templates: {
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplatePodPending,
+        // The message shows the load code; load_id is the load's UUID (for the inbox card).
+        variables: ['first_name', 'load_code', 'hours_since', 'amount'],
+      },
+    },
+    buildContent: (context: PodPendingContext, recipient) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const at = context.consignee ? ` at ${context.consignee}` : '';
+      const hours = context.hoursSince ?? POD_PENDING_ALERT_HOURS[context.step];
+      const waiting = context.rejected
+        ? `The POD from ${vehicleNo}${at} was sent back ${hours} hours ago and no new copy is in.`
+        : `${vehicleNo} delivered${at} ${hours} hours ago and no POD is in.`;
+      const billing = context.amount ? ` ${context.amount} cannot be billed until it is.` : '';
+      const driver = context.driverName
+        ? `call ${context.driverName}${context.driverPhone ? ` on ${context.driverPhone}` : ''}`
+        : null;
+      const chase = [context.transporterName && `chase ${context.transporterName}`, driver]
+        .filter(Boolean)
+        .join(' or ');
+      const chaseSentence = chase ? ` ${chase.charAt(0).toUpperCase()}${chase.slice(1)}.` : '';
+      return {
+        title: `POD still pending on ${context.loadCode}`,
+        body: `${waiting}${billing}${chaseSentence}`,
+        highlights: [context.loadCode ?? '', context.amount ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
+          hours_since: String(hours),
+          amount: context.amount ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          pod_rejected: context.rejected ? 'true' : 'false',
+          pending_since: context.since,
+          cta_label: 'Chase POD',
+        },
+      };
+    },
+  },
+
+  // LS_N_0040 — staff rejected the E-POD (LoadService.reviewPod), one per rejection. The reason is
+  // the reviewer's own text. "Request a new POD" has no action behind it yet (no cta_path). P2,
+  // in-app + push to the user who created the load and trip.track holders.
+  'load.pod_rejected': {
+    label: 'POD rejected',
+    category: 'pod_billing',
+    description: 'An E-POD was sent back and the driver needs to upload a clear copy.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    alsoNotifyUserId: (context: PodReviewedContext) => context.createdBy ?? null,
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: PodReviewedContext) => `${context.loadId}-${context.reviewedAt}`,
+    buildContent: (context: PodReviewedContext) => {
+      const driver = context.driverName
+        ? `${context.driverName}${context.driverPhone ? ` on ${context.driverPhone}` : ''}`
+        : 'the driver';
+      return {
+        title: `POD on ${context.loadCode} sent back`,
+        body: `${context.verifierName ?? 'The reviewer'} rejected the POD. Reason: ${context.reason ?? 'not given'}. Ask ${driver} to upload a clear copy with the consignee stamp and date.`,
+        highlights: context.loadCode ? [context.loadCode] : [],
+        metadata: {
+          ...loadMetadataOf(context),
+          verifier_name: context.verifierName ?? '',
+          reason: context.reason ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          reviewed_at: context.reviewedAt,
+          cta_label: 'Request a new POD',
+        },
+      };
+    },
+  },
+
+  // LS_N_0041 — staff accepted the E-POD (LoadService.reviewPod), one per verification. The
+  // amount is the transporter's freight (no customer billing amount exists yet), left out for
+  // own-fleet loads; the balance line only while a market load's balance is unpaid. "Generate
+  // invoice" has no action behind it yet (no invoicing; no cta_path). P3, in-app only, to the
+  // user who created the load and payments holders (the sheet's "payment.view").
+  'load.pod_verified': {
+    label: 'POD verified, clear to bill',
+    category: 'pod_billing',
+    description: 'An E-POD was approved and the load can be invoiced.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
+    alsoNotifyUserId: (context: PodReviewedContext) => context.createdBy ?? null,
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: PodReviewedContext) => `${context.loadId}-${context.reviewedAt}`,
+    buildContent: (context: PodReviewedContext) => {
+      const against = context.lrNumber ? ` against ${context.lrNumber}` : '';
+      const clear = context.amount
+        ? `${context.amount} is clear to invoice`
+        : 'The load is clear to invoice';
+      const balance = context.balanceDue ? ' and the transporter balance can be released' : '';
+      return {
+        title: `POD verified on ${context.loadCode}`,
+        body: `${context.verifierName ?? 'The reviewer'} approved the POD${against}. ${clear}${balance}.`,
+        highlights: [context.loadCode ?? '', context.amount ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          verifier_name: context.verifierName ?? '',
+          lr_no: context.lrNumber ?? '',
+          amount: context.amount ?? '',
+          reviewed_at: context.reviewedAt,
+          cta_label: 'Generate invoice',
+        },
+      };
+    },
+  },
+
+  // LS_N_0034 — the E-POD recorded a shortage and/or damage against the lorry receipt: once (on
+  // the first E-POD that records it), then a reminder CLAIM_REMINDER_DAYS_BEFORE days before the
+  // claim window closes (the trip-timing sweep). The window is the company's
+  // (auth.organizations.claim_window_days, default 7) from the E-POD; the value at risk is MT
+  // short × the cargo value per MT on the requisition/posting, left out when either is unknown
+  // (always, for damage only). No claims feature exists yet, so "Raise a claim" opens the load.
+  // P1, in-app + push + email to the load's creator, payments holders (the sheet's
+  // "payment.view") and org admins.
+  'load.shortage_recorded': {
+    label: 'Shortage or damage recorded',
+    category: 'pod_billing',
+    description: 'A short quantity or damage was recorded at unloading — raise a claim in time.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
+    alsoNotifyUserId: (context: ShortageRecordedContext) => context.createdBy ?? null,
+    channels: ['push', 'email'],
+    defaultChannels: ['push', 'email'],
+    severity: 'p1_critical',
+    dedupeKey: (context: ShortageRecordedContext) =>
+      `${context.loadId}-${context.reminder ? 'reminder' : 'recorded'}`,
+    templates: {
+      email: {
+        templateId: env.msg91EmailTemplateShortageRecorded,
+        variables: {
+          load_id: 'load_code',
+          consignee: 'consignee',
+          shortage_qty: 'shortage_qty',
+          uom: 'uom',
+          lr_no: 'lr_no',
+          claim_value: 'claim_value',
+          transporter_name: 'transporter_name',
+          claim_window_days: 'claim_window_days',
+          claim_deadline: 'claim_deadline',
+        },
+      },
+    },
+    buildContent: (context: ShortageRecordedContext) => {
+      const shortTonnes = context.shortTonnes ? Number(context.shortTonnes) : null;
+      const shortage = shortTonnes ? `${shortTonnes} MT short` : 'a shortage';
+      const what = context.shortage
+        ? `${shortage}${context.damaged ? ' and damage' : ''}`
+        : 'damage';
+      const lr = context.lrNumber ?? 'the lorry receipt';
+      const consignee = context.consignee ?? 'The consignee';
+      const withTransporter = context.transporterName ? ` with ${context.transporterName}` : '';
+      const atRisk = context.claimValue ? ` Value at risk ${context.claimValue}.` : '';
+      const deadline = context.claimDeadline ? formatIndiaDate(context.claimDeadline) : '';
+      const title = context.reminder
+        ? `Claim window closes in ${CLAIM_REMINDER_DAYS_BEFORE} days on ${context.loadCode}`
+        : `${context.shortage ? 'Shortage' : 'Damage'} recorded on ${context.loadCode}`;
+      const body = context.reminder
+        ? `${CLAIM_REMINDER_DAYS_BEFORE} days left to raise a claim${withTransporter} for the ${what} recorded against ${lr}${context.consignee ? ` at ${context.consignee}` : ''}. The window closes on ${deadline}.${atRisk}`
+        : `${consignee} recorded ${what} against ${lr}.${atRisk} Raise a claim${withTransporter} within ${context.claimWindowDays} days or the recovery lapses.`;
+      return {
+        title,
+        body,
+        highlights: [context.loadCode ?? '', context.claimValue ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          shortage_qty: shortTonnes ? String(shortTonnes) : '',
+          uom: shortTonnes ? 'MT' : '',
+          damaged: context.damaged ? 'true' : 'false',
+          lr_no: context.lrNumber ?? '',
+          claim_value: context.claimValue ?? '',
+          claim_window_days: String(context.claimWindowDays ?? ''),
+          claim_deadline: deadline,
+          claim_deadline_at: context.claimDeadline ?? '',
+          reminder: context.reminder ? 'true' : 'false',
+          cta_label: 'Raise a claim',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0037 — the driver reported an accident, road block, police/RTO check, strike, bad
+  // weather or another problem from the driver app (breakdown-alerts.ts; a breakdown is LS_N_0054,
+  // traffic jams and rest stops stay on the timeline). Immediate — P1 rings through quiet hours.
+  // The ETA impact is named once something fills the report's eta_impact_minutes (nothing
+  // estimates it yet). P1, in-app + push + WhatsApp + SMS to trip.track holders and org admins.
+  'load.driver_problem_reported': {
+    label: 'Driver reported a problem',
+    category: 'trip_execution',
+    description:
+      'A driver reported a problem on a trip — accident, road block, police check and more.',
+    recipientRoles: [ORG_ADMIN_ROLE],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push', 'whatsapp', 'sms'],
+    defaultChannels: ['push', 'whatsapp', 'sms'],
+    severity: 'p1_critical',
+    dedupeKey: (context: DriverProblemReportedContext) => context.issueId,
+    templates: {
+      sms: {
+        templateId: env.msg91SmsTemplateDriverProblem,
+        variables: { var1: 'load_code' },
+      },
+      whatsapp: {
+        templateName: env.msg91WhatsappTemplateDriverProblem,
+        variables: ['first_name', 'driver_name', 'issue_type', 'load_code', 'location'],
+      },
+    },
+    buildContent: (context: DriverProblemReportedContext, recipient) => {
+      const driverName = context.driverName ?? 'The driver';
+      const issueType = DRIVER_PROBLEM_LABELS[context.category ?? 'other'] ?? 'a problem';
+      const location = context.location ?? 'an unknown location';
+      const reportTime = context.reportedAt ? formatIndiaTime(context.reportedAt) : '';
+      const note = context.driverNote
+        ? ` ${context.driverNote}${/[.!?]$/.test(context.driverNote) ? '' : '.'}`
+        : '';
+      const etaImpact =
+        context.etaImpactMinutes != null
+          ? ` ETA impact about ${durationOf(context.etaImpactMinutes)}.`
+          : '';
+      const phone = context.driverPhone ? ` Driver on ${context.driverPhone}.` : '';
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${driverName} reported ${issueType} on ${context.loadCode}`,
+        body: `Reported near ${location}${reportTime ? ` at ${reportTime}` : ''}.${note}${etaImpact}${phone}`,
+        highlights: [issueType, context.loadCode ?? ''].filter(Boolean),
+        metadata: {
+          ...loadMetadataOf(context),
+          first_name: firstNameOf(recipient.fullName),
+          issue_id: context.issueId,
+          issue_type: issueType,
+          issue_category: context.category ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          location: context.location ?? '',
+          report_time: reportTime,
+          reported_at: context.reportedAt ?? '',
+          driver_note: context.driverNote ?? '',
+          eta_impact: context.etaImpactMinutes != null ? durationOf(context.etaImpactMinutes) : '',
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          // "+919876500000"; left out when the driver has no valid number.
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
         },
       };
     },

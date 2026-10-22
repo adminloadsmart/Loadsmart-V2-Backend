@@ -5,10 +5,21 @@ import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.e
 import { CustomerEntity } from '../customers/entities/customer.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { DriverEntity } from '../driver/entities/driver.entity';
-import { UPCOMING_LOAD_STATUSES } from '../loads/utils/loads.types';
+import { LoadIssueReportEntity } from '../loads/entities/load-issue-report.entity';
+import {
+  DELIVERED_LOAD_STATUSES,
+  LoadStatus,
+  PodStatus,
+  UPCOMING_LOAD_STATUSES,
+} from '../loads/utils/loads.types';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { NotificationEntity } from './notifications.entity';
-import { DEFAULT_REPORTING_TIME_IST, INDIA_TIME_ZONE } from './notifications.constants';
+import {
+  CLAIMABLE_SHORTAGE_OR_DAMAGE_STATUSES,
+  DEFAULT_CLAIM_WINDOW_DAYS,
+  DEFAULT_REPORTING_TIME_IST,
+  INDIA_TIME_ZONE,
+} from './notifications.constants';
 import {
   DetentionTerms,
   LoadAlertSnapshot,
@@ -100,9 +111,11 @@ export class LoadAlertRepository {
   private readonly drivers: Repository<DriverEntity>;
   private readonly notifications: Repository<NotificationEntity>;
   private readonly organizations: Repository<OrganizationEntity>;
+  private readonly issueReports: Repository<LoadIssueReportEntity>;
 
   constructor(dataSource: DataSource) {
     this.organizations = dataSource.getRepository(OrganizationEntity);
+    this.issueReports = dataSource.getRepository(LoadIssueReportEntity);
     this.loads = dataSource.getRepository(LoadEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
     this.postings = dataSource.getRepository(LoadPostingEntity);
@@ -155,9 +168,13 @@ export class LoadAlertRepository {
       plannedCapacityTonnes: load.plannedCapacityTonnes,
       advancePercentage: load.advancePercentage,
       advancePaidAt: load.advancePaidAt,
+      balancePaidAt: load.balancePaidAt,
       ewayBillNumber: load.ewayBillNumber,
       ewayBillGeneratedAt: load.ewayBillGeneratedAt,
       podStatus: load.podStatus,
+      podReviewedAt: load.podReviewedAt,
+      podReviewedBy: load.podReviewedBy,
+      podRejectionReason: load.podRejectionReason,
       podReceiverName: load.podReceiverName,
       podQuantityReceived: load.podQuantityReceived,
       numberOfTonnesShort: load.numberOfTonnesShort,
@@ -203,7 +220,52 @@ export class LoadAlertRepository {
       promisedDeliveryDate: load.requisition?.expectedDeliveryDate ?? null,
       customerFreeHoursAtDrop:
         load.requisition?.customer?.freeHoursAtDrop ?? postingCustomer?.freeHoursAtDrop ?? null,
+      postingDeliverByAt: posting?.deliverByAt ?? null,
+      cargoValuePerTonne:
+        load.requisition?.cargoValuePerTonne ?? posting?.cargoValuePerTonne ?? null,
     };
+  }
+
+  /** LS_N_0054/0037 — a driver's issue report; null when it doesn't exist in this tenant. The
+   *  load it's on comes from findSnapshot. */
+  async findIssueReport(tenantId: string, issueId: string): Promise<LoadIssueReportEntity | null> {
+    return this.issueReports.findOneBy({ id: issueId, tenantId });
+  }
+
+  /** LS_N_0034 — the company's days to raise a shortage/damage claim (default 7 in the DB). */
+  async findClaimWindowDays(tenantId: string): Promise<number> {
+    const organization = await this.organizations.findOne({
+      where: { id: tenantId },
+      select: { claimWindowDays: true },
+    });
+    return organization?.claimWindowDays ?? DEFAULT_CLAIM_WINDOW_DAYS;
+  }
+
+  /** LS_N_0034 — loads whose E-POD recorded a shortage or damage and whose claim-window reminder
+   *  (`daysBefore` days before the company's window closes) fell due after `from` and on or
+   *  before `to`. Companies whose window is no longer than `daysBefore` get no reminder. */
+  async findClaimReminderDueBetween(
+    from: Date,
+    to: Date,
+    daysBefore: number,
+  ): Promise<{ loadId: string; tenantId: string }[]> {
+    const dueAt = `load.delivered_at + make_interval(days => org.claim_window_days - :daysBefore)`;
+    return this.loads
+      .createQueryBuilder('load')
+      .innerJoin(OrganizationEntity, 'org', 'org.id = load.tenant_id')
+      .select('load.id', 'loadId')
+      .addSelect('load.tenant_id', 'tenantId')
+      .where('load.status IN (:...deliveredStatuses)', {
+        deliveredStatuses: [...DELIVERED_LOAD_STATUSES],
+      })
+      .andWhere(
+        '(load.number_of_tonnes_short > 0 OR load.shortage_or_damage IN (:...claimableStatuses))',
+        { claimableStatuses: [...CLAIMABLE_SHORTAGE_OR_DAMAGE_STATUSES] },
+      )
+      .andWhere('org.claim_window_days > :daysBefore', { daysBefore })
+      .andWhere(`${dueAt} > :from`, { from })
+      .andWhere(`${dueAt} <= :to`, { to })
+      .getRawMany();
   }
 
   /** The company's detention terms — the database holds the defaults (4 h / 4 h / ₹500). */
@@ -366,6 +428,33 @@ export class LoadAlertRepository {
       )
       .getRawMany();
     return rows.map(detentionCandidateOf);
+  }
+
+  /** LS_N_0039 — loads still waiting on a POD whose wait started after `from` and on or before
+   *  `to`: at the delivery point with no E-POD yet (since it got there), or delivered with the
+   *  E-POD rejected and not re-uploaded (since the rejection). */
+  async findPodPendingBetween(
+    from: Date,
+    to: Date,
+  ): Promise<{ loadId: string; tenantId: string; since: Date }[]> {
+    const atDrop: LoadStatus = 'reached_delivery_point';
+    const delivered: LoadStatus = 'delivered';
+    const rejected: PodStatus = 'rejected';
+    const since =
+      'CASE WHEN load.status = :atDrop THEN load.reached_delivery_point_at ELSE load.pod_reviewed_at END';
+    const rows: { loadId: string; tenantId: string; since: Date | string }[] = await this.loads
+      .createQueryBuilder('load')
+      .select('load.id', 'loadId')
+      .addSelect('load.tenant_id', 'tenantId')
+      .addSelect(since, 'since')
+      .where(
+        '(load.status = :atDrop OR (load.status = :delivered AND load.pod_status = :rejected))',
+        { atDrop, delivered, rejected },
+      )
+      .andWhere(`${since} > :from`, { from })
+      .andWhere(`${since} <= :to`, { to })
+      .getRawMany();
+    return rows.map((row) => ({ ...row, since: new Date(row.since) }));
   }
 
   /** Whether tracking's geofence (not a manual tap) moved this load to `arrival`. */

@@ -241,6 +241,8 @@ export class LoadPostingService {
             commodityName: commodity.name,
             packaging: input.packaging,
             weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
+            cargoValuePerTonne:
+              input.cargoValuePerTonne === undefined ? null : String(input.cargoValuePerTonne),
             truckCount: input.truckCount,
             truckTypeId: trucks.main?.id ?? null,
             truckLengthFt: input.truck?.bodyLengthFt ?? null,

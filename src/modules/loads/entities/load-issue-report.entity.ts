@@ -67,6 +67,12 @@ export class LoadIssueReportEntity {
   @Column({ name: 'photo_file_keys', type: 'text', array: true, nullable: true })
   photoFileKeys!: string[] | null;
 
+  /** Expected delay this problem causes, in minutes (LS_N_0037's "ETA impact about …"). Optional —
+   *  nothing estimates it yet; the alert names it once something (the report, or a later
+   *  estimator) fills it in. */
+  @Column({ name: 'eta_impact_minutes', type: 'integer', nullable: true })
+  etaImpactMinutes!: number | null;
+
   // Set by staff via LoadService.resolveIssue. An unresolved accident/breakdown keeps the load on
   // hold (see HALTING_ISSUE_CATEGORIES) — the report row is otherwise append-only.
   @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })

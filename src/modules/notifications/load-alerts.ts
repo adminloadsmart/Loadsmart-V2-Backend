@@ -11,7 +11,10 @@ import {
   TrackingSignalLostContext,
   EwayBillExpiryContext,
   LoadSummary,
+  PodPendingContext,
+  PodReviewedContext,
   PodUploadedContext,
+  ShortageRecordedContext,
   VehicleAssignedContext,
   DetentionAtLoadingContext,
   DetentionAtUnloadingContext,
@@ -29,6 +32,7 @@ import {
   ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
   BANK_NAME_BY_IFSC_PREFIX,
   EWAY_BILL_ALERT_LEAD_MS,
+  MS_PER_DAY,
   MS_PER_HOUR,
   TRIP_COMPLETED_FALLBACK_MS,
   MS_PER_MINUTE,
@@ -103,6 +107,8 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
             loadId,
             uploadedAt: event.at.toISOString(),
           });
+          // LS_N_0034 — sent only if this E-POD recorded a shortage or damage (once per load).
+          await triggers.enqueue('load.shortage_recorded', tenantId, { loadId });
           // LS_N_0033 — unloading is confirmed. Sent now if the vehicle has already left the
           // delivery point (or there's no geofence exit to wait for), else on tracking's exit;
           // the later retry completes the trip even if that exit never comes.
@@ -112,6 +118,14 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
             tenantId,
             { loadId, fallback: true },
             { delayMs: TRIP_COMPLETED_FALLBACK_MS },
+          );
+          return;
+        case 'pod_reviewed':
+          // LS_N_0041 (accepted) / LS_N_0040 (rejected).
+          await triggers.enqueue(
+            event.decision === 'accepted' ? 'load.pod_verified' : 'load.pod_rejected',
+            tenantId,
+            { loadId, reviewedAt: event.at.toISOString() },
           );
           return;
         case 'assigned':
@@ -177,13 +191,52 @@ function summaryOf(loadId: string, snapshot: LoadAlertSnapshot): LoadSummary {
 /** The transporter's advance in rupees — same formula as load-payment.service.ts's
  *  computeShareAmount. Null when the load has no agreed freight yet. */
 function advanceAmountOf(snapshot: LoadAlertSnapshot, advancePercentage: number): string | null {
+  const freightTotal = freightTotalOf(snapshot);
+  return freightTotal === null ? null : formatRupees((freightTotal * advancePercentage) / 100);
+}
+
+/** The transporter's freight for the trip — flat, or per tonne × planned tonnes. Null when no
+ *  freight is agreed yet. */
+function freightTotalOf(snapshot: LoadAlertSnapshot): number | null {
   if (snapshot.freightValue == null) return null;
   const freightValue = Number(snapshot.freightValue);
-  const freightTotal =
-    snapshot.freightType === 'flat'
-      ? freightValue
-      : freightValue * Number(snapshot.plannedCapacityTonnes ?? 0);
-  return formatRupees((freightTotal * advancePercentage) / 100);
+  return snapshot.freightType === 'flat'
+    ? freightValue
+    : freightValue * Number(snapshot.plannedCapacityTonnes ?? 0);
+}
+
+/** LS_N_0039/0041 — the transporter's freight as the amount to bill (no customer billing amount
+ *  exists yet). Null for own-fleet loads or no agreed freight. */
+function freightAmountOf(snapshot: LoadAlertSnapshot): string | null {
+  if (snapshot.sourceType === 'own_fleet') return null;
+  const freightTotal = freightTotalOf(snapshot);
+  return freightTotal === null || freightTotal <= 0 ? null : formatRupees(freightTotal);
+}
+
+/** LS_N_0038 — the transporter balance the POD review holds up: freight minus the advance share.
+ *  Null for own-fleet loads (no transporter), no agreed freight, or a balance already paid. */
+function balanceAmountOf(snapshot: LoadAlertSnapshot): string | null {
+  if (snapshot.sourceType === 'own_fleet' || snapshot.balancePaidAt) return null;
+  const freightTotal = freightTotalOf(snapshot);
+  if (freightTotal === null || freightTotal <= 0) return null;
+  const advancePercentage = Number(snapshot.advancePercentage ?? 0);
+  return formatRupees((freightTotal * (100 - advancePercentage)) / 100);
+}
+
+/** LS_N_0034 — what the E-POD recorded against the lorry receipt: a shortage (and how much, when
+ *  it says), damage or wet cargo. */
+function shortageOrDamageOf(snapshot: LoadAlertSnapshot): {
+  shortage: boolean;
+  shortTonnes: string | null;
+  damaged: boolean;
+} {
+  const tonnesShort = Number(snapshot.numberOfTonnesShort ?? 0);
+  const status = snapshot.shortageOrDamage;
+  return {
+    shortage: tonnesShort > 0 || status === 'shortage' || status === 'both',
+    shortTonnes: tonnesShort > 0 ? String(tonnesShort) : null,
+    damaged: status === 'damage' || status === 'wet' || status === 'both',
+  };
 }
 
 /** The reporting time as the messages show it ("17 Oct, 10:00"), or null without a pickup. */
@@ -356,7 +409,10 @@ export function createLoadAlertResolvers(
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
-        promisedAt: promisedAtOf(snapshot.promisedDeliveryDate)?.toISOString() ?? null,
+        promisedAt:
+          (
+            promisedAtOf(snapshot.promisedDeliveryDate) ?? snapshot.postingDeliverByAt
+          )?.toISOString() ?? null,
         freeTimeEndsAt: new Date(
           new Date(context.arrivedAt).getTime() + freeHours * MS_PER_HOUR,
         ).toISOString(),
@@ -626,6 +682,112 @@ export function createLoadAlertResolvers(
         quantityReceived: snapshot.podQuantityReceived,
         tonnesShort: snapshot.numberOfTonnesShort,
         shortageOrDamage: snapshot.shortageOrDamage,
+        createdBy: snapshot.createdBy,
+        driverName: snapshot.driverName,
+        lrNumber: snapshot.elrNumber,
+        origin: snapshot.originCity,
+        destination: snapshot.destinationCity,
+        balanceAmount: balanceAmountOf(snapshot),
+      };
+    },
+
+    /** LS_N_0039 — null once the POD is in (or the wait this step belongs to is over: a new
+     *  arrival or a newer rejection). */
+    podPending: async (
+      tenantId: string,
+      context: PodPendingContext,
+    ): Promise<PodPendingContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot) return null;
+      const rejected = snapshot.status === 'delivered' && snapshot.podStatus === 'rejected';
+      const since =
+        snapshot.status === 'reached_delivery_point'
+          ? snapshot.reachedDeliveryPointAt
+          : rejected
+            ? snapshot.podReviewedAt
+            : null;
+      if (since?.toISOString() !== context.since) return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        rejected,
+        hoursSince: Math.floor((Date.now() - since.getTime()) / MS_PER_HOUR),
+        createdBy: snapshot.createdBy,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+        amount: freightAmountOf(snapshot),
+      };
+    },
+
+    /** LS_N_0040 — null unless the E-POD is still rejected by this review (not re-uploaded). */
+    podRejected: async (
+      tenantId: string,
+      context: PodReviewedContext,
+    ): Promise<PodReviewedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.podStatus !== 'rejected') return null;
+      if (snapshot.podReviewedAt?.toISOString() !== context.reviewedAt) return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        createdBy: snapshot.createdBy,
+        verifierName: snapshot.podReviewedBy
+          ? await loadAlertRepository.findPersonName({ userId: snapshot.podReviewedBy })
+          : null,
+        reason: snapshot.podRejectionReason,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** LS_N_0041 — null unless this review accepted the E-POD. */
+    podVerified: async (
+      tenantId: string,
+      context: PodReviewedContext,
+    ): Promise<PodReviewedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.podStatus !== 'accepted') return null;
+      if (snapshot.podReviewedAt?.toISOString() !== context.reviewedAt) return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        createdBy: snapshot.createdBy,
+        verifierName: snapshot.podReviewedBy
+          ? await loadAlertRepository.findPersonName({ userId: snapshot.podReviewedBy })
+          : null,
+        lrNumber: snapshot.elrNumber,
+        amount: freightAmountOf(snapshot),
+        balanceDue: snapshot.sourceType !== 'own_fleet' && !snapshot.balancePaidAt,
+      };
+    },
+
+    /** LS_N_0034 — null unless the E-POD recorded a shortage or damage. The claim window runs
+     *  from the first E-POD (deliveredAt) for the company's claim_window_days; the reminder is
+     *  dropped once the window has closed. Value at risk = MT short × cargo value per MT. */
+    shortageRecorded: async (
+      tenantId: string,
+      context: ShortageRecordedContext,
+    ): Promise<ShortageRecordedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot?.deliveredAt) return null;
+      const recorded = shortageOrDamageOf(snapshot);
+      if (!recorded.shortage && !recorded.damaged) return null;
+      const claimWindowDays = await loadAlertRepository.findClaimWindowDays(tenantId);
+      const claimDeadline = new Date(snapshot.deliveredAt.getTime() + claimWindowDays * MS_PER_DAY);
+      if (context.reminder && claimDeadline.getTime() <= Date.now()) return null;
+      const claimValue =
+        recorded.shortTonnes && snapshot.cargoValuePerTonne
+          ? formatRupees(Number(recorded.shortTonnes) * Number(snapshot.cargoValuePerTonne))
+          : null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        ...recorded,
+        createdBy: snapshot.createdBy,
+        lrNumber: snapshot.elrNumber,
+        claimValue,
+        claimWindowDays,
+        claimDeadline: claimDeadline.toISOString(),
       };
     },
 

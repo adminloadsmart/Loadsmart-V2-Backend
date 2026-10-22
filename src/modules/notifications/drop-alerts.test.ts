@@ -187,6 +187,8 @@ describe('trip-timing sweep — detention steps', () => {
       findAssignedLoadsDueBetween: vi.fn(async () => []),
       findLoadingDetentionCandidates: vi.fn(async () => []),
       findUnloadingDetentionCandidates: vi.fn(async () => unloading),
+      findClaimReminderDueBetween: vi.fn(async () => []),
+      findPodPendingBetween: vi.fn(async () => []),
     } as unknown as LoadAlertRepository;
     await createTripTimingChecks(repository, {
       enqueue,

@@ -38,7 +38,7 @@ import {
   ListLoadsInput,
   UploadPodInput,
 } from './utils/load.interface';
-import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
+import { IssueReportedNotifier } from '../notifications/breakdown-alerts';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import {
   AssignmentComplianceService,
@@ -131,7 +131,7 @@ export class LoadService {
     private readonly assignmentComplianceService: AssignmentComplianceService,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
-    private readonly onBreakdownReported?: BreakdownReportedNotifier,
+    private readonly onIssueReported?: IssueReportedNotifier,
     // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked —
     // optional; only queues a notification and never throws (see notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
@@ -1093,10 +1093,11 @@ export class LoadService {
         throw new ValidationError('reason is required when rejecting an E-POD');
       }
 
+      const reviewedAt = new Date();
       const updated = await this.repository.update(tenantId, loadId, {
         podStatus: decision,
         podRejectionReason: decision === 'rejected' ? reason! : null,
-        podReviewedAt: new Date(),
+        podReviewedAt: reviewedAt,
         podReviewedBy: actorId,
         updatedBy: actorId,
       });
@@ -1122,6 +1123,14 @@ export class LoadService {
           podStatus: decision,
           ...(decision === 'rejected' ? { reason } : {}),
         },
+      });
+      // LS_N_0041 (accepted) / LS_N_0040 (rejected).
+      await this.onLoadEvent?.({
+        kind: 'pod_reviewed',
+        tenantId,
+        loadId,
+        decision,
+        at: reviewedAt,
       });
 
       if (decision === 'accepted') {
@@ -1235,9 +1244,13 @@ export class LoadService {
         resourceType: 'load',
         newData: { id: issue.id, loadId, category: input.category, driverId: actorId },
       });
-      if (input.category === 'breakdown') {
-        await this.onBreakdownReported?.({ tenantId, loadId, issueId: issue.id });
-      }
+      // LS_N_0054 (breakdown) / LS_N_0037 (accident, road block, …) — the notifier decides.
+      await this.onIssueReported?.({
+        tenantId,
+        loadId,
+        issueId: issue.id,
+        category: input.category,
+      });
 
       return issue;
     } catch (error) {

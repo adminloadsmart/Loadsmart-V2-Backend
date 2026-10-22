@@ -23,7 +23,7 @@ import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
-import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
+import { IssueReportedNotifier } from '../notifications/breakdown-alerts';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
@@ -45,7 +45,7 @@ export function createLoadsModule(
     notificationsService: NotificationsService;
     // LS_N_0017 — built in composition-root.ts, which also hands it to the notification resolvers.
     assignmentComplianceService: AssignmentComplianceService;
-    onBreakdownReported?: BreakdownReportedNotifier;
+    onIssueReported?: IssueReportedNotifier;
     onLoadEvent?: LoadEventNotifier;
   },
 ) {
@@ -80,7 +80,7 @@ export function createLoadsModule(
     loadActivityService,
     deps.auditService,
     deps.assignmentComplianceService,
-    deps.onBreakdownReported,
+    deps.onIssueReported,
     deps.onLoadEvent,
   );
 

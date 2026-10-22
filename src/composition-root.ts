@@ -40,8 +40,9 @@ import {
   scheduleVehicleDocumentChecks,
 } from './modules/notifications/vehicle-document-alerts';
 import {
-  createBreakdownNotifier,
   createBreakdownResolver,
+  createDriverProblemResolver,
+  createIssueReportedNotifier,
 } from './modules/notifications/breakdown-alerts';
 import { createBackInServiceResolver } from './modules/notifications/back-in-service';
 import {
@@ -384,10 +385,20 @@ export function buildContainer(dataSource: DataSource): Container {
           ),
       }),
       // LS_N_0054 — reads the breakdown report and its trip at send time.
-      'load.breakdown_reported': createBreakdownResolver(dataSource),
+      'load.breakdown_reported': createBreakdownResolver(notifications.loadAlertRepository),
+      // LS_N_0037 — accident, road block, police check, strike, weather or other from the driver.
+      'load.driver_problem_reported': createDriverProblemResolver(
+        notifications.loadAlertRepository,
+      ),
       // Load events (load-alerts.ts) — read the load at send time; null once no longer relevant.
       'load.eway_bill_expiry': loadAlertResolvers.ewayBillExpiry,
       'load.pod_uploaded': loadAlertResolvers.podUploaded,
+      // LS_N_0039 POD still pending (trip-timing sweep) / LS_N_0040 rejected / LS_N_0041 verified.
+      'load.pod_pending': loadAlertResolvers.podPending,
+      'load.pod_rejected': loadAlertResolvers.podRejected,
+      'load.pod_verified': loadAlertResolvers.podVerified,
+      // LS_N_0034 shortage or damage recorded (on the E-POD; reminder from the trip-timing sweep).
+      'load.shortage_recorded': loadAlertResolvers.shortageRecorded,
       'load.advance_due': loadAlertResolvers.advanceDue,
       // LS_N_0016 truck assigned / LS_N_0017 assignment blocked on an expired document.
       'load.vehicle_assigned': loadAlertResolvers.vehicleAssigned,
@@ -448,7 +459,7 @@ export function buildContainer(dataSource: DataSource): Container {
     notificationsService: notifications.service,
     assignmentComplianceService,
     // LS_N_0054 — a driver-reported breakdown alerts maintenance holders and org admins.
-    onBreakdownReported: createBreakdownNotifier(notifications.triggers),
+    onIssueReported: createIssueReportedNotifier(notifications.triggers),
     // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked
     // (notifications/load-alerts.ts).
     onLoadEvent: createLoadEventNotifier(notifications.triggers),

@@ -30,7 +30,8 @@ export const IDLE_DAYS = 3;
 
 /** Trip stages counted as "on road" (left the plant, not yet delivered). */
 const RUNNING_STATUSES = ['in_transit', 'reached_delivery_point'];
-/** At the delivery point and not yet delivered — the E-POD is what moves it to delivered. */
+/** At the delivery point and not yet delivered — the E-POD is what moves it to delivered. A
+ *  rejected E-POD not yet re-uploaded counts too (LS_N_0039 hands both to this count after 72 h). */
 const POD_PENDING_STATUS = 'reached_delivery_point';
 const ACTIVE_LOAD_SQL = `l.status NOT IN ('delivered', 'closed')`;
 
@@ -83,7 +84,8 @@ export function createDigests(dataSource: DataSource, triggers: NotificationTrig
     const [row] = await dataSource.query(
       `SELECT
          (SELECT count(*)::int FROM loads.loads l WHERE l.tenant_id = $1 AND l.status = ANY($2)) AS running,
-         (SELECT count(*)::int FROM loads.loads l WHERE l.tenant_id = $1 AND l.status = $3) AS pods,
+         (SELECT count(*)::int FROM loads.loads l WHERE l.tenant_id = $1
+            AND (l.status = $3 OR (l.status = 'delivered' AND l.pod_status = 'rejected'))) AS pods,
          (SELECT count(DISTINCT d.vehicle_id)::int FROM masters.vehicle_documents d
             JOIN masters.vehicles v ON v.id = d.vehicle_id AND v.deleted_at IS NULL
                  AND v.status IN ('active', 'under_maintenance')

@@ -247,6 +247,17 @@ export const env = {
   msg91SmsTemplateReachedDrop: process.env.MSG91_SMS_TEMPLATE_REACHED_DROP || undefined,
   msg91WhatsappTemplateDetentionUnloading:
     process.env.MSG91_WHATSAPP_TEMPLATE_DETENTION_UNLOADING || undefined,
+  // LS_N_0034 shortage or damage recorded (email) / LS_N_0037 driver reported a problem (SMS +
+  // WhatsApp) / LS_N_0038 POD uploaded (SMS + email).
+  msg91EmailTemplateShortageRecorded:
+    process.env.MSG91_EMAIL_TEMPLATE_SHORTAGE_RECORDED || undefined,
+  msg91SmsTemplateDriverProblem: process.env.MSG91_SMS_TEMPLATE_DRIVER_PROBLEM || undefined,
+  msg91WhatsappTemplateDriverProblem:
+    process.env.MSG91_WHATSAPP_TEMPLATE_DRIVER_PROBLEM || undefined,
+  msg91SmsTemplatePodUploaded: process.env.MSG91_SMS_TEMPLATE_POD_UPLOADED || undefined,
+  msg91EmailTemplatePodUploaded: process.env.MSG91_EMAIL_TEMPLATE_POD_UPLOADED || undefined,
+  // LS_N_0039 POD still pending (WhatsApp).
+  msg91WhatsappTemplatePodPending: process.env.MSG91_WHATSAPP_TEMPLATE_POD_PENDING || undefined,
   // The loadsmart-tracking service's REST API (e.g. http://localhost:4100) — LS_N_0025/0026 read a
   // load's ETA from it. Optional: unset means no ETA (the notifications still go out without it).
   trackingApiUrl: process.env.TRACKING_API_URL || undefined,

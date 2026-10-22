@@ -148,6 +148,12 @@ export class OrganizationEntity {
   })
   detentionRatePerHour!: string;
 
+  // LS_N_0034: days to raise a shortage/damage claim after the E-POD records it (a reminder goes
+  // out CLAIM_REMINDER_DAYS_BEFORE days before it closes). Default in the database; editable by
+  // the org admin later.
+  @Column({ name: 'claim_window_days', type: 'integer', default: 7 })
+  claimWindowDays!: number;
+
   @OneToMany(() => OrganizationDocumentEntity, (document) => document.organization)
   documents!: OrganizationDocumentEntity[];
 

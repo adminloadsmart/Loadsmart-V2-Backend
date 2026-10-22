@@ -9,7 +9,7 @@ import {
   NotificationSeverity,
 } from './notifications.types';
 import { NotificationEntity } from './notifications.entity';
-import type { AssignmentComplianceSubject } from '../loads/utils/loads.types';
+import type { AssignmentComplianceSubject, PodReviewDecision } from '../loads/utils/loads.types';
 
 /** Destination the caller supplies for each requested channel — this module owns no
  *  contact/token registry of its own, so these are taken as-is (see notifications.service.ts). */
@@ -109,6 +109,14 @@ export type LoadEvent =
       expiresAt: Date;
     }
   | { kind: 'pod_uploaded'; tenantId: string; loadId: string; at: Date }
+  /** LS_N_0040/0041 — staff rejected or accepted the pending E-POD at `at` (its podReviewedAt). */
+  | {
+      kind: 'pod_reviewed';
+      tenantId: string;
+      loadId: string;
+      decision: PodReviewDecision;
+      at: Date;
+    }
   /** LS_N_0022 — the vehicle reached the loading point: the manual "At plant" step (driver app or
    *  staff) or tracking's geofence entry, whichever came first. */
   | { kind: 'at_plant'; tenantId: string; loadId: string; at: Date }
@@ -178,9 +186,16 @@ export interface LoadAlertSnapshot {
   plannedCapacityTonnes: string | null;
   advancePercentage: string | null;
   advancePaidAt: Date | null;
+  /** The transporter's balance was paid (LS_N_0038 then has no balance to name). */
+  balancePaidAt: Date | null;
   ewayBillNumber: string | null;
   ewayBillGeneratedAt: Date | null;
   podStatus: string | null;
+  /** The last E-POD review — when, by which staff user, and the reason if it was rejected
+   *  (LS_N_0039/0040/0041). */
+  podReviewedAt: Date | null;
+  podReviewedBy: string | null;
+  podRejectionReason: string | null;
   podReceiverName: string | null;
   podQuantityReceived: string | null;
   numberOfTonnesShort: string | null;
@@ -233,6 +248,11 @@ export interface LoadAlertSnapshot {
   promisedDeliveryDate: string | null;
   /** The customer's own free unloading hours; null → the company's (LS_N_0031/0032). */
   customerFreeHoursAtDrop: number | null;
+  /** Post-a-load "deliver by" — the promised time for a posted load (LS_N_0031). */
+  postingDeliverByAt: Date | null;
+  /** Value of the cargo per MT, from the requisition or posting — a shortage's value at risk
+   *  (LS_N_0034). */
+  cargoValuePerTonne: string | null;
 }
 
 /** The company's detention terms (auth.organizations) — LS_N_0022/0023/0031/0032. */

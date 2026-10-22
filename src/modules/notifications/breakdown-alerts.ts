@@ -1,24 +1,40 @@
-import { DataSource } from 'typeorm';
+import type { LoadIssueCategory } from '../loads/utils/loads.types';
+import { LoadIssueReportEntity } from '../loads/entities/load-issue-report.entity';
 import { NotificationTriggers } from './notification-triggers';
-import { BreakdownReportedContext } from './catalog/notification-catalog';
+import {
+  BreakdownReportedContext,
+  DriverProblemReportedContext,
+} from './catalog/notification-catalog';
+import { DRIVER_PROBLEM_ALERT_CATEGORIES, INDIA_TIME_ZONE } from './notifications.constants';
+import { LoadAlertRepository } from './load-alert.repository';
+import { LoadAlertSnapshot } from './notifications.interface';
 
 /**
- * LS_N_0054 "driver marked a breakdown". LoadService.reportIssue calls the notifier after a
- * driver's 'breakdown' issue report is saved — it only queues the issue id (never throws, never
- * slows the driver app); the trigger worker's resolver then reads everything the message needs.
+ * A driver's "Report an issue" from the driver app. LoadService.reportIssue calls the notifier
+ * after the report is saved — it only queues the issue id (never throws, never slows the driver
+ * app); the trigger worker's resolvers below then read everything the message needs:
+ * - 'breakdown' → LS_N_0054 "driver marked a breakdown";
+ * - DRIVER_PROBLEM_ALERT_CATEGORIES (accident, road block, police check, strike, weather,
+ *   other) → LS_N_0037 "driver reported a problem";
+ * - anything else (traffic jam, rest stop) is routine — on the load's timeline only.
  */
-export type BreakdownReportedNotifier = (event: {
+export type IssueReportedNotifier = (event: {
   tenantId: string;
   loadId: string;
   issueId: string;
+  category: LoadIssueCategory;
 }) => Promise<void>;
 
-export function createBreakdownNotifier(triggers: NotificationTriggers): BreakdownReportedNotifier {
-  return async ({ tenantId, loadId, issueId }) => {
+export function createIssueReportedNotifier(triggers: NotificationTriggers): IssueReportedNotifier {
+  return async ({ tenantId, loadId, issueId, category }) => {
     try {
-      await triggers.enqueue('load.breakdown_reported', tenantId, { issueId, loadId });
+      if (category === 'breakdown') {
+        await triggers.enqueue('load.breakdown_reported', tenantId, { issueId, loadId });
+      } else if (DRIVER_PROBLEM_ALERT_CATEGORIES.includes(category)) {
+        await triggers.enqueue('load.driver_problem_reported', tenantId, { issueId, loadId });
+      }
     } catch (error) {
-      console.warn(`Failed to queue breakdown notification for issue ${issueId}`, error);
+      console.warn(`Failed to queue the issue-report notification for issue ${issueId}`, error);
     }
   };
 }
@@ -26,49 +42,80 @@ export function createBreakdownNotifier(triggers: NotificationTriggers): Breakdo
 /** "14:35" in India time. */
 function indiaTime(at: Date): string {
   return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Kolkata',
+    timeZone: INDIA_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
   }).format(at);
 }
 
-/** Context resolver: the report plus its trip. Null (nothing sent) if the report is gone. */
-export function createBreakdownResolver(dataSource: DataSource) {
+/** The report plus the load it's on. Undefined if either is gone. */
+async function findIssueWithLoad(
+  loadAlertRepository: LoadAlertRepository,
+  tenantId: string,
+  issueId: string,
+): Promise<{ issue: LoadIssueReportEntity; load: LoadAlertSnapshot } | undefined> {
+  const issue = await loadAlertRepository.findIssueReport(tenantId, issueId);
+  if (!issue) return undefined;
+  const load = await loadAlertRepository.findSnapshot(tenantId, issue.loadId);
+  return load ? { issue, load } : undefined;
+}
+
+const locationOf = (issue: LoadIssueReportEntity): string | null =>
+  issue.locationLabel ||
+  (issue.latitude != null && issue.longitude != null
+    ? `${issue.latitude}, ${issue.longitude}`
+    : null);
+
+const reportedAtOf = (issue: LoadIssueReportEntity): Date =>
+  issue.locationCapturedAt ?? issue.createdAt;
+
+const driverNoteOf = (issue: LoadIssueReportEntity): string => issue.details?.trim() ?? '';
+
+/** LS_N_0054 context resolver. Null (nothing sent) if the report is gone. */
+export function createBreakdownResolver(loadAlertRepository: LoadAlertRepository) {
   return async (
     tenantId: string,
     context: BreakdownReportedContext,
   ): Promise<BreakdownReportedContext | null> => {
-    const [row] = await dataSource.query(
-      `SELECT i.details, i.location_label, i.latitude, i.longitude,
-              COALESCE(i.location_captured_at, i.created_at) AS reported_at,
-              l.code AS load_code, COALESCE(l.vehicle_number, v.registration_number) AS vehicle_no,
-              COALESCE(d.full_name, l.driver_name) AS driver_name, d.phone_number AS driver_phone,
-              c.name AS consignee, COALESCE(dp.location, dp.city) AS destination
-         FROM loads.load_issue_reports i
-         JOIN loads.loads l ON l.id = i.load_id
-         JOIN loads.requisitions r ON r.id = l.requisition_id
-         LEFT JOIN masters.vehicles v ON v.id = l.vehicle_id
-         LEFT JOIN masters.drivers d ON d.id = l.driver_id
-         LEFT JOIN customers.customers c ON c.id = r.customer_id
-         LEFT JOIN customers.customer_delivery_points dp ON dp.id = r.customer_delivery_point_id
-        WHERE i.id = $1 AND i.tenant_id = $2`,
-      [context.issueId, tenantId],
-    );
-    if (!row) return null;
-    const coordinates =
-      row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : null;
-    const note = typeof row.details === 'string' ? row.details.trim() : '';
+    const found = await findIssueWithLoad(loadAlertRepository, tenantId, context.issueId);
+    if (!found) return null;
+    const { issue, load } = found;
     return {
       ...context,
-      vehicleNo: row.vehicle_no ?? undefined,
-      driverName: row.driver_name ?? 'The driver',
-      driverPhone: row.driver_phone ?? 'not available',
-      breakdownType: note || 'a breakdown',
-      location: row.location_label ?? coordinates ?? 'an unknown location',
-      reportTime: indiaTime(new Date(row.reported_at)),
-      destination: row.destination ?? 'the destination',
-      loadCode: row.load_code,
-      consignee: row.consignee ?? 'the consignee',
+      vehicleNo: load.vehicleNumber ?? undefined,
+      driverName: load.driverName ?? 'The driver',
+      driverPhone: load.driverPhone ?? 'not available',
+      breakdownType: driverNoteOf(issue) || 'a breakdown',
+      location: locationOf(issue) ?? 'an unknown location',
+      reportTime: indiaTime(reportedAtOf(issue)),
+      destination: load.destinationCity ?? 'the destination',
+      loadCode: load.code,
+      consignee: load.consigneeName ?? 'the consignee',
+    };
+  };
+}
+
+/** LS_N_0037 context resolver. Null (nothing sent) if the report is gone. */
+export function createDriverProblemResolver(loadAlertRepository: LoadAlertRepository) {
+  return async (
+    tenantId: string,
+    context: DriverProblemReportedContext,
+  ): Promise<DriverProblemReportedContext | null> => {
+    const found = await findIssueWithLoad(loadAlertRepository, tenantId, context.issueId);
+    if (!found) return null;
+    const { issue, load } = found;
+    return {
+      ...context,
+      loadCode: load.code,
+      vehicleNo: load.vehicleNumber,
+      consignee: load.consigneeName,
+      category: issue.category,
+      driverName: load.driverName,
+      driverPhone: load.driverPhone,
+      location: locationOf(issue),
+      reportedAt: reportedAtOf(issue).toISOString(),
+      driverNote: driverNoteOf(issue) || null,
+      etaImpactMinutes: issue.etaImpactMinutes,
     };
   };
 }

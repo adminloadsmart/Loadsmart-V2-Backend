@@ -65,6 +65,8 @@ export interface PostLoadInput {
   commodity: CommodityInput;
   packaging: string;
   weightTonnes?: number;
+  /** Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034). */
+  cargoValuePerTonne?: number;
   truckCount: number;
   /** Main truck. Required for Market fleet and Indent; optional for Own fleet. */
   truck?: TruckPickInput;

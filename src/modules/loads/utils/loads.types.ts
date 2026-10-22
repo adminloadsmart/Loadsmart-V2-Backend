@@ -117,6 +117,13 @@ export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
   'delivered',
   'closed',
 ];
+/** The E-POD is in — the trip is delivered (and possibly closed). */
+export const DELIVERED_LOAD_STATUSES: readonly LoadStatus[] = ['delivered', 'closed'];
+
+/** Upper bound on the optional cargo value per MT a requisition / posting can carry (LS_N_0034). */
+export const MAX_CARGO_VALUE_PER_TONNE = 10_000_000;
+/** Upper bound on a driver issue report's expected delay — 7 days, in minutes (LS_N_0037). */
+export const MAX_ISSUE_ETA_IMPACT_MINUTES = 7 * 24 * 60;
 export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
@@ -206,6 +213,8 @@ export const LOAD_ISSUE_CATEGORIES = [
   'accident',
   'road_blocked',
   'police_rto_check',
+  'strike',
+  'weather',
   'other',
 ] as const;
 export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];

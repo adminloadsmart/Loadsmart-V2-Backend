@@ -5,6 +5,7 @@ import {
   NotificationSeverity,
 } from './notifications.types';
 import { QuietHoursSetting } from './notifications.interface';
+import type { LoadIssueCategory, ShortageOrDamageStatus } from '../loads/utils/loads.types';
 
 /** Inbox chip text per category (see NOTIFICATION_CATEGORIES). */
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategoryOrGeneral, string> = {
@@ -49,6 +50,7 @@ export const INDIA_TIME_ZONE = 'Asia/Kolkata';
 
 export const MS_PER_MINUTE = 60 * 1000;
 export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+export const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 /** How long before an e-way bill's expiry its 'load.eway_bill_expiry' alert (LS_N_0025) goes out
  *  — the sheet's last (1 h) step; its 12 h / 4 h steps need a real validity (the placeholder is 2
@@ -108,6 +110,36 @@ export const DETENTION_ALERT_MAX_HOURS = 48;
  *  point before completing without it (no GPS, or the exit was missed). Mirrors how long tracking
  *  keeps following a delivered load (its trip-state.ts DELIVERED_FOLLOW_MS). */
 export const TRIP_COMPLETED_FALLBACK_MS = 24 * MS_PER_HOUR;
+
+/** LS_N_0034 — the claim-window reminder goes out this many days before the window closes (the
+ *  window itself is the company's: auth.organizations.claim_window_days, default 7). */
+export const CLAIM_REMINDER_DAYS_BEFORE = 3;
+/** LS_N_0034 — only if the organization row is missing; the real default is the column's
+ *  (migration AddShortageClaimsAndDriverProblems). */
+export const DEFAULT_CLAIM_WINDOW_DAYS = 7;
+/** LS_N_0034 — E-POD cargo conditions that open a claim (a shortage, damage or wet cargo). */
+export const CLAIMABLE_SHORTAGE_OR_DAMAGE_STATUSES: readonly ShortageOrDamageStatus[] = [
+  'shortage',
+  'damage',
+  'wet',
+  'both',
+];
+
+/** LS_N_0039 — hours with no POD in after the vehicle reached the delivery point (or after a
+ *  rejection) at which "POD still pending" goes out; the last one goes to org admins only, and
+ *  after it the load is left to the daily brief's "PODs pending" count. */
+export const POD_PENDING_ALERT_HOURS = [24, 48, 72];
+
+/** LS_N_0037 — driver-reported issues that alert (P1, through quiet hours). Breakdown has its own
+ *  alert (LS_N_0054); traffic jams and rest stops are routine and stay on the load timeline. */
+export const DRIVER_PROBLEM_ALERT_CATEGORIES: readonly LoadIssueCategory[] = [
+  'accident',
+  'road_blocked',
+  'police_rto_check',
+  'strike',
+  'weather',
+  'other',
+];
 
 /** LS_N_0017 — escalate to org admins this long after a blocked assignment, and don't alert the
  *  same blocked vehicle again within it (a user retrying the assignment). */
