@@ -1,3 +1,4 @@
+import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { vehicleValidators } from './vehicle.validators';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
@@ -17,6 +18,13 @@ const write = (description: string) => permissionGated([MASTERS_WRITE], descript
 const approve = (description: string) => permissionGated([MASTERS_APPROVE], description);
 
 export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
+  registerImportSampleOpenApi(registry, {
+    path: `${BASE}/vehicles/import/sample`,
+    operationId: 'masters.vehicleImportSample',
+    permission: MASTERS_WRITE,
+    label: 'truck',
+    filename: 'vehicle-bulk-upload-template.xlsx',
+  });
   // --- Vehicles ---
 
   registry.registerPath({
@@ -210,8 +218,12 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.importVehiclesExcel',
     ...write(
-      'Bulk upload vehicles from an Excel file, one row per truck with the same fields as onboardVehicle. ' +
-        'Each row is onboarded on its own, so a bad row never blocks the others.',
+      'Bulk upload trucks from the template (GET /vehicles/import/sample; .xlsx or .csv, up to ' +
+        '5 MB / 1000 rows), one row per truck with the same fields as onboardVehicle. Plates ' +
+        'repeated in the file or already in the fleet are skipped; "Driver Phone" links an active ' +
+        'driver. Each row is onboarded on its own, so a bad row never blocks the others. Every ' +
+        'created truck gets vahanVerificationStatus "pending" and is checked against VAHAN in the ' +
+        'background (vahan-verification queue). Unknown columns are ignored (ignoredColumns).',
     ),
     request: {
       body: {

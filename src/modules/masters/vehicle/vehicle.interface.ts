@@ -17,6 +17,7 @@ import {
   VehicleTollPayer,
   VehicleVerificationStatus,
   VehicleVerificationType,
+  VehicleVahanStatus,
 } from './vehicle.type';
 
 /* Service-layer inputs — shapes accepted from the controller. */
@@ -131,6 +132,13 @@ export interface UpdateVehicleData {
   bodyLengthFt?: string | null;
   status?: VehicleStatus;
   updatedBy?: string | null;
+  // Filled from VAHAN by the background check (vehicle-vahan-verification.service.ts).
+  unladenWeightKg?: number | null;
+  financierName?: string | null;
+  vahanBodyType?: string | null;
+  vahanVerificationStatus?: VehicleVahanStatus;
+  vahanVerificationError?: string | null;
+  vahanVerifiedAt?: Date | null;
 }
 
 export interface ExportVehiclesFilters {

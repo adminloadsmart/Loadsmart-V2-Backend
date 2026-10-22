@@ -52,6 +52,7 @@ import { createTyreAlerts } from './modules/notifications/tyre-alerts';
 import { createDigests, digestJobs, scheduleDigests } from './modules/notifications/digests';
 import { createJobQueue } from './jobs/queue-registry';
 import { createGstVerificationWorker } from './modules/masters/gst/workers/gst-verification.worker';
+import { createVehicleVahanVerificationWorker } from './modules/masters/vehicle/workers/vehicle-vahan-verification.worker';
 import {
   GstBackgroundVerification,
   GstTargetRecord,
@@ -505,6 +506,7 @@ export function buildContainer(dataSource: DataSource): Container {
         customers.gstBackgroundVerification,
         masters.transporterGstVerification,
       ] as GstBackgroundVerification<GstTargetRecord>[]),
+      createVehicleVahanVerificationWorker(masters.vehicleVahanVerification),
     ],
   };
 }

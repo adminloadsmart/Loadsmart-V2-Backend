@@ -19,11 +19,13 @@ import {
   FUEL_TYPES,
   OWNERSHIP_TYPES,
   VEHICLE_STATUSES,
+  VEHICLE_VAHAN_STATUSES,
   VehicleAxleType,
   VehicleBodyType,
   VehicleFuelType,
   VehicleOwnershipType,
   VehicleStatus,
+  VehicleVahanStatus,
 } from '../vehicle.type';
 
 import { VehicleOperationalStatusEntity } from './vehicle-operational-status.entity';
@@ -112,6 +114,21 @@ export class VehicleEntity {
    *  yet — never verified since this was captured; false = a state permit or none. */
   @Column({ name: 'has_national_permit', type: 'boolean', nullable: true })
   hasNationalPermit!: boolean | null;
+
+  /** Newest VAHAN result, mirrored from vehicle_verification_snapshots by recordVerification —
+   *  'pending' while a bulk-imported truck waits on the 'vahan-verification' queue. */
+  @Column({
+    name: 'vahan_verification_status',
+    type: 'enum',
+    enum: [...VEHICLE_VAHAN_STATUSES],
+    default: 'unverified',
+  })
+  vahanVerificationStatus!: VehicleVahanStatus;
+  /** Why the background check couldn't verify (not in VAHAN, last ULIP error). */
+  @Column({ name: 'vahan_verification_error', type: 'varchar', length: 500, nullable: true })
+  vahanVerificationError!: string | null;
+  @Column({ name: 'vahan_verified_at', type: 'timestamptz', nullable: true })
+  vahanVerifiedAt!: Date | null;
 
   /** The size the truck is sold as (picker step 3), not the legal load — see grossVehicleWeightKg. */
   @Column({

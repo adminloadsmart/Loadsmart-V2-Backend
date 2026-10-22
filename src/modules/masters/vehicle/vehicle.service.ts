@@ -730,6 +730,9 @@ export class VehicleService {
     vehicleId: string,
     input: RecordVehicleVerificationInput,
     outerManager?: EntityManager,
+    // Why there's no verdict (background check: not in VAHAN, last ULIP error) — shown on the
+    // fleet list's VAHAN badge.
+    errorMessage?: string | null,
   ): Promise<VehicleVerificationSnapshotEntity> {
     try {
       await this.assertVehicleExists(tenantId, vehicleId, outerManager);
@@ -757,6 +760,18 @@ export class VehicleService {
             verifiedAt: verified ? new Date() : null,
             checkedAt: new Date(),
             createdBy: actorId,
+          },
+          manager,
+        );
+
+        // The fleet list reads the newest result off the vehicle row.
+        await this.vehicleRepository.update(
+          tenantId,
+          vehicleId,
+          {
+            vahanVerificationStatus: input.verificationStatus,
+            vahanVerifiedAt: snapshot.verifiedAt,
+            vahanVerificationError: verified ? null : (errorMessage?.slice(0, 500) ?? null),
           },
           manager,
         );
@@ -898,6 +913,9 @@ export class VehicleService {
     actorId: string,
     actorRole: string,
     input: OnboardVehicleInput,
+    // Bulk import: a truck saved without a VAHAN result gets a 'pending' snapshot — the caller
+    // then enqueues the 'vahan-verification' job (VehicleVahanVerificationService.enqueue).
+    options: { queueVahanVerification?: boolean } = {},
   ): Promise<VehicleWithTyres> {
     try {
       const {
@@ -928,6 +946,14 @@ export class VehicleService {
 
         if (verification) {
           await this.recordVerification(tenantId, actorId, vehicle.id, verification, manager);
+        } else if (options.queueVahanVerification) {
+          await this.recordVerification(
+            tenantId,
+            actorId,
+            vehicle.id,
+            { verificationType: 'vahan', verificationStatus: 'pending' },
+            manager,
+          );
         }
 
         // Explicit documents come after the registry write-back so an attached file wins over a bare date.
