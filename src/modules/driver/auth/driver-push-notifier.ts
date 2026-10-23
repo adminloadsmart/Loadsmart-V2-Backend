@@ -89,11 +89,9 @@ export class DriverPushNotifier {
   }
 
   /**
-   * Persists first so the push can carry the in-app notification's id: when the driver opens it,
-   * the app calls PATCH /driver-portal/me/notifications/:notificationId/read, which marks this
-   * invitation viewed (DriverPortalService.markMyNotificationRead). Returns whether the push
-   * reached at least one device — recorded as the invite's push delivery status — and the in-app
-   * notification's id (null if it couldn't be saved), which the invite's timeline links to.
+   * Persists first so the push can carry the in-app notification's id, which the app uses to open
+   * and mark it read. Returns whether the push reached at least one device — recorded as the
+   * invite's push delivery status — and the in-app notification's id (null if it couldn't be saved).
    */
   async notifyInvited(
     tenantId: string,

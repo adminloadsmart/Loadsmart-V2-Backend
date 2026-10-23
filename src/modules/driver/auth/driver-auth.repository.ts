@@ -89,6 +89,27 @@ export class DriverSessionRepository {
     return new Map(rows.map((row) => [row.driverId, new Date(row.lastSeenAt)]));
   }
 
+  // When the driver first logged into the app — the invitation drawer's "App Installed" time. Null
+  // when they never have. Revoked/expired sessions count.
+  async findFirstAppLoginAt(driverId: string): Promise<Date | null> {
+    const row = await this.sessions
+      .createQueryBuilder('driver_session')
+      .select('MIN(driver_session.created_at)', 'firstLoginAt')
+      .where('driver_session.driver_id = :driverId', { driverId })
+      .getRawOne<{ firstLoginAt: Date | null }>();
+    return row?.firstLoginAt ? new Date(row.firstLoginAt) : null;
+  }
+
+  // The driver's most recently used session (revoked/expired included) — the device the driver
+  // detail screen's "Driver app" line shows. Null when the driver never logged in.
+  findLatestSession(driverId: string): Promise<DriverSessionEntity | null> {
+    return this.sessions
+      .createQueryBuilder('driver_session')
+      .where('driver_session.driver_id = :driverId', { driverId })
+      .orderBy('COALESCE(driver_session.last_seen, driver_session.created_at)', 'DESC')
+      .getOne();
+  }
+
   // Keyed by the row's own id (the driver access token's `sid` claim). Returns whether a row was
   // actually matched, so the caller can 404 on a since-revoked/expired session rather than
   // silently no-op-ing — same contract as AuthRepository.updateSessionDeviceInfo.

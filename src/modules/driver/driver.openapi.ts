@@ -89,11 +89,19 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Driver detail screen in one call — the driver (documents, verifications, bank details, ' +
         'linked vehicles) plus screen sections: `licence` { number, classOfVehicle, endorsements, ' +
-        'validTo, daysLeft, registry, eligibleToDrive }, `contact` { primaryMobile, bloodGroup, ' +
-        'emergencyContact, engagementType, dateOfJoining, tenureYears, advanceOutstanding, ' +
+        'validTo, daysLeft, registry, eligibleToDrive, transportClasses [{ code, label }] (e.g. HTV · ' +
+        'Heavy Transport Vehicle), dateOfBirth, age, issuingRtoCode (e.g. HR55 — from the licence ' +
+        'number; the RTO name is not available) }, `contact` { primaryMobile, bloodGroup, ' +
+        'emergencyContact, engagementType, dateOfJoining (staff-entered, else the date this fleet ' +
+        'approved the driver), dateOfJoiningSource (entered | approved | null), tenureYears, ' +
+        'advanceOutstanding, ' +
         'compensation { salaryType, salaryAmount, bhattaPerDay } }, `assignment` { vehicle, ' +
-        'homeBase }, `availability` { activeLoad, dispatchable } (the operational status is the ' +
-        'top-level `operationalStatus` object), ' +
+        'homeBase }, `availability` { activeLoad, dispatchable, notDispatchableReason (not_active | ' +
+        'on_load | on_leave | medically_unfit | no_longer_with_us | null), companyStatus, ' +
+        'availableFrom ("fit to drive again from"), statusNote }, `appDevice` { deviceType, ' +
+        'deviceInfo } | null (the phone the driver last used the app on), `teamNote` { text, ' +
+        'updatedAt, updatedBy { id, name } } | null (the fleet note card; author null for notes ' +
+        'saved before it was recorded), ' +
         '`performance` { totalTrips, onTimePercentage, driverScore, scoreStatus }, `knownLanes`, ' +
         '`behaviour`, `slaBreachTrips`. `scoreStatus` (new | strong | watch) is the score badge — ' +
         '`new` until the driver has 5 trips and a score, so a just-added driver is neutral. ' +
@@ -122,7 +130,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         '`engagementType` (on_roll | per_trip | vendor — how they are employed, separate from ' +
         '`salaryType`), `bhattaPerDay` (daily trip allowance), `advanceOutstanding` ' +
         '(hand-entered balance), `homeBase` (yard, free text) and `licenseEndorsements` ' +
-        "(e.g. ['hazmat']; replaces the whole list) and `note` (max 500; null clears it).",
+        "(e.g. ['hazmat']; replaces the whole list) and `note` (max 500; null clears it). " +
+        '`phoneNumber` is not editable here — it is the driver app login; a sent one is ignored.',
     ),
     request: {
       params: driverValidators.updateDriver.shape.params,
@@ -262,7 +271,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'spaces/hyphens/+ ignored. Items: { invitationId, requestId (INV-00042), driverId, ' +
         'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
         'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled, ' +
-        'canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
+        "openedAt (when the driver read the latest send's WhatsApp message; null until then, " +
+        'cleared by Resend), canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
         'the driver first declined — once declined, the invite can be sent one more time, then ' +
         'once more every 30 days after the latest decline or send; null when never declined), ' +
         'canSendAgainAt (while no send is left, when the next one opens up; else null) }.',
@@ -315,12 +325,11 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Invitation detail drawer — the list item plus `credentials` { licenseNumber, ' +
         'licenseClass, registry: { source: sarathi, status, checkedAt } | null }, `timeline` for ' +
-        'the invite — a permanent log, oldest first, never rewritten: sent { at, by: { name, ' +
-        'role }, notification } (first send), resent { at, by, notification } (each Resend or ' +
-        're-invite) — `notification` { id, readAt } is the in-app notification that send ' +
-        'created (readAt null until the driver reads it; null when none is linked) — viewed ' +
-        '{ at, device, notificationId } (the driver opened that notification; once per ' +
-        'notification), expired { at } (logged when an expired invite is resent), declined { at, ' +
+        'the invite — one thread sorted by time: sent { at, by: { name, role } } (first send), ' +
+        'resent { at, by } (each Resend or re-invite, its own entry), opened { at } (the driver ' +
+        "read that send's WhatsApp message; once per send), installed { at } (the driver's " +
+        'first app login — can come before the first send), expired { at } (logged when an ' +
+        'expired invite is resent), declined { at, ' +
         'reason }, cancelled { at, by }, accepted { at }, delivery_failed { at, channel: sms | ' +
         'whatsapp | push } — then, while the invite is pending, a derived last step: expired ' +
         '{ at: expiresAt } once it ran out, else awaiting_response — and `deliveryChannels` ' +
@@ -692,7 +701,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...write(
       'Set the operational status backing the My Drivers status dropdown (On trip / Active / On ' +
         'leave). One row per driver — first call inserts, later calls overwrite. Only for drivers ' +
-        'who have joined (relation status `active`); pending drivers get a 400.',
+        'who have joined (relation status `active`); pending drivers get a 400. `availableFrom` ' +
+        '(YYYY-MM-DD, "Fit to drive again from") is only allowed with on_leave / medically_unfit: ' +
+        'a daily job at 00:05 IST sets the driver back to `active` on that date, clearing the ' +
+        'date and `reason`. Every call overwrites it, so omit it to clear.',
     ),
     request: {
       params: driverValidators.setDriverOperationalStatus.shape.params,

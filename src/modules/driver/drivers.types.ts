@@ -84,6 +84,28 @@ export const DRIVER_OPERATIONAL_STATUSES = [
 ] as const;
 export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[number];
 
+/** Away for a while, with an optional "fit to drive again from" date (availableFrom) on which the
+ *  daily driver-availability-return job sets the driver back to `active`. */
+export const DRIVER_RETURNING_OPERATIONAL_STATUSES: readonly DriverOperationalStatus[] = [
+  'on_leave',
+  'medically_unfit',
+];
+
+/** Why GET /drivers/{id} says the driver can't be dispatched; null when they can. */
+export type DriverNotDispatchableReason =
+  'not_active' | 'on_load' | 'on_leave' | 'medically_unfit' | 'no_longer_with_us';
+
+/** Sarathi class-of-vehicle codes that cover a transport (goods) vehicle over 7,500 kg — TRANS
+ *  since 1994, the older classes on older licences. */
+export const DRIVER_TRANSPORT_LICENCE_CLASSES: readonly string[] = [
+  'TRANS',
+  'MGV',
+  'HGMV',
+  'HMV',
+  'HTV',
+  'HPMV',
+];
+
 /**
  * Lifecycle of a driver's link to one tenant (masters.driver_tenant_relations). Replaces the old
  * per-tenant DriverEntity.status now that a driver profile is global and can hold many of these.
