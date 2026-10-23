@@ -1,10 +1,14 @@
-import { DataSource, In, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, IsNull, MoreThan, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { RequisitionEntity } from '../loads/entities/requisition.entity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
 import { CustomerEntity } from '../customers/entities/customer.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { DriverEntity } from '../driver/entities/driver.entity';
+import { DriverTenantRelationEntity } from '../driver/entities/driver-tenant-relation.entity';
+import { DriverVerificationEntity } from '../driver/entities/driver-verification.entity';
+import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
+import { ProductEntity } from '../masters/product/entities/product.entity';
 import { LoadIssueReportEntity } from '../loads/entities/load-issue-report.entity';
 import {
   DELIVERED_LOAD_STATUSES,
@@ -22,6 +26,7 @@ import {
 } from './notifications.constants';
 import {
   DetentionTerms,
+  LicenceCheckRow,
   LoadAlertSnapshot,
   LoadPersonRef,
   NextPlannedTrip,
@@ -112,6 +117,10 @@ export class LoadAlertRepository {
   private readonly notifications: Repository<NotificationEntity>;
   private readonly organizations: Repository<OrganizationEntity>;
   private readonly issueReports: Repository<LoadIssueReportEntity>;
+  private readonly driverRelations: Repository<DriverTenantRelationEntity>;
+  private readonly verifications: Repository<DriverVerificationEntity>;
+  private readonly vehicles: Repository<VehicleEntity>;
+  private readonly products: Repository<ProductEntity>;
 
   constructor(dataSource: DataSource) {
     this.organizations = dataSource.getRepository(OrganizationEntity);
@@ -123,6 +132,10 @@ export class LoadAlertRepository {
     this.users = dataSource.getRepository(UserEntity);
     this.drivers = dataSource.getRepository(DriverEntity);
     this.notifications = dataSource.getRepository(NotificationEntity);
+    this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
+    this.verifications = dataSource.getRepository(DriverVerificationEntity);
+    this.vehicles = dataSource.getRepository(VehicleEntity);
+    this.products = dataSource.getRepository(ProductEntity);
   }
 
   /** Null when the load doesn't exist in this tenant. Route/consignee come from the requisition
@@ -239,6 +252,97 @@ export class LoadAlertRepository {
       select: { claimWindowDays: true },
     });
     return organization?.claimWindowDays ?? DEFAULT_CLAIM_WINDOW_DAYS;
+  }
+
+  /** LS_N_0050 — what the licence check needs about the load's driver, vehicle and cargo. The
+   *  driver is the load's own (or, for a typed-in market driver, the one in this organisation
+   *  with that phone number); the vehicle its own (or the one with that plate). Each part is
+   *  null when it isn't in the masters. Null when the load doesn't exist. */
+  async findLicenceCheck(tenantId: string, loadId: string): Promise<LicenceCheckRow | null> {
+    const load = await this.loads.findOne({
+      where: { id: loadId, tenantId },
+      relations: { driver: true, vehicle: true, cargoItems: true, posting: true },
+    });
+    if (!load) return null;
+
+    const driver = load.driverId
+      ? load.driver?.deletedAt
+        ? null
+        : load.driver
+      : await this.findDriverByPhone(tenantId, load.driverNumber);
+    const vehicle = load.vehicleId
+      ? load.vehicle?.tenantId === tenantId && !load.vehicle.deletedAt
+        ? load.vehicle
+        : null
+      : await this.findVehicleByPlate(tenantId, load.vehicleNumber);
+    const latestVerification = driver
+      ? await this.verifications.findOne({
+          where: { driverId: driver.id, licenseClass: Not(IsNull()), deletedAt: IsNull() },
+          select: { licenseClass: true },
+          order: { createdAt: 'DESC' },
+        })
+      : null;
+    const productIds = [
+      ...(load.cargoItems ?? []).map((item) => item.productId),
+      ...(load.posting?.commodityId ? [load.posting.commodityId] : []),
+    ];
+    const hazardousProducts = productIds.length
+      ? await this.products.find({
+          where: { id: In(productIds), classification: 'hazardous' },
+          select: { productDetails: true },
+        })
+      : [];
+
+    return {
+      driverId: driver?.id ?? null,
+      driverName: driver?.fullName ?? load.driverName,
+      endorsements: driver?.licenseEndorsements ?? [],
+      licenceClass: latestVerification?.licenseClass ?? null,
+      vehicleNo: load.vehicleNumber ?? vehicle?.registrationNumber ?? null,
+      grossVehicleWeightKg: vehicle?.grossVehicleWeightKg ?? null,
+      hazardousProducts: [...new Set(hazardousProducts.map((product) => product.productDetails))],
+    };
+  }
+
+  /** A typed-in market driver in this organisation, matched on the last 10 digits of the phone
+   *  number (same rule as AssignmentComplianceService). */
+  private async findDriverByPhone(
+    tenantId: string,
+    driverNumber: string | null,
+  ): Promise<DriverEntity | null> {
+    const phoneDigits = driverNumber?.replace(/\D+/g, '').slice(-10) || null;
+    if (!phoneDigits) return null;
+    const relation = await this.driverRelations
+      .createQueryBuilder('relation')
+      .innerJoinAndSelect('relation.driver', 'driver')
+      .where('relation.tenant_id = :tenantId', { tenantId })
+      .andWhere('relation.deleted_at IS NULL')
+      .andWhere("relation.status <> 'rejected'")
+      .andWhere('driver.deleted_at IS NULL')
+      .andWhere("right(regexp_replace(driver.phone_number, '\\D', '', 'g'), 10) = :phone", {
+        phone: phoneDigits,
+      })
+      .getOne();
+    return relation?.driver ?? null;
+  }
+
+  /** A typed-in market vehicle in this organisation, matched on its plate without spaces/dashes
+   *  and case-blind (same rule as AssignmentComplianceService). */
+  private async findVehicleByPlate(
+    tenantId: string,
+    vehicleNumber: string | null,
+  ): Promise<VehicleEntity | null> {
+    const plate = vehicleNumber?.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (!plate) return null;
+    return this.vehicles
+      .createQueryBuilder('vehicle')
+      .where('vehicle.tenant_id = :tenantId', { tenantId })
+      .andWhere('vehicle.deleted_at IS NULL')
+      .andWhere(
+        "upper(regexp_replace(vehicle.registration_number, '[^A-Za-z0-9]', '', 'g')) = :plate",
+        { plate },
+      )
+      .getOne();
   }
 
   /** LS_N_0034 — loads whose E-POD recorded a shortage or damage and whose claim-window reminder

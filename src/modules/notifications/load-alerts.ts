@@ -16,6 +16,7 @@ import {
   PodUploadedContext,
   ShortageRecordedContext,
   VehicleAssignedContext,
+  LicenceMismatchContext,
   DetentionAtLoadingContext,
   DetentionAtUnloadingContext,
   TripCompletedContext,
@@ -28,6 +29,7 @@ import {
 } from './catalog/notification-catalog';
 import { findHaltExclusion, HaltGeofences } from './halt-exclusions';
 import { LoadAlertRepository } from './load-alert.repository';
+import { licenceMismatchOf } from './licence-check';
 import {
   ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
   BANK_NAME_BY_IFSC_PREFIX,
@@ -134,6 +136,11 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
             assignedAt: event.at.toISOString(),
             vehicleChecked: event.vehicleChecked,
             driverChecked: event.driverChecked,
+          });
+          // LS_N_0050 — sent only if the driver's licence doesn't cover the vehicle or cargo.
+          await triggers.enqueue('load.licence_mismatch', tenantId, {
+            loadId,
+            assignedAt: event.at.toISOString(),
           });
           return;
         case 'assignment_blocked':
@@ -814,6 +821,29 @@ export function createLoadAlertResolvers(
         amount: advanceAmountOf(snapshot, advancePercentage),
         bankName: bankCode ? (BANK_NAME_BY_IFSC_PREFIX[bankCode] ?? bankCode) : null,
         accountLast4: snapshot.transporterBankAccountNumber?.slice(-4) ?? null,
+      };
+    },
+
+    /** LS_N_0050 — null unless the licence check (licence-check.ts) finds a confirmed mismatch. */
+    licenceMismatch: async (
+      tenantId: string,
+      context: LicenceMismatchContext,
+    ): Promise<LicenceMismatchContext | null> => {
+      const check = await loadAlertRepository.findLicenceCheck(tenantId, context.loadId);
+      if (!check?.driverId) return null;
+      const mismatch = licenceMismatchOf(check);
+      if (!mismatch) return null;
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot) return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        vehicleNo: check.vehicleNo ?? snapshot.vehicleNumber,
+        driverName: check.driverName,
+        licenceClass: check.licenceClass,
+        grossVehicleWeightKg: check.grossVehicleWeightKg,
+        hazardousProducts: check.hazardousProducts,
+        ...mismatch,
       };
     },
 

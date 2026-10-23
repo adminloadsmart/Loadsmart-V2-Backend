@@ -408,6 +408,8 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.advance_due': loadAlertResolvers.advanceDue,
       // LS_N_0016 truck assigned / LS_N_0017 assignment blocked on an expired document.
       'load.vehicle_assigned': loadAlertResolvers.vehicleAssigned,
+      // LS_N_0050 — the assigned driver's licence doesn't cover the vehicle or cargo.
+      'load.licence_mismatch': loadAlertResolvers.licenceMismatch,
       'load.assignment_compliance_failed': loadAlertResolvers.assignmentComplianceFailed,
       // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
       'load.vehicle_loaded': loadAlertResolvers.vehicleLoaded,

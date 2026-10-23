@@ -159,3 +159,17 @@ export const TRACKING_EVENTS_ERROR_BACKOFF_MS = 5000;
 /** How late a scheduled trip-timing alert may still go out — so a backlog (first deploy, a
  *  missed run) never sends stale alerts. */
 export const TRIP_TIMING_GRACE_MINUTES = 60;
+
+/** LS_N_0050 — gross vehicle weight an LMV licence still covers (licence-check.ts). */
+export const LMV_MAX_GROSS_WEIGHT_KG = 7500;
+
+/** LS_N_0050 — Sarathi class-of-vehicle codes that cover a transport (goods) vehicle over
+ *  LMV_MAX_GROSS_WEIGHT_KG: TRANS since 1994, the older classes on older licences. */
+export const TRANSPORT_LICENCE_CLASSES: readonly string[] = [
+  'TRANS',
+  'MGV',
+  'HGMV',
+  'HMV',
+  'HTV',
+  'HPMV',
+];

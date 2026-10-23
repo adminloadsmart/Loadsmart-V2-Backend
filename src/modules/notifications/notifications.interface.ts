@@ -10,6 +10,7 @@ import {
 } from './notifications.types';
 import { NotificationEntity } from './notifications.entity';
 import type { AssignmentComplianceSubject, PodReviewDecision } from '../loads/utils/loads.types';
+import type { DriverLicenseEndorsement } from '../driver/drivers.types';
 
 /** Destination the caller supplies for each requested channel — this module owns no
  *  contact/token registry of its own, so these are taken as-is (see notifications.service.ts). */
@@ -260,6 +261,30 @@ export interface DetentionTerms {
   loadingFreeHours: number;
   unloadingFreeHours: number;
   ratePerHour: number;
+}
+
+/** LS_N_0050 — a load's driver, vehicle and cargo as the licence check sees them. */
+export interface LicenceCheckRow {
+  /** Null when the driver isn't in the masters (a typed-in market driver nobody added). */
+  driverId: string | null;
+  driverName: string | null;
+  /** Driver master endorsement codes, e.g. ['hazmat']. */
+  endorsements: DriverLicenseEndorsement[];
+  /** Latest Sarathi class-of-vehicle list, e.g. "LMV, HGMV"; null when never checked. */
+  licenceClass: string | null;
+  vehicleNo: string | null;
+  /** Vahan's passing weight; null when the vehicle isn't in the masters or has none. */
+  grossVehicleWeightKg: number | null;
+  /** Products on the load classified hazardous in the product master. */
+  hazardousProducts: string[];
+}
+
+/** LS_N_0050 — what a licence doesn't cover (licence-check.ts). */
+export interface LicenceMismatch {
+  /** Vehicle over LMV_MAX_GROSS_WEIGHT_KG and no transport class on the licence. */
+  needsTransportClass: boolean;
+  /** Hazardous cargo and no 'hazmat' endorsement. */
+  needsHazmatEndorsement: boolean;
 }
 
 /** A requisition as LS_N_0017 shows it when an own-fleet dispatch was blocked. */

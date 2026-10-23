@@ -5,6 +5,7 @@ import {
   LOADS_DOCUMENTS_MANAGE,
   MAINTENANCE_MANAGE,
   MASTERS_APPROVE,
+  MASTERS_WRITE,
   PAYMENTS_MANAGE,
   TRIP_TRACK,
 } from '../../../shared/constants/permissions';
@@ -16,6 +17,7 @@ import { LoadPersonRef, NextPlannedTrip } from '../notifications.interface';
 import {
   ASSIGNMENT_BLOCK_ALERT_WINDOW_MS,
   CLAIM_REMINDER_DAYS_BEFORE,
+  LMV_MAX_GROSS_WEIGHT_KG,
   MS_PER_HOUR,
   POD_PENDING_ALERT_HOURS,
   MS_PER_MINUTE,
@@ -737,6 +739,20 @@ export interface AdvanceDueContext extends LoadSummary {
   amount?: string | null;
   bankName?: string | null;
   accountLast4?: string | null;
+}
+
+/** LS_N_0050 — queued after every assignment; the resolver sends it only for a confirmed mismatch
+ *  (licence-check.ts). */
+export interface LicenceMismatchContext extends LoadSummary {
+  /** Identifies the assignment — a reassignment is checked afresh (ISO). */
+  assignedAt: string;
+  // Filled in by the resolver:
+  driverName?: string | null;
+  licenceClass?: string | null;
+  grossVehicleWeightKg?: number | null;
+  needsTransportClass?: boolean;
+  needsHazmatEndorsement?: boolean;
+  hazardousProducts?: string[];
 }
 
 /** LS_N_0016 — queued with the assignment-time check's result; the rest is read off the load at
@@ -2995,6 +3011,65 @@ export const NOTIFICATION_CATALOG = {
           bank_name: context.bankName ?? '',
           bank_account_last4: context.accountLast4 ?? '',
           cta_label: 'Approve advance',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // LS_N_0050 — after any assignment (the same 'assigned' event as LS_N_0016): the driver's licence
+  // doesn't cover the vehicle (over 7,500 kg needs a transport class — TRANS / HGMV / HMV / HTV /
+  // HPMV / MGV) or the cargo (a hazardous product needs the 'hazmat' endorsement). Rules and
+  // sources in licence-check.ts. Only a confirmed mismatch alerts: no Sarathi class or no vehicle
+  // weight on file skips the class check. Doesn't change whether the assignment is allowed. P1,
+  // in-app + push to dispatch planners (the sheet's "dispatch.plan") and masters writers (who can
+  // add a driver — the sheet's "driver.manage"). One per assignment.
+  'load.licence_mismatch': {
+    label: 'Licence class does not match the vehicle',
+    category: 'compliance',
+    description: "The assigned driver's licence doesn't cover the vehicle or the cargo.",
+    recipientRoles: [],
+    recipientPermission: () => [
+      { permission: DISPATCH_PLANNING_MANAGE },
+      { permission: MASTERS_WRITE },
+    ],
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p1_critical',
+    dedupeKey: (context: LicenceMismatchContext) => `${context.loadId}-${context.assignedAt}`,
+    buildContent: (context: LicenceMismatchContext) => {
+      const driverName = context.driverName ?? 'The driver';
+      const vehicleNo = context.vehicleNo ?? 'the vehicle';
+      const products = (context.hazardousProducts ?? []).join(', ');
+      const heldClass = context.licenceClass ?? 'a licence';
+      const transportRequirement = `a transport licence (it is over ${LMV_MAX_GROSS_WEIGHT_KG.toLocaleString('en-IN')} kg)`;
+      const hazmatRequirement = `a hazardous goods endorsement for ${products}`;
+      const licenceRequirement =
+        context.needsTransportClass && context.needsHazmatEndorsement
+          ? `${transportRequirement} and ${hazmatRequirement}`
+          : context.needsTransportClass
+            ? transportRequirement
+            : hazmatRequirement;
+      const body = context.needsTransportClass
+        ? `${driverName} holds ${heldClass}${
+            context.needsHazmatEndorsement ? ' with no hazardous goods endorsement' : ''
+          } and ${vehicleNo} needs ${licenceRequirement}.`
+        : `${driverName} has no hazardous goods endorsement and ${vehicleNo} is carrying ${products}.`;
+      return {
+        title: `${driverName} is not licensed for ${vehicleNo}`,
+        body: `${body} Assign a driver with the right class before the vehicle moves.`,
+        highlights: [driverName, vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          driver_name: context.driverName ?? '',
+          licence_class: context.licenceClass ?? '',
+          licence_requirement: licenceRequirement,
+          gross_vehicle_weight_kg:
+            context.grossVehicleWeightKg != null ? String(context.grossVehicleWeightKg) : '',
+          needs_transport_class: context.needsTransportClass ? 'true' : 'false',
+          needs_hazmat_endorsement: context.needsHazmatEndorsement ? 'true' : 'false',
+          hazardous_products: products,
+          cta_label: 'Change driver',
           cta_path: `/loads/${context.loadId}`,
         },
       };
