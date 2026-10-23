@@ -455,7 +455,7 @@ export class DispatchPlanningService {
         );
       }
 
-      // Vehicle+driver already known — the load lands directly in `assigned` (R-35), skipping the
+      // Vehicle+driver already known — the load lands directly in `truck_assigned` (R-35), skipping the
       // Load Assignment step entirely for own-fleet.
       const primaryLink = (vehicle.driverLinks ?? []).find(
         (link) => link.isPrimary && link.status === 'active',
@@ -465,7 +465,8 @@ export class DispatchPlanningService {
         tenantId,
         requisitionId,
         sourceType: 'own_fleet',
-        status: 'assigned',
+        status: 'truck_assigned',
+        truckAssignedAt: new Date(),
         plannedCapacityTonnes: vehicle.capacityTons,
         vehicleId: vehicle.id,
         vehicleNumber: vehicle.registrationNumber,

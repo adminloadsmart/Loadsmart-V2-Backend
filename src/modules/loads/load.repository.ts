@@ -24,22 +24,17 @@ import {
   LOAD_STATUS_GROUP_FILTERS,
   LoadSourceType,
   LoadStatus,
+  ON_ROAD_LOAD_STATUSES,
 } from './utils/loads.types';
 
-/** Between Assignment and Delivered — a vehicle on a load in one of these statuses is "on a live
- *  trip elsewhere" (C-02). Deliberately excludes 'created' (own-fleet loads never sit there, per
- *  R-35) and 'delivered'/'closed' (no longer "live"). */
 // A single tenant for staff, several for a driver linked to more than one fleet.
 const scopeToTenants = (tenantId: string | string[]) =>
   Array.isArray(tenantId) ? In(tenantId) : tenantId;
 
-const ACTIVE_VEHICLE_STATUSES: LoadStatus[] = [
-  'assigned',
-  'loading_confirmed',
-  'at_plant',
-  'in_transit',
-  'reached_delivery_point',
-];
+/** Between Assignment and Delivered — a vehicle on a load in one of these statuses is "on a live
+ *  trip elsewhere" (C-02). Excludes the sourcing stages (no truck yet) and the delivered/closed
+ *  stages (no longer "live"). */
+const ACTIVE_VEHICLE_STATUSES: LoadStatus[] = [...ON_ROAD_LOAD_STATUSES];
 
 /** Customer and route of a load posted without a requisition live on its posting. */
 const ORIGIN_POSTING_RELATIONS = {
@@ -58,7 +53,8 @@ export interface CreateLoadData {
   postingId?: string | null;
   title?: string | null;
   sourceType: LoadSourceType;
-  status?: LoadStatus; // own-fleet lands 'assigned' directly (R-35); market defaults to 'created'
+  status?: LoadStatus; // own-fleet lands 'truck_assigned' directly (R-35); market defaults to 'created'
+  truckAssignedAt?: Date | null;
   plannedCapacityTonnes: string;
   truckTypeId?: string | null;
   feetWheels?: string | null;

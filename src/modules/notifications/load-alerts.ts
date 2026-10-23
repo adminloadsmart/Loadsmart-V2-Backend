@@ -104,7 +104,12 @@ export function createLoadAlertResolvers(loadAlertRepository: LoadAlertRepositor
       context: EwayBillExpiryContext,
     ): Promise<EwayBillExpiryContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status === 'delivered' || snapshot.status === 'closed') {
+      if (
+        !snapshot ||
+        snapshot.status === 'delivered_ok' ||
+        snapshot.status === 'delivered_with_issues' ||
+        snapshot.status === 'closed'
+      ) {
         return null;
       }
       if (snapshot.ewayBillGeneratedAt?.toISOString() !== context.generatedAt) return null;

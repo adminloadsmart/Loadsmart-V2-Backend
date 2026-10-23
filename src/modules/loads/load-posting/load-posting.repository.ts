@@ -16,6 +16,7 @@ import { LoadRecipientEntity } from './entities/load-recipient.entity';
 import { LoadDraftEntity } from './entities/load-draft.entity';
 import { CustomerContractEntity } from './entities/customer-contract.entity';
 import { MessageStatus, RecipientType } from './utils/load-posting.types';
+import { ON_ROAD_LOAD_STATUSES } from '../utils/loads.types';
 
 /** ILIKE pattern with the user's own `%`, `_` and `\\` escaped so they match literally. */
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, '\\$&');
@@ -188,13 +189,7 @@ export class LoadPostingRepository {
       where: {
         tenantId,
         driverId: In(driverIds),
-        status: In([
-          'assigned',
-          'loading_confirmed',
-          'at_plant',
-          'in_transit',
-          'reached_delivery_point',
-        ]),
+        status: In([...ON_ROAD_LOAD_STATUSES]),
       },
     });
     return new Set(rows.map((row) => row.driverId as string));

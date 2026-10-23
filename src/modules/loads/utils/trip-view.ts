@@ -8,18 +8,14 @@ import { resolveLoadOrigin } from './load-origin';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
   HALTING_ISSUE_CATEGORIES,
-  LIFECYCLE_STAGE_LABEL_KEYS,
-  LOAD_STATUSES,
   LoadIssueCategory,
   LoadSourceType,
   LoadStatus,
-  MARKET_LIFECYCLE_STATUSES,
-  OWN_FLEET_LIFECYCLE_STATUSES,
-  PAYMENTS_STAGE,
   PodStatus,
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
+import { stagePathFor } from './load-stages';
 
 /**
  * Pure, stateless projections of a LoadEntity onto the Trips Home-page row, the trip-detail
@@ -107,15 +103,14 @@ export interface TripListRow {
   createdAt: string;
 }
 
-/** One entry of the trip-detail screen's 8-step progress stepper — walks LOAD_STATUSES in the
- *  true backend order (at_plant before loading_confirmed). */
+/** One entry of the trip-detail screen's stage stepper — the stages of the load's own route, in
+ *  the order it goes through them (see load-stages.ts's stagePathFor). */
 export interface TripStepperStep {
   key: LoadStatus;
   label: string;
   completed: boolean;
   current: boolean;
-  /** ISO timestamp from the matching *_At column; null for 'created'/'assigned', which have no
-   *  dedicated timestamp column on LoadEntity. */
+  /** ISO timestamp the load entered this stage; null until it has. */
   at: string | null;
   /** True for the steps still ahead of the current one while the load is halted by an unresolved
    *  accident/breakdown — the driver app renders them as "ON HOLD". */
@@ -147,15 +142,13 @@ export function buildIncident(issue: LoadIssueReportEntity | null): TripIncident
 }
 
 export interface TripNextAction {
+  /** The stage that normally comes next on this load's route; null once closed. */
   nextStatus: LoadStatus | null;
-  /** Plan Dispatch v2.0 §11/R-38 — counted against the load's OWN sourcing strategy's lifecycle
-   *  (Own Fleet: 4 steps; Market: 6, the 6th being the derived "Payments" stage), not a single
-   *  shared count across every load — see resolveLifecycleStage below. 0 before the first stage;
-   *  capped at `totalSteps` once fully complete. */
+  /** Position of the current stage on this load's route (own fleet starts at Truck assigned, so
+   *  its count is shorter than a market load's). 'closed' counts as the last step. */
   stepNumber: number;
   totalSteps: number;
-  /** Doc-exact label (Plan Dispatch v2.0 §11) for the stage `stepNumber` currently sits at — e.g.
-   *  "Truck assigned", "In-transit", or (Market only, once both payments clear) "Payments". */
+  /** Label of the stage the load is in now, e.g. "Truck assigned" or "Delivered with issues". */
   currentStageLabel: string;
   lastUpdate: { status: LoadStatus; at: string | null };
   advance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
@@ -424,68 +417,53 @@ export function toLoadPapers(
   };
 }
 
-/** Walks LOAD_STATUSES by index — the same indexing LoadService.updateStatus uses — to build
- *  the trip-detail screen's 8-step progress stepper. */
+/** When the load entered each stage. Delivered with issues and Delivered without issues share
+ *  deliveredAt (the truck unloaded once) unless the issue was settled, which is when the load
+ *  became Delivered without issues. */
+function stageTimestamps(load: LoadEntity): Partial<Record<LoadStatus, Date | null>> {
+  return {
+    created: load.createdAt,
+    bids_received: load.bidsReceivedAt,
+    truck_assigned: load.truckAssignedAt,
+    in_transit_loading: load.inTransitLoadingAt,
+    reached_loading: load.atPlantAt,
+    loaded: load.loadingConfirmedAt,
+    in_transit_unloading: load.inTransitAt,
+    reached_unloading: load.reachedDeliveryPointAt,
+    delivered_with_issues: load.deliveredAt,
+    delivered_ok: load.deliveryIssueSettledAt ?? load.deliveredAt,
+    closed: load.closedAt,
+  };
+}
+
+/** The trip-detail screen's stage stepper — the load's own route, in order. */
 export function buildStepper(
   load: LoadEntity,
   locale: Locale = DEFAULT_LOCALE,
   incident: TripIncident | null = null,
 ): TripStepperStep[] {
-  const currentIndex = LOAD_STATUSES.indexOf(load.status);
-  const timestampByStatus: Partial<Record<LoadStatus, Date | null>> = {
-    loading_confirmed: load.loadingConfirmedAt,
-    at_plant: load.atPlantAt,
-    in_transit: load.inTransitAt,
-    reached_delivery_point: load.reachedDeliveryPointAt,
-    delivered: load.deliveredAt,
-    closed: load.closedAt,
-  };
-  return LOAD_STATUSES.map((status, index) => ({
+  const path = stagePathFor(load);
+  const currentIndex = path.indexOf(load.status);
+  const timestamps = stageTimestamps(load);
+  return path.map((status, index) => ({
     key: status,
     label: t(locale, `loads.status.${status}`),
     completed: index < currentIndex,
     current: index === currentIndex,
-    at: timestampByStatus[status]?.toISOString() ?? null,
+    at: index <= currentIndex ? (timestamps[status]?.toISOString() ?? null) : null,
     onHold: Boolean(incident?.halted) && index > currentIndex,
   }));
 }
 
-/**
- * Collapses a load's technical LOAD_STATUSES value onto the doc-aligned lifecycle stage it
- * belongs to (Plan Dispatch v2.0 §11/R-38): loading_confirmed/at_plant fold into the preceding
- * "Truck assigned"/"Load created" stage (they're still real, separately-timestamped statuses —
- * see buildStepper's 8-step technical view — just not named separately in the doc's simplified,
- * per-strategy lifecycle), and 'closed' folds into 'delivered'. Market Fleet's "Payments" stage
- * isn't a LoadStatus at all — advance/balance run in parallel with movement (LoadEntity's doc
- * comment) — so it's derived from both payment timestamps being set, independent of whether
- * `status` still reads 'delivered' or has since moved to 'closed'.
- */
-function resolveLifecycleStage(load: LoadEntity): LoadStatus | typeof PAYMENTS_STAGE {
-  if (load.sourceType !== 'own_fleet' && load.advancePaidAt && load.balancePaidAt) {
-    return PAYMENTS_STAGE;
-  }
-  if (load.status === 'loading_confirmed' || load.status === 'at_plant') return 'assigned';
-  if (load.status === 'closed') return 'delivered';
-  return load.status;
-}
-
-/** Next-action panel — what stage comes next, tracking/advance-due info. Advance/balance
- *  applicability and paid-state mirror the exact gating LoadPaymentService.recordAdvance/
- *  recordBalance already enforce (market-only, gated by loadingConfirmedAt/deliveredAt). */
+/** Next-action panel — the current and next stage on this load's route, plus advance/balance.
+ *  Advance/balance applicability and paid-state mirror the gating LoadPaymentService.
+ *  recordAdvance/recordBalance enforce (market and indent only, gated by Loaded/delivered). */
 export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripNextAction {
-  const currentIndex = LOAD_STATUSES.indexOf(load.status);
-  const nextStatus = LOAD_STATUSES[currentIndex + 1] ?? null;
+  const path = stagePathFor(load);
+  const currentIndex = path.indexOf(load.status);
+  const nextStatus = path[currentIndex + 1] ?? null;
 
   const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
-  // Own Fleet's doc lifecycle is 4 stages; Market's is 6 (5 real statuses + the derived
-  // "Payments" stage) — R-38, not one shared count across every load regardless of strategy.
-  const lifecycleStatuses = isMarket ? MARKET_LIFECYCLE_STATUSES : OWN_FLEET_LIFECYCLE_STATUSES;
-  const totalSteps = lifecycleStatuses.length + (isMarket ? 1 : 0);
-
-  const currentStage = resolveLifecycleStage(load);
-  const stepNumber =
-    currentStage === PAYMENTS_STAGE ? totalSteps : lifecycleStatuses.indexOf(currentStage) + 1;
-
   const advanceAmount =
     isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
   const balanceAmount =
@@ -493,9 +471,9 @@ export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCAL
 
   return {
     nextStatus,
-    stepNumber,
-    totalSteps,
-    currentStageLabel: t(locale, LIFECYCLE_STAGE_LABEL_KEYS[currentStage]),
+    stepNumber: currentIndex + 1,
+    totalSteps: path.length,
+    currentStageLabel: t(locale, `loads.status.${load.status}`),
     lastUpdate: { status: load.status, at: load.updatedAt?.toISOString() ?? null },
     advance: {
       applicable: isMarket,

@@ -125,6 +125,14 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadValidators.reviewPod),
     asyncHandler(controller.reviewPod),
   );
+  // Delivered with issues -> Delivered without issues, once the damage/shortage/pilferage noted
+  // on the POD is settled — see LoadService.settleDeliveryIssue.
+  router.patch(
+    '/loads/:loadId/delivery-issue/settle',
+    canManageDocuments,
+    validate(loadValidators.settleDeliveryIssue),
+    asyncHandler(controller.settleDeliveryIssue),
+  );
 
   // --- Payments — Accounts. ---
   router.post(

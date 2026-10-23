@@ -19,6 +19,7 @@ import {
   ListLoadsInput,
   LoadParams,
   ReviewPodInput,
+  SettleDeliveryIssueInput,
   UpdateLoadStatusInput,
   UploadPodInput,
 } from './utils/load.interface';
@@ -185,6 +186,16 @@ export class LoadsController {
       req.params.loadId,
       decision,
       reason,
+    );
+    respond(res, load);
+  };
+
+  settleDeliveryIssue = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.settleDeliveryIssue(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      (req.body as SettleDeliveryIssueInput).note,
     );
     respond(res, load);
   };

@@ -140,7 +140,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.planDispatch',
     ...manageDispatch(
       'Plan how a requisition moves — one truck line per planned truck, own fleet (multi-vehicle: ' +
-        'one load per selected vehicle, all sharing the same cargo mix, created already "assigned") ' +
+        'one load per selected vehicle, all sharing the same cargo mix, created already "truck_assigned") ' +
         'or market (truck-type + count, freight position captured now, transporter/vehicle/driver ' +
         'captured later at Assignment). Splits the requisition into one Load per truck; partial ' +
         'dispatch is allowed and the requisition stays open with the remainder visible.',
@@ -203,7 +203,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.listLoads',
     ...authenticated(
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
-        'completed|open|upcoming` is the tab filter (upcoming = created + assigned loads whose requisition pickupDate is today or later), mutually ' +
+        'completed|open|upcoming` is the tab filter (upcoming = created, bids_received and truck_assigned loads whose requisition pickupDate is today or later), mutually ' +
         'exclusive with `status`. `podStatus=pending|accepted|rejected` filters by E-POD status. ' +
         '`fromDate`/`toDate` (YYYY-MM-DD, inclusive, UTC, either optional) filter on deliveredAt ' +
         'when group=completed, otherwise on createdAt. ' +
@@ -242,10 +242,12 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Load / Trip Detail — status, assignment, documents (resolved to download URLs), ' +
         'payments, computed e-way-bill expiry, the full chronological activity timeline (now with ' +
-        "each entry's actor name/role resolved), an 8-step technical progress stepper, and a " +
-        'next-action panel (next stage, "step N of 4/6" — counted against the load\'s own sourcing ' +
-        'strategy\'s doc lifecycle, Own Fleet 4 stages vs Market 6 including a derived "Payments" ' +
-        'stage, not one shared count — plus tracking/advance-due info). This is the single trip ' +
+        "each entry's actor name/role resolved), the stage stepper for the load's own route " +
+        '(market/indent: Created → Bids received → Truck assigned → In-transit for loading → ' +
+        'Reached loading point → Loaded → In-transit for unloading → Reached unloading point → ' +
+        'Delivered; own fleet starts at Truck assigned; Delivered with issues appears only when the ' +
+        'POD noted an issue), and a next-action panel (current/next stage, "step N of M" on that ' +
+        'route, plus advance/balance info). This is the single trip ' +
         'detail screen — GET /loads/{loadId}/activities returns the same timeline entries alone.',
     ),
     request: { params: loadValidators.get.shape.params },
@@ -285,7 +287,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.assignLoad',
     ...manageDispatch(
-      'Load Assignment — market loads only. Own-fleet loads are assigned at Dispatch Planning ' +
+      'Load Assignment — market and indent loads, from Created or Bids received; moves the load ' +
+        'to Truck assigned. Own-fleet loads are assigned at Dispatch Planning ' +
         '(vehicle+driver already known there) and 409 if sent here. Requires transporterId, ' +
         'vehicleNumber/driverNumber (free text), an optional driverName, and freightType; ' +
         'freightValue defaults to the target rate captured at planning if omitted (the ' +
@@ -318,11 +321,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
         'slip (weighingSlipFileKey). Documents may be submitted one at a time or all together — ' +
         'invoiceNumber+invoiceFileKey and ewayBillNumber+ewayBillFileKey must each arrive as a ' +
         'pair, elrFileKey may arrive without elrNumber, and at least one field must be present ' +
-        'per call. The load stays "assigned" until all three MANDATORY documents are present ' +
-        '(accumulated across calls, already on the load from an earlier caller, or sent at once ' +
-        '— a document staff already attached never needs to be resent), at which point it flips ' +
-        'to "loading_confirmed" and tracking/advance payment (market loads) are enabled; the two ' +
-        'non-mandatory fields never affect this flip. This same endpoint is also reachable by ' +
+        'per call. Only at the loading point (Reached loading point). The load moves to Loaded as ' +
+        'soon as all three MANDATORY papers are present (accumulated across calls, already on the ' +
+        'load from an earlier caller, or sent at once — a document staff already attached never ' +
+        'needs to be resent); advance payment (market/indent) is then enabled. The two ' +
+        'non-mandatory fields never affect this. This same endpoint is also reachable by ' +
         'the assigned driver via PATCH /driver-portal/loads/{loadId}/confirm-loading. File keys ' +
         'must be confirmed uploads from POST /files with the matching purpose (loads/invoice, ' +
         'loads/eway-bill, trips/lr, loads/loading-photo, loads/weighing-slip).',
@@ -334,8 +337,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          'Document(s) saved; load remains "assigned" until all three are present, then flips ' +
-          'to "loading_confirmed"',
+          'Document(s) saved; load stays at Reached loading point until all three are present, ' +
+          'then moves to Loaded',
       },
       400: {
         description: 'A file is not a confirmed upload for the expected purpose',
@@ -343,7 +346,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       },
       409: {
         description:
-          'Load is not in the "assigned" state, or the E-LR number is already used on another load (C-04)',
+          'Load is not at the loading point, or the E-LR number is already used on another load (C-04)',
         ...errorContent,
       },
     },
@@ -356,9 +359,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.updateDocuments',
     ...manageDocuments(
       'Attach or replace load documents (invoice/e-way bill/E-LR/loading photos/weighing slip) ' +
-        'with no status-transition side effects — unlike PATCH /loads/{loadId}/confirm-loading, ' +
-        'this never checks completeness and never flips the load to "loading_confirmed". Usable ' +
-        'at any point in the load\'s lifecycle except once "closed" (terminal); intended for ' +
+        'at any point in the load\'s lifecycle except once "closed" (terminal). A load at the ' +
+        'loading point still moves to Loaded once this call completes the three papers. Intended for ' +
         'correcting a document after loading has already been confirmed, or attaching one that ' +
         'only arrived later. Same body shape and file-key rules (purposes, pairing, E-LR ' +
         'uniqueness) as confirm-loading. Also reachable by the assigned driver via PATCH ' +
@@ -369,7 +371,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       body: json(loadValidators.updateDocuments.shape.body),
     },
     responses: {
-      200: { description: 'Document(s) saved; load status is unchanged' },
+      200: {
+        description: 'Document(s) saved; status unchanged unless this completed the loading papers',
+      },
       400: {
         description: 'A file is not a confirmed upload for the expected purpose',
         ...errorContent,
@@ -388,8 +392,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.updateLoadStatus',
     ...manageDocuments(
-      'Manual tracking advance — At plant / In-transit / Reached delivery point. ' +
-        'Rejects skipping ahead or moving backward.',
+      'Manual stage mark — `in_transit_loading` (Start trip), `reached_loading`, ' +
+        '`in_transit_unloading` (left for the drop), `reached_unloading`. There is no live ' +
+        'tracking yet. Rejects skipping ahead, moving backward, or a stage not on the route.',
     ),
     request: {
       params: loadValidators.updateStatus.shape.params,
@@ -407,15 +412,16 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.uploadPod',
     ...manageDocuments(
-      'Record proof of delivery — the delivery receipt photo, receiver name/mobile, and quantity ' +
-        'received are required; receiver designation, sealStatus, shortageOrDamage, ' +
-        'numberOfTonnesShort, damagePhotoKey, and podRemarks are all optional. damagePhotoKey ' +
-        'becomes required only when shortageOrDamage is `damage` or `both`. Neither a broken ' +
-        'seal nor a damage/shortage report ever blocks — both are recorded on the activity/audit ' +
-        'trail only, advisory pending a future exceptions/escalations module. Marks the load ' +
-        'Delivered and its podStatus `pending` — closing to Closed now requires staff to accept ' +
-        'the E-POD via PATCH /loads/{loadId}/pod/review. Also usable to resubmit after a ' +
-        'rejection (load stays Delivered, podStatus resets to `pending`).',
+      'Record proof of delivery — POD front (podFileKey) and back (podBackFileKey), receiver ' +
+        'name/mobile, and quantity received are required; receiver designation, sealStatus, ' +
+        'shortageOrDamage, numberOfTonnesShort, damagePhotoKey, and podRemarks are optional. ' +
+        'damagePhotoKey becomes required when shortageOrDamage is `damage`, `wet` or `both`. ' +
+        'Accepted once the load is In-transit for unloading (it is marked Reached unloading point ' +
+        'first) or at the unloading point. The POD decides the stage: nothing noted → Delivered ' +
+        'without issues; damage, shortage, wet or pilferage → Delivered with issues, until PATCH ' +
+        '/loads/{loadId}/delivery-issue/settle. podStatus becomes `pending` — closing requires ' +
+        'staff to accept the E-POD via PATCH /loads/{loadId}/pod/review. Also usable to resubmit ' +
+        'after a rejection (podStatus resets to `pending`).',
     ),
     request: {
       params: loadValidators.uploadPod.shape.params,
@@ -424,7 +430,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Updated load' },
       400: { description: 'A required delivery-receipt field is missing', ...errorContent },
-      409: { description: 'Loading has not been confirmed yet', ...errorContent },
+      409: {
+        description: 'The truck has not left for the unloading point yet',
+        ...errorContent,
+      },
     },
   });
 
@@ -435,11 +444,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.reviewPod',
     ...manageDocuments(
       'Staff accept/reject of a pending E-POD. `reason` is required when `decision` is ' +
-        '`rejected`. Accepting: an own-fleet load closes immediately; a market load closes only ' +
-        'if both advance and balance are already paid, otherwise it stays Delivered until ' +
-        'POST /loads/{loadId}/payments/balance closes it once that payment lands. Rejecting ' +
-        'leaves status at Delivered — the driver resubmits via PATCH /loads/{loadId}/pod, which ' +
-        'resets podStatus back to `pending`.',
+        '`rejected`. Accepting closes the load if it is Delivered without issues and — for market ' +
+        'and indent loads — both advance and balance are paid; otherwise it closes when the last ' +
+        'of those lands (issue settlement or balance payment). Rejecting leaves the stage as it ' +
+        'is — the driver resubmits via PATCH /loads/{loadId}/pod, which resets podStatus back to ' +
+        '`pending`.',
     ),
     request: {
       params: loadValidators.reviewPod.shape.params,
@@ -449,6 +458,27 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Updated load' },
       400: { description: 'reason is missing on a rejected decision', ...errorContent },
       409: { description: "This load's E-POD is not pending review", ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/delivery-issue/settle`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.settleDeliveryIssue',
+    ...manageDocuments(
+      'Delivered with issues → Delivered without issues, once the damage, shortage or pilferage ' +
+        'noted on the POD has been settled (own fleet: handled internally; market/indent: with ' +
+        'the transporter). `note` records how. Closes the load if the E-POD is accepted and — for ' +
+        'market and indent loads — both payments are recorded.',
+    ),
+    request: {
+      params: loadValidators.settleDeliveryIssue.shape.params,
+      body: json(loadValidators.settleDeliveryIssue.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      409: { description: 'The load is not Delivered with issues', ...errorContent },
     },
   });
 

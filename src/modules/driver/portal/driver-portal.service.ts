@@ -300,7 +300,7 @@ export class DriverPortalService {
    *  current active job, the upcoming-jobs list, and the unread notification count into one
    *  call. `stats.openTrips` counts this driver's non-'closed' loads (group: 'open' — see
    *  loads.types.ts's OPEN_LOAD_STATUSES), backing the "Open Trips" tab; it's independent of
-   *  `stats.tripsDone` and the two can double-count a 'delivered' load pending E-POD review —
+   *  `stats.tripsDone` and the two can double-count a delivered load pending E-POD review —
    *  that's intentional, they answer different questions. No tenant relation means driver/
    *  notifications still populate (global profile, tenant-less inbox) but stats/jobs come back
    *  zeroed/empty — same "empty, not an error" convention as every method above. Settlement Due,
@@ -336,7 +336,11 @@ export class DriverPortalService {
       this.getMyProfile(driverId, tenantIds) as Promise<DriverProfileView>,
       this.loadService.getMyTripsDone(tenantIds, driverId, { page: 1, limit: 1 }, locale),
       this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'active' }, locale),
-      this.loadService.list(tenantIds, { page: 1, limit: 5, driverId, status: 'assigned' }, locale),
+      this.loadService.list(
+        tenantIds,
+        { page: 1, limit: 5, driverId, status: 'truck_assigned' },
+        locale,
+      ),
       this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
     const organizationOf = (job: TripListRow) =>

@@ -38,12 +38,13 @@ import {
  * (1 truck = 1 load). This is the "trip" object — there is no separate
  * trip-status model, "trip" and "load" refer to the same row.
  *
- * `status` tracks movement only (created → ... → delivered → closed). Advance/balance payment
+ * `status` tracks movement only — the 13-stage lifecycle in loads.types.ts's LOAD_STATUSES,
+ * written only by load-stage.service.ts. Advance/balance payment
  * are tracked separately via `advancePaidAt`/`balancePaidAt` rather than folded into `status`,
  * since they run in parallel with movement and don't block it — a single linear enum can't
- * represent both at once. `closed` requires `podStatus === 'accepted'` (staff has reviewed the
- * E-POD) and, for market loads, both payment timestamps set — see load.service.ts's
- * closeLoad/reviewPod.
+ * represent both at once. `closed` requires Delivered without issues, `podStatus === 'accepted'`
+ * (staff has reviewed the E-POD) and, for market loads, both payment timestamps set — see
+ * LoadStageService.closeIfReady.
  */
 @Entity({ schema: 'loads', name: 'loads' })
 @Index('loads_tenant_id_idx', ['tenantId'])
@@ -228,6 +229,19 @@ export class LoadEntity {
 
   // --- Tracking (manual in this build — see MANUAL_TRACKING_STATUSES) ---
 
+  // --- Stage timestamps — one per stage (load-stage.service.ts's STAGE_TIMESTAMP_FIELD). The
+  // older columns keep their names: at_plant_at is Reached loading point, loading_confirmed_at
+  // Loaded, in_transit_at In-transit for unloading, reached_delivery_point_at Reached unloading
+  // point.
+  @Column({ name: 'bids_received_at', type: 'timestamptz', nullable: true })
+  bidsReceivedAt!: Date | null;
+
+  @Column({ name: 'truck_assigned_at', type: 'timestamptz', nullable: true })
+  truckAssignedAt!: Date | null;
+
+  @Column({ name: 'in_transit_loading_at', type: 'timestamptz', nullable: true })
+  inTransitLoadingAt!: Date | null;
+
   @Column({ name: 'at_plant_at', type: 'timestamptz', nullable: true })
   atPlantAt!: Date | null;
 
@@ -246,6 +260,11 @@ export class LoadEntity {
 
   @Column({ name: 'pod_file_key', type: 'text', nullable: true })
   podFileKey!: string | null;
+
+  /** The POD's back side, where the receiver writes damage/shortage remarks. Required with the
+   *  front on every new upload; null on PODs recorded before it existed. */
+  @Column({ name: 'pod_back_file_key', type: 'text', nullable: true })
+  podBackFileKey!: string | null;
 
   @Column({ name: 'pod_receiver_name', type: 'varchar', length: 150, nullable: true })
   podReceiverName!: string | null;
@@ -320,6 +339,22 @@ export class LoadEntity {
   podReviewedBy!: string | null;
 
   // --- Payments — market only; run in parallel with movement, see class doc comment. ---
+
+  /** When the shipper accepted the load memo (loads/memo/). Market and indent loads can't start
+   *  the trip before this; own fleet has no memo. */
+  @Column({ name: 'memo_accepted_at', type: 'timestamptz', nullable: true })
+  memoAcceptedAt!: Date | null;
+
+  // --- Delivered with issues -> settled (LoadService.settleDeliveryIssue). Null unless the load
+  // took the issues branch and it has been settled.
+  @Column({ name: 'delivery_issue_settled_at', type: 'timestamptz', nullable: true })
+  deliveryIssueSettledAt!: Date | null;
+
+  @Column({ name: 'delivery_issue_settled_by', type: 'uuid', nullable: true })
+  deliveryIssueSettledBy!: string | null;
+
+  @Column({ name: 'delivery_issue_settlement_note', type: 'text', nullable: true })
+  deliveryIssueSettlementNote!: string | null;
 
   @Column({ name: 'advance_paid_at', type: 'timestamptz', nullable: true })
   advancePaidAt!: Date | null;

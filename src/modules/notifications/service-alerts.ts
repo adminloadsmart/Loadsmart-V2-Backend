@@ -70,7 +70,7 @@ export function createServiceAlerts(dataSource: DataSource, triggers: Notificati
     const [row] = await dataSource.query(
       `SELECT count(*)::int AS n FROM loads.loads l
          JOIN loads.requisitions r ON r.id = l.requisition_id
-        WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'assigned')
+        WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'bids_received', 'truck_assigned')
           AND r.pickup_date BETWEEN $3::date AND $3::date + $4::int`,
       [tenantId, vehicleId, from, days],
     );

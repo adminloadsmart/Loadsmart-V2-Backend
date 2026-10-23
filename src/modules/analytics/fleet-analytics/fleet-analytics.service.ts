@@ -3,6 +3,7 @@ import { startOfIstDate, toIstDateString } from '../../../shared/utils/ist-time'
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { LoadEntity } from '../../loads/entities/load.entity';
+import { DELIVERED_LOAD_STATUSES } from '../../loads/utils/loads.types';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { downtimeDaysInWindow, money } from '../../maintenance/calculations/downtime';
 import { daysBetween, round } from '../../maintenance/calculations/dates';
@@ -268,18 +269,22 @@ function averageOf(loads: LoadEntity[], pick: (load: LoadEntity) => number | nul
 function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] {
   switch (load.status) {
     case 'created':
+    case 'bids_received':
       return 'created';
-    case 'assigned':
+    case 'truck_assigned':
       return 'assigned';
-    case 'at_plant':
+    case 'in_transit_loading':
+      return 'running_to_loading';
+    case 'reached_loading':
       return 'at_loading_point';
-    case 'loading_confirmed':
+    case 'loaded':
       return 'loaded';
-    case 'in_transit':
+    case 'in_transit_unloading':
       return 'in_transit';
-    case 'reached_delivery_point':
+    case 'reached_unloading':
       return 'reached_delivery';
-    case 'delivered':
+    case 'delivered_ok':
+    case 'delivered_with_issues':
       return load.podFileKey ? 'pod_received' : 'unloaded';
     case 'closed':
       return 'closed';
@@ -1117,7 +1122,7 @@ export class FleetAnalyticsService {
           onTheRoad: onTheRoad.length,
           runningBehind: runningBehind.length,
           deliveredPodPending: [...staged.values()].filter(
-            (load) => load.status === 'delivered' && !load.podFileKey,
+            (load) => DELIVERED_LOAD_STATUSES.includes(load.status) && !load.podFileKey,
           ).length,
           podInExpensesNotSettled: [...staged.values()].filter(
             (load) => load.podFileKey && load.status !== 'closed',

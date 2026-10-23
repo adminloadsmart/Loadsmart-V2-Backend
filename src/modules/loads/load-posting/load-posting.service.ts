@@ -250,7 +250,8 @@ export class LoadPostingService {
               : input.mode === 'indent'
                 ? 'indent'
                 : 'own_fleet',
-          status: input.mode === 'own_fleet' ? 'assigned' : 'created',
+          status: input.mode === 'own_fleet' ? 'truck_assigned' : 'created',
+          truckAssignedAt: input.mode === 'own_fleet' ? new Date() : null,
           plannedCapacityTonnes: plannedCapacity,
           truckTypeId: trucks.main?.id ?? null,
           feetWheels: input.truck?.bodyLengthFt ?? null,

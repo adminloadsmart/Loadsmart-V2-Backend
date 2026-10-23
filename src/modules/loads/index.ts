@@ -19,6 +19,7 @@ import { LoadPaymentService } from './load-payment.service';
 import { LoadIssueRepository } from './load-issue.repository';
 import { LoadActivityRepository } from './load-activity.repository';
 import { LoadActivityService } from './load-activity.service';
+import { LoadStageService } from './load-stage.service';
 import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
@@ -27,6 +28,12 @@ import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
+import { LoadBidRepository } from './bids/load-bid.repository';
+import { LoadBidService } from './bids/load-bid.service';
+import { LoadMemoRepository } from './memo/load-memo.repository';
+import { LoadMemoService } from './memo/load-memo.service';
+import { LoadSourcingController } from './load-sourcing.controller';
+import { createLoadSourcingRoutes } from './load-sourcing.routes';
 
 export function createLoadsModule(
   dataSource: DataSource,
@@ -66,16 +73,24 @@ export function createLoadsModule(
     deps.auditService,
   );
 
+  const loadStageService = new LoadStageService(
+    loadRepository,
+    loadActivityService,
+    deps.auditService,
+    deps.vehicleService,
+    deps.onLoadEvent,
+  );
+
   const loadService = new LoadService(
     loadRepository,
     deps.authService,
     loadPaymentRepository,
     loadIssueRepository,
     deps.transporterService,
-    deps.vehicleService,
     deps.storageService,
     loadActivityService,
     deps.auditService,
+    loadStageService,
     deps.onBreakdownReported,
     deps.onLoadEvent,
   );
@@ -86,6 +101,7 @@ export function createLoadsModule(
     deps.transporterService,
     loadActivityService,
     deps.auditService,
+    loadStageService,
   );
 
   const dispatchPlanningService = new DispatchPlanningService(
@@ -110,6 +126,27 @@ export function createLoadsModule(
   );
   const protectedRouter = createLoadsProtectedRoutes(controller);
 
+  // Sourcing — bids, indent acceptance, driver and load memo (market and indent loads).
+  const loadBidRepository = new LoadBidRepository(dataSource);
+  const loadBidService = new LoadBidService(
+    loadBidRepository,
+    loadRepository,
+    deps.transporterService,
+    loadStageService,
+    loadActivityService,
+    deps.auditService,
+  );
+  const loadMemoService = new LoadMemoService(
+    new LoadMemoRepository(dataSource),
+    loadBidRepository,
+    loadRepository,
+    loadActivityService,
+    deps.auditService,
+  );
+  protectedRouter.use(
+    createLoadSourcingRoutes(new LoadSourcingController(loadBidService, loadMemoService)),
+  );
+
   // Post a load (load-posting/) — mounted under /post (this router itself sits at /v1/loads, so the full path is /v1/loads/post)
   // (the routes above are all /requisitions/* or /loads/*).
   const loadPosting = createLoadPostingModule(dataSource, {
@@ -128,6 +165,9 @@ export function createLoadsModule(
   return {
     requisitionService,
     loadService,
+    loadStageService,
+    loadBidService,
+    loadMemoService,
     loadPaymentService,
     loadActivityService,
     dispatchPlanningService,
