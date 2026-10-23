@@ -1,5 +1,5 @@
 import { env } from '../config/env';
-import { toIndianMsisdn } from '../shared/utils/phone-number';
+import { isMsg91SkippedNumber, toIndianMsisdn } from '../shared/utils/phone-number';
 
 const OTP_EXPIRY_MINUTES = 10;
 
@@ -16,6 +16,9 @@ interface Msg91Response {
  * MSG91 both generates the OTP and verifies it: we never see or store the code ourselves.
  * `sendOtp` requires a DLT-approved `template_id` to be configured on the MSG91 dashboard first;
  * without one, delivery fails regardless of code correctness.
+ *
+ * sendTransactional/sendWhatsapp never reach a test number (isMsg91SkippedNumber) — they resolve
+ * without calling MSG91. sendOtp/verifyOtp still do, so test numbers can sign in.
  *
  * This class assumes real credentials are present and always calls MSG91 — the dev-only bypass
  * that skips MSG91 entirely (see auth.constants.ts's DEV_BYPASS_OTP / useDevOtpBypass) is handled
@@ -79,6 +82,10 @@ export class Msg91Client {
     variables: Record<string, string>,
     templateId: string | undefined = env.msg91NotificationTemplateId,
   ): Promise<void> {
+    if (isMsg91SkippedNumber(phoneNumber)) {
+      console.info(`MSG91 SMS skipped for test number ${phoneNumber}`);
+      return;
+    }
     if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
@@ -118,6 +125,10 @@ export class Msg91Client {
     variables: string[],
     templateName: string | undefined = env.msg91WhatsappTemplateName,
   ): Promise<void> {
+    if (isMsg91SkippedNumber(phoneNumber)) {
+      console.info(`MSG91 WhatsApp skipped for test number ${phoneNumber}`);
+      return;
+    }
     if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',

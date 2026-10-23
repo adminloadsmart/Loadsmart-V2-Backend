@@ -42,6 +42,9 @@ export const DEFAULT_QUIET_HOURS: QuietHoursSetting = {
 /** Channels held until quiet hours end. In-app and email are never held. */
 export const QUIET_HOURS_HELD_CHANNELS: NotificationChannelName[] = ['push', 'sms', 'whatsapp'];
 
+/** Channels MSG91 delivers to a phone number — skipped for test numbers (isMsg91SkippedNumber). */
+export const PHONE_NOTIFICATION_CHANNELS: readonly NotificationChannelName[] = ['sms', 'whatsapp'];
+
 /** Quiet hours are India time, the same fixed zone the daily notification checks use. */
 export const INDIA_UTC_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 

@@ -158,6 +158,9 @@ export const env = {
   // carriers for delivery, independent of whether the code itself is correct.
   msg91TemplateId: process.env.MSG91_TEMPLATE_ID || undefined,
   msg91BaseUrl: process.env.MSG91_BASE_URL || 'https://control.msg91.com',
+  // 'true' = skip MSG91 notification SMS/WhatsApp to test numbers (MSG91_SKIPPED_PHONE_PREFIX,
+  // 88888…). Off unless set: every number gets everything. The login/signup OTP is sent either way.
+  msg91SkipTestNumbers: process.env.MSG91_SKIP_TEST_NUMBERS === 'true',
   // MSG91's Flow API template id for transactional/notification SMS (SmsChannel) — a separate
   // DLT-approved template from msg91TemplateId above (that one's OTP-only, a different API).
   // Optional: SmsChannel throws a clear per-delivery error when unset instead of crashing the
