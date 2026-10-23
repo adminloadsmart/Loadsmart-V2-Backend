@@ -92,8 +92,19 @@ export const DRIVER_RETURNING_OPERATIONAL_STATUSES: readonly DriverOperationalSt
 ];
 
 /** Why GET /drivers/{id} says the driver can't be dispatched; null when they can. */
-export type DriverNotDispatchableReason =
-  'not_active' | 'on_load' | 'on_leave' | 'medically_unfit' | 'no_longer_with_us';
+export const DRIVER_NOT_DISPATCHABLE_REASONS = [
+  'not_active',
+  'on_load',
+  'on_leave',
+  'medically_unfit',
+  'no_longer_with_us',
+] as const;
+export type DriverNotDispatchableReason = (typeof DRIVER_NOT_DISPATCHABLE_REASONS)[number];
+
+/** Where the driver detail's dateOfJoining came from: typed in by staff, or the fleet's approval
+ *  date as a fallback. */
+export const DRIVER_JOINING_DATE_SOURCES = ['entered', 'approved'] as const;
+export type DriverJoiningDateSource = (typeof DRIVER_JOINING_DATE_SOURCES)[number];
 
 /** Sarathi class-of-vehicle codes that cover a transport (goods) vehicle over 7,500 kg — TRANS
  *  since 1994, the older classes on older licences. */
@@ -221,6 +232,12 @@ export const DRIVER_INVITE_DELIVERY_STATUSES = [
   'failed',
 ] as const;
 export type DriverInviteDeliveryStatus = (typeof DRIVER_INVITE_DELIVERY_STATUSES)[number];
+
+/** The statuses a WhatsApp delivery report can carry for an invite's latest send. */
+export type DriverInviteWhatsAppReportStatus = Extract<
+  DriverInviteDeliveryStatus,
+  'delivered' | 'read' | 'failed'
+>;
 
 /** Channels an invite goes out on — one deliveryChannels entry each. */
 export const DRIVER_INVITE_CHANNELS = ['sms', 'whatsapp', 'push'] as const;

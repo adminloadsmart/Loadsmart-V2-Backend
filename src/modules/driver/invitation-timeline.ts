@@ -1,5 +1,6 @@
 import type { DriverInvitationActor, DriverInvitationTimelineStep } from './drivers.interface';
 import type { DriverInviteEvent } from './entities/driver-tenant-relation.entity';
+import type { DriverInvitationStatus } from './drivers.types';
 
 /**
  * The invitation drawer's single thread, sorted by time: every stored event (a Resend is its own
@@ -12,7 +13,7 @@ export function buildInvitationTimeline(input: {
   events: readonly DriverInviteEvent[];
   toActor: (userId: string | null) => DriverInvitationActor | null;
   firstAppLoginAt: Date | null;
-  status: string;
+  status: DriverInvitationStatus;
   expiresAt: Date | null;
 }): DriverInvitationTimelineStep[] {
   const timeline: DriverInvitationTimelineStep[] = input.events.flatMap(

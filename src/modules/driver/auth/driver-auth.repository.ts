@@ -92,12 +92,12 @@ export class DriverSessionRepository {
   // When the driver first logged into the app — the invitation drawer's "App Installed" time. Null
   // when they never have. Revoked/expired sessions count.
   async findFirstAppLoginAt(driverId: string): Promise<Date | null> {
-    const row = await this.sessions
-      .createQueryBuilder('driver_session')
-      .select('MIN(driver_session.created_at)', 'firstLoginAt')
-      .where('driver_session.driver_id = :driverId', { driverId })
-      .getRawOne<{ firstLoginAt: Date | null }>();
-    return row?.firstLoginAt ? new Date(row.firstLoginAt) : null;
+    const firstSession = await this.sessions.findOne({
+      select: { id: true, createdAt: true },
+      where: { driverId },
+      order: { createdAt: 'ASC' },
+    });
+    return firstSession?.createdAt ?? null;
   }
 
   // The driver's most recently used session (revoked/expired included) — the device the driver

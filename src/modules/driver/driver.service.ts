@@ -17,6 +17,7 @@ import { LoadEntity } from '../loads/entities/load.entity';
 import {
   DRIVER_TRANSPORT_LICENCE_CLASSES,
   DriverBankVerificationStatus,
+  DriverInviteWhatsAppReportStatus,
   DriverNotDispatchableReason,
   DriverOperationalStatus,
   DriverScoreStatus,
@@ -408,7 +409,7 @@ function daysUntil(date: string | null): number | null {
 }
 
 /** Whole years from a `YYYY-MM-DD` date of birth to today (UTC); null when not on file. */
-function ageOn(dateOfBirth: string | null): number | null {
+function ageFromDateOfBirth(dateOfBirth: string | null): number | null {
   if (!dateOfBirth) return null;
   const today = new Date().toISOString().slice(0, 10);
   const years = Number(today.slice(0, 4)) - Number(dateOfBirth.slice(0, 4));
@@ -481,7 +482,7 @@ function toDriverDetailSections(
       eligibleToDrive: isActive && driver.licenseVerified && daysLeft !== null && daysLeft > 0,
       transportClasses: transportClassesOf(licenseClass),
       dateOfBirth: driver.dateOfBirth,
-      age: ageOn(driver.dateOfBirth),
+      age: ageFromDateOfBirth(driver.dateOfBirth),
       issuingRtoCode: issuingRtoCodeOf(driver.licenseNumber),
     },
     contact: {
@@ -1953,7 +1954,7 @@ export class DriverService {
    */
   async recordInviteWhatsAppStatus(
     invitationId: string,
-    status: 'delivered' | 'read' | 'failed',
+    status: DriverInviteWhatsAppReportStatus,
     at: Date = new Date(),
   ): Promise<void> {
     await this.driverTenantRelationRepository.setWhatsAppDeliveryStatus(invitationId, status, at);

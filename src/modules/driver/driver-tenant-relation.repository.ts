@@ -49,6 +49,7 @@ import {
   DriverRosterEmploymentFilter,
   DRIVER_INVITE_SEND_STEPS,
   DriverInviteSendStep,
+  DriverInviteWhatsAppReportStatus,
   DriverRosterSegment,
 } from './drivers.types';
 
@@ -978,7 +979,7 @@ export class DriverTenantRelationRepository {
    */
   async setWhatsAppDeliveryStatus(
     id: string,
-    status: 'delivered' | 'read' | 'failed',
+    status: DriverInviteWhatsAppReportStatus,
     at: Date,
   ): Promise<void> {
     await this.updateLocked({ id, deletedAt: IsNull() }, (relation) => {

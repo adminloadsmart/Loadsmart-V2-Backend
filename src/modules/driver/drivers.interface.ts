@@ -18,6 +18,7 @@ import {
   DriverInviteDeliveryStatus,
   DriverLicenseEndorsement,
   DriverNotDispatchableReason,
+  DriverJoiningDateSource,
   DriverRosterSegment,
   DriverRosterEmploymentFilter,
   DriverLicenceValidityFilter,
@@ -291,7 +292,7 @@ export interface DriverContactSection {
   /** Staff-entered date of joining, else the date this fleet approved the driver; null if neither. */
   dateOfJoining: string | null;
   /** 'entered' = typed in by staff; 'approved' = fallback to the fleet's approval date. */
-  dateOfJoiningSource: 'entered' | 'approved' | null;
+  dateOfJoiningSource: DriverJoiningDateSource | null;
   tenureYears: number | null;
   /** Hand-entered balance of advances not yet recovered; null until set. */
   advanceOutstanding: string | null;
@@ -416,12 +417,18 @@ export interface DriverAppDevice {
   deviceInfo: string | null;
 }
 
+/** The staff user who last wrote the fleet's note. */
+export interface DriverTeamNoteAuthor {
+  id: string;
+  name: string | null;
+}
+
 /** The fleet's own note card — "Note · team only · Mohit, 1 Aug 2020". */
 export interface DriverTeamNote {
   text: string;
   /** Null for a note saved before the author was recorded. */
   updatedAt: Date | null;
-  updatedBy: { id: string; name: string | null } | null;
+  updatedBy: DriverTeamNoteAuthor | null;
 }
 
 /** Sections only GET /drivers/{id} returns (each needs its own query, so not on roster rows). */

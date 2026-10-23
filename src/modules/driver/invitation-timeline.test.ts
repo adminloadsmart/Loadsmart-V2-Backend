@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { DriverInviteEvent } from './entities/driver-tenant-relation.entity';
+import type { DriverInvitationStatus } from './drivers.types';
 import { buildInvitationTimeline } from './invitation-timeline';
 
-const build = (events: DriverInviteEvent[], firstAppLoginAt: Date | null, status = 'pending') =>
+const build = (
+  events: DriverInviteEvent[],
+  firstAppLoginAt: Date | null,
+  status: DriverInvitationStatus = 'pending',
+) =>
   buildInvitationTimeline({
     events,
     toActor: (id) => (id ? { name: 'Admin', role: 'Org Admin' } : null),
