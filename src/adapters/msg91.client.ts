@@ -6,6 +6,8 @@ const OTP_EXPIRY_MINUTES = 10;
 interface Msg91Response {
   type?: string; // 'success' | 'error'
   message?: string;
+  /** Returned by /api/v5/otp on success — the id to search in the MSG91 dashboard's reports. */
+  request_id?: string;
 }
 
 /**
@@ -43,8 +45,15 @@ export class Msg91Client {
     const body = (await response.json().catch(() => null)) as Msg91Response | null;
 
     if (body?.type !== 'success') {
-      throw new Error(`MSG91 send OTP failed: ${body?.message ?? response.status}`);
+      throw new Error(
+        `MSG91 send OTP failed: ${body?.message ?? response.status} (HTTP ${response.status}, body ${JSON.stringify(body)})`,
+      );
     }
+    // Accepted is not delivered — search this request_id in the MSG91 dashboard's reports for the
+    // operator delivery status. Never log the OTP or the URL (it carries authkey and otp).
+    console.info(
+      `MSG91 OTP accepted for ${toIndianMsisdn(phoneNumber)} — request_id=${body.request_id ?? 'n/a'}`,
+    );
   }
 
   /** Returns false for a genuine "wrong/expired code" response — MSG91's normal way of saying

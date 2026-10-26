@@ -42,6 +42,9 @@ export class OtpService {
     if (useDevOtpBypass()) {
       // Dev-only: no MSG91 call, no real SMS — DEV_BYPASS_OTP is the only code verifyOtpCode
       // will accept while the bypass is active.
+      console.info(
+        `OTP dev bypass: MSG91 not called for ${phoneNumber} (${purpose}) — NODE_ENV=${env.nodeEnv}, MSG91_AUTH_KEY unset; use ${DEV_BYPASS_OTP}`,
+      );
     } else {
       // LS_N_0008: we generate the code ourselves and hand it to MSG91, which sends it with the
       // registered LS_OTP SMS template and later verifies exactly this code (verifyOtpCode below
