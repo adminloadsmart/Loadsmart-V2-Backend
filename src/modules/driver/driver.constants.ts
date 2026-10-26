@@ -217,3 +217,24 @@ export const DRIVER_SCORE_STATUS_LABELS: Record<DriverScoreStatus, string> = {
   strong: 'Strong',
   watch: 'Watch',
 };
+
+/** Sarathi class-of-vehicle codes → the name the licence card shows ("HTV · Heavy Transport
+ *  Vehicle"). A code not listed shows on its own. */
+export const DRIVER_LICENCE_CLASS_LABELS: Record<string, string> = {
+  TRANS: 'Transport Vehicle',
+  HTV: 'Heavy Transport Vehicle',
+  HGMV: 'Heavy Goods Motor Vehicle',
+  HMV: 'Heavy Motor Vehicle',
+  HPMV: 'Heavy Passenger Motor Vehicle',
+  MGV: 'Medium Goods Vehicle',
+  MPMV: 'Medium Passenger Motor Vehicle',
+  LMV: 'Light Motor Vehicle',
+  MCWG: 'Motorcycle with Gear',
+  MCWOG: 'Motorcycle without Gear',
+};
+
+/** Daily job (00:05 India) that sets drivers whose "fit to drive again from" date has come back to
+ *  Available. Runs on the notification-schedules queue — the app's one cron scheduler. */
+export const DRIVER_AVAILABILITY_RETURN_JOB = 'driver-availability-return';
+export const DRIVER_AVAILABILITY_RETURN_CRON = '5 0 * * *';
+export const DRIVER_AVAILABILITY_RETURN_TIME_ZONE = 'Asia/Kolkata';

@@ -84,6 +84,39 @@ export const DRIVER_OPERATIONAL_STATUSES = [
 ] as const;
 export type DriverOperationalStatus = (typeof DRIVER_OPERATIONAL_STATUSES)[number];
 
+/** Away for a while, with an optional "fit to drive again from" date (availableFrom) on which the
+ *  daily driver-availability-return job sets the driver back to `active`. */
+export const DRIVER_RETURNING_OPERATIONAL_STATUSES: readonly DriverOperationalStatus[] = [
+  'on_leave',
+  'medically_unfit',
+];
+
+/** Why GET /drivers/{id} says the driver can't be dispatched; null when they can. */
+export const DRIVER_NOT_DISPATCHABLE_REASONS = [
+  'not_active',
+  'on_load',
+  'on_leave',
+  'medically_unfit',
+  'no_longer_with_us',
+] as const;
+export type DriverNotDispatchableReason = (typeof DRIVER_NOT_DISPATCHABLE_REASONS)[number];
+
+/** Where the driver detail's dateOfJoining came from: typed in by staff, or the fleet's approval
+ *  date as a fallback. */
+export const DRIVER_JOINING_DATE_SOURCES = ['entered', 'approved'] as const;
+export type DriverJoiningDateSource = (typeof DRIVER_JOINING_DATE_SOURCES)[number];
+
+/** Sarathi class-of-vehicle codes that cover a transport (goods) vehicle over 7,500 kg — TRANS
+ *  since 1994, the older classes on older licences. */
+export const DRIVER_TRANSPORT_LICENCE_CLASSES: readonly string[] = [
+  'TRANS',
+  'MGV',
+  'HGMV',
+  'HMV',
+  'HTV',
+  'HPMV',
+];
+
 /**
  * Lifecycle of a driver's link to one tenant (masters.driver_tenant_relations). Replaces the old
  * per-tenant DriverEntity.status now that a driver profile is global and can hold many of these.
@@ -199,6 +232,12 @@ export const DRIVER_INVITE_DELIVERY_STATUSES = [
   'failed',
 ] as const;
 export type DriverInviteDeliveryStatus = (typeof DRIVER_INVITE_DELIVERY_STATUSES)[number];
+
+/** The statuses a WhatsApp delivery report can carry for an invite's latest send. */
+export type DriverInviteWhatsAppReportStatus = Extract<
+  DriverInviteDeliveryStatus,
+  'delivered' | 'read' | 'failed'
+>;
 
 /** Channels an invite goes out on — one deliveryChannels entry each. */
 export const DRIVER_INVITE_CHANNELS = ['sms', 'whatsapp', 'push'] as const;
