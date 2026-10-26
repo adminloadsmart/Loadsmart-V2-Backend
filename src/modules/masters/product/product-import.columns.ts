@@ -71,6 +71,9 @@ export const TEMPLATE_COLUMNS: ImportColumn[] = [
   column('invoiceValue', 'Invoice Value (₹)', 'number', 'Amount in rupees, 0 or more', 50000, {
     aliases: ['invoice', 'rate', 'price'],
   }),
+  column('standardRate', 'Standard Rate (₹)', 'number', 'Amount in rupees, 0 or more', 50000, {
+    aliases: ['standard', 'standardrate'],
+  }),
   column(
     'billingUnit',
     'Unit',

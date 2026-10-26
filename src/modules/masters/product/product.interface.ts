@@ -15,6 +15,7 @@ export interface CreateProductInput {
   hsnCode?: string;
   packaging?: string;
   invoiceValue?: number;
+  standardRate?: number;
   billingUnit?: string;
   dimensions?: string;
   weight?: number;
@@ -32,6 +33,7 @@ export interface UpdateProductInput {
   hsnCode?: string | null;
   packaging?: string | null;
   invoiceValue?: number | null;
+  standardRate?: number | null;
   billingUnit?: string | null;
   dimensions?: string | null;
   weight?: number | null;
