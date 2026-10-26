@@ -42,7 +42,8 @@ export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
 export const RATING_SUBJECTS = ['shipper', 'partner'] as const;
 export type RatingSubject = (typeof RATING_SUBJECTS)[number];
 
-/** Receivables' check of a shipper payment (UTR) against the bank statement. */
+/** A Loadsmart shipper payment's check — now `verified` when recorded; `pending` and `rejected`
+ *  remain for payments recorded before that. */
 export const PAYMENT_VERIFICATION_STATUSES = ['pending', 'verified', 'rejected'] as const;
 export type PaymentVerificationStatus = (typeof PAYMENT_VERIFICATION_STATUSES)[number];
 

@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { toDateString } from '../../shared/utils/date';
@@ -191,8 +191,8 @@ export class LoadPaymentService {
   }
 
   /** "No payment gateway yet": the shipper of a Loadsmart load pays the invoice's balance by UPI
-   *  QR or bank transfer and sends the UTR. The load moves to Payment and waits
-   *  for Receivables to match it with the bank statement (decideLoadsmartPayment). */
+   *  QR or bank transfer and records the UTR. It counts as verified at once — the load moves to
+   *  Payment and closes once Loadsmart has paid the partner's balance too. */
   private async recordLoadsmartPayment(
     load: LoadEntity,
     actorId: string,
@@ -203,14 +203,11 @@ export class LoadPaymentService {
         "The balance is paid against Loadsmart's invoice, once it's generated",
       );
     }
-    if (load.balancePaidAt) throw new ConflictError('The balance is already paid and verified');
-    const payments = await this.repository.listByLoad(load.tenantId, load.id);
-    if (payments.some((p) => p.paymentType === 'balance' && p.verificationStatus === 'pending')) {
-      throw new ConflictError('A balance payment is already waiting for verification');
-    }
+    if (load.balancePaidAt) throw new ConflictError('The balance is already paid');
     const amount = await this.loadsmartBilling?.balanceDueOf(load.tenantId, load.id);
     if (!amount) throw new ConflictError("Loadsmart's invoice for this load isn't generated yet");
 
+    const now = new Date();
     const payment = await this.repository.create({
       tenantId: load.tenantId,
       loadId: load.id,
@@ -220,15 +217,21 @@ export class LoadPaymentService {
       utrReference: input.utrReference.trim(),
       paymentDate: input.paymentDate,
       recordedBy: actorId,
-      verificationStatus: 'pending',
+      verificationStatus: 'verified',
+      verifiedBy: actorId,
+      verifiedAt: now,
     });
-    if (load.status === 'invoice_generated') {
-      await this.stageService.transition({
+    let updated = await this.loadRepository.update(load.tenantId, load.id, {
+      balancePaidAt: now,
+      updatedBy: actorId,
+    });
+    if (updated?.status === 'invoice_generated') {
+      updated = await this.stageService.transition({
         tenantId: load.tenantId,
         loadId: load.id,
         to: 'payment',
         actorId,
-        load,
+        load: updated,
         metadata: { paymentId: payment.id, amount },
       });
     }
@@ -241,7 +244,7 @@ export class LoadPaymentService {
       'balance',
       {
         amount,
-        verification: 'pending',
+        verification: 'verified',
       },
     );
     await this.auditService.log({
@@ -251,61 +254,8 @@ export class LoadPaymentService {
       resourceType: 'load_payment',
       newData: { id: payment.id, loadId: load.id, paymentType: 'balance', amount },
     });
+    if (updated) await this.stageService.closeIfReady(load.tenantId, actorId, updated);
     return payment;
-  }
-
-  /** Receivables matches a Loadsmart shipper's balance payment with the bank statement. Verified
-   *  marks the balance paid and closes the load if the partner is paid too; rejected lets the
-   *  shipper send it again. */
-  async decideLoadsmartPayment(
-    tenantId: string,
-    actorId: string,
-    loadId: string,
-    paymentId: string,
-    decision: 'verified' | 'rejected',
-    reason?: string,
-  ): Promise<LoadPaymentEntity> {
-    try {
-      await this.assertLoad(tenantId, loadId);
-      const payment = await this.repository.findById(tenantId, loadId, paymentId);
-      if (!payment || payment.verificationStatus !== 'pending') {
-        throw new ConflictError('This payment is not waiting for verification');
-      }
-      if (decision === 'rejected' && !reason) {
-        throw new ValidationError('reason is required when rejecting a payment');
-      }
-      const now = new Date();
-      const decided = await this.repository.decide(payment, {
-        verificationStatus: decision,
-        verifiedBy: actorId,
-        verifiedAt: now,
-        rejectionReason: decision === 'rejected' ? reason! : null,
-      });
-      if (!decided) throw new ConflictError('This payment was just decided — reload it');
-
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        actorId,
-        'PAYMENT_RECORDED',
-        'pending',
-        decision,
-        {
-          paymentId,
-          ...(reason ? { reason } : {}),
-        },
-      );
-      if (decision === 'verified') {
-        const updated = await this.loadRepository.update(tenantId, loadId, {
-          balancePaidAt: now,
-          updatedBy: actorId,
-        });
-        if (updated) await this.stageService.closeIfReady(tenantId, actorId, updated);
-      }
-      return (await this.repository.findById(tenantId, loadId, paymentId))!;
-    } catch (error) {
-      rethrow(error, 'Failed to decide the payment');
-    }
   }
 
   async listByLoad(tenantId: string, loadId: string): Promise<LoadPaymentEntity[]> {

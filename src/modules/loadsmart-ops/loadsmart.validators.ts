@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../../shared/utils/date';
-import { MANUAL_TRACKING_STATUSES, POD_REVIEW_DECISIONS } from '../loads/utils/loads.types';
-import { confirmLoadingBody } from '../loads/load.validators';
 import { CHARGE_TYPES, PARTNER_STATUSES, PARTNER_TYPES } from './loadsmart.types';
 
 const uuid = z.string().uuid();
@@ -103,16 +101,11 @@ export const loadsmartValidators = {
       .strict(),
   }),
 
-  markStage: z.object({
-    params: loadParams,
-    body: z.object({ toStatus: z.enum(MANUAL_TRACKING_STATUSES) }).strict(),
-  }),
-  uploadPapers: z.object({ params: loadParams, body: confirmLoadingBody }),
   approvePapers: z.object({
     params: loadParams,
     body: z.object({ ewayBillNamesLoadsmart: z.boolean() }).strict(),
   }),
-  raiseCharge: z.object({
+  addCharge: z.object({
     params: loadParams,
     body: z
       .object({
@@ -124,15 +117,6 @@ export const loadsmartValidators = {
   }),
   partnerPayment: z.object({ params: loadParams, body: utr }),
 
-  reviewPod: z.object({
-    params: loadParams,
-    body: z
-      .object({
-        decision: z.enum(POD_REVIEW_DECISIONS),
-        reason: z.string().trim().min(1).max(500).optional(),
-      })
-      .strict(),
-  }),
   settleClaim: z.object({
     params: loadParams,
     body: z.object({ partnerRecovery: money, note: z.string().trim().min(3).max(1000) }).strict(),
@@ -165,15 +149,6 @@ export const loadsmartValidators = {
       })
       .strict(),
   }),
-  decidePayment: z.object({
-    params: z.object({ loadId: uuid, paymentId: uuid }),
-    body: z
-      .object({
-        decision: z.enum(['verified', 'rejected']),
-        reason: z.string().trim().min(1).max(500).optional(),
-      })
-      .strict(),
-  }),
 
   // --- Shipper side, on /v1/loads ---
   decideCharge: z.object({
@@ -183,12 +158,6 @@ export const loadsmartValidators = {
         decision: z.enum(['approved', 'rejected']),
         reason: z.string().trim().min(1).max(500).optional(),
       })
-      .strict(),
-  }),
-  unloadingCharge: z.object({
-    params: loadParams,
-    body: z
-      .object({ amount: z.number().positive(), note: z.string().trim().max(500).optional() })
       .strict(),
   }),
   unloadingContact: z.object({

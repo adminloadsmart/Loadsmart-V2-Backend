@@ -230,10 +230,10 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       [LS_APPROVAL, 'Check Loadsmart loads and post them on the load board'],
       [LS_PLACEMENT, "Record partner bids, send Loadsmart's bid and name the partner's driver"],
       [LS_VERIFICATION, 'Approve the truck and driver on a Loadsmart load'],
-      [LS_TRACKING, 'Track Loadsmart loads, approve loading papers and the POD, raise charges'],
+      [LS_TRACKING, 'See Loadsmart loads on the road (the shipper runs the trip)'],
       [LS_POD, 'Rate shipper and partner and receive the original POD'],
-      [LS_CS, 'Settle claims on Loadsmart loads delivered with issues'],
-      [LS_RECEIVABLES, "Raise Loadsmart's invoice and verify the shipper's payment"],
+      [LS_CS, 'See claims on Loadsmart loads delivered with issues (the shipper settles them)'],
+      [LS_RECEIVABLES, "See Loadsmart's invoices and the shipper's payments"],
       [LS_PAYABLES, "Pay the partner's advance and balance"],
     ].map(([key, description]) => ({
       key,

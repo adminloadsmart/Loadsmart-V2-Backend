@@ -63,14 +63,6 @@ export class LoadsmartOpsController {
 
   trackingQueue = async (_req: Request, res: Response) =>
     respond(res, await this.sourcing.trackingQueue());
-  markStage = async (req: Request<Params>, res: Response) =>
-    respond(res, await this.sourcing.markStage(req.user!.id, req.params.loadId, req.body.toStatus));
-  uploadPapers = async (req: Request<Params>, res: Response) =>
-    respond(res, await this.sourcing.uploadPapers(actorOf(req), req.params.loadId, req.body));
-  approvePapers = async (req: Request<Params>, res: Response) =>
-    respond(res, await this.sourcing.approvePapers(req.user!.id, req.params.loadId, req.body));
-  raiseCharge = async (req: Request<Params>, res: Response) =>
-    respond(res, await this.sourcing.raiseCharge(req.user!.id, req.params.loadId, req.body), 201);
   partnerAdvance = async (req: Request<Params>, res: Response) =>
     respond(
       res,
@@ -78,19 +70,7 @@ export class LoadsmartOpsController {
       201,
     );
 
-  reviewPod = async (req: Request<Params>, res: Response) =>
-    respond(
-      res,
-      await this.settlement.reviewPod(
-        req.user!.id,
-        req.params.loadId,
-        req.body.decision,
-        req.body.reason,
-      ),
-    );
   csQueue = async (_req: Request, res: Response) => respond(res, await this.settlement.csQueue());
-  settleClaim = async (req: Request<Params>, res: Response) =>
-    respond(res, await this.settlement.settleClaim(req.user!.id, req.params.loadId, req.body));
   podQueue = async (_req: Request, res: Response) => respond(res, await this.settlement.podQueue());
   rate = async (req: Request<Params>, res: Response) =>
     respond(res, await this.settlement.rate(req.user!.id, req.params.loadId, req.body));
@@ -99,25 +79,8 @@ export class LoadsmartOpsController {
       res,
       await this.settlement.markOriginalPodReceived(req.user!.id, req.params.loadId, req.body),
     );
-  invoice = async (req: Request<Params>, res: Response) =>
-    respond(
-      res,
-      await this.settlement.generateInvoice(actorOf(req), req.params.loadId, req.body),
-      201,
-    );
   receivablesQueue = async (_req: Request, res: Response) =>
     respond(res, await this.settlement.receivablesQueue());
-  decidePayment = async (req: Request<Params>, res: Response) =>
-    respond(
-      res,
-      await this.settlement.decidePayment(
-        req.user!.id,
-        req.params.loadId,
-        req.params.paymentId,
-        req.body.decision,
-        req.body.reason,
-      ),
-    );
   partnerBalance = async (req: Request<Params>, res: Response) =>
     respond(
       res,
@@ -132,7 +95,11 @@ export class LoadsmartOpsController {
 
 /** The shipper's side of a Loadsmart load, on /v1/loads. */
 export class LoadsmartShipperController {
-  constructor(private readonly service: LsShipperService) {}
+  constructor(
+    private readonly service: LsShipperService,
+    private readonly sourcing: LsSourcingService,
+    private readonly settlement: LsSettlementService,
+  ) {}
 
   listCharges = async (req: Request<Params>, res: Response) =>
     respond(res, await this.service.listCharges(requireTenantId(req), req.params.loadId));
@@ -147,15 +114,10 @@ export class LoadsmartShipperController {
         req.body,
       ),
     );
-  unloadingCharge = async (req: Request<Params>, res: Response) =>
+  addCharge = async (req: Request<Params>, res: Response) =>
     respond(
       res,
-      await this.service.enterUnloadingCharge(
-        requireTenantId(req),
-        req.user!.id,
-        req.params.loadId,
-        req.body,
-      ),
+      await this.service.addCharge(requireTenantId(req), req.user!.id, req.params.loadId, req.body),
       201,
     );
   unloadingContact = async (req: Request<Params>, res: Response) =>
@@ -179,6 +141,37 @@ export class LoadsmartShipperController {
         req.params.loadId,
         req.body,
       ),
+    );
+  approvePapers = async (req: Request<Params>, res: Response) =>
+    respond(
+      res,
+      await this.sourcing.approvePapers(
+        requireTenantId(req),
+        req.user!.id,
+        req.params.loadId,
+        req.body,
+      ),
+    );
+  settleClaim = async (req: Request<Params>, res: Response) =>
+    respond(
+      res,
+      await this.settlement.settleClaim(
+        requireTenantId(req),
+        req.user!.id,
+        req.params.loadId,
+        req.body,
+      ),
+    );
+  generateInvoice = async (req: Request<Params>, res: Response) =>
+    respond(
+      res,
+      await this.settlement.generateInvoice(
+        requireTenantId(req),
+        actorOf(req),
+        req.params.loadId,
+        req.body,
+      ),
+      201,
     );
   invoice = async (req: Request<Params>, res: Response) =>
     respond(

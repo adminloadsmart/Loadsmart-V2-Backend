@@ -11,7 +11,7 @@ import { LoadRepository } from '../loads/load.repository';
 import { LoadService } from '../loads/load.service';
 import { LoadStageService } from '../loads/load-stage.service';
 import { renderElrPdf } from '../loads/elr/elr-pdf';
-import { LoadStatus, PodReviewDecision } from '../loads/utils/loads.types';
+import { LoadStatus } from '../loads/utils/loads.types';
 import { istDateOf } from '../loads/verification/verification-rules';
 import { NotificationTriggers } from '../notifications/notification-triggers';
 import { LsInvoiceEntity } from './entities/ls-invoice.entity';
@@ -36,13 +36,13 @@ const INVOICE_REMINDER_LEAD_MS = 2 * DAY_MS;
 const rupees = (value: string | number) => `₹${Number(value).toFixed(2)}`;
 
 /**
- * Loadsmart load, part 2 — drop to payment, run by the ops console:
- * - the Tracking team approves the POD; an issue noted on it opens a CS ticket, the shipper adds
- *   the claim value and the CS team settles it with the partner (money waits until then);
+ * Loadsmart load, part 2 — drop to payment:
+ * - the shipper approves the POD; an issue noted on it opens a claim, and the shipper adds the
+ *   claim value and settles it with the partner (money waits until then);
  * - the POD team rates shipper and partner and marks the signed original POD received (stage 11);
- * - Receivables raises the invoice (stage 12) — freight at Loadsmart's price plus approved
+ * - the shipper generates the invoice (stage 12) — freight at Loadsmart's price plus approved
  *   charges, less the settled claim, plus GST, less the advance received;
- * - the shipper pays it with a UTR (stage 13) and Receivables verifies it;
+ * - the shipper pays it with a UTR (stage 13), which counts as verified at once;
  * - Payables pays the partner's balance, less advance, claim recovery and TDS;
  * - with both sides paid the load closes.
  */
@@ -88,12 +88,6 @@ export class LsSettlementService extends LsServiceBase {
 
   // --- 29–31 · POD and CS -----------------------------------------------------------------
 
-  /** "Tracking team approves the POD." */
-  async reviewPod(actorId: string, loadId: string, decision: PodReviewDecision, reason?: string) {
-    const sourcing = await this.assertWonLoad(loadId);
-    return this.loadService.reviewPod(sourcing.tenantId, actorId, loadId, decision, reason, true);
-  }
-
   async csQueue(): Promise<{ load: LoadEntity; claim: LoadClaimEntity | null }[]> {
     const sourcings = await this.repository.listLoadsAt(['delivered_with_issues']);
     return Promise.all(
@@ -104,19 +98,20 @@ export class LsSettlementService extends LsServiceBase {
     );
   }
 
-  /** "The team settles it with the partner": once the shipper has added the claim value, CS
-   *  records what is recovered from the partner, and the load is Delivered without issues. */
+  /** "Settles it with the partner": once the claim value is added, the shipper records what is
+   *  recovered from the partner, and the load is Delivered without issues. */
   async settleClaim(
+    tenantId: string,
     actorId: string,
     loadId: string,
     input: { partnerRecovery: number; note: string },
   ) {
     try {
-      const sourcing = await this.assertWonLoad(loadId);
+      const sourcing = await this.assertWonLoad(loadId, tenantId);
       const claim = await this.repository.findClaim(loadId);
       if (!claim || claim.status !== 'open') throw new ConflictError('This load has no open claim');
       if (claim.claimValue === null) {
-        throw new ConflictError('The shipper has to add the claim value first');
+        throw new ConflictError('Add the claim value first');
       }
       await this.repository.claims.update(
         { id: claim.id },
@@ -223,14 +218,15 @@ export class LsSettlementService extends LsServiceBase {
     return claim;
   }
 
-  /** "Receivables raises the shipper's invoice with the POD." */
+  /** "Raises the shipper's invoice with the POD" — the shipper generates it. */
   async generateInvoice(
+    tenantId: string,
     actor: { id: string; role: string },
     loadId: string,
     input: { gstPercent?: number; dueDays?: number },
   ): Promise<{ invoice: LsInvoiceEntity; downloadUrl: string | null }> {
     try {
-      const sourcing = await this.assertWonLoad(loadId);
+      const sourcing = await this.assertWonLoad(loadId, tenantId);
       const load = sourcing.load;
       if (load.status !== 'original_pod_received') {
         throw new ConflictError('The invoice is raised once the original POD is received');
@@ -379,35 +375,11 @@ export class LsSettlementService extends LsServiceBase {
       sourcings.map(async (s) => ({
         load: s.load,
         invoice: await this.repository.findInvoice(s.tenantId, s.loadId),
-        pendingPayments: (await this.loadPaymentRepository.listByLoad(s.tenantId, s.loadId)).filter(
-          (p) => p.verificationStatus === 'pending',
+        payments: (await this.loadPaymentRepository.listByLoad(s.tenantId, s.loadId)).filter(
+          (p) => p.paymentType === 'balance',
         ),
       })),
     );
-  }
-
-  /** "Receivables verifies it — matches the UTR with the bank statement." */
-  async decidePayment(
-    actorId: string,
-    loadId: string,
-    paymentId: string,
-    decision: 'verified' | 'rejected',
-    reason?: string,
-  ) {
-    const sourcing = await this.assertWonLoad(loadId);
-    const payment = await this.loadPaymentService.decideLoadsmartPayment(
-      sourcing.tenantId,
-      actorId,
-      loadId,
-      paymentId,
-      decision,
-      reason,
-    );
-    await this.step(sourcing, actorId, `shipper_payment_${decision}`, 'LS_PAYMENT_DECIDED', {
-      paymentId,
-      ...(reason ? { reason } : {}),
-    });
-    return payment;
   }
 
   /** "Payables pays the partner's balance, less any deductions" — from the original POD on. */

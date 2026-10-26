@@ -95,6 +95,8 @@ export function createLoadsmartOpsModule(
     settlementService: settlement,
     shipperService: shipper,
     opsRouter: createLoadsmartOpsRoutes(new LoadsmartOpsController(sourcing, settlement)),
-    shipperRouter: createLoadsmartShipperRoutes(new LoadsmartShipperController(shipper)),
+    shipperRouter: createLoadsmartShipperRoutes(
+      new LoadsmartShipperController(shipper, sourcing, settlement),
+    ),
   };
 }

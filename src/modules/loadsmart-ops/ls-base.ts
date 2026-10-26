@@ -23,9 +23,15 @@ export abstract class LsServiceBase {
   }
 
   /** The sourcing of a load Loadsmart won — what every after-acceptance console action needs. */
-  protected async assertWonLoad(loadId: string): Promise<LsSourcingEntity> {
+  /** `tenantId` scopes it to one shipper — the shipper's own routes pass it. */
+  protected async assertWonLoad(loadId: string, tenantId?: string): Promise<LsSourcingEntity> {
     const sourcing = await this.repository.findSourcingByLoad(loadId);
-    if (!sourcing || sourcing.status !== 'won' || sourcing.load.sourceType !== 'loadsmart') {
+    if (
+      !sourcing ||
+      sourcing.status !== 'won' ||
+      sourcing.load.sourceType !== 'loadsmart' ||
+      (tenantId !== undefined && sourcing.tenantId !== tenantId)
+    ) {
       throw new NotFoundError(`Loadsmart load ${loadId} not found`);
     }
     return sourcing;

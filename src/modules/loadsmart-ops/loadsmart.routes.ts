@@ -14,6 +14,7 @@ import {
   LS_RECEIVABLES,
   LS_TRACKING,
   LS_VERIFICATION,
+  PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
 import { loadsmartValidators as v } from './loadsmart.validators';
@@ -106,30 +107,6 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.approveVerification),
   );
   router.get('/tracking-queue', team(LS_TRACKING), asyncHandler(c.trackingQueue));
-  router.patch(
-    '/loads/:loadId/status',
-    team(LS_TRACKING),
-    validate(v.markStage),
-    asyncHandler(c.markStage),
-  );
-  router.patch(
-    '/loads/:loadId/documents',
-    team(LS_TRACKING),
-    validate(v.uploadPapers),
-    asyncHandler(c.uploadPapers),
-  );
-  router.post(
-    '/loads/:loadId/papers/approve',
-    team(LS_TRACKING),
-    validate(v.approvePapers),
-    asyncHandler(c.approvePapers),
-  );
-  router.post(
-    '/loads/:loadId/charges',
-    team(LS_TRACKING),
-    validate(v.raiseCharge),
-    asyncHandler(c.raiseCharge),
-  );
   router.post(
     '/loads/:loadId/partner-advance',
     team(LS_PAYABLES),
@@ -137,20 +114,7 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.partnerAdvance),
   );
 
-  // Part 2 — drop to payment.
-  router.patch(
-    '/loads/:loadId/pod/review',
-    team(LS_TRACKING),
-    validate(v.reviewPod),
-    asyncHandler(c.reviewPod),
-  );
   router.get('/cs-queue', team(LS_CS), asyncHandler(c.csQueue));
-  router.post(
-    '/loads/:loadId/claim/settle',
-    team(LS_CS),
-    validate(v.settleClaim),
-    asyncHandler(c.settleClaim),
-  );
   router.get('/pod-queue', team(LS_POD), asyncHandler(c.podQueue));
   router.post('/loads/:loadId/ratings', team(LS_POD), validate(v.rate), asyncHandler(c.rate));
   router.post(
@@ -160,18 +124,6 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.originalPod),
   );
   router.get('/receivables-queue', team(LS_RECEIVABLES), asyncHandler(c.receivablesQueue));
-  router.post(
-    '/loads/:loadId/invoice',
-    team(LS_RECEIVABLES),
-    validate(v.invoice),
-    asyncHandler(c.invoice),
-  );
-  router.post(
-    '/loads/:loadId/payments/:paymentId/decision',
-    team(LS_RECEIVABLES),
-    validate(v.decidePayment),
-    asyncHandler(c.decidePayment),
-  );
   router.post(
     '/loads/:loadId/partner-balance',
     team(LS_PAYABLES),
@@ -189,6 +141,7 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
   router.use(requireTenant);
   const canDispatch = requirePermission(DISPATCH_PLANNING_MANAGE);
   const canDocuments = requirePermission(LOADS_DOCUMENTS_MANAGE);
+  const canPayments = requirePermission(PAYMENTS_MANAGE);
 
   router.get('/loads/:loadId/charges', validate(v.load), asyncHandler(c.listCharges));
   router.post(
@@ -198,10 +151,16 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     asyncHandler(c.decideCharge),
   );
   router.post(
-    '/loads/:loadId/charges/unloading',
+    '/loads/:loadId/charges',
+    canDispatch,
+    validate(v.addCharge),
+    asyncHandler(c.addCharge),
+  );
+  router.post(
+    '/loads/:loadId/papers/approve',
     canDocuments,
-    validate(v.unloadingCharge),
-    asyncHandler(c.unloadingCharge),
+    validate(v.approvePapers),
+    asyncHandler(c.approvePapers),
   );
   router.patch(
     '/loads/:loadId/unloading-contact',
@@ -216,7 +175,19 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     validate(v.claimValue),
     asyncHandler(c.claimValue),
   );
+  router.post(
+    '/loads/:loadId/claim/settle',
+    canDispatch,
+    validate(v.settleClaim),
+    asyncHandler(c.settleClaim),
+  );
   router.get('/loads/:loadId/invoice', validate(v.load), asyncHandler(c.invoice));
+  router.post(
+    '/loads/:loadId/invoice',
+    canPayments,
+    validate(v.invoice),
+    asyncHandler(c.generateInvoice),
+  );
   router.get('/loads/:loadId/documents-bundle', validate(v.load), asyncHandler(c.documentsBundle));
   return router;
 }

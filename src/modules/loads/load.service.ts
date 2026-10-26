@@ -114,17 +114,11 @@ const podReceiverVerifiedKey = (loadId: string, mobile: string) =>
 const podReceiverAttemptsKey = (loadId: string, mobile: string) =>
   `pod-receiver-attempts:${loadId}:${mobile}`;
 
-/** On a Loadsmart load, Loadsmart's ops teams mark the truck, upload papers for the driver,
- *  approve the POD and settle claims — the shipper can't ("Loadsmart's team does this"). The
- *  driver's own app calls and the ops console (`asLoadsmart`) are allowed. */
-function assertShipperMayAct(
-  load: LoadEntity,
-  driverOwnerId: string | undefined,
-  asLoadsmart: boolean,
-  what: string,
-): void {
-  if (load.sourceType === 'loadsmart' && !driverOwnerId && !asLoadsmart) {
-    throw new ConflictError(`On a Loadsmart load, Loadsmart's team ${what}`);
+/** A Loadsmart load's delivery issue is settled through its claim (claim value, then settle —
+ *  loadsmart-ops LsShipperService), never directly; that path passes `viaClaim`. */
+function assertNotLoadsmartClaim(load: LoadEntity, viaClaim: boolean): void {
+  if (load.sourceType === 'loadsmart' && !viaClaim) {
+    throw new ConflictError('On a Loadsmart load, settle the claim instead');
   }
 }
 
@@ -406,14 +400,12 @@ export class LoadService {
     loadId: string,
     input: ConfirmLoadingInput,
     driverOwnerId?: string,
-    asLoadsmart = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      assertShipperMayAct(load, driverOwnerId, asLoadsmart, 'uploads the papers for the driver');
       if (load.status === 'closed') {
         throw new ConflictError('Documents cannot be changed once a load is closed');
       }
@@ -446,14 +438,12 @@ export class LoadService {
     loadId: string,
     input: ConfirmLoadingInput,
     driverOwnerId?: string,
-    asLoadsmart = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      assertShipperMayAct(load, driverOwnerId, asLoadsmart, 'uploads the papers for the driver');
       if (load.status !== 'reached_loading') {
         throw new ConflictError('Loading papers can only be confirmed at the loading point');
       }
@@ -504,7 +494,7 @@ export class LoadService {
     driverOwnerId?: string,
   ): Promise<LoadEntity> {
     if (load.status !== 'reached_loading' || !hasLoadingPapers(load)) return load;
-    // On a Loadsmart load the truck waits for the tracking team to approve the papers
+    // On a Loadsmart load the truck waits for the papers to be approved
     // (loadsmart-ops approvePapers) — complete papers alone don't move it.
     if (load.sourceType === 'loadsmart') return load;
     try {
@@ -547,14 +537,12 @@ export class LoadService {
     loadId: string,
     toStatus: ManualTrackingStatus,
     driverOwnerId?: string,
-    asLoadsmart = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      assertShipperMayAct(load, driverOwnerId, asLoadsmart, 'marks the truck');
       await this.assertNotHalted(tenantId, loadId);
       return await this.stageService.transition({
         tenantId,
@@ -831,11 +819,9 @@ export class LoadService {
     loadId: string,
     decision: PodReviewDecision,
     reason?: string,
-    asLoadsmart = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
-      assertShipperMayAct(load, undefined, asLoadsmart, 'approves the POD');
       if (load.podStatus !== 'pending') {
         throw new ConflictError('This load has no E-POD pending review');
       }
@@ -911,11 +897,11 @@ export class LoadService {
     actorId: string,
     loadId: string,
     note: string,
-    asLoadsmart = false,
+    viaClaim = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
-      assertShipperMayAct(load, undefined, asLoadsmart, 'settles the claim with the partner');
+      assertNotLoadsmartClaim(load, viaClaim);
       if (load.status !== 'delivered_with_issues') {
         throw new ConflictError('This load has no delivery issue to settle');
       }

@@ -12,6 +12,7 @@ import {
   LS_RECEIVABLES,
   LS_TRACKING,
   LS_VERIFICATION,
+  PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { TAGS, authenticated, json, permissionGated } from '../../shared/openapi/core';
 import { loadsmartValidators as v } from './loadsmart.validators';
@@ -179,41 +180,7 @@ const ROWS: Row[] = [
     path: `${OPS}/tracking-queue`,
     op: 'loadsmart.trackingQueue',
     permissions: [LS_TRACKING],
-    description: 'Loadsmart loads on the road.',
-  },
-  {
-    method: 'patch',
-    path: `${OPS}/loads/{loadId}/status`,
-    op: 'loadsmart.markStage',
-    permissions: [LS_TRACKING],
-    schema: v.markStage,
-    description:
-      "Mark a stage when the truck can't be tracked — only Loadsmart's team does this on its loads.",
-  },
-  {
-    method: 'patch',
-    path: `${OPS}/loads/{loadId}/documents`,
-    op: 'loadsmart.uploadPapers',
-    permissions: [LS_TRACKING],
-    schema: v.uploadPapers,
-    description: 'Upload papers for the driver. Complete papers alone do not make the load Loaded.',
-  },
-  {
-    method: 'post',
-    path: `${OPS}/loads/{loadId}/papers/approve`,
-    op: 'loadsmart.approvePapers',
-    permissions: [LS_TRACKING],
-    schema: v.approvePapers,
-    description:
-      'Approve invoice, e-way bill and signed LR — the e-way bill must name Loadsmart. Moves the load to Loaded.',
-  },
-  {
-    method: 'post',
-    path: `${OPS}/loads/{loadId}/charges`,
-    op: 'loadsmart.raiseCharge',
-    permissions: [LS_TRACKING],
-    schema: v.raiseCharge,
-    description: 'Raise a loading, unloading or detention charge for the shipper to approve.',
+    description: 'Loadsmart loads on the road (read-only — the shipper runs the trip).',
   },
   {
     method: 'post',
@@ -225,28 +192,11 @@ const ROWS: Row[] = [
   },
   // Part 2
   {
-    method: 'patch',
-    path: `${OPS}/loads/{loadId}/pod/review`,
-    op: 'loadsmart.reviewPod',
-    permissions: [LS_TRACKING],
-    schema: v.reviewPod,
-    description: 'Approve or reject the E-POD on a Loadsmart load.',
-  },
-  {
     method: 'get',
     path: `${OPS}/cs-queue`,
     op: 'loadsmart.csQueue',
     permissions: [LS_CS],
-    description: 'Loads delivered with issues and their claims.',
-  },
-  {
-    method: 'post',
-    path: `${OPS}/loads/{loadId}/claim/settle`,
-    op: 'loadsmart.settleClaim',
-    permissions: [LS_CS],
-    schema: v.settleClaim,
-    description:
-      'Settle the claim with the partner (amount recovered from them) once the shipper has added the claim value. The load becomes Delivered without issues.',
+    description: 'Loads delivered with issues and their claims (read-only — the shipper settles).',
   },
   {
     method: 'get',
@@ -277,25 +227,7 @@ const ROWS: Row[] = [
     path: `${OPS}/receivables-queue`,
     op: 'loadsmart.receivablesQueue',
     permissions: [LS_RECEIVABLES],
-    description: 'Invoiced loads and shipper payments waiting for verification.',
-  },
-  {
-    method: 'post',
-    path: `${OPS}/loads/{loadId}/invoice`,
-    op: 'loadsmart.generateInvoice',
-    permissions: [LS_RECEIVABLES],
-    schema: v.invoice,
-    description:
-      "Raise the shipper's invoice (LSI-nnnn, PDF): freight + approved charges − settled claim, GST (default 12%), less the advance received. Stage 12; the shipper's finance team is reminded 2 days before the due date.",
-  },
-  {
-    method: 'post',
-    path: `${OPS}/loads/{loadId}/payments/{paymentId}/decision`,
-    op: 'loadsmart.decidePayment',
-    permissions: [LS_RECEIVABLES],
-    schema: v.decidePayment,
-    description:
-      "Verify (or reject) the shipper's balance payment against the bank statement. Closes the load if the partner is paid too.",
+    description: 'Invoiced Loadsmart loads and the shipper payments on them (read-only).',
   },
   {
     method: 'post',
@@ -304,7 +236,7 @@ const ROWS: Row[] = [
     permissions: [LS_PAYABLES],
     schema: v.partnerPayment,
     description:
-      "Pay the partner's balance — trip + approved charges − advance − claim recovery − TDS — from the original POD on. Closes the load if the shipper's payment is verified.",
+      "Pay the partner's balance — trip + approved charges − advance − claim recovery − TDS — from the original POD on. Closes the load if the shipper has paid the balance.",
   },
   {
     method: 'get',
@@ -329,15 +261,25 @@ const ROWS: Row[] = [
     op: 'loads.decideCharge',
     permissions: [DISPATCH_PLANNING_MANAGE],
     schema: v.decideCharge,
-    description: 'Approve or reject a charge Loadsmart raised.',
+    description: 'Approve or reject a charge still waiting for a decision.',
   },
   {
     method: 'post',
-    path: `${LOADS}/loads/{loadId}/charges/unloading`,
-    op: 'loads.enterUnloadingCharge',
+    path: `${LOADS}/loads/{loadId}/charges`,
+    op: 'loads.addCharge',
+    permissions: [DISPATCH_PLANNING_MANAGE],
+    schema: v.addCharge,
+    description:
+      'Add a loading (at the loading point), unloading (at the drop) or detention (during the trip) charge. It counts as approved and goes on the invoice.',
+  },
+  {
+    method: 'post',
+    path: `${LOADS}/loads/{loadId}/papers/approve`,
+    op: 'loads.approveLoadsmartPapers',
     permissions: [LOADS_DOCUMENTS_MANAGE],
-    schema: v.unloadingCharge,
-    description: 'Enter the unloading amount agreed with the receiver (counts as approved).',
+    schema: v.approvePapers,
+    description:
+      'Approve invoice, e-way bill and signed LR on a Loadsmart load — the e-way bill must name Loadsmart. Moves the load to Loaded.',
   },
   {
     method: 'patch',
@@ -363,12 +305,30 @@ const ROWS: Row[] = [
     description: 'Add the claim value (credited on the invoice once settled).',
   },
   {
+    method: 'post',
+    path: `${LOADS}/loads/{loadId}/claim/settle`,
+    op: 'loads.settleLoadsmartClaim',
+    permissions: [DISPATCH_PLANNING_MANAGE],
+    schema: v.settleClaim,
+    description:
+      'Settle the claim with the partner (amount recovered from them) once the claim value is added. The load becomes Delivered without issues.',
+  },
+  {
     method: 'get',
     path: `${LOADS}/loads/{loadId}/invoice`,
     op: 'loads.getLoadsmartInvoice',
     schema: v.load,
     description:
-      "Loadsmart's invoice and its PDF. Pay it with POST /loads/{loadId}/payments/balance (with the UTR).",
+      "Loadsmart's invoice and its PDF. Pay it with POST /loads/{loadId}/payments/balance (with the UTR) — the payment counts as verified at once.",
+  },
+  {
+    method: 'post',
+    path: `${LOADS}/loads/{loadId}/invoice`,
+    op: 'loads.generateLoadsmartInvoice',
+    permissions: [PAYMENTS_MANAGE],
+    schema: v.invoice,
+    description:
+      "Generate Loadsmart's invoice (LSI-nnnn, PDF) once the original POD is received: freight + approved charges − settled claim, GST (default 12%), less the advance received.",
   },
   {
     method: 'get',

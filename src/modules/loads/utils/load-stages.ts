@@ -83,9 +83,9 @@ export function stageGateError(
   if (to === 'in_transit_loading' && load.sourceType !== 'own_fleet' && !load.memoAcceptedAt) {
     return 'The shipper has to accept the load memo before the trip starts';
   }
-  // "Truck waits for approval": on a Loadsmart load the tracking team approves the papers first.
+  // "Truck waits for approval": on a Loadsmart load the papers are approved first.
   if (to === 'loaded' && load.sourceType === 'loadsmart' && !load.lsPapersApprovedAt) {
-    return "Loadsmart's tracking team has to approve the loading papers first";
+    return 'Approve the loading papers first';
   }
   // "Original POD unlocks money" — and it follows an accepted E-POD.
   if (to === 'original_pod_received' && load.podStatus !== 'accepted') {

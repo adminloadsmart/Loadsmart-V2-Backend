@@ -9,8 +9,6 @@ import { LoadMemoService, NameDriverInput } from '../loads/memo/load-memo.servic
 import { LoadService } from '../loads/load.service';
 import { LoadStageService } from '../loads/load-stage.service';
 import { hasLoadingPapers } from '../loads/utils/load-stages';
-import { ConfirmLoadingInput } from '../loads/utils/load.interface';
-import { ManualTrackingStatus } from '../loads/utils/loads.types';
 import {
   LoadVerificationService,
   truckVerifiedOf,
@@ -18,11 +16,9 @@ import {
 import { LsPartnerBidEntity } from './entities/ls-partner-bid.entity';
 import { LsPartnerEntity } from './entities/ls-partner.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
-import { LoadChargeEntity } from './entities/load-charge.entity';
 import { LsPartnerPaymentEntity } from './entities/ls-partner-payment.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import {
-  ChargeType,
   DEFAULT_MARGIN_PERCENT,
   DEFAULT_TDS_PERCENT,
   DEFAULT_TRUCKER_ADVANCE_PERCENT,
@@ -620,42 +616,16 @@ export class LsSourcingService extends LsServiceBase {
     ]);
   }
 
-  /** "If the truck can't be tracked, the team marks it reached." */
-  async markStage(actorId: string, loadId: string, toStatus: ManualTrackingStatus) {
-    const sourcing = await this.assertWonLoad(loadId);
-    return this.loadService.updateStatus(
-      sourcing.tenantId,
-      actorId,
-      loadId,
-      toStatus,
-      undefined,
-      true,
-    );
-  }
-
-  /** "Loadsmart can upload for the driver." */
-  async uploadPapers(
-    actor: { id: string; role: string },
+  /** "Truck waits for approval": the shipper checks invoice, e-way bill and signed LR are on the
+   *  load, and the e-way bill names Loadsmart as transporter. Only then is the load Loaded. */
+  async approvePapers(
+    tenantId: string,
+    actorId: string,
     loadId: string,
-    input: ConfirmLoadingInput,
+    input: { ewayBillNamesLoadsmart: boolean },
   ) {
-    const sourcing = await this.assertWonLoad(loadId);
-    return this.loadService.updateDocuments(
-      sourcing.tenantId,
-      actor.id,
-      actor.role,
-      loadId,
-      input,
-      undefined,
-      true,
-    );
-  }
-
-  /** "Tracking team checks the papers": invoice, e-way bill and signed LR are on the load, and
-   *  the e-way bill names Loadsmart as transporter. Only then is the load Loaded. */
-  async approvePapers(actorId: string, loadId: string, input: { ewayBillNamesLoadsmart: boolean }) {
     try {
-      const sourcing = await this.assertWonLoad(loadId);
+      const sourcing = await this.assertWonLoad(loadId, tenantId);
       const load = sourcing.load;
       if (load.status !== 'reached_loading') {
         throw new ConflictError('Papers are approved at the loading point');
@@ -680,39 +650,6 @@ export class LsSourcingService extends LsServiceBase {
       return loaded;
     } catch (error) {
       rethrow(error, 'Failed to approve the papers');
-    }
-  }
-
-  /** Loadsmart raises a loading, unloading or detention charge for the shipper to approve. */
-  async raiseCharge(
-    actorId: string,
-    loadId: string,
-    input: { chargeType: ChargeType; amount: number; note?: string },
-  ): Promise<LoadChargeEntity> {
-    try {
-      const sourcing = await this.assertWonLoad(loadId);
-      if (sourcing.load.status === 'closed' || sourcing.load.status === 'truck_assigned') {
-        throw new ConflictError('Charges are raised while the truck is on the trip');
-      }
-      const charge = await this.repository.charges.save(
-        this.repository.charges.create({
-          tenantId: sourcing.tenantId,
-          loadId,
-          chargeType: input.chargeType,
-          amount: String(input.amount),
-          note: input.note ?? null,
-          status: 'raised',
-          raisedByParty: 'loadsmart',
-          raisedBy: actorId,
-        }),
-      );
-      await this.step(sourcing, actorId, `${input.chargeType}_charge_raised`, 'LS_CHARGE_RAISED', {
-        chargeId: charge.id,
-        amount: input.amount,
-      });
-      return charge;
-    } catch (error) {
-      rethrow(error, 'Failed to raise the charge');
     }
   }
 

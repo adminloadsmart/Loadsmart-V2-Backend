@@ -3,13 +3,40 @@ import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { LoadActivityService } from '../loads/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
+import { LoadStatus } from '../loads/utils/loads.types';
 import { LoadPaymentRepository } from '../loads/load-payment.repository';
 import { LoadRepository } from '../loads/load.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
 import { LoadChargeEntity } from './entities/load-charge.entity';
 import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
+import { ChargeType } from './loadsmart.types';
 import { LsServiceBase } from './ls-base';
+
+/** When each charge can be added: loading at the gate, unloading at the drop, detention any time
+ *  the truck is held on the trip. */
+const CHARGE_STAGES: Record<ChargeType, { statuses: readonly LoadStatus[]; message: string }> = {
+  loading: {
+    statuses: ['reached_loading', 'loaded'],
+    message: 'The loading charge is added at the loading point',
+  },
+  unloading: {
+    statuses: ['reached_unloading', 'delivered_ok', 'delivered_with_issues'],
+    message: 'The unloading charge is settled at the drop',
+  },
+  detention: {
+    statuses: [
+      'in_transit_loading',
+      'reached_loading',
+      'loaded',
+      'in_transit_unloading',
+      'reached_unloading',
+      'delivered_ok',
+      'delivered_with_issues',
+    ],
+    message: 'Detention is added while the truck is on the trip',
+  },
+};
 
 export interface BundleDocument {
   type: string;
@@ -19,9 +46,10 @@ export interface BundleDocument {
 }
 
 /**
- * The shipper's side of a Loadsmart load, on the shipper's own loads router: approve the charges
- * Loadsmart raises (or enter the unloading amount agreed at the gate), add the unloading contact
- * and the claim value, see the invoice, and download every document on the load.
+ * The shipper's side of a Loadsmart load, on the shipper's own loads router: add the loading,
+ * unloading and detention charges, add the unloading contact and the claim value, see the
+ * invoice, and download every document on the load. Approving the papers, settling the claim and
+ * generating the invoice run through LsSourcingService / LsSettlementService.
  */
 export class LsShipperService extends LsServiceBase {
   constructor(
@@ -105,24 +133,24 @@ export class LsShipperService extends LsServiceBase {
     }
   }
 
-  /** "Settles the unloading charge: approves the amount asked at the gate, or enters the amount
-   *  agreed with the receiver" — entered by the shipper, it counts as approved. */
-  async enterUnloadingCharge(
+  /** A loading, unloading or detention charge, entered by the shipper — it counts as approved
+   *  and goes on Loadsmart's invoice. "Settles the unloading charge: approves the amount asked at
+   *  the gate, or enters the amount agreed with the receiver." */
+  async addCharge(
     tenantId: string,
     actorId: string,
     loadId: string,
-    input: { amount: number; note?: string },
+    input: { chargeType: ChargeType; amount: number; note?: string },
   ): Promise<LoadChargeEntity> {
     try {
       const load = await this.assertLoadsmartLoad(tenantId, loadId);
-      if (!['reached_unloading', 'delivered_ok', 'delivered_with_issues'].includes(load.status)) {
-        throw new ConflictError('The unloading charge is settled at the drop');
-      }
+      const rule = CHARGE_STAGES[input.chargeType];
+      if (!rule.statuses.includes(load.status)) throw new ConflictError(rule.message);
       const charge = await this.repository.charges.save(
         this.repository.charges.create({
           tenantId,
           loadId,
-          chargeType: 'unloading',
+          chargeType: input.chargeType,
           amount: String(input.amount),
           note: input.note ?? null,
           status: 'approved',
@@ -138,7 +166,7 @@ export class LsShipperService extends LsServiceBase {
         actorId,
         'LOADSMART_STEP',
         null,
-        'unloading_charge_entered',
+        `${input.chargeType}_charge_entered`,
         {
           chargeId: charge.id,
           amount: input.amount,
@@ -146,7 +174,7 @@ export class LsShipperService extends LsServiceBase {
       );
       return charge;
     } catch (error) {
-      rethrow(error, 'Failed to enter the unloading charge');
+      rethrow(error, 'Failed to add the charge');
     }
   }
 
