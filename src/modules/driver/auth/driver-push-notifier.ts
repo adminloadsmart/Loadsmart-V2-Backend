@@ -114,6 +114,17 @@ export class DriverPushNotifier {
     return { pushed, notificationId: notification?.id ?? null };
   }
 
+  /** A trip reminder to the driver's app (e.g. upload the E-POD) — push plus an in-app row. */
+  notifyTripReminder(
+    tenantId: string,
+    driverId: string,
+    type: string,
+    title: string,
+    body: string,
+  ): Promise<void> {
+    return this.send(tenantId, driverId, type, title, body);
+  }
+
   notifyJoinRequestApproved(tenantId: string, driverId: string, tenantName: string): Promise<void> {
     return this.send(
       tenantId,

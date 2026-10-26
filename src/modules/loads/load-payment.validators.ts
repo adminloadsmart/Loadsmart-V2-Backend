@@ -7,7 +7,6 @@ const params = z.object({ loadId: uuid });
 const paymentBody = z
   .object({
     utrReference: z.string().trim().min(1).max(100),
-    proofFileKey: z.string().trim().min(1).optional(),
     paymentDate: isoDateSchema,
   })
   .strict();

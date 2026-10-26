@@ -117,17 +117,36 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.nameDriver',
     ...manageDispatch(
-      'The transporter names the driver (name and mobile) for a market or indent load at Truck ' +
-        'assigned. Sends the shipper a fresh load memo that expires in 1 hour.',
+      'The transporter names the driver (name, mobile, licence number and date of birth) for a ' +
+        'market or indent load at Truck assigned. The truck is checked on VAHAN if it never was, ' +
+        'and the licence on Sarathi. The memo (expires in 1 hour) goes only when no check failed; ' +
+        'otherwise `memo` is null and `checks` lists the failures to fix.',
     ),
     request: { params: v.nameDriver.shape.params, body: json(v.nameDriver.shape.body) },
     responses: {
-      201: { description: 'The load memo' },
+      201: { description: '{ memo, checks } — memo sent' },
+      200: { description: '{ memo: null, checks } — a check failed, no memo sent' },
       409: {
         description: 'Own fleet, not at Truck assigned, or memo already accepted',
         ...errorContent,
       },
     },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/verifications`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.getVerifications',
+    ...authenticated(
+      'The latest govt-portal checks on the load: the truck on VAHAN (RC, fitness, insurance, ' +
+        'PUC, permit) and the driver on Sarathi (found, in date, and the licence class covers the ' +
+        'truck — above 7.5 t GVW a transport licence). Each shows only its `failures`; ' +
+        '`unavailable` means the portal could not be reached and never blocks. `clear` is what ' +
+        'the load memo waits on.',
+    ),
+    request: { params: v.getChecks.shape.params },
+    responses: { 200: { description: '{ truck, driver, clear }' } },
   });
 
   registry.registerPath({
@@ -157,7 +176,10 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     request: { params: v.resendMemo.shape.params },
     responses: {
       201: { description: 'The new load memo' },
-      409: { description: 'No driver named, or memo already accepted', ...errorContent },
+      409: {
+        description: 'No driver named, a truck/driver check failed, or memo already accepted',
+        ...errorContent,
+      },
     },
   });
 

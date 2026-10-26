@@ -15,6 +15,7 @@ import { CodeSequenceRepository } from './code-sequence.repository';
 import { LoadActivityService } from './load-activity.service';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
+import { LoadStatus } from './utils/loads.types';
 import { computeFitVerdict, FitResult } from './utils/fit-engine';
 import { formatLoadCode } from './utils/code.util';
 import {
@@ -64,6 +65,9 @@ export class DispatchPlanningService {
     // getActiveDeviceTokensForDriver is used, never anything RBAC-shaped.
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
+    /** Own-fleet loads are born at Truck assigned — the stage hooks (tracking source, alerts)
+     *  run for them after commit. */
+    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
   ) {}
 
   /**
@@ -231,6 +235,9 @@ export class DispatchPlanningService {
       // Outside the transaction, deliberately: a push failure must never roll back or fail an
       // otherwise-successful dispatch. Best-effort, errors are swallowed (logged) inside it.
       await this.notifyAssignedDrivers(tenantId, result.loads);
+      for (const load of result.loads) {
+        if (load.status === 'truck_assigned') await this.onStageEntered?.(load, 'truck_assigned');
+      }
 
       return result;
     } catch (error) {

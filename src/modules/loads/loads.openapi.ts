@@ -462,6 +462,32 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/elr`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.generateElr',
+    ...manageDocuments(
+      'Make the e-LR at the loading point (Reached loading point or Loaded). The invoice is ' +
+        'required — uploaded (invoice number + file on the load), or typed with ' +
+        '`invoiceNumber`, `invoiceDate` and `invoiceValue` (own fleet may). The shipper adds ' +
+        '`packages` and `sealNumber`; the rest fills in from the load. Freight is hidden unless ' +
+        '`showFreight` is true. Assigns the next LR-nnnn number (kept on regeneration), stores ' +
+        'the PDF (purpose trips/lr) in `elrDocumentFileKey`, and returns a download URL. The ' +
+        'signed LR the driver brings back is still uploaded separately and completes the ' +
+        'loading papers.',
+    ),
+    request: {
+      params: loadValidators.generateElr.shape.params,
+      body: json(loadValidators.generateElr.shape.body),
+    },
+    responses: {
+      201: { description: '{ load, elrNumber, downloadUrl }' },
+      400: { description: 'No invoice on the load and none typed', ...errorContent },
+      409: { description: 'Not at the loading point', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/loads/{loadId}/delivery-issue/settle`,
     tags: [TAGS.LOADS],

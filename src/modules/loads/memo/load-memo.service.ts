@@ -8,10 +8,22 @@ import { MEMO_TTL_MS } from '../bids/bid-rules';
 import { MemoStatus } from '../utils/loads.types';
 import { LoadMemoEntity } from './load-memo.entity';
 import { LoadMemoRepository } from './load-memo.repository';
+import { LoadChecksView, LoadVerificationService } from '../verification/load-verification.service';
 
 export interface NameDriverInput {
   driverName: string;
   driverMobile: string;
+  /** Checked on Sarathi with the date of birth. */
+  licenceNumber: string;
+  /** YYYY-MM-DD. */
+  dateOfBirth: string;
+}
+
+/** What naming the driver produced: the memo, or — when a truck or driver check failed — no memo
+ *  and the failures to fix ("A failed check sits next to the truck number or driver name"). */
+export interface NameDriverResult {
+  memo: MemoView | null;
+  checks: LoadChecksView;
 }
 
 export interface AcceptMemoInput {
@@ -46,8 +58,19 @@ export class LoadMemoService {
     private readonly loadRepository: LoadRepository,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    private readonly verification: LoadVerificationService,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /** The truck (checked now if it never was) and driver checks the memo waits on. */
+  private async checksFor(load: LoadEntity): Promise<LoadChecksView> {
+    await this.verification.ensureTruckChecked(load.tenantId, load);
+    return this.verification.checksForLoad(load.tenantId, load);
+  }
+
+  private static failureSummary(checks: LoadChecksView): string {
+    return [...(checks.truck?.failures ?? []), ...(checks.driver?.failures ?? [])].join('; ');
+  }
 
   private async assertMemoLoad(tenantId: string, loadId: string): Promise<LoadEntity> {
     const load = await this.loadRepository.findById(tenantId, loadId);
@@ -67,19 +90,27 @@ export class LoadMemoService {
     return { ...rest, status: effectiveMemoStatus(memo, now) };
   }
 
-  /** The transporter names the driver; the memo then goes to the shipper. Naming a different
-   *  driver later sends a fresh memo. */
+  /** The transporter names the driver. The licence is checked on Sarathi (and the truck on
+   *  VAHAN, if it never was); "the memo goes only when every check passes" — otherwise the
+   *  failures come back and the transporter fixes them by naming another driver or truck.
+   *  Naming a different driver later sends a fresh memo. */
   async nameDriver(
     tenantId: string,
     actorId: string,
     loadId: string,
     input: NameDriverInput,
-  ): Promise<MemoView> {
+    asLoadsmart = false,
+  ): Promise<NameDriverResult> {
     try {
       const load = await this.assertMemoLoad(tenantId, loadId);
+      if (load.sourceType === 'loadsmart' && !asLoadsmart) {
+        throw new ConflictError("On a Loadsmart load, Loadsmart's placement team names the driver");
+      }
+      const licenceNumber = input.licenceNumber.replace(/\s+/g, '').toUpperCase();
       const updated = await this.loadRepository.update(tenantId, loadId, {
         driverName: input.driverName,
         driverNumber: input.driverMobile,
+        driverLicenceNumber: licenceNumber,
         updatedBy: actorId,
       });
       if (!updated) throw new ConflictError('Naming the driver failed');
@@ -87,6 +118,7 @@ export class LoadMemoService {
       await this.loadActivityService.record(tenantId, loadId, actorId, 'DRIVER_NAMED', null, null, {
         driverName: input.driverName,
         driverMobile: input.driverMobile,
+        licenceNumber,
       });
       await this.auditService.log({
         tenantId,
@@ -96,23 +128,57 @@ export class LoadMemoService {
         oldData: { id: loadId, driverName: load.driverName, driverNumber: load.driverNumber },
         newData: { id: loadId, driverName: input.driverName, driverNumber: input.driverMobile },
       });
-      return await this.send(updated, actorId);
+
+      // Truck first: its weight decides the licence class the driver needs.
+      await this.verification.ensureTruckChecked(tenantId, updated);
+      await this.verification.verifyDriver(tenantId, updated, {
+        licenceNumber,
+        dateOfBirth: input.dateOfBirth,
+      });
+      const checks = await this.checksFor(updated);
+      if (!checks.clear) return { memo: null, checks };
+      // Loadsmart: the Verification team approves the truck and driver before the memo goes.
+      if (updated.sourceType === 'loadsmart' && !updated.lsVerificationApprovedAt) {
+        return { memo: null, checks };
+      }
+      return { memo: await this.send(updated, actorId), checks };
     } catch (error) {
       rethrow(error, 'Failed to name the driver');
     }
   }
 
   /** Sends a fresh memo for the load's current truck and driver — e.g. after the last one expired. */
-  async resend(tenantId: string, actorId: string, loadId: string): Promise<MemoView> {
+  async resend(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    loadingContact?: { name?: string; phone?: string },
+  ): Promise<MemoView> {
     try {
       const load = await this.assertMemoLoad(tenantId, loadId);
-      return await this.send(load, actorId);
+      if (load.sourceType === 'loadsmart' && !load.lsVerificationApprovedAt) {
+        throw new ConflictError(
+          "Loadsmart's verification team has to approve the truck and driver first",
+        );
+      }
+      const checks = await this.checksFor(load);
+      if (!checks.clear) {
+        throw new ConflictError(
+          `The load memo can't go out until these checks pass: ${LoadMemoService.failureSummary(checks)}`,
+          { checks },
+        );
+      }
+      return await this.send(load, actorId, loadingContact);
     } catch (error) {
       rethrow(error, 'Failed to send the load memo');
     }
   }
 
-  private async send(load: LoadEntity, actorId: string): Promise<MemoView> {
+  private async send(
+    load: LoadEntity,
+    actorId: string,
+    loadingContact?: { name?: string; phone?: string },
+  ): Promise<MemoView> {
     if (!load.vehicleNumber) throw new ConflictError('The load has no truck number yet');
     if (!load.driverName || !load.driverNumber) {
       throw new ConflictError('Name the driver before sending the load memo');
@@ -130,8 +196,10 @@ export class LoadMemoService {
       vehicleNumber: load.vehicleNumber,
       driverName: load.driverName,
       driverMobile: load.driverNumber,
-      loadingContactName: posting?.pickupLoadingPoint?.contactPersonName ?? null,
-      loadingContactPhone: posting?.pickupLoadingPoint?.contactPersonNumber ?? null,
+      loadingContactName:
+        loadingContact?.name ?? posting?.pickupLoadingPoint?.contactPersonName ?? null,
+      loadingContactPhone:
+        loadingContact?.phone ?? posting?.pickupLoadingPoint?.contactPersonNumber ?? null,
       sentAt,
       sentBy: actorId,
       expiresAt: new Date(sentAt.getTime() + MEMO_TTL_MS),
@@ -154,6 +222,17 @@ export class LoadMemoService {
       newData: { id: memo.id, loadId: load.id, expiresAt: memo.expiresAt.toISOString() },
     });
     return this.toView(memo, sentAt);
+  }
+
+  /** The load's latest truck and driver checks — only failures block. */
+  async getChecks(tenantId: string, loadId: string): Promise<LoadChecksView> {
+    try {
+      const load = await this.loadRepository.findById(tenantId, loadId);
+      if (!load) throw new NotFoundError(`Load ${loadId} not found`);
+      return await this.verification.checksForLoad(tenantId, load);
+    } catch (error) {
+      rethrow(error, 'Failed to read the load checks');
+    }
   }
 
   async getCurrent(tenantId: string, loadId: string): Promise<MemoView> {

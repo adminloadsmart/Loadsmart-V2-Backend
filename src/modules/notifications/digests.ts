@@ -32,7 +32,7 @@ export const IDLE_DAYS = 3;
 const RUNNING_STATUSES = ['in_transit_unloading', 'reached_unloading'];
 /** At the unloading point and not yet delivered — the E-POD is what moves it to delivered. */
 const POD_PENDING_STATUS = 'reached_unloading';
-const ACTIVE_LOAD_SQL = `l.status NOT IN ('delivered_ok', 'delivered_with_issues', 'closed')`;
+const ACTIVE_LOAD_SQL = `l.status NOT IN ('delivered_ok', 'delivered_with_issues', 'original_pod_received', 'invoice_generated', 'payment', 'closed')`;
 
 const rupees = (value: number) => `₹${Math.round(value).toLocaleString('en-IN')}`;
 const daysBetween = (from: string, to: string) =>

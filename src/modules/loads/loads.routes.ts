@@ -125,6 +125,13 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadValidators.reviewPod),
     asyncHandler(controller.reviewPod),
   );
+  // The e-LR at the loading point — invoice required, freight hidden unless ticked.
+  router.post(
+    '/loads/:loadId/elr',
+    canManageDocuments,
+    validate(loadValidators.generateElr),
+    asyncHandler(controller.generateElr),
+  );
   // Delivered with issues -> Delivered without issues, once the damage/shortage/pilferage noted
   // on the POD is settled — see LoadService.settleDeliveryIssue.
   router.patch(

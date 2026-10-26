@@ -23,6 +23,8 @@ export interface UlipVahanResult {
   /** VAHAN's own body-type wording, e.g. "OPEN BODY". */
   bodyType?: string;
   unladenWeightKg?: number;
+  /** VAHAN's gross vehicle (passing) weight — decides the licence class a driver needs. */
+  grossVehicleWeightKg?: number;
   papers: {
     insuranceValidTo?: string;
     rcValidTo?: string;
@@ -196,6 +198,7 @@ export class UlipClient {
     const maker = pick('rc_maker_desc');
     const model = pick('rc_maker_model');
     const unladenWeight = Number(pick('rc_unld_wt'));
+    const grossWeight = Number(pick('rc_gvw'));
 
     return {
       status: 'verified',
@@ -213,6 +216,8 @@ export class UlipClient {
       bodyType: pick('rc_body_type_desc'),
       unladenWeightKg:
         Number.isFinite(unladenWeight) && unladenWeight > 0 ? unladenWeight : undefined,
+      grossVehicleWeightKg:
+        Number.isFinite(grossWeight) && grossWeight > 0 ? grossWeight : undefined,
       papers: {
         insuranceValidTo: date('rc_insurance_upto'),
         // A goods vehicle's RC stays valid only while its fitness certificate does, and ULIP's

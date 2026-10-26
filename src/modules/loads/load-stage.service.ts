@@ -20,6 +20,9 @@ const STAGE_TIMESTAMP_FIELD: Partial<Record<LoadStatus, keyof UpdateLoadData>> =
   loaded: 'loadingConfirmedAt',
   in_transit_unloading: 'inTransitAt',
   reached_unloading: 'reachedDeliveryPointAt',
+  original_pod_received: 'originalPodReceivedAt',
+  invoice_generated: 'invoiceGeneratedAt',
+  payment: 'paymentSubmittedAt',
   closed: 'closedAt',
 };
 
@@ -27,7 +30,8 @@ export interface StageTransitionInput {
   tenantId: string;
   loadId: string;
   to: LoadStatus;
-  actorId: string;
+  /** Null for a system move (live tracking) — no user made it. */
+  actorId: string | null;
   /** Set when the driver app made the move — audit_logs.user_id has an FK to auth.users that a
    *  masters.drivers id would violate, so the driver is carried in newData instead. */
   driverOwnerId?: string;
@@ -53,6 +57,8 @@ export class LoadStageService {
     private readonly auditService: AuditService,
     private readonly vehicleService: VehicleService,
     private readonly onLoadEvent?: LoadEventNotifier,
+    /** Queues the no-tracking alerts for the stage (alerts/load-alert-scheduler.ts). Never throws. */
+    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
   ) {}
 
   async transition(input: StageTransitionInput): Promise<LoadEntity> {
@@ -91,6 +97,7 @@ export class LoadStageService {
         userId: driverOwnerId ? null : actorId,
         action:
           input.auditAction ??
+          (actorId === null ? 'LOAD_STATUS_UPDATED_BY_GEOFENCE' : undefined) ??
           (to === 'closed'
             ? 'LOAD_CLOSED'
             : driverOwnerId
@@ -111,7 +118,9 @@ export class LoadStageService {
         await this.onLoadEvent?.({ kind: 'reached_delivery_point', tenantId, loadId, at: now });
       }
 
-      if (to === 'closed' && updated.vehicleId) {
+      await this.onStageEntered?.(updated, to);
+
+      if (to === 'closed' && updated.vehicleId && actorId) {
         // Own-fleet loads carry a vehicleId — release it back to idle now that this was its one
         // active load (dispatch-planning's C-02 guarantees one active load per vehicle).
         await this.vehicleService.setOperationalStatus(tenantId, actorId, updated.vehicleId, {
@@ -134,6 +143,14 @@ export class LoadStageService {
    * last closes the load.
    */
   async closeIfReady(tenantId: string, actorId: string, load: LoadEntity): Promise<LoadEntity> {
+    if (load.sourceType === 'loadsmart') {
+      // Loadsmart: closes from Payment once Receivables verified the shipper's payment and
+      // Payables paid the partner's balance.
+      if (load.status !== 'payment' || !load.balancePaidAt || !load.partnerBalancePaidAt) {
+        return load;
+      }
+      return this.transition({ tenantId, loadId: load.id, to: 'closed', actorId, load });
+    }
     if (load.status !== 'delivered_ok' || load.podStatus !== 'accepted') return load;
     if (load.sourceType !== 'own_fleet' && !(load.advancePaidAt && load.balancePaidAt)) {
       return load;

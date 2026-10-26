@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateSchema } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import {
   FREIGHT_TYPES,
@@ -220,6 +221,21 @@ export const loadValidators = {
   reviewPod: z.object({
     params,
     body: reviewPodBody,
+  }),
+
+  // The e-LR at the loading point — see elr/elr.service.ts.
+  generateElr: z.object({
+    params,
+    body: z
+      .object({
+        packages: z.number().int().positive(),
+        sealNumber: z.string().trim().min(1).max(50).optional(),
+        showFreight: z.boolean().optional(),
+        invoiceNumber: z.string().trim().min(1).max(50).optional(),
+        invoiceDate: isoDateSchema.optional(),
+        invoiceValue: z.number().positive().optional(),
+      })
+      .strict(),
   }),
 
   // Delivered with issues -> settled — see LoadService.settleDeliveryIssue.

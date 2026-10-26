@@ -1,4 +1,4 @@
-import { BidStatus } from '../utils/loads.types';
+import { BidSource, BidStatus } from '../utils/loads.types';
 
 /**
  * Pure bidding and load-memo rules from the client's flow — no DB/IO, unit-tested in
@@ -30,6 +30,8 @@ export function manualRateError(sentAt: Date, now: Date): string | null {
 
 export interface BidLike {
   id: string;
+  /** Defaults to a transporter's bid. */
+  source?: BidSource;
   status: BidStatus;
   rate: string;
   vehicleNumber: string | null;
@@ -58,12 +60,14 @@ export function acceptBlocker(bid: BidLike, now: Date): string | null {
   return null;
 }
 
-/** Live bids, best first: a bid that can be accepted ranks above one that can't, then the lowest
- *  rate, then the earliest. */
+/** Live bids, best first: "Loadsmart's bid comes first" (always, highlighted), then a bid that
+ *  can be accepted ranks above one that can't, then the lowest rate, then the earliest. */
 export function rankBids<T extends BidLike>(bids: T[], now: Date): T[] {
   return bids
     .filter((bid) => effectiveBidStatus(bid, now) === 'received')
     .sort((a, b) => {
+      const loadsmart = Number(a.source === 'loadsmart') - Number(b.source === 'loadsmart');
+      if (loadsmart !== 0) return -loadsmart;
       const acceptable = Number(!acceptBlocker(a, now)) - Number(!acceptBlocker(b, now));
       if (acceptable !== 0) return -acceptable;
       const byRate = Number(a.rate) - Number(b.rate);

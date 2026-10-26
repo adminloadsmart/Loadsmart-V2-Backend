@@ -286,6 +286,10 @@ function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] {
     case 'delivered_ok':
     case 'delivered_with_issues':
       return load.podFileKey ? 'pod_received' : 'unloaded';
+    case 'original_pod_received':
+    case 'invoice_generated':
+    case 'payment':
+      return 'pod_received';
     case 'closed':
       return 'closed';
   }

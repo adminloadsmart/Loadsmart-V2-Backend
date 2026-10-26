@@ -9,7 +9,7 @@ export interface CreateLoadPaymentData {
   paymentType: LoadPaymentType;
   amount: string;
   utrReference: string;
-  proofFileKey?: string | null;
+  verificationStatus?: 'pending' | null;
   paymentDate: string;
   dueDate?: string | null;
   recordedBy: string | null;
@@ -26,7 +26,6 @@ export class LoadPaymentRepository {
     const repo = manager?.getRepository(LoadPaymentEntity) ?? this.payments;
     const payment = repo.create({
       ...data,
-      proofFileKey: data.proofFileKey ?? null,
       dueDate: data.dueDate ?? null,
     });
     return repo.save(payment);
@@ -38,6 +37,25 @@ export class LoadPaymentRepository {
     paymentType: LoadPaymentType,
   ): Promise<LoadPaymentEntity | null> {
     return this.payments.findOneBy({ tenantId, loadId, paymentType });
+  }
+
+  findById(tenantId: string, loadId: string, id: string): Promise<LoadPaymentEntity | null> {
+    return this.payments.findOneBy({ tenantId, loadId, id });
+  }
+
+  /** Decides a pending Loadsmart payment — only while still pending (race guard). */
+  async decide(
+    payment: LoadPaymentEntity,
+    data: Pick<
+      LoadPaymentEntity,
+      'verificationStatus' | 'verifiedBy' | 'verifiedAt' | 'rejectionReason'
+    >,
+  ): Promise<boolean> {
+    const result = await this.payments.update(
+      { id: payment.id, tenantId: payment.tenantId, verificationStatus: 'pending' },
+      data,
+    );
+    return result.affected === 1;
   }
 
   listByLoad(tenantId: string, loadId: string): Promise<LoadPaymentEntity[]> {

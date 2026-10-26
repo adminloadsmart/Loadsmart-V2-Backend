@@ -16,7 +16,13 @@ export function stageTransitionError(
   if (!routeStages.includes(from) || !routeStages.includes(to)) {
     return `A ${humanizeStatus(sourceType)} load never goes through ${humanizeStatus(routeStages.includes(from) ? to : from)}`;
   }
-  const allowed = LOAD_STAGE_TRANSITIONS[from].filter((stage) => routeStages.includes(stage));
+  // A route with the money stages (Loadsmart) closes only after payment, never from delivered.
+  const hasMoneyStages = routeStages.includes('payment');
+  const allowed = LOAD_STAGE_TRANSITIONS[from].filter(
+    (stage) =>
+      routeStages.includes(stage) &&
+      !(hasMoneyStages && from === 'delivered_ok' && stage === 'closed'),
+  );
   if (!allowed.includes(to)) {
     const next = allowed.length ? allowed.map(humanizeStatus).join(' or ') : 'none';
     return `Cannot move load from ${humanizeStatus(from)} to ${humanizeStatus(to)} — the valid next stage is ${next}`;
@@ -66,11 +72,24 @@ export function stagePathFor(load: {
 /** A business precondition a move needs beyond the route order, or null. Market and indent loads
  *  start the trip only once the shipper has accepted the load memo; own fleet has no memo. */
 export function stageGateError(
-  load: { sourceType: LoadSourceType; memoAcceptedAt: Date | null },
+  load: {
+    sourceType: LoadSourceType;
+    memoAcceptedAt: Date | null;
+    lsPapersApprovedAt?: Date | null;
+    podStatus?: string | null;
+  },
   to: LoadStatus,
 ): string | null {
   if (to === 'in_transit_loading' && load.sourceType !== 'own_fleet' && !load.memoAcceptedAt) {
     return 'The shipper has to accept the load memo before the trip starts';
+  }
+  // "Truck waits for approval": on a Loadsmart load the tracking team approves the papers first.
+  if (to === 'loaded' && load.sourceType === 'loadsmart' && !load.lsPapersApprovedAt) {
+    return "Loadsmart's tracking team has to approve the loading papers first";
+  }
+  // "Original POD unlocks money" — and it follows an accepted E-POD.
+  if (to === 'original_pod_received' && load.podStatus !== 'accepted') {
+    return 'The E-POD has to be approved before the original POD is marked received';
   }
   return null;
 }

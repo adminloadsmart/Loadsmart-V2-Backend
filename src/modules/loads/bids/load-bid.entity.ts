@@ -10,7 +10,14 @@ import {
 } from 'typeorm';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import { LoadEntity } from '../entities/load.entity';
-import { BID_CHANNELS, BID_STATUSES, BidChannel, BidStatus } from '../utils/loads.types';
+import {
+  BID_CHANNELS,
+  BID_SOURCES,
+  BID_STATUSES,
+  BidChannel,
+  BidSource,
+  BidStatus,
+} from '../utils/loads.types';
 
 /**
  * One transporter's quote for one load (one truck). Market loads collect these from the
@@ -39,12 +46,20 @@ export class LoadBidEntity {
   @Column({ name: 'recipient_id', type: 'uuid', nullable: true })
   recipientId!: string | null;
 
-  @Column({ name: 'transporter_id', type: 'uuid' })
-  transporterId!: string;
+  @Column({ type: 'enum', enum: [...BID_SOURCES], default: 'transporter' })
+  source!: BidSource;
 
-  @ManyToOne(() => TransporterEntity, { onDelete: 'RESTRICT' })
+  /** Null on Loadsmart's bid — the shipper never sees the partner behind it. */
+  @Column({ name: 'transporter_id', type: 'uuid', nullable: true })
+  transporterId!: string | null;
+
+  @ManyToOne(() => TransporterEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'transporter_id' })
-  transporter!: TransporterEntity;
+  transporter!: TransporterEntity | null;
+
+  /** Loadsmart's bid only — the partner bid it was made from (loadsmart-ops). */
+  @Column({ name: 'ls_partner_bid_id', type: 'uuid', nullable: true })
+  lsPartnerBidId!: string | null;
 
   /** In the load's own freight basis (LoadEntity.freightType: per tonne or per trip). */
   @Column({ type: 'numeric', precision: 12, scale: 2 })

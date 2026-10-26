@@ -177,7 +177,8 @@ export class LoadPostingRepository {
     if (!driverIds.length) return Promise.resolve([] as DriverTenantRelationEntity[]);
     return this.driverRelations.find({
       where: { tenantId, driverId: In(driverIds) },
-      relations: { driver: true, operationalStatus: true },
+      // Verifications feed the own-fleet licence-class check at posting.
+      relations: { driver: { verifications: true }, operationalStatus: true },
     });
   }
 

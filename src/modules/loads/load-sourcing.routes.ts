@@ -46,6 +46,12 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     validate(v.nameDriver),
     asyncHandler(controller.nameDriver),
   );
+  // Govt-portal checks of the load's truck and driver — only failures block.
+  router.get(
+    '/loads/:loadId/verifications',
+    validate(v.getChecks),
+    asyncHandler(controller.getChecks),
+  );
   router.get('/loads/:loadId/memo', validate(v.getMemo), asyncHandler(controller.getMemo));
   router.post(
     '/loads/:loadId/memo',

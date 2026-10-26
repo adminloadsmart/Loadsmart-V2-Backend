@@ -31,6 +31,8 @@ import {
   SealStatus,
   SHORTAGE_OR_DAMAGE_STATUSES,
   ShortageOrDamageStatus,
+  TRACKING_SOURCES,
+  TrackingSource,
 } from '../utils/loads.types';
 
 /**
@@ -138,6 +140,10 @@ export class LoadEntity {
   /** Market only — free-text name of an external driver not in the Driver master, entered at
    *  Assignment. Optional; independent of driverNumber (their phone number). Own-fleet loads
    *  never populate this. */
+  /** Market/indent only — the licence the transporter named, checked on Sarathi (loads/memo/). */
+  @Column({ name: 'driver_licence_number', type: 'varchar', length: 30, nullable: true })
+  driverLicenceNumber!: string | null;
+
   @Column({ name: 'driver_name', type: 'varchar', length: 150, nullable: true })
   driverName!: string | null;
 
@@ -196,6 +202,13 @@ export class LoadEntity {
   @Column({ name: 'invoice_file_key', type: 'text', nullable: true })
   invoiceFileKey!: string | null;
 
+  /** Typed with the invoice number when no invoice file is uploaded (own fleet may) — e-LR. */
+  @Column({ name: 'invoice_date', type: 'date', nullable: true })
+  invoiceDate!: string | null;
+
+  @Column({ name: 'invoice_value', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  invoiceValue!: string | null;
+
   @Column({ name: 'eway_bill_number', type: 'varchar', length: 50, nullable: true })
   ewayBillNumber!: string | null;
 
@@ -215,6 +228,24 @@ export class LoadEntity {
 
   /** Non-mandatory Loading Confirmation uploads — never gate the at_plant -> loading_confirmed
    *  flip, unlike invoice/eway-bill/elr above. See load.service.ts's confirmLoading. */
+  // --- The generated e-LR (loads/elr/). Separate from elrFileKey, which is the *signed* LR that
+  // completes the loading papers.
+  @Column({ name: 'elr_document_file_key', type: 'text', nullable: true })
+  elrDocumentFileKey!: string | null;
+
+  @Column({ name: 'elr_generated_at', type: 'timestamptz', nullable: true })
+  elrGeneratedAt!: Date | null;
+
+  @Column({ name: 'elr_packages', type: 'int', nullable: true })
+  elrPackages!: number | null;
+
+  @Column({ name: 'elr_seal_number', type: 'varchar', length: 50, nullable: true })
+  elrSealNumber!: string | null;
+
+  /** Freight stays hidden on the e-LR unless the shipper ticks it. */
+  @Column({ name: 'elr_show_freight', type: 'boolean', default: false })
+  elrShowFreight!: boolean;
+
   @Column({ name: 'loading_photo_file_keys', type: 'text', array: true, nullable: true })
   loadingPhotoFileKeys!: string[] | null;
 
@@ -226,6 +257,12 @@ export class LoadEntity {
 
   @Column({ name: 'loading_confirmed_by', type: 'uuid', nullable: true })
   loadingConfirmedBy!: string | null;
+
+  /** How the truck is tracked — gps | driver_app | sim | fastag. Set when a truck is assigned
+   *  (tracking-source.hook.ts) and updated by the tracking service as it switches methods. Null
+   *  until a truck is on the load. */
+  @Column({ name: 'tracking_source', type: 'enum', enum: [...TRACKING_SOURCES], nullable: true })
+  trackingSource!: TrackingSource | null;
 
   // --- Tracking (manual in this build — see MANUAL_TRACKING_STATUSES) ---
 
@@ -355,6 +392,36 @@ export class LoadEntity {
 
   @Column({ name: 'delivery_issue_settlement_note', type: 'text', nullable: true })
   deliveryIssueSettlementNote!: string | null;
+
+  // --- Loadsmart loads (loadsmart-ops/). Stage timestamps for 11–13, the ops teams' approvals the
+  // memo and Loaded wait on, and the partner's balance the close waits on.
+  @Column({ name: 'original_pod_received_at', type: 'timestamptz', nullable: true })
+  originalPodReceivedAt!: Date | null;
+
+  @Column({ name: 'invoice_generated_at', type: 'timestamptz', nullable: true })
+  invoiceGeneratedAt!: Date | null;
+
+  /** When the shipper submitted the balance payment (stage 13), before Receivables verifies it. */
+  @Column({ name: 'payment_submitted_at', type: 'timestamptz', nullable: true })
+  paymentSubmittedAt!: Date | null;
+
+  /** Verification team approved the truck and driver — the load memo waits on it. */
+  @Column({ name: 'ls_verification_approved_at', type: 'timestamptz', nullable: true })
+  lsVerificationApprovedAt!: Date | null;
+
+  /** Tracking team approved the loading papers — Loaded waits on it. */
+  @Column({ name: 'ls_papers_approved_at', type: 'timestamptz', nullable: true })
+  lsPapersApprovedAt!: Date | null;
+
+  @Column({ name: 'partner_balance_paid_at', type: 'timestamptz', nullable: true })
+  partnerBalancePaidAt!: Date | null;
+
+  /** Who receives the truck — the shipper adds it, often a day before. */
+  @Column({ name: 'unloading_contact_name', type: 'varchar', length: 150, nullable: true })
+  unloadingContactName!: string | null;
+
+  @Column({ name: 'unloading_contact_phone', type: 'varchar', length: 20, nullable: true })
+  unloadingContactPhone!: string | null;
 
   @Column({ name: 'advance_paid_at', type: 'timestamptz', nullable: true })
   advancePaidAt!: Date | null;

@@ -15,6 +15,10 @@ import {
   rankBids,
 } from './bid-rules';
 import { BidStatus, LoadStatus } from '../utils/loads.types';
+import {
+  LoadVerificationService,
+  truckVerifiedOf,
+} from '../verification/load-verification.service';
 
 export interface RecordBidInput {
   transporterId: string;
@@ -26,7 +30,10 @@ export interface RecordBidInput {
 
 export interface BidView {
   id: string;
-  transporter: { id: string; name: string };
+  /** `loadsmart` bids are shown first and highlighted, without the partner's name. */
+  source: LoadBidEntity['source'];
+  highlighted: boolean;
+  transporter: { id: string | null; name: string };
   rate: string;
   vehicleNumber: string | null;
   truckVerified: boolean | null;
@@ -70,8 +77,90 @@ export class LoadBidService {
     private readonly stageService: LoadStageService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    private readonly verification: LoadVerificationService,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /** Set by the Loadsmart ops module (it is built after this service and itself posts bids
+   *  through it) — marks the sourcing won and the partner on the truck. */
+  private onLoadsmartBidAccepted?: (
+    bid: LoadBidEntity,
+    load: LoadEntity,
+    actorId: string,
+  ) => Promise<void>;
+
+  setLoadsmartBidAcceptedHook(
+    hook: (bid: LoadBidEntity, load: LoadEntity, actorId: string) => Promise<void>,
+  ): void {
+    this.onLoadsmartBidAccepted = hook;
+  }
+
+  /** Loadsmart's placement team sends one best bid: the partner's truck at Loadsmart's price,
+   *  shown to the shipper as Loadsmart's, first and highlighted. A new one replaces Loadsmart's
+   *  previous live bid. Market loads only, inside the same 4-hour window. */
+  async recordLoadsmartBid(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: {
+      rate: string;
+      vehicleNumber: string;
+      truckVerified: boolean | null;
+      lsPartnerBidId: string;
+    },
+  ): Promise<LoadBidEntity> {
+    try {
+      const load = await this.assertLoad(tenantId, loadId);
+      if (load.sourceType !== 'market')
+        throw new ConflictError('Only market fleet loads take Loadsmart bids');
+      if (load.status !== 'created' && load.status !== 'bids_received') {
+        throw new ConflictError('This load already has a truck — it no longer takes bids');
+      }
+      const now = this.now();
+      const closesAt = bidWindowClosesAt(await this.sentAtOf(load));
+      if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
+      await this.assertTruckFree(load, input.vehicleNumber);
+
+      const previous = await this.bidRepository.findLiveLoadsmart(tenantId, loadId);
+      if (previous) await this.bidRepository.markRejected(previous, actorId);
+      const created = await this.bidRepository.create({
+        tenantId,
+        loadId,
+        recipientId: null,
+        source: 'loadsmart',
+        lsPartnerBidId: input.lsPartnerBidId,
+        transporterId: null,
+        rate: input.rate,
+        vehicleNumber: input.vehicleNumber,
+        channel: 'web',
+        expiresAt: closesAt,
+        enteredBy: actorId,
+        entryReason: "Loadsmart's bid",
+      });
+      const bid =
+        input.truckVerified === null
+          ? created
+          : await this.bidRepository.update(created, { truckVerified: input.truckVerified });
+      await this.recordBidActivity(load, actorId, bid, { loadsmart: true });
+      return bid;
+    } catch (error) {
+      rethrow(error, "Failed to record Loadsmart's bid");
+    }
+  }
+
+  /** Checks the bid's truck on VAHAN when it has a number not checked yet, and records the
+   *  verdict on the bid — a failed truck keeps Accept off. */
+  private async checkBidTruck(bid: LoadBidEntity): Promise<LoadBidEntity> {
+    if (!bid.vehicleNumber || bid.truckVerified !== null) return bid;
+    const check = await this.verification.verifyTruck(
+      bid.tenantId,
+      bid.loadId,
+      bid.vehicleNumber,
+      bid.id,
+    );
+    const truckVerified = truckVerifiedOf(check);
+    return truckVerified === null ? bid : this.bidRepository.update(bid, { truckVerified });
+  }
 
   private async assertLoad(tenantId: string, loadId: string): Promise<LoadEntity> {
     const load = await this.loadRepository.findById(tenantId, loadId);
@@ -114,7 +203,12 @@ export class LoadBidService {
     const blocker = acceptBlocker(bid, now);
     return {
       id: bid.id,
-      transporter: { id: bid.transporterId, name: bid.transporter?.name ?? '' },
+      source: bid.source,
+      highlighted: bid.source === 'loadsmart',
+      transporter:
+        bid.source === 'loadsmart'
+          ? { id: null, name: 'Loadsmart' }
+          : { id: bid.transporterId, name: bid.transporter?.name ?? '' },
       rate: bid.rate,
       vehicleNumber: bid.vehicleNumber,
       truckVerified: bid.truckVerified,
@@ -202,7 +296,7 @@ export class LoadBidService {
 
       const rate = String(input.rate);
       const live = await this.bidRepository.findLive(tenantId, loadId, input.transporterId);
-      const bid = live
+      const saved = live
         ? await this.bidRepository.update(live, {
             rate,
             vehicleNumber: vehicleNumber ?? live.vehicleNumber,
@@ -215,6 +309,8 @@ export class LoadBidService {
             tenantId,
             loadId,
             recipientId,
+            source: 'transporter',
+            lsPartnerBidId: null,
             transporterId: input.transporterId,
             rate,
             vehicleNumber,
@@ -223,6 +319,7 @@ export class LoadBidService {
             enteredBy: actorId,
             entryReason: input.reason,
           });
+      const bid = await this.checkBidTruck(saved);
 
       await this.recordBidActivity(load, actorId, bid, { revised: Boolean(live) });
       return this.toView(bid, now, null);
@@ -249,7 +346,9 @@ export class LoadBidService {
       }
       const vehicleNumber = normalizePlate(vehicleNumberInput);
       await this.assertTruckFree(load, vehicleNumber);
-      const updated = await this.bidRepository.update(bid, { vehicleNumber, truckVerified: null });
+      const updated = await this.checkBidTruck(
+        await this.bidRepository.update(bid, { vehicleNumber, truckVerified: null }),
+      );
       await this.loadActivityService.record(tenantId, loadId, actorId, 'BID_RECORDED', null, null, {
         bidId,
         transporterId: bid.transporterId,
@@ -292,10 +391,12 @@ export class LoadBidService {
       const vehicleNumber = normalizePlate(vehicleNumberInput);
       await this.assertTruckFree(load, vehicleNumber);
 
-      const bid = await this.bidRepository.create({
+      const created = await this.bidRepository.create({
         tenantId,
         loadId,
         recipientId,
+        source: 'transporter',
+        lsPartnerBidId: null,
         transporterId: load.transporterId,
         rate: load.freightValue,
         vehicleNumber,
@@ -304,6 +405,7 @@ export class LoadBidService {
         enteredBy: actorId,
         entryReason: 'Indent accepted by the contracted transporter',
       });
+      const bid = await this.checkBidTruck(created);
       await this.recordBidActivity(load, actorId, bid, { indent: true });
       return this.toView(bid, this.now(), 1);
     } catch (error) {
@@ -392,11 +494,14 @@ export class LoadBidService {
           freightType: load.freightType ?? 'flat',
           driverName: null,
           driverNumber: null,
+          // Accepting Loadsmart's bid makes it a Loadsmart load from here on.
+          ...(bid.source === 'loadsmart' ? { sourceType: 'loadsmart' as const } : {}),
         },
         metadata: { bidId, transporterId: bid.transporterId, rate: bid.rate },
       });
       await this.bidRepository.accept(bid, actorId);
       await this.bidRepository.rejectOthers(tenantId, loadId, bid.id, actorId);
+      if (bid.source === 'loadsmart') await this.onLoadsmartBidAccepted?.(bid, assigned, actorId);
       await this.loadActivityService.record(
         tenantId,
         loadId,

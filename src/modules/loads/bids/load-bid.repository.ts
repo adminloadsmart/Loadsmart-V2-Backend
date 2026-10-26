@@ -9,6 +9,8 @@ export type CreateLoadBidData = Pick<
   | 'tenantId'
   | 'loadId'
   | 'recipientId'
+  | 'source'
+  | 'lsPartnerBidId'
   | 'transporterId'
   | 'rate'
   | 'vehicleNumber'
@@ -77,6 +79,18 @@ export class LoadBidRepository {
   async rejectOthers(tenantId: string, loadId: string, acceptedId: string, actorId: string) {
     await this.bids.update(
       { tenantId, loadId, status: 'received', id: Not(acceptedId) },
+      { status: 'rejected', decidedAt: new Date(), decidedBy: actorId },
+    );
+  }
+
+  /** Loadsmart's live bid on the load — a new one from placement replaces it. */
+  findLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity | null> {
+    return this.bids.findOneBy({ tenantId, loadId, source: 'loadsmart', status: 'received' });
+  }
+
+  async markRejected(bid: LoadBidEntity, actorId: string | null): Promise<void> {
+    await this.bids.update(
+      { id: bid.id, tenantId: bid.tenantId, status: 'received' },
       { status: 'rejected', decidedAt: new Date(), decidedBy: actorId },
     );
   }

@@ -21,8 +21,10 @@ export const REQUISITION_ITEM_UNITS = [
 ] as const;
 export type RequisitionItemUnit = (typeof REQUISITION_ITEM_UNITS)[number];
 
-/** `indent` — posted straight to one contracted transporter at the contract rate (Post a load). */
-export const LOAD_SOURCE_TYPES = ['own_fleet', 'market', 'indent'] as const;
+/** `indent` — posted straight to one contracted transporter at the contract rate (Post a load).
+ *  `loadsmart` — a market load whose Loadsmart bid the shipper accepted: Loadsmart sources the
+ *  truck from its partners, runs the trip, invoices the shipper and pays the partner. */
+export const LOAD_SOURCE_TYPES = ['own_fleet', 'market', 'indent', 'loadsmart'] as const;
 export type LoadSourceType = (typeof LOAD_SOURCE_TYPES)[number];
 
 export const FREIGHT_TYPES = ['per_ton', 'flat'] as const;
@@ -106,14 +108,30 @@ export const LOAD_STATUSES = [
   'reached_unloading', // 8 · Execution
   'delivered_ok', // 9 · Delivery — nothing noted on the POD, or the issue was settled
   'delivered_with_issues', // 10 · Delivery — damage, shortage or pilferage noted, not yet settled
+  'original_pod_received', // 11 · Money — Loadsmart only
+  'invoice_generated', // 12 · Money — Loadsmart only
+  'payment', // 13 · Money — Loadsmart only: the shipper's payment is in, awaiting verification
   'closed',
 ] as const;
+
+/** Stages 11–13 — only a Loadsmart load goes through them. */
+export const MONEY_LOAD_STATUSES: readonly LoadStatus[] = [
+  'original_pod_received',
+  'invoice_generated',
+  'payment',
+];
 export type LoadStatus = (typeof LOAD_STATUSES)[number];
 
 /** Either delivered stage — the truck has unloaded and an E-POD is on record. */
 export const DELIVERED_LOAD_STATUSES: readonly LoadStatus[] = [
   'delivered_ok',
   'delivered_with_issues',
+];
+
+/** The truck has unloaded — a delivered stage or one of the money stages after it. */
+export const UNLOADED_LOAD_STATUSES: readonly LoadStatus[] = [
+  ...DELIVERED_LOAD_STATUSES,
+  ...MONEY_LOAD_STATUSES,
 ];
 
 /** Every allowed single move. `delivered_ok -> delivered_with_issues` is only reachable through an
@@ -128,17 +146,26 @@ export const LOAD_STAGE_TRANSITIONS: Record<LoadStatus, readonly LoadStatus[]> =
   loaded: ['in_transit_unloading'],
   in_transit_unloading: ['reached_unloading'],
   reached_unloading: ['delivered_ok', 'delivered_with_issues'],
-  delivered_ok: ['delivered_with_issues', 'closed'],
+  delivered_ok: ['delivered_with_issues', 'original_pod_received', 'closed'],
   delivered_with_issues: ['delivered_ok'],
+  original_pod_received: ['invoice_generated'],
+  invoice_generated: ['payment'],
+  payment: ['closed'],
   closed: [],
 };
 
 /** Which stages each route goes through. Own fleet starts at Truck assigned — no bids, the
  *  shipper's own truck and driver are picked when posting. */
+const WITHOUT_MONEY_STAGES = LOAD_STATUSES.filter(
+  (status) => !MONEY_LOAD_STATUSES.includes(status),
+);
 export const ROUTE_STAGES: Record<LoadSourceType, readonly LoadStatus[]> = {
-  own_fleet: LOAD_STATUSES.filter((status) => status !== 'created' && status !== 'bids_received'),
-  market: LOAD_STATUSES,
-  indent: LOAD_STATUSES,
+  own_fleet: WITHOUT_MONEY_STAGES.filter(
+    (status) => status !== 'created' && status !== 'bids_received',
+  ),
+  market: WITHOUT_MONEY_STAGES,
+  indent: WITHOUT_MONEY_STAGES,
+  loadsmart: LOAD_STATUSES,
 };
 
 /** Trips Home-page tab boundary — a delivered load is deliberately NOT completed: it only counts
@@ -202,6 +229,7 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'DRIVER_NAMED',
   'MEMO_SENT',
   'MEMO_ACCEPTED',
+  'LOADSMART_STEP',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
 
@@ -237,8 +265,27 @@ export type BidStatus = (typeof BID_STATUSES)[number];
 /** How the bid reached Loadsmart — `web` is the shipper typing in a rate given by phone (and,
  *  for indent, the transporter's acceptance); `whatsapp` arrives with the WhatsApp buttons. */
 export const BID_CHANNELS = ['web', 'whatsapp'] as const;
+
+/** Who the bid is from — one of the shipper's own transporters, or Loadsmart (its placement team
+ *  sends one best partner bid, priced with its margin, without the partner's name). */
+export const BID_SOURCES = ['transporter', 'loadsmart'] as const;
+export type BidSource = (typeof BID_SOURCES)[number];
 export type BidChannel = (typeof BID_CHANNELS)[number];
 
 /** The load memo the shipper accepts before the trip starts (loads/memo/). */
 export const MEMO_STATUSES = ['sent', 'accepted', 'expired'] as const;
 export type MemoStatus = (typeof MEMO_STATUSES)[number];
+
+/** What a load-time govt-portal check looked at (loads/verification/). */
+export const VERIFICATION_SUBJECTS = ['truck', 'driver'] as const;
+export type VerificationSubject = (typeof VERIFICATION_SUBJECTS)[number];
+
+/** `unavailable` — the portal couldn't be reached or isn't configured; never blocks. */
+export const VERIFICATION_STATUSES = ['passed', 'failed', 'unavailable'] as const;
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+/** How the load's truck is tracked — the client's chain GPS device → driver's mobile (app) → SIM
+ *  → FASTag. Saved on the load (LoadEntity.trackingSource) for the tracking service to read and
+ *  update; see utils/tracking-source.ts for the starting value. */
+export const TRACKING_SOURCES = ['gps', 'driver_app', 'sim', 'fastag'] as const;
+export type TrackingSource = (typeof TRACKING_SOURCES)[number];

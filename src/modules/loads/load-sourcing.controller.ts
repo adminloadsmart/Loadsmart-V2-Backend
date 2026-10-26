@@ -60,13 +60,17 @@ export class LoadSourcingController {
   };
 
   nameDriver = async (req: Request<LoadParams>, res: Response) => {
-    const memo = await this.memoService.nameDriver(
+    const result = await this.memoService.nameDriver(
       requireTenantId(req),
       req.user!.id,
       req.params.loadId,
       req.body as NameDriverInput,
     );
-    respond(res, memo, 201);
+    respond(res, result, result.memo ? 201 : 200);
+  };
+
+  getChecks = async (req: Request<LoadParams>, res: Response) => {
+    respond(res, await this.memoService.getChecks(requireTenantId(req), req.params.loadId));
   };
 
   getMemo = async (req: Request<LoadParams>, res: Response) => {

@@ -205,14 +205,16 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     source:
       load.sourceType === 'own_fleet'
         ? { type: 'own_fleet', label: t(locale, 'loads.source.ownFleet') }
-        : {
-            type: 'market',
-            label: load.transporter
-              ? t(locale, 'loads.source.marketWithTransporter', {
-                  transporter: load.transporter.name,
-                })
-              : t(locale, 'loads.source.market'),
-          },
+        : load.sourceType === 'loadsmart'
+          ? { type: 'loadsmart', label: t(locale, 'loads.source.loadsmart') }
+          : {
+              type: 'market',
+              label: load.transporter
+                ? t(locale, 'loads.source.marketWithTransporter', {
+                    transporter: load.transporter.name,
+                  })
+                : t(locale, 'loads.source.market'),
+            },
     plannedCapacityTonnes: load.plannedCapacityTonnes,
     freightValue: load.freightValue,
     advance: {
@@ -432,6 +434,9 @@ function stageTimestamps(load: LoadEntity): Partial<Record<LoadStatus, Date | nu
     reached_unloading: load.reachedDeliveryPointAt,
     delivered_with_issues: load.deliveredAt,
     delivered_ok: load.deliveryIssueSettledAt ?? load.deliveredAt,
+    original_pod_received: load.originalPodReceivedAt,
+    invoice_generated: load.invoiceGeneratedAt,
+    payment: load.paymentSubmittedAt,
     closed: load.closedAt,
   };
 }

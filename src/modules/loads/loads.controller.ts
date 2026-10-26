@@ -6,6 +6,8 @@ import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadService } from './load.service';
 import { LoadPaymentService } from './load-payment.service';
 import { LoadActivityService } from './load-activity.service';
+import { ElrService } from './elr/elr.service';
+import { ElrInput } from './elr/elr-content';
 import {
   CreateRequisitionInput,
   ListRequisitionsInput,
@@ -32,6 +34,7 @@ export class LoadsController {
     private readonly loadService: LoadService,
     private readonly loadPaymentService: LoadPaymentService,
     private readonly loadActivityService: LoadActivityService,
+    private readonly elrService: ElrService,
   ) {}
 
   // --- Requisitions ---
@@ -188,6 +191,17 @@ export class LoadsController {
       reason,
     );
     respond(res, load);
+  };
+
+  generateElr = async (req: Request<LoadParams>, res: Response) => {
+    const result = await this.elrService.generate(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      req.params.loadId,
+      req.body as ElrInput,
+    );
+    respond(res, result, 201);
   };
 
   settleDeliveryIssue = async (req: Request<LoadParams>, res: Response) => {

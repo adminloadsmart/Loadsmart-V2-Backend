@@ -418,6 +418,24 @@ export interface PodUploadedContext extends LoadSummary {
   shortageOrDamage?: string | null;
 }
 
+/** "No tracking means alerts": 2 h and 1 h before the pickup or the drop ETA, while the truck
+ *  hasn't been marked there yet. */
+export interface LoadArrivalReminderContext extends LoadSummary {
+  /** 120 or 60. */
+  leadMinutes: number;
+  /** The pickup time or drop ETA the reminder counts down to (ISO). */
+  dueAt: string;
+}
+
+/** Loadsmart's invoice falling due — the shipper's finance team is reminded before the date. */
+export interface InvoiceDueContext extends LoadSummary {
+  invoiceNumber: string;
+  /** "₹1,23,456.00" */
+  balanceDue: string;
+  /** YYYY-MM-DD */
+  dueDate: string;
+}
+
 export interface AdvanceDueContext extends LoadSummary {
   advancePercentage?: string | null;
   /** "₹41,797"; null when the load has no agreed freight yet. */
@@ -1509,6 +1527,92 @@ export const NOTIFICATION_CATALOG = {
         },
       };
     },
+  },
+
+  // 2 h and 1 h before pickup with no tracking — queued when a truck is assigned (load-alerts.ts
+  // resolver drops it once the truck is marked at the loading point). Asks the shipper whether the
+  // truck has started and reached, and to mark it reached.
+  'load.pickup_reminder': {
+    label: 'Pickup reminder',
+    category: 'trip_execution',
+    description: 'Truck not yet marked at the loading point 2 hours and 1 hour before pickup.',
+    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: LoadArrivalReminderContext) =>
+      `${context.loadId}-${context.leadMinutes}-${context.dueAt}`,
+    buildContent: (context: LoadArrivalReminderContext) => {
+      const vehicleLabel = context.vehicleNo ?? context.loadCode ?? 'The truck';
+      const hours = context.leadMinutes >= 120 ? '2 hours' : '1 hour';
+      return {
+        title: `Pickup in ${hours}: has ${vehicleLabel} reached?`,
+        body: `Load ${context.loadCode} is due for loading at ${formatIndiaTime(context.dueAt)}. Call the driver, then mark the truck started or reached the loading point.`,
+        highlights: [vehicleLabel],
+        metadata: {
+          ...loadMetadataOf(context),
+          due_at: context.dueAt,
+          cta_label: 'Mark reached',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // 2 h and 1 h before the drop ETA with no tracking — queued when the load is Loaded.
+  'load.drop_reminder': {
+    label: 'Drop reminder',
+    category: 'trip_execution',
+    description: 'Truck not yet marked at the unloading point 2 hours and 1 hour before the ETA.',
+    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: LoadArrivalReminderContext) =>
+      `${context.loadId}-${context.leadMinutes}-${context.dueAt}`,
+    buildContent: (context: LoadArrivalReminderContext) => {
+      const vehicleLabel = context.vehicleNo ?? context.loadCode ?? 'The truck';
+      const hours = context.leadMinutes >= 120 ? '2 hours' : '1 hour';
+      return {
+        title: `Drop ETA in ${hours}: is ${vehicleLabel} close?`,
+        body: `Load ${context.loadCode} is due at the unloading point at ${formatIndiaTime(context.dueAt)}${
+          context.consignee ? ` for ${context.consignee}` : ''
+        }. Call the driver, then mark the truck reached the unloading point.`,
+        highlights: [vehicleLabel],
+        metadata: {
+          ...loadMetadataOf(context),
+          due_at: context.dueAt,
+          cta_label: 'Mark reached',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // Loadsmart invoice due in 2 days — queued when Receivables raises it; dropped once the shipper
+  // has submitted the payment.
+  'load.invoice_due_reminder': {
+    label: 'Loadsmart invoice due',
+    category: 'money',
+    description: "A Loadsmart invoice falls due in 2 days and isn't paid yet.",
+    recipientRoles: [ORG_ADMIN_ROLE],
+    recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    severity: 'p2_action',
+    dedupeKey: (context: InvoiceDueContext) => `${context.loadId}-${context.invoiceNumber}`,
+    buildContent: (context: InvoiceDueContext) => ({
+      title: `Invoice ${context.invoiceNumber} is due on ${context.dueDate}`,
+      body: `${context.balanceDue} is due to Loadsmart for load ${context.loadCode ?? ''}. Pay by UPI QR or bank transfer and add the UTR on the load.`,
+      highlights: [context.balanceDue],
+      metadata: {
+        ...loadMetadataOf(context),
+        invoice_number: context.invoiceNumber,
+        due_date: context.dueDate,
+        cta_label: 'Pay invoice',
+        cta_path: `/loads/${context.loadId}`,
+      },
+    }),
   },
 
   // E-way bill expiring on a moving load — queued by LoadService when the bill is generated, to

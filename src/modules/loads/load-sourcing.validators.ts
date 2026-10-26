@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateSchema } from '../../shared/utils/date';
 
 const uuid = z.string().uuid();
 const params = z.object({ loadId: uuid });
@@ -45,11 +46,15 @@ export const loadSourcingValidators = {
       .object({
         driverName: z.string().trim().min(1).max(150),
         driverMobile: mobile,
+        // Checked on Sarathi with the date of birth before the memo goes out.
+        licenceNumber: z.string().trim().min(5).max(30),
+        dateOfBirth: isoDateSchema,
       })
       .strict(),
   }),
 
   getMemo: z.object({ params }),
+  getChecks: z.object({ params }),
   resendMemo: z.object({ params }),
 
   acceptMemo: z.object({
