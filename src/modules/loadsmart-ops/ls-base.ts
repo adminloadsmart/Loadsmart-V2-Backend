@@ -6,6 +6,7 @@ import { LoadEntity } from '../loads/entities/load.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { tripAmount } from './loadsmart-rules';
+import { SourcingRef } from './loadsmart.interface';
 
 /** What the Loadsmart services share: the repository, the load's timeline and the audit log. */
 export abstract class LsServiceBase {
@@ -39,7 +40,7 @@ export abstract class LsServiceBase {
 
   /** One Loadsmart step on the shipper's load timeline and the audit log. */
   protected async step(
-    sourcing: { tenantId: string; loadId: string; id: string },
+    sourcing: SourcingRef,
     actorId: string,
     step: string,
     auditAction: AuditAction,

@@ -1,12 +1,12 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
-import { LsSourcingService, PartnerInput } from './ls-sourcing.service';
+import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';
 import { LsShipperService } from './ls-shipper.service';
+import { LoadsmartActor, LoadsmartRouteParams, PartnerInput } from './loadsmart.interface';
 
-type Params = Record<string, string>;
-const actorOf = (req: Request) => ({ id: req.user!.id, role: req.user!.role });
+const actorOf = (req: Request): LoadsmartActor => ({ id: req.user!.id, role: req.user!.role });
 
 /** The Loadsmart ops console — platform staff, across every shipper. */
 export class LoadsmartOpsController {
@@ -19,43 +19,43 @@ export class LoadsmartOpsController {
     respond(res, await this.sourcing.listPartners());
   createPartner = async (req: Request, res: Response) =>
     respond(res, await this.sourcing.savePartner(req.user!.id, req.body as PartnerInput), 201);
-  updatePartner = async (req: Request<Params>, res: Response) =>
+  updatePartner = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.sourcing.savePartner(req.user!.id, req.body as PartnerInput, req.params.partnerId),
     );
 
-  getTerms = async (req: Request<Params>, res: Response) =>
+  getTerms = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.getTerms(req.params.tenantId));
-  saveTerms = async (req: Request<Params>, res: Response) =>
+  saveTerms = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.saveTerms(req.user!.id, req.params.tenantId, req.body));
 
   approvalQueue = async (_req: Request, res: Response) =>
     respond(res, await this.sourcing.approvalQueue());
-  approve = async (req: Request<Params>, res: Response) =>
+  approve = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.approve(req.user!.id, req.params.sourcingId, req.body));
-  reject = async (req: Request<Params>, res: Response) =>
+  reject = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.reject(req.user!.id, req.params.sourcingId, req.body.reason));
 
   loadBoard = async (_req: Request, res: Response) => respond(res, await this.sourcing.loadBoard());
   placementQueue = async (_req: Request, res: Response) =>
     respond(res, await this.sourcing.placementQueue());
-  placement = async (req: Request<Params>, res: Response) =>
+  placement = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.placement(req.params.sourcingId));
-  partnerBid = async (req: Request<Params>, res: Response) =>
+  partnerBid = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.sourcing.recordPartnerBid(actorOf(req), req.params.sourcingId, req.body),
       201,
     );
-  sendBid = async (req: Request<Params>, res: Response) =>
+  sendBid = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.sendBid(req.user!.id, req.params.sourcingId, req.body), 201);
 
-  nameDriver = async (req: Request<Params>, res: Response) =>
+  nameDriver = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.nameDriver(req.user!.id, req.params.loadId, req.body));
   verificationQueue = async (_req: Request, res: Response) =>
     respond(res, await this.sourcing.verificationQueue());
-  approveVerification = async (req: Request<Params>, res: Response) =>
+  approveVerification = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.sourcing.approveVerification(req.user!.id, req.params.loadId, req.body),
@@ -63,7 +63,7 @@ export class LoadsmartOpsController {
 
   trackingQueue = async (_req: Request, res: Response) =>
     respond(res, await this.sourcing.trackingQueue());
-  partnerAdvance = async (req: Request<Params>, res: Response) =>
+  partnerAdvance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.sourcing.payPartnerAdvance(req.user!.id, req.params.loadId, req.body),
@@ -72,16 +72,16 @@ export class LoadsmartOpsController {
 
   csQueue = async (_req: Request, res: Response) => respond(res, await this.settlement.csQueue());
   podQueue = async (_req: Request, res: Response) => respond(res, await this.settlement.podQueue());
-  rate = async (req: Request<Params>, res: Response) =>
+  rate = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.settlement.rate(req.user!.id, req.params.loadId, req.body));
-  originalPod = async (req: Request<Params>, res: Response) =>
+  originalPod = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.settlement.markOriginalPodReceived(req.user!.id, req.params.loadId, req.body),
     );
   receivablesQueue = async (_req: Request, res: Response) =>
     respond(res, await this.settlement.receivablesQueue());
-  partnerBalance = async (req: Request<Params>, res: Response) =>
+  partnerBalance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.settlement.payPartnerBalance(req.user!.id, req.params.loadId, req.body),
@@ -89,7 +89,7 @@ export class LoadsmartOpsController {
     );
 
   /** Everything Loadsmart holds on one load. */
-  loadDetail = async (req: Request<Params>, res: Response) =>
+  loadDetail = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.settlement.loadDetail(req.params.loadId));
 }
 
@@ -101,9 +101,9 @@ export class LoadsmartShipperController {
     private readonly settlement: LsSettlementService,
   ) {}
 
-  listCharges = async (req: Request<Params>, res: Response) =>
+  listCharges = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.service.listCharges(requireTenantId(req), req.params.loadId));
-  decideCharge = async (req: Request<Params>, res: Response) =>
+  decideCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.service.decideCharge(
@@ -114,13 +114,13 @@ export class LoadsmartShipperController {
         req.body,
       ),
     );
-  addCharge = async (req: Request<Params>, res: Response) =>
+  addCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.service.addCharge(requireTenantId(req), req.user!.id, req.params.loadId, req.body),
       201,
     );
-  unloadingContact = async (req: Request<Params>, res: Response) =>
+  unloadingContact = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.service.setUnloadingContact(
@@ -130,9 +130,9 @@ export class LoadsmartShipperController {
         req.body,
       ),
     );
-  getClaim = async (req: Request<Params>, res: Response) =>
+  getClaim = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.service.getClaim(requireTenantId(req), req.params.loadId));
-  claimValue = async (req: Request<Params>, res: Response) =>
+  claimValue = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.service.addClaimValue(
@@ -142,7 +142,7 @@ export class LoadsmartShipperController {
         req.body,
       ),
     );
-  approvePapers = async (req: Request<Params>, res: Response) =>
+  approvePapers = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.sourcing.approvePapers(
@@ -152,7 +152,7 @@ export class LoadsmartShipperController {
         req.body,
       ),
     );
-  settleClaim = async (req: Request<Params>, res: Response) =>
+  settleClaim = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.settlement.settleClaim(
@@ -162,7 +162,7 @@ export class LoadsmartShipperController {
         req.body,
       ),
     );
-  generateInvoice = async (req: Request<Params>, res: Response) =>
+  generateInvoice = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.settlement.generateInvoice(
@@ -173,12 +173,12 @@ export class LoadsmartShipperController {
       ),
       201,
     );
-  invoice = async (req: Request<Params>, res: Response) =>
+  invoice = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.service.getInvoice(requireTenantId(req), req.user!.role, req.params.loadId),
     );
-  documentsBundle = async (req: Request<Params>, res: Response) =>
+  documentsBundle = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,
       await this.service.documentsBundle(requireTenantId(req), req.user!.role, req.params.loadId),

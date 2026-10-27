@@ -1,4 +1,4 @@
-import { MasterApprovalNotifier } from '../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { DataSource } from 'typeorm';
 import { UlipClient } from '../../adapters/ulip.client';
 import { VehicleRepository } from './vehicle/vehicle.repository';

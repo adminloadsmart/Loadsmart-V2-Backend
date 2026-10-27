@@ -25,6 +25,8 @@ export interface CreateRequisitionInput {
   pickupDate: string;
   expectedDeliveryDate: string;
   customerPoNumber: string;
+  /** Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034). */
+  cargoValuePerTonne?: number;
   /** C-05 (duplicate PO/SO number) is the only overridable check at this stage. */
   overrides?: OverrideInput[];
 }
@@ -46,6 +48,7 @@ export interface CreateRequisitionData {
   pickupDate: string;
   expectedDeliveryDate: string;
   customerPoNumber: string;
+  cargoValuePerTonne: string | null;
   status: RequisitionStatus;
   createdBy: string | null;
 }

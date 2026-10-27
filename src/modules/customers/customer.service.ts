@@ -3,7 +3,7 @@ import { AuditService } from '../audit/audit.service';
 import { ORG_ADMIN_ROLE, SALES_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
 import { paginate } from '../admin/utils/admin.types';
 import { CustomerColumns, CustomerRepository, CustomerWithCreator } from './customer.repository';
-import { MasterApprovalNotifier } from '../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { CodeSequenceRepository } from '../loads/code-sequence.repository';
 import { formatCustomerCode } from '../loads/utils/code.util';
 import { GstVerificationService, gstNameMatches } from '../masters/gst/gst.service';

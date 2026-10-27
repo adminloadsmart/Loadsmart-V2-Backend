@@ -40,8 +40,12 @@ import {
   ListLoadsInput,
   UploadPodInput,
 } from './utils/load.interface';
-import { BreakdownReportedNotifier } from '../notifications/breakdown-alerts';
-import { LoadEventNotifier } from '../notifications/notifications.interface';
+import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
+import {
+  AssignmentComplianceService,
+  assignmentBlockedError,
+  assignmentBlockedEvent,
+} from './assignment-compliance.service';
 import {
   buildNextAction,
   buildStepper,
@@ -133,11 +137,13 @@ export class LoadService {
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
     private readonly stageService: LoadStageService,
+    // LS_N_0017 — refuses a vehicle or driver with an expired document at Load Assignment.
+    private readonly assignmentComplianceService: AssignmentComplianceService,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
-    private readonly onBreakdownReported?: BreakdownReportedNotifier,
-    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due — optional; only queues a
-    // notification after the existing logic and never throws (see notifications/load-alerts.ts).
+    private readonly onIssueReported?: IssueReportedNotifier,
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked —
+    // optional; only queues a notification and never throws (see notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
   ) {}
 
@@ -176,7 +182,10 @@ export class LoadService {
       }
 
       if (!input.transporterId) throw new ValidationError('transporterId is required');
-      await this.transporterService.getTransporter(tenantId, input.transporterId);
+      const transporter = await this.transporterService.getTransporter(
+        tenantId,
+        input.transporterId,
+      );
       if (!input.vehicleNumber?.trim()) throw new ValidationError('vehicleNumber is required');
       // if (!input.driverNumber?.trim()) throw new ValidationError('driverNumber is required');
       if (!input.freightType) throw new ValidationError('freightType is required');
@@ -197,6 +206,28 @@ export class LoadService {
         );
       }
 
+      // LS_N_0017 — a vehicle with an expired document, or a driver with an expired licence, can't
+      // be assigned. Matched to the masters by number; one that isn't on file can't be checked
+      // and is let through (LS_N_0016 then says so). No override.
+      const compliance = await this.assignmentComplianceService.check(tenantId, {
+        vehicleNumber,
+        driverPhone: input.driverNumber,
+      });
+      if (compliance.failure) {
+        const blockedDriverName = input.driverName?.trim() || compliance.driverName;
+        await this.onLoadEvent?.(
+          assignmentBlockedEvent(
+            tenantId,
+            vehicleNumber,
+            compliance,
+            compliance.failure,
+            { loadId, transporterName: transporter.name },
+            blockedDriverName,
+          ),
+        );
+        throw assignmentBlockedError(vehicleNumber, compliance.failure, blockedDriverName);
+      }
+
       // The agreed rate — defaults to the target rate captured at planning if the caller doesn't
       // override it (e.g. the counter-offer negotiation landed on the original target).
       const freightValue =
@@ -204,7 +235,7 @@ export class LoadService {
 
       const driverNumber = input.driverNumber?.trim() ?? null;
       const driverName = input.driverName?.trim() ?? null;
-      return await this.stageService.transition({
+      const updated = await this.stageService.transition({
         tenantId,
         loadId,
         to: 'truck_assigned',
@@ -221,6 +252,18 @@ export class LoadService {
         },
         metadata: { vehicleNumber, driverNumber, driverName },
       });
+
+      // LS_N_0016 — truck and driver assigned.
+      await this.onLoadEvent?.({
+        kind: 'assigned',
+        tenantId,
+        loadId,
+        at: new Date(),
+        vehicleChecked: compliance.vehicleChecked,
+        driverChecked: compliance.driverChecked,
+      });
+
+      return updated;
     } catch (error) {
       rethrow(error, 'Failed to assign load');
     }
@@ -498,7 +541,7 @@ export class LoadService {
     // (loadsmart-ops approvePapers) — complete papers alone don't move it.
     if (load.sourceType === 'loadsmart') return load;
     try {
-      return await this.stageService.transition({
+      const loaded = await this.stageService.transition({
         tenantId,
         loadId: load.id,
         to: 'loaded',
@@ -508,6 +551,17 @@ export class LoadService {
         auditAction: 'LOAD_LOADING_CONFIRMED',
         fields: { loadingConfirmedBy: actorId },
       });
+      // LS_N_0024 — vehicle loaded (documents and e-way bill folded into one card).
+      const { expiresAt: ewayBillExpiresAt } = this.getEwayBillExpiry(loaded);
+      await this.onLoadEvent?.({
+        kind: 'loading_confirmed',
+        tenantId,
+        loadId: load.id,
+        at: loaded.loadingConfirmedAt ?? new Date(),
+        confirmedBy: driverOwnerId ? { driverId: actorId } : { userId: actorId },
+        ewayBillExpiresAt: ewayBillExpiresAt ? new Date(ewayBillExpiresAt) : null,
+      });
+      return loaded;
     } catch (error) {
       if (error instanceof ConflictError) return this.assertExists(tenantId, load.id);
       throw error;
@@ -556,6 +610,127 @@ export class LoadService {
       return await this.advanceIfPapersComplete(tenantId, actorId, moved, driverOwnerId);
     } catch (error) {
       rethrow(error, 'Failed to update load status');
+    }
+  }
+
+  /** Tracking's `trip.arrived_at_pickup` (the vehicle entered the loading point's geofence) moves
+   *  a load still on its way to the loading point to "Reached loading point" at the arrival time —
+   *  the same step the driver or staff can take by hand (updateStatus), whichever comes first. A
+   *  load still at "Truck assigned" is started first (In transit to loading). A load already
+   *  past it, one whose trip can't start yet (memo not accepted), or one on hold after an
+   *  incident is left alone. Returns whether it moved. */
+  async markArrivedAtPickup(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const load = await this.repository.findById(tenantId, loadId);
+      if (!load) return false;
+      if (load.status === 'truck_assigned') {
+        const started = await this.advanceFromTracking(
+          tenantId,
+          load,
+          'in_transit_loading',
+          'inTransitLoadingAt',
+          at,
+        );
+        if (!started) return false;
+        return Boolean(
+          await this.advanceFromTracking(tenantId, started, 'reached_loading', 'atPlantAt', at),
+        );
+      }
+      if (load.status !== 'in_transit_loading') return false;
+      return Boolean(
+        await this.advanceFromTracking(tenantId, load, 'reached_loading', 'atPlantAt', at),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to mark the load at the loading point from tracking');
+    }
+  }
+
+  /** Tracking's `trip.arrived_at_drop` (the vehicle entered the delivery point's geofence) moves an
+   *  "In transit to unloading" load to "Reached unloading point" at the arrival time. Same rules
+   *  as markArrivedAtPickup. Returns whether it moved. */
+  async markReachedDeliveryPoint(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const load = await this.repository.findById(tenantId, loadId);
+      if (load?.status !== 'in_transit_unloading') return false;
+      return Boolean(
+        await this.advanceFromTracking(
+          tenantId,
+          load,
+          'reached_unloading',
+          'reachedDeliveryPointAt',
+          at,
+        ),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to mark the load at the delivery point from tracking');
+    }
+  }
+
+  /** Tracking's `trip.departed_pickup` (the loaded vehicle left the loading point's geofence) moves
+   *  a "Loaded" load to "In transit to unloading" at the departure time — the step the driver or
+   *  staff would otherwise tap by hand. Same rules as markArrivedAtPickup; a load already marked
+   *  in transit is left alone. Returns whether it moved. */
+  async markDepartedPickup(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const load = await this.repository.findById(tenantId, loadId);
+      if (load?.status !== 'loaded') return false;
+      return Boolean(
+        await this.advanceFromTracking(tenantId, load, 'in_transit_unloading', 'inTransitAt', at),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to mark the load in transit from tracking');
+    }
+  }
+
+  /** Tracking's `trip.departed_drop` (the vehicle left the delivery point's geofence) records when
+   *  it left — before or after the E-POD. It doesn't change the status (unloading is confirmed by
+   *  the E-POD), but ends unloading detention (LS_N_0032) and completes the trip (LS_N_0033).
+   *  Recorded once; returns whether it was. */
+  async markDepartedDrop(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const updated = await this.repository.markDepartedDrop(tenantId, loadId, at);
+      if (!updated) return false;
+      await this.auditService.log({
+        tenantId,
+        userId: null,
+        action: 'LOAD_DEPARTED_DROP_BY_TRACKING',
+        resourceType: 'load',
+        oldData: { id: loadId, departedDropAt: null },
+        newData: { id: loadId, status: updated.status, departedDropAt: at.toISOString() },
+      });
+      return true;
+    } catch (error) {
+      rethrow(error, 'Failed to record the departure from the delivery point');
+    }
+  }
+
+  /** One tracking-driven step (no acting user) through the stage service, stamped at tracking's
+   *  time: never while the trip is on hold, and a move the stage rules refuse (or a concurrent
+   *  move that got there first) is skipped, not an error. The activity row carries
+   *  `source: 'tracking'` — detention (LS_N_0023/0032) reads it — and the stage's notification
+   *  follows from the stage service. Returns the moved load, or null. */
+  private async advanceFromTracking(
+    tenantId: string,
+    load: LoadEntity,
+    to: 'in_transit_loading' | 'reached_loading' | 'in_transit_unloading' | 'reached_unloading',
+    timestampField: 'inTransitLoadingAt' | 'atPlantAt' | 'inTransitAt' | 'reachedDeliveryPointAt',
+    at: Date,
+  ): Promise<LoadEntity | null> {
+    try {
+      await this.assertNotHalted(tenantId, load.id);
+      return await this.stageService.transition({
+        tenantId,
+        loadId: load.id,
+        to,
+        actorId: null,
+        load,
+        auditAction: 'LOAD_STATUS_UPDATED_BY_TRACKING',
+        fields: { [timestampField]: at },
+        metadata: { source: 'tracking' },
+      });
+    } catch (error) {
+      if (error instanceof ConflictError) return null;
+      throw error;
     }
   }
 
@@ -831,10 +1006,11 @@ export class LoadService {
         throw new ValidationError('reason is required when rejecting an E-POD');
       }
 
+      const reviewedAt = new Date();
       const updated = await this.repository.update(tenantId, loadId, {
         podStatus: decision,
         podRejectionReason: decision === 'rejected' ? reason! : null,
-        podReviewedAt: new Date(),
+        podReviewedAt: reviewedAt,
         podReviewedBy: actorId,
         updatedBy: actorId,
       });
@@ -860,6 +1036,14 @@ export class LoadService {
           podStatus: decision,
           ...(decision === 'rejected' ? { reason } : {}),
         },
+      });
+      // LS_N_0041 (accepted) / LS_N_0040 (rejected).
+      await this.onLoadEvent?.({
+        kind: 'pod_reviewed',
+        tenantId,
+        loadId,
+        decision,
+        at: reviewedAt,
       });
 
       if (decision === 'accepted') {
@@ -987,9 +1171,13 @@ export class LoadService {
         resourceType: 'load',
         newData: { id: issue.id, loadId, category: input.category, driverId: actorId },
       });
-      if (input.category === 'breakdown') {
-        await this.onBreakdownReported?.({ tenantId, loadId, issueId: issue.id });
-      }
+      // LS_N_0054 (breakdown) / LS_N_0037 (accident, road block, …) — the notifier decides.
+      await this.onIssueReported?.({
+        tenantId,
+        loadId,
+        issueId: issue.id,
+        category: input.category,
+      });
 
       return issue;
     } catch (error) {

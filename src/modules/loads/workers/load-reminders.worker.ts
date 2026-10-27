@@ -1,12 +1,9 @@
 import { Job, Worker } from 'bullmq';
 import { getQueueConnection } from '../../../jobs/queue-connection';
 import { LoadRepository } from '../load.repository';
-import {
-  LOAD_REMINDERS_QUEUE,
-  POD_REMINDER_JOB,
-  PodReminderJobPayload,
-} from '../alerts/load-alert-scheduler';
-import { DriverTripNotifier, processPodReminder } from '../alerts/pod-reminder';
+import { LOAD_REMINDERS_QUEUE, POD_REMINDER_JOB } from '../alerts/load-alert-scheduler';
+import { processPodReminder } from '../alerts/pod-reminder';
+import { PodReminderJobPayload, DriverTripNotifier } from '../utils/load-alert.interface';
 
 /** BullMQ worker for the 'load-reminders' queue — started in-process with the other workers (see
  *  composition-root.ts's backgroundWorkers). */

@@ -9,15 +9,17 @@ import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadPostingRepository } from './load-posting.repository';
-import { LoadPostingService, LoadPostingHooks } from './load-posting.service';
+import { LoadPostingService } from './load-posting.service';
 import { LoadPostingLookupService } from './load-posting-lookup.service';
 import { CustomerContractService } from './customer-contract.service';
 import { LoadDraftService } from './load-draft.service';
 import { LoadPostingController } from './load-posting.controller';
 import { createLoadPostingRoutes } from './load-posting.routes';
 import { LoadDispatchNotifier, LoggingLoadDispatchNotifier } from './load-dispatch-notifier';
-import { LoadEntity } from '../entities/load.entity';
-import { LoadStatus } from '../utils/loads.types';
+import { AssignmentComplianceService } from '../assignment-compliance.service';
+import { LoadEventNotifier } from '../../notifications/notifications.interface';
+import { LoadStageHook } from '../utils/load.interface';
+import { LoadPostingHooks } from './utils/load-posting.interface';
 
 export function createLoadPostingModule(
   dataSource: DataSource,
@@ -31,9 +33,12 @@ export function createLoadPostingModule(
     driverAuthService: DriverAuthService;
     notificationsService: NotificationsService;
     truckTypeService: TruckTypeService;
+    assignmentComplianceService: AssignmentComplianceService;
+    /** LS_N_0016/0017 — truck assigned / blocked on an expired document. */
+    onLoadEvent?: LoadEventNotifier;
     /** Swap in the real WhatsApp sender here once it exists. */
     notifier?: LoadDispatchNotifier;
-    onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>;
+    onStageEntered?: LoadStageHook;
     hooks?: LoadPostingHooks;
   },
 ) {
@@ -52,6 +57,8 @@ export function createLoadPostingModule(
     deps.driverAuthService,
     deps.notificationsService,
     deps.truckTypeService,
+    deps.assignmentComplianceService,
+    deps.onLoadEvent,
     deps.onStageEntered,
     deps.hooks,
   );

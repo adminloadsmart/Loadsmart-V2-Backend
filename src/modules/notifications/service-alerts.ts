@@ -1,15 +1,12 @@
-import { DataSource } from 'typeorm';
+import { addDays, daysBetween } from '../maintenance/calculations/dates';
 import {
   DEFAULT_AVG_DAILY_KM,
   DEFAULT_SERVICE_INTERVAL_KM,
 } from '../maintenance/maintenance.constants';
-import {
-  MAINTAINED_VEHICLE_STATUSES,
-  OWN_FLEET_OWNERSHIP_TYPES,
-} from '../maintenance/maintenance.types';
 import { MAINTENANCE_MANAGE } from '../../shared/constants/permissions';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
-import { NotificationTriggers } from './notification-triggers';
+import { ServiceDueSoonContext, ServiceOverdueContext } from './catalog/notification-catalog';
+import { ServiceAlertsDeps, ServiceDueVehicle } from './notifications.interface';
 
 /**
  * LS_N_0056 "service due soon" / LS_N_0057 "service overdue" — run inside the daily 9:00 IST
@@ -27,118 +24,65 @@ const DUE_SOON_HALF_SHARE = 0.05; // …and again at half that distance
 const OVERDUE_REPEAT_DAYS = 7;
 const OVERDUE_ESCALATE_DAYS = 14;
 const SERVICE_TYPE = 'preventive';
-
-interface VehicleRow {
-  tenant_id: string;
-  vehicle_id: string;
-  vehicle_no: string;
-  odometer_km: number;
-  last_service_odometer_km: number;
-  last_service_date: string | null;
-  interval_km: number | null;
-}
+const DUE_SOON_TYPE = 'vehicle.service_due_soon';
+const OVERDUE_TYPE = 'vehicle.service_overdue';
 
 const rupees = (value: number) =>
   `₹${Math.round(value).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-export function createServiceAlerts(dataSource: DataSource, triggers: NotificationTriggers) {
-  const vehicles = (): Promise<VehicleRow[]> =>
-    dataSource.query(
-      `SELECT v.tenant_id, v.id AS vehicle_id, v.registration_number AS vehicle_no,
-              u.odometer_km, u.last_service_odometer_km, u.last_service_date::text AS last_service_date,
-              u.service_interval_km AS interval_km
-         FROM masters.vehicles v
-         JOIN masters.vehicle_service_usage u ON u.vehicle_id = v.id AND u.deleted_at IS NULL
-        WHERE v.deleted_at IS NULL AND v.ownership_type = ANY($1) AND v.status = ANY($2)
-          AND u.odometer_km IS NOT NULL AND u.last_service_odometer_km IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM maintenance.maintenance_jobs j
-                           WHERE j.vehicle_id = v.id AND j.status = 'open')
-        ORDER BY v.registration_number`,
-      [[...OWN_FLEET_OWNERSHIP_TYPES], [...MAINTAINED_VEHICLE_STATUSES]],
-    );
+export function createServiceAlerts(deps: ServiceAlertsDeps) {
+  const { scheduledAlertRepository, triggers } = deps;
 
   /** km a day since the last service; DEFAULT_AVG_DAILY_KM without a dated service or distance —
    *  the same fallback maintenance's tyre forecast uses. */
-  const dailyAverageKm = (row: VehicleRow, today: string): number => {
-    if (!row.last_service_date) return DEFAULT_AVG_DAILY_KM;
-    const days = (Date.parse(today) - Date.parse(row.last_service_date)) / 86_400_000;
-    const km = row.odometer_km - row.last_service_odometer_km;
+  const dailyAverageKm = (vehicle: ServiceDueVehicle, today: string): number => {
+    if (!vehicle.lastServiceDate) return DEFAULT_AVG_DAILY_KM;
+    const days = daysBetween(vehicle.lastServiceDate, today);
+    const km = vehicle.odometerKm - vehicle.lastServiceOdometerKm;
     return days > 0 && km > 0 ? km / days : DEFAULT_AVG_DAILY_KM;
   };
 
-  const plannedTrips = async (tenantId: string, vehicleId: string, from: string, days: number) => {
-    const [row] = await dataSource.query(
-      `SELECT count(*)::int AS n FROM loads.loads l
-         JOIN loads.requisitions r ON r.id = l.requisition_id
-        WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'bids_received', 'truck_assigned')
-          AND r.pickup_date BETWEEN $3::date AND $3::date + $4::int`,
-      [tenantId, vehicleId, from, days],
-    );
-    return (row?.n as number) ?? 0;
-  };
-
-  /** Org-wide average cost of closed service and breakdown jobs over the last 12 months. */
-  const averageCosts = async (tenantId: string) => {
-    const [row] = await dataSource.query(
-      `SELECT avg(total_cost) FILTER (WHERE job_type = 'service') AS service,
-              avg(total_cost) FILTER (WHERE job_type = 'breakdown') AS breakdown
-         FROM maintenance.maintenance_jobs
-        WHERE tenant_id = $1 AND status = 'closed' AND total_cost IS NOT NULL
-          AND closed_at >= now() - interval '12 months'`,
-      [tenantId],
-    );
+  const averageCosts = async (tenantId: string, today: string) => {
+    const averages = await scheduledAlertRepository.averageMaintenanceCosts(tenantId, today);
     return {
-      serviceCost: row?.service != null ? rupees(Number(row.service)) : null,
-      breakdownCost: row?.breakdown != null ? rupees(Number(row.breakdown)) : null,
+      serviceCost: averages.service != null ? rupees(averages.service) : null,
+      breakdownCost: averages.breakdown != null ? rupees(averages.breakdown) : null,
     };
   };
 
-  const sentRunDates = async (tenantId: string, vehicleId: string, dueAtKm: number) =>
-    (
-      (await dataSource.query(
-        `SELECT DISTINCT metadata->>'run_date' AS run_date FROM notifications.notifications
-          WHERE tenant_id = $1 AND type = 'vehicle.service_overdue'
-            AND metadata->>'vehicle_id' = $2 AND metadata->>'service_due_km' = $3
-          ORDER BY 1`,
-        [tenantId, vehicleId, String(dueAtKm)],
-      )) as { run_date: string }[]
-    ).map((row) => row.run_date);
-
-  const dueSoonStagesSent = async (tenantId: string, vehicleId: string, dueAtKm: number) =>
-    (
-      (await dataSource.query(
-        `SELECT DISTINCT metadata->>'stage' AS stage FROM notifications.notifications
-          WHERE tenant_id = $1 AND type = 'vehicle.service_due_soon'
-            AND metadata->>'vehicle_id' = $2 AND metadata->>'service_due_km' = $3`,
-        [tenantId, vehicleId, String(dueAtKm)],
-      )) as { stage: string }[]
-    ).map((row) => row.stage);
-
-  /** Anyone other than an org admin holding maintenance.manage (org admins hold it by role). */
-  const hasMaintenanceHolders = async (tenantId: string): Promise<boolean> => {
-    const [row] = await dataSource.query(
-      `SELECT 1 FROM auth.users u JOIN auth.roles r ON r.id = u.role_id
-        WHERE u.tenant_id = $1 AND u.deleted_at IS NULL AND r.name <> $3 AND (
-          EXISTS (SELECT 1 FROM auth.role_permissions rp JOIN auth.permissions p ON p.id = rp.permission_id
-                   WHERE rp.role_id = u.role_id AND p.key = $2)
-          OR EXISTS (SELECT 1 FROM auth.user_permissions up JOIN auth.permissions p ON p.id = up.permission_id
-                      WHERE up.user_id = u.id AND p.key = $2)) LIMIT 1`,
-      [tenantId, MAINTENANCE_MANAGE, ORG_ADMIN_ROLE],
+  /** Run dates of this service cycle's overdue alerts, oldest first. */
+  const sentRunDates = async (tenantId: string, vehicleId: string, dueAtKm: number) => {
+    const sentMetadata = await scheduledAlertRepository.listSentNotificationMetadata(
+      tenantId,
+      OVERDUE_TYPE,
+      { vehicle_id: vehicleId, service_due_km: String(dueAtKm) },
     );
-    return Boolean(row);
+    return [...new Set(sentMetadata.map((metadata) => String(metadata.run_date)))].sort();
   };
 
-  const daysBetween = (from: string, to: string) =>
-    Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+  const dueSoonStagesSent = async (tenantId: string, vehicleId: string, dueAtKm: number) => {
+    const sentMetadata = await scheduledAlertRepository.listSentNotificationMetadata(
+      tenantId,
+      DUE_SOON_TYPE,
+      { vehicle_id: vehicleId, service_due_km: String(dueAtKm) },
+    );
+    return sentMetadata.map((metadata) => String(metadata.stage));
+  };
+
+  /** Anyone other than an org admin holding maintenance.manage (org admins hold it by role). */
+  const hasMaintenanceHolders = async (tenantId: string): Promise<boolean> =>
+    (await deps.listUsersWithPermission(tenantId, MAINTENANCE_MANAGE)).some(
+      (user) => user.role.name !== ORG_ADMIN_ROLE,
+    );
 
   return {
     async runDaily(today: string) {
-      let dueSoon = 0;
-      let overdue = 0;
-      for (const row of await vehicles()) {
-        const intervalKm = row.interval_km ?? DEFAULT_SERVICE_INTERVAL_KM;
-        const dueAtKm = row.last_service_odometer_km + intervalKm;
-        const kmLeft = dueAtKm - row.odometer_km;
+      let dueSoonCount = 0;
+      let overdueCount = 0;
+      for (const vehicle of await scheduledAlertRepository.findServiceDueVehicles()) {
+        const intervalKm = vehicle.intervalKm ?? DEFAULT_SERVICE_INTERVAL_KM;
+        const dueAtKm = vehicle.lastServiceOdometerKm + intervalKm;
+        const kmLeft = dueAtKm - vehicle.odometerKm;
 
         if (kmLeft > 0) {
           // LS_N_0056 — once inside 10% of the interval, again inside 5%. Jumping straight into
@@ -150,23 +94,32 @@ export function createServiceAlerts(dataSource: DataSource, triggers: Notificati
                 ? 'threshold'
                 : null;
           if (!stage) continue;
-          const sent = await dueSoonStagesSent(row.tenant_id, row.vehicle_id, dueAtKm);
-          if (sent.includes(stage) || (stage === 'threshold' && sent.includes('half'))) continue;
-          const dailyAvg = dailyAverageKm(row, today);
-          const daysLeft = Math.max(1, Math.ceil(kmLeft / dailyAvg));
-          await triggers.enqueue('vehicle.service_due_soon', row.tenant_id, {
-            vehicleId: row.vehicle_id,
-            vehicleNo: row.vehicle_no,
+          const sentStages = await dueSoonStagesSent(vehicle.tenantId, vehicle.vehicleId, dueAtKm);
+          if (
+            sentStages.includes(stage) ||
+            (stage === 'threshold' && sentStages.includes('half'))
+          ) {
+            continue;
+          }
+          const dailyAvgKm = dailyAverageKm(vehicle, today);
+          const daysLeft = Math.max(1, Math.ceil(kmLeft / dailyAvgKm));
+          await triggers.enqueue(DUE_SOON_TYPE, vehicle.tenantId, {
+            vehicleId: vehicle.vehicleId,
+            vehicleNo: vehicle.vehicleNo,
             kmRemaining: kmLeft,
             serviceType: SERVICE_TYPE,
             serviceDueKm: dueAtKm,
-            dailyAvgKm: Math.round(dailyAvg),
+            dailyAvgKm: Math.round(dailyAvgKm),
             daysRemaining: daysLeft,
-            plannedTripCount: await plannedTrips(row.tenant_id, row.vehicle_id, today, daysLeft),
+            plannedTripCount: await scheduledAlertRepository.countPlannedVehicleTrips(
+              vehicle.tenantId,
+              vehicle.vehicleId,
+              { fromDate: today, toDate: addDays(today, daysLeft) },
+            ),
             stage,
             runDate: today,
           });
-          dueSoon += 1;
+          dueSoonCount += 1;
           continue;
         }
 
@@ -174,40 +127,34 @@ export function createServiceAlerts(dataSource: DataSource, triggers: Notificati
         // org admin joins once it has been overdue 2 weeks (or straight away if nobody holds
         // maintenance.manage, so it never goes unheard).
         if (kmLeft === 0) continue; // at the limit, not yet past it
-        const runDates = await sentRunDates(row.tenant_id, row.vehicle_id, dueAtKm);
-        const last = runDates[runDates.length - 1];
-        if (last && daysBetween(last, today) < OVERDUE_REPEAT_DAYS) continue;
-        const first = runDates[0] ?? today;
-        await triggers.enqueue('vehicle.service_overdue', row.tenant_id, {
-          vehicleId: row.vehicle_id,
-          vehicleNo: row.vehicle_no,
+        const runDates = await sentRunDates(vehicle.tenantId, vehicle.vehicleId, dueAtKm);
+        const lastRunDate = runDates[runDates.length - 1];
+        if (lastRunDate && daysBetween(lastRunDate, today) < OVERDUE_REPEAT_DAYS) continue;
+        const firstRunDate = runDates[0] ?? today;
+        await triggers.enqueue(OVERDUE_TYPE, vehicle.tenantId, {
+          vehicleId: vehicle.vehicleId,
+          vehicleNo: vehicle.vehicleNo,
           kmOverdue: -kmLeft,
           serviceType: SERVICE_TYPE,
           serviceDueKm: dueAtKm,
-          currentOdometer: row.odometer_km,
-          ...(await averageCosts(row.tenant_id)),
+          currentOdometer: vehicle.odometerKm,
+          ...(await averageCosts(vehicle.tenantId, today)),
           escalated:
-            daysBetween(first, today) >= OVERDUE_ESCALATE_DAYS ||
-            !(await hasMaintenanceHolders(row.tenant_id)),
+            daysBetween(firstRunDate, today) >= OVERDUE_ESCALATE_DAYS ||
+            !(await hasMaintenanceHolders(vehicle.tenantId)),
           runDate: today,
         });
-        overdue += 1;
+        overdueCount += 1;
       }
-      return { serviceDueSoon: dueSoon, serviceOverdue: overdue };
+      return { serviceDueSoon: dueSoonCount, serviceOverdue: overdueCount };
     },
 
     /** Relevance checks — a re-run of the same day's check never sends a stage/run twice. */
-    dueSoonNotAlreadySent: async (
-      tenantId: string,
-      context: { vehicleId: string; serviceDueKm: number; stage: string },
-    ) =>
+    dueSoonNotAlreadySent: async (tenantId: string, context: ServiceDueSoonContext) =>
       !(await dueSoonStagesSent(tenantId, context.vehicleId, context.serviceDueKm)).includes(
         context.stage,
       ),
-    overdueNotAlreadySentToday: async (
-      tenantId: string,
-      context: { vehicleId: string; serviceDueKm: number; runDate: string },
-    ) =>
+    overdueNotAlreadySentToday: async (tenantId: string, context: ServiceOverdueContext) =>
       !(await sentRunDates(tenantId, context.vehicleId, context.serviceDueKm)).includes(
         context.runDate,
       ),

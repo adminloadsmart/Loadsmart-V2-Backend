@@ -107,6 +107,16 @@ export class LoadPostingEntity {
   @Column({ name: 'weight_tonnes', type: 'numeric', precision: 10, scale: 2, nullable: true })
   weightTonnes!: string | null;
 
+  /** Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034). */
+  @Column({
+    name: 'cargo_value_per_tonne',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  cargoValuePerTonne!: string | null;
+
   @Column({ name: 'truck_count', type: 'integer', default: 1 })
   truckCount!: number;
 

@@ -1,3 +1,4 @@
+import { TruckPapers, LicenceClassVerdict } from '../utils/load-verification.interface';
 /**
  * Pure govt-portal check rules for a truck and driver put on a load — no DB/IO, unit-tested in
  * verification-rules.test.ts. LoadVerificationService runs the lookups and applies these.
@@ -5,15 +6,6 @@
 
 /** "A truck above 7.5 t needs a transport licence. Up to 7.5 t, an LMV licence is enough." */
 export const TRANSPORT_LICENCE_GVW_KG = 7500;
-
-/** The truck papers checked on VAHAN — RC, fitness, insurance, PUC, permit. */
-export interface TruckPapers {
-  rcValidTo?: string;
-  fitnessValidTo?: string;
-  insuranceValidTo?: string;
-  pucValidTo?: string;
-  permitValidTo?: string;
-}
 
 const PAPER_LABELS: Record<keyof TruckPapers, string> = {
   rcValidTo: 'RC',
@@ -59,12 +51,6 @@ const classTokens = (value: string | null | undefined): string[] =>
     .split(/[\s,;/|]+/)
     .map((token) => token.trim())
     .filter(Boolean);
-
-export type LicenceClassVerdict =
-  | { ok: true }
-  | { ok: false; reason: string }
-  /** Not enough data to judge (truck weight or licence classes unknown) — never blocks. */
-  | { ok: null; reason: string };
 
 /** Does the licence cover a truck of this gross vehicle weight? */
 export function licenceClassVerdict(

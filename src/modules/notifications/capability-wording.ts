@@ -5,7 +5,9 @@
  * Empty input gives an empty string.
  */
 export function joinCapabilities(descriptions: string[]): string {
-  const phrases = descriptions.map((d) => d.charAt(0).toLowerCase() + d.slice(1));
+  const phrases = descriptions.map(
+    (description) => description.charAt(0).toLowerCase() + description.slice(1),
+  );
   if (phrases.length <= 1) return phrases.join('');
   return `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}`;
 }

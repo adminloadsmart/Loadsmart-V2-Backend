@@ -11,6 +11,14 @@ import { requestId } from './shared/middleware/request-id.middleware';
 import { createTenantScope } from './shared/middleware/tenant-scope.middleware';
 import { createDocsRouter } from './shared/openapi/docs';
 
+/** Outside production, any localhost / 127.0.0.1 port (Vite, Next, a second frontend…) so local
+ *  development doesn't depend on CORS_ORIGINS listing the exact port. */
+function isLocalDevOrigin(origin: string): boolean {
+  return (
+    env.nodeEnv !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+  );
+}
+
 export function createApp({
   tenancyGateway,
   authMiddleware,
@@ -25,9 +33,11 @@ export function createApp({
   app.use(helmet());
   app.use(
     cors({
+      // An explicit origin, never '*': with credentials (cookies) the browser rejects a wildcard
+      // Access-Control-Allow-Origin, which fails every request from the frontend.
       origin: (origin, callback) => {
         // Non-browser clients do not send an Origin header and should remain supported.
-        if (!origin || env.corsOrigins.includes(origin)) {
+        if (!origin || env.corsOrigins.includes(origin) || isLocalDevOrigin(origin)) {
           callback(null, true);
           return;
         }
@@ -35,8 +45,6 @@ export function createApp({
         callback(new Error('Origin is not allowed by CORS'));
       },
       credentials: true,
-
-      // origin: '*',
     }),
   );
   app.use(cookieParser());

@@ -7,10 +7,10 @@ import { AuthService } from '../auth/auth.service';
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
-import { NotificationTriggers } from '../notifications/notification-triggers';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { createAdminRoutes } from './admin.routes';
+import { NotificationTriggers } from '../notifications/notifications.interface';
 
 export function createAdminModule(deps: {
   organizationService: OrganizationService;

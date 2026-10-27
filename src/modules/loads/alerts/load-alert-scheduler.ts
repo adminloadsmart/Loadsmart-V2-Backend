@@ -1,23 +1,12 @@
 import { JobQueue } from '../../../jobs/queue-registry';
-import { NotificationTriggers } from '../../notifications/notification-triggers';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadStatus } from '../utils/loads.types';
 import { reminderTimes, POD_REMINDER_EVERY_MS, POD_REMINDER_MAX } from './alert-rules';
+import { NotificationTriggers } from '../../notifications/notifications.interface';
+import { PodReminderJobPayload, LoadSchedule } from '../utils/load-alert.interface';
 
 export const LOAD_REMINDERS_QUEUE = 'load-reminders';
 export const POD_REMINDER_JOB = 'pod-reminder';
-
-export interface PodReminderJobPayload {
-  tenantId: string;
-  loadId: string;
-  /** 1-based — the n-th 30-minute reminder. */
-  sequence: number;
-}
-
-/** When the load is due at each end — the posting's pickup time and deliver-by (drop ETA). */
-export type LoadSchedule = (
-  load: LoadEntity,
-) => Promise<{ pickupAt: Date | null; dropDueAt: Date | null }>;
 
 /**
  * Queues the no-tracking alerts as a load enters a stage (LoadStageService's onStageEntered hook,

@@ -18,8 +18,8 @@ import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository, CreateLoadData } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadEntity } from '../entities/load.entity';
-import { LoadStatus } from '../utils/loads.types';
 import { formatLoadCode } from '../utils/code.util';
+import { LoadStageHook } from '../utils/load.interface';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
@@ -30,6 +30,8 @@ import {
   PickupInput,
   TruckPickInput,
   PostLoadInput,
+  LoadPostingHooks,
+  OwnFleetAssignment,
 } from './utils/load-posting.interface';
 import {
   DEFAULT_ADVANCE_PERCENTAGE,
@@ -38,6 +40,12 @@ import {
 } from './utils/load-posting.types';
 import { buildPostMessage } from './utils/post-message';
 import { driverUnavailableReason } from './utils/driver-availability';
+import { LoadEventNotifier } from '../../notifications/notifications.interface';
+import {
+  AssignmentComplianceService,
+  assignmentBlockedError,
+  assignmentBlockedEvent,
+} from '../assignment-compliance.service';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import {
   istDateOf,
@@ -85,10 +93,6 @@ export interface PostLoadResult {
  *
  * Sending the message to transporters is behind LoadDispatchNotifier and happens after commit.
  */
-export interface LoadPostingHooks {
-  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
-}
-
 export class LoadPostingService {
   constructor(
     private readonly dataSource: DataSource,
@@ -103,8 +107,13 @@ export class LoadPostingService {
     private readonly driverAuthService: DriverAuthService,
     private readonly notificationsService: NotificationsService,
     private readonly truckTypeService: TruckTypeService,
+    // LS_N_0017 — refuses a truck or driver with an expired document.
+    private readonly assignmentComplianceService: AssignmentComplianceService,
+    // LS_N_0016/0017 — optional; only queues a notification and never throws (see
+    // notifications/load-alerts.ts).
+    private readonly onLoadEvent?: LoadEventNotifier,
     /** Queues the no-tracking alerts for own-fleet loads, which are born at Truck assigned. */
-    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
+    private readonly onStageEntered?: LoadStageHook,
     /** Set by the Loadsmart ops module once built: every market posting goes to Loadsmart too
      *  ("Loadsmart is always ticked") and opens a sourcing for its Approval team. */
     private readonly hooks: LoadPostingHooks = {},
@@ -166,6 +175,27 @@ export class LoadPostingService {
         const own = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!, input.driverId);
         vehicleLoadDefaults = own.defaults;
         assignedDriverName = own.driverName;
+
+        // PL-22 / LS_N_0017 — expired papers or an expired driver licence block the post. Nothing
+        // is saved, so the alert carries the cities and pickup time.
+        const compliance = await this.assignmentComplianceService.check(tenantId, {
+          vehicleId: input.vehicleId,
+          driverId: own.defaults.driverId,
+        });
+        if (compliance.failure) {
+          const vehicleNumber = own.defaults.vehicleNumber ?? '';
+          await this.onLoadEvent?.(
+            assignmentBlockedEvent(tenantId, vehicleNumber, compliance, compliance.failure, {
+              originCity: pickup.address.city ?? null,
+              destinationCity: drop.address.city ?? null,
+              pickupAt,
+            }),
+          );
+          throw assignmentBlockedError(vehicleNumber, compliance.failure, compliance.driverName);
+        }
+        // After the compliance check, so an expired licence raises LS_N_0017 first; this one still
+        // catches the licence class (and the India-date expiry edge).
+        this.assertDriverLicenceCoversTruck(own.driverRelation, own.grossVehicleWeightKg);
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
@@ -228,6 +258,8 @@ export class LoadPostingService {
             commodityName: commodity.name,
             packaging: input.packaging,
             weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
+            cargoValuePerTonne:
+              input.cargoValuePerTonne === undefined ? null : String(input.cargoValuePerTonne),
             truckCount: input.truckCount,
             truckTypeId: trucks.main?.id ?? null,
             truckLengthFt: input.truck?.bodyLengthFt ?? null,
@@ -387,7 +419,18 @@ export class LoadPostingService {
       }
       if (input.mode === 'own_fleet') {
         await this.notifyDriver(tenantId, result.loads);
-        for (const load of result.loads) await this.onStageEntered?.(load, 'truck_assigned');
+        for (const load of result.loads) {
+          await this.onStageEntered?.(load, 'truck_assigned');
+          // LS_N_0016 — the truck and driver passed the compliance check above.
+          await this.onLoadEvent?.({
+            kind: 'assigned',
+            tenantId,
+            loadId: load.id,
+            at: new Date(),
+            vehicleChecked: true,
+            driverChecked: true,
+          });
+        }
       }
 
       return {
@@ -580,12 +623,13 @@ export class LoadPostingService {
   }
 
   /** PL-22 — a truck in the workshop, inactive or already on a live load cannot be picked;
-   *  expiring papers never block. */
+   *  expiring papers never block. Expired papers (and an expired driver licence) are checked by
+   *  post() afterwards, so the block also raises LS_N_0017. */
   private async assertOwnFleetVehicle(
     tenantId: string,
     vehicleId: string,
     pickedDriverId?: string,
-  ): Promise<{ defaults: Partial<CreateLoadData>; driverName: string | null }> {
+  ): Promise<OwnFleetAssignment> {
     const vehicle = await this.vehicleService.getVehicle(tenantId, vehicleId);
     if (vehicle.status === 'under_maintenance') {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
@@ -593,12 +637,6 @@ export class LoadPostingService {
     if (vehicle.status !== 'active') throw new ConflictError('This truck is not active');
     if ((await this.repository.listVehicleIdsInWorkshop(tenantId, [vehicleId])).size > 0) {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
-    }
-    const { expired } = this.paperStatus(vehicle.documents ?? []);
-    if (expired.length > 0) {
-      throw new ConflictError(
-        `This truck has expired papers (${expired.join(', ')}) and cannot be assigned`,
-      );
     }
     const operational = vehicle.operationalStatus?.operationalStatus;
     if (operational === 'on_trip' || operational === 'inactive') {
@@ -632,7 +670,7 @@ export class LoadPostingService {
         { driverId, reason },
       );
     }
-    this.assertDriverLicenceCoversTruck(relation, vehicle.grossVehicleWeightKg);
+    // The licence itself (expiry and class) is checked by post() after the compliance check.
     return {
       defaults: {
         vehicleId: vehicle.id,
@@ -642,6 +680,8 @@ export class LoadPostingService {
         plannedCapacityTonnes: vehicle.capacityTons ?? '0',
       },
       driverName: relation.driver.fullName,
+      driverRelation: relation,
+      grossVehicleWeightKg: vehicle.grossVehicleWeightKg,
     };
   }
 

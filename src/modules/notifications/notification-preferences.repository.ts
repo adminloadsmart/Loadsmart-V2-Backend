@@ -3,7 +3,7 @@ import { NotificationTypeEntity } from './entities/notification-type.entity';
 import { NotificationPreferenceEntity } from './entities/notification-preference.entity';
 import { NotificationQuietHoursEntity } from './entities/notification-quiet-hours.entity';
 import { UserNotificationPreferenceEntity } from './entities/user-notification-preference.entity';
-import { ChannelPreferenceFlags, QuietHoursSetting } from './notifications.interface';
+import { QuietHoursSetting, UserPreferenceItem } from './notifications.interface';
 
 export interface UpsertPreferenceInput {
   notificationTypeId: string;
@@ -123,7 +123,7 @@ export class NotificationPreferencesRepository {
   async upsertUserPreferences(
     tenantId: string,
     userId: string,
-    items: { notificationTypeId: string; channels: ChannelPreferenceFlags }[],
+    items: UserPreferenceItem[],
   ): Promise<void> {
     if (!items.length) return;
     await this.userPreferences.upsert(

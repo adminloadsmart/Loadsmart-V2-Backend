@@ -11,6 +11,7 @@ import {
 
 import { AXLE_TYPES } from '../../masters/vehicle/vehicle.type';
 import { findPickerRow, PICKER_BODIES } from '../../masters/vehicle/truck-type-picker.constants';
+import { MAX_CARGO_VALUE_PER_TONNE } from '../utils/loads.types';
 
 const uuid = z.string().uuid();
 const packaging = z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']);
@@ -102,6 +103,8 @@ export const postLoadBody = z
     commodity,
     packaging,
     weightTonnes: z.number().positive().optional(),
+    // Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034).
+    cargoValuePerTonne: z.number().positive().max(MAX_CARGO_VALUE_PER_TONNE).optional(),
     truckCount: z.number().int().min(1).default(1),
     truck: truckPick.optional(),
     acceptedTrucks: z.array(truckPick).max(10).optional(),

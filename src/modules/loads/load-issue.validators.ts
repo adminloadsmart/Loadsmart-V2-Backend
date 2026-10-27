@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LOAD_ISSUE_CATEGORIES } from './utils/loads.types';
+import { LOAD_ISSUE_CATEGORIES, MAX_ISSUE_ETA_IMPACT_MINUTES } from './utils/loads.types';
 
 const uuid = z.string().uuid();
 const params = z.object({ loadId: uuid });
@@ -18,6 +18,8 @@ export const reportLoadIssueBody = z
     // Confirmed storage keys, purpose 'loads/issue' — see load-issue.service.ts's
     // assertLoadDocumentUpload loop.
     photoFileKeys: z.array(z.string().trim().min(1)).max(5).optional(),
+    // Optional expected delay in minutes (LS_N_0037).
+    etaImpactMinutes: z.number().int().min(0).max(MAX_ISSUE_ETA_IMPACT_MINUTES).optional(),
   })
   .strict();
 

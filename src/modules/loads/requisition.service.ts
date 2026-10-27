@@ -161,6 +161,8 @@ export class RequisitionService {
             pickupDate: input.pickupDate,
             expectedDeliveryDate: input.expectedDeliveryDate,
             customerPoNumber,
+            cargoValuePerTonne:
+              input.cargoValuePerTonne === undefined ? null : String(input.cargoValuePerTonne),
             status: 'open',
             createdBy: actorId,
           },

@@ -1,21 +1,7 @@
 import { DataSource, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { LoadMemoEntity } from './load-memo.entity';
-
-export type CreateLoadMemoData = Pick<
-  LoadMemoEntity,
-  | 'tenantId'
-  | 'loadId'
-  | 'transporterId'
-  | 'vehicleNumber'
-  | 'driverName'
-  | 'driverMobile'
-  | 'loadingContactName'
-  | 'loadingContactPhone'
-  | 'sentAt'
-  | 'sentBy'
-  | 'expiresAt'
->;
+import { CreateLoadMemoData } from '../utils/load-memo.interface';
 
 export class LoadMemoRepository {
   private readonly memos: Repository<LoadMemoEntity>;

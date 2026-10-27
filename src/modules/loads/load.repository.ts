@@ -18,6 +18,7 @@ import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
+  ARRIVED_AT_DELIVERY_STATUSES,
   COMPLETED_LOAD_STATUSES,
   FreightMode,
   FreightType,
@@ -480,5 +481,21 @@ export class LoadRepository {
       })
       .execute();
     return result.affected === 1 ? this.findById(tenantId, id, manager) : null;
+  }
+
+  /** Stamps `departedDropAt` once — only while the vehicle is at or past the delivery point and
+   *  no departure was recorded yet (a replayed event changes nothing). Returns the load if it
+   *  was stamped, else null. */
+  async markDepartedDrop(tenantId: string, id: string, at: Date): Promise<LoadEntity | null> {
+    const result = await this.loads
+      .createQueryBuilder()
+      .update(LoadEntity)
+      .set({ departedDropAt: at })
+      .where(
+        'id = :id AND tenant_id = :tenantId AND departed_drop_at IS NULL AND status IN (:...statuses)',
+        { id, tenantId, statuses: [...ARRIVED_AT_DELIVERY_STATUSES] },
+      )
+      .execute();
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
   }
 }

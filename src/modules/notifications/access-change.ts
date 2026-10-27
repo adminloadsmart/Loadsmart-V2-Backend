@@ -1,7 +1,11 @@
 import { redisManager } from '../../db/redis';
 import { joinCapabilities } from './capability-wording';
-import { NotificationTriggers } from './notification-triggers';
 import { AccessChangedContext } from './catalog/notification-catalog';
+import {
+  NotificationTriggers,
+  CapabilitiesChangeEvent,
+  AccessChangeResolverDeps,
+} from './notifications.interface';
 
 /**
  * LS_N_0006 "your access changed". An admin changes capabilities one API call at a time, so the
@@ -12,13 +16,6 @@ import { AccessChangedContext } from './catalog/notification-catalog';
  */
 const BASELINE_TTL_SECONDS = 60 * 60; // comfortably longer than any debounce window
 const baselineKey = (userId: string) => `notifications:access-baseline:${userId}`;
-
-export interface CapabilitiesChangeEvent {
-  tenantId: string;
-  userId: string;
-  actorUserId: string;
-  before: string[];
-}
 
 /** Called (via RoleService's onCapabilitiesChanged hook) after each capability change. */
 export function createAccessChangeRecorder(triggers: NotificationTriggers) {
@@ -34,13 +31,6 @@ export function createAccessChangeRecorder(triggers: NotificationTriggers) {
       baselinePermissions: JSON.parse(baseline) as string[],
     });
   };
-}
-
-export interface AccessChangeResolverDeps {
-  getEffectivePermissions(userId: string): Promise<string[]>;
-  describePermissions(keys: string[]): Promise<string[]>;
-  getUserFullName(userId: string): Promise<string | null>;
-  getOrganizationName(tenantId: string): Promise<string>;
 }
 
 /** The trigger worker's context resolver for LS_N_0006: computes what was actually added and

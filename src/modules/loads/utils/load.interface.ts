@@ -1,5 +1,6 @@
 import { PaginationInput } from '../../../shared/utils/pagination';
 import {
+  AssignmentComplianceSubject,
   FreightType,
   LoadSourceType,
   LoadStatus,
@@ -10,6 +11,13 @@ import {
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
+import type { AuditAction } from '../../audit/audit.types';
+import type { UpdateLoadData } from '../load.repository';
+import type { LoadEntity } from '../entities/load.entity';
+
+/** Runs after a load enters a stage (LoadStageService.transition) — e.g. queue the no-tracking
+ *  alerts, or open a Loadsmart claim. */
+export type LoadStageHook = (load: LoadEntity, to: LoadStatus) => Promise<void>;
 
 /** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
  *  endpoint (Plan Dispatch v2.0 R-16). `freightValue` is optional: defaults to the load's
@@ -102,4 +110,71 @@ export type LoadParams = { loadId: string };
 export interface EwayBillExpiry {
   expiresAt: string | null;
   expired: boolean;
+}
+
+/** The vehicle and driver going onto a load. Own-fleet paths pass ids; a market Load Assignment
+ *  passes the typed-in vehicle and phone numbers, matched to the masters here. */
+export interface AssignmentTarget {
+  vehicleId?: string | null;
+  vehicleNumber?: string | null;
+  driverId?: string | null;
+  driverPhone?: string | null;
+}
+
+/** The expired document that blocks an assignment — the vehicle is checked first. */
+export interface AssignmentComplianceFailure {
+  subject: AssignmentComplianceSubject;
+  /** "Fitness Certificate", "Driving licence". */
+  docType: string;
+  /** YYYY-MM-DD. */
+  expiryDate: string;
+}
+
+export interface AssignmentCompliance {
+  /** The vehicle / driver master the check read; null when it isn't on file. */
+  vehicleId: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  vehicleChecked: boolean;
+  driverChecked: boolean;
+  failure: AssignmentComplianceFailure | null;
+}
+
+export interface StageTransitionInput {
+  tenantId: string;
+  loadId: string;
+  to: LoadStatus;
+  /** Null for a system move (live tracking) — no user made it. */
+  actorId: string | null;
+  /** Set when the driver app made the move — audit_logs.user_id has an FK to auth.users that a
+   *  masters.drivers id would violate, so the driver is carried in newData instead. */
+  driverOwnerId?: string;
+  /** Extra columns written in the same UPDATE as the status. */
+  fields?: UpdateLoadData;
+  /** Already-read row, to skip a re-read; its status is the expected `from`. */
+  load?: LoadEntity;
+  auditAction?: AuditAction;
+  metadata?: Record<string, unknown>;
+}
+
+/** The load fields its stepper path depends on (load-stages.ts's stagePathFor). */
+export interface StagePathLoad {
+  sourceType: LoadSourceType;
+  status: LoadStatus;
+  deliveryIssueSettledAt: Date | null;
+}
+
+/** The load fields a stage's business preconditions read (load-stages.ts's stageGateError). */
+export interface StageGateLoad {
+  sourceType: LoadSourceType;
+  memoAcceptedAt: Date | null;
+  lsPapersApprovedAt?: Date | null;
+  podStatus?: string | null;
+}
+
+/** What a truck can be tracked with (tracking-source.ts's initialTrackingSource). */
+export interface TruckTrackingCapabilities {
+  hasGps: boolean;
+  hasDriverApp: boolean;
+  hasVehicleNumber: boolean;
 }

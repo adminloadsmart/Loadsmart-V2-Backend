@@ -1,12 +1,9 @@
 import { rethrow } from '../../../shared/errors';
-import { UlipError, UlipVahanResult } from '../../../adapters/ulip.client';
+import { UlipError } from '../../../adapters/ulip.client';
 import { DlVerificationClient } from '../../../adapters/sarathi.client';
 import { VerificationStatus } from '../utils/loads.types';
 import { LoadVerificationEntity } from './load-verification.entity';
-import {
-  CreateLoadVerificationData,
-  LoadVerificationRepository,
-} from './load-verification.repository';
+import { LoadVerificationRepository } from './load-verification.repository';
 import {
   expiredPaperFailures,
   istDateOf,
@@ -14,38 +11,18 @@ import {
   licenceExpiryFailure,
   toIsoDay,
 } from './verification-rules';
-
-/** The VAHAN lookup this service needs — UlipClient satisfies it. */
-export interface VehicleRegistryClient {
-  lookupVehicle(vehicleNumber: string): Promise<UlipVahanResult>;
-}
+import {
+  CheckView,
+  CreateLoadVerificationData,
+  DriverCheckInput,
+  DriverCheckLoad,
+  LoadChecksView,
+  TruckCheckLoad,
+  VehicleRegistryClient,
+} from '../utils/load-verification.interface';
 
 /** A conclusive check of the same truck/licence this recent is reused instead of a new lookup. */
 const REUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-export interface DriverCheckInput {
-  licenceNumber: string;
-  /** YYYY-MM-DD — Sarathi needs it with the licence number. */
-  dateOfBirth: string;
-}
-
-export interface CheckView {
-  id: string;
-  subject: LoadVerificationEntity['subject'];
-  subjectRef: string;
-  status: VerificationStatus;
-  /** Only the failures are shown to the shipper. */
-  failures: string[];
-  notes: string[];
-  checkedAt: string;
-}
-
-export interface LoadChecksView {
-  truck: CheckView | null;
-  driver: CheckView | null;
-  /** True when nothing failed — what the memo waits on. `unavailable` never blocks. */
-  clear: boolean;
-}
 
 export const toCheckView = (check: LoadVerificationEntity): CheckView => ({
   id: check.id,
@@ -148,7 +125,7 @@ export class LoadVerificationService {
    *  truck check, or the vehicle master for an own-fleet truck. */
   async verifyDriver(
     tenantId: string,
-    load: { id: string; vehicleId: string | null; vehicleNumber: string | null },
+    load: DriverCheckLoad,
     input: DriverCheckInput,
   ): Promise<LoadVerificationEntity> {
     try {
@@ -197,10 +174,7 @@ export class LoadVerificationService {
     }
   }
 
-  private async grossWeightOf(
-    tenantId: string,
-    load: { id: string; vehicleId: string | null; vehicleNumber: string | null },
-  ): Promise<number | null> {
+  private async grossWeightOf(tenantId: string, load: DriverCheckLoad): Promise<number | null> {
     if (load.vehicleId) {
       const weight = await this.repository.findVehicleGrossWeight(tenantId, load.vehicleId);
       if (weight) return weight;
@@ -219,7 +193,7 @@ export class LoadVerificationService {
    *  assigned by hand rather than through a bid). */
   async ensureTruckChecked(
     tenantId: string,
-    load: { id: string; vehicleNumber: string | null },
+    load: TruckCheckLoad,
   ): Promise<LoadVerificationEntity | null> {
     if (!load.vehicleNumber) return null;
     const existing = await this.repository.findLatestForLoad(
@@ -232,10 +206,7 @@ export class LoadVerificationService {
   }
 
   /** The latest truck (for the load's current truck) and driver checks on the load. */
-  async checksForLoad(
-    tenantId: string,
-    load: { id: string; vehicleNumber: string | null },
-  ): Promise<LoadChecksView> {
+  async checksForLoad(tenantId: string, load: TruckCheckLoad): Promise<LoadChecksView> {
     try {
       const [truck, driver] = await Promise.all([
         load.vehicleNumber

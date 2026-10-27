@@ -1,6 +1,5 @@
 import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
-import { AuditAction } from '../audit/audit.types';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { LoadEventNotifier } from '../notifications/notifications.interface';
 import { LoadActivityService } from './load-activity.service';
@@ -8,6 +7,7 @@ import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadEntity } from './entities/load.entity';
 import { stageGateError, stageTransitionError } from './utils/load-stages';
 import { LoadStatus } from './utils/loads.types';
+import { LoadStageHook, StageTransitionInput } from './utils/load.interface';
 
 /** The timestamp column each stage stamps when the load enters it. Delivered with issues shares
  *  deliveredAt with Delivered without issues — the truck unloaded once — and the settlement has
@@ -26,23 +26,6 @@ const STAGE_TIMESTAMP_FIELD: Partial<Record<LoadStatus, keyof UpdateLoadData>> =
   closed: 'closedAt',
 };
 
-export interface StageTransitionInput {
-  tenantId: string;
-  loadId: string;
-  to: LoadStatus;
-  /** Null for a system move (live tracking) — no user made it. */
-  actorId: string | null;
-  /** Set when the driver app made the move — audit_logs.user_id has an FK to auth.users that a
-   *  masters.drivers id would violate, so the driver is carried in newData instead. */
-  driverOwnerId?: string;
-  /** Extra columns written in the same UPDATE as the status. */
-  fields?: UpdateLoadData;
-  /** Already-read row, to skip a re-read; its status is the expected `from`. */
-  load?: LoadEntity;
-  auditAction?: AuditAction;
-  metadata?: Record<string, unknown>;
-}
-
 /**
  * The only writer of `loads.status`. Every move is checked against the load's route
  * (ROUTE_STAGES) and the allowed transitions (LOAD_STAGE_TRANSITIONS), stamps the stage's
@@ -58,7 +41,7 @@ export class LoadStageService {
     private readonly vehicleService: VehicleService,
     private readonly onLoadEvent?: LoadEventNotifier,
     /** Queues the no-tracking alerts for the stage (alerts/load-alert-scheduler.ts). Never throws. */
-    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
+    private readonly onStageEntered?: LoadStageHook,
   ) {}
 
   async transition(input: StageTransitionInput): Promise<LoadEntity> {
@@ -110,12 +93,16 @@ export class LoadStageService {
           : { id: loadId, status: to },
       });
 
-      // The notification catalog still names its two handoffs after the old stage names; they're
-      // job identifiers, not load statuses, so they stay as they are.
-      if (to === 'in_transit_unloading') {
-        await this.onLoadEvent?.({ kind: 'in_transit', tenantId, loadId, at: now });
+      // The notification catalog still names its handoffs after the old stage names; they're
+      // job identifiers, not load statuses, so they stay as they are. A tracking move passes its
+      // own time in `fields` — the event carries that, not the processing time.
+      const at = (timestampField && (input.fields?.[timestampField] as Date | undefined)) || now;
+      if (to === 'reached_loading') {
+        await this.onLoadEvent?.({ kind: 'at_plant', tenantId, loadId, at });
+      } else if (to === 'in_transit_unloading') {
+        await this.onLoadEvent?.({ kind: 'in_transit', tenantId, loadId, at });
       } else if (to === 'reached_unloading') {
-        await this.onLoadEvent?.({ kind: 'reached_delivery_point', tenantId, loadId, at: now });
+        await this.onLoadEvent?.({ kind: 'reached_delivery_point', tenantId, loadId, at });
       }
 
       await this.onStageEntered?.(updated, to);

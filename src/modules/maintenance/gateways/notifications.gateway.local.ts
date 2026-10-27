@@ -1,6 +1,7 @@
 import { NotificationsService } from '../../notifications/notifications.service';
-import { NotificationTriggers } from '../../notifications/notification-triggers';
 import { NotificationsGateway } from './notifications.gateway';
+import { NotificationTriggers } from '../../notifications/notifications.interface';
+import { VehicleBackInServiceEvent } from '../maintenance.interface';
 
 export class NotificationsGatewayLocal implements NotificationsGateway {
   constructor(
@@ -8,7 +9,7 @@ export class NotificationsGatewayLocal implements NotificationsGateway {
     private readonly triggers?: NotificationTriggers,
   ) {}
 
-  async vehicleBackInService({ tenantId, jobId }: { tenantId: string; jobId: string }) {
+  async vehicleBackInService({ tenantId, jobId }: VehicleBackInServiceEvent) {
     try {
       await this.triggers?.enqueue('vehicle.back_in_service', tenantId, { jobId });
     } catch (error) {

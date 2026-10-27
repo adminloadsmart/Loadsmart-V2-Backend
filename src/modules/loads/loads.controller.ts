@@ -7,7 +7,6 @@ import { LoadService } from './load.service';
 import { LoadPaymentService } from './load-payment.service';
 import { LoadActivityService } from './load-activity.service';
 import { ElrService } from './elr/elr.service';
-import { ElrInput } from './elr/elr-content';
 import {
   CreateRequisitionInput,
   ListRequisitionsInput,
@@ -26,6 +25,7 @@ import {
   UploadPodInput,
 } from './utils/load.interface';
 import { RecordAdvanceInput, RecordBalanceInput } from './utils/load-payment.interface';
+import { ElrInput } from './utils/elr.interface';
 
 export class LoadsController {
   constructor(

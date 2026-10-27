@@ -1,29 +1,24 @@
 import { NOTIFICATION_CATALOG } from '../catalog/notification-catalog';
 import { NotificationEntity } from '../notifications.entity';
-import {
-  NotificationCategory,
-  NotificationCategoryOrGeneral,
-  NotificationCtaStyle,
-  NotificationSeverity,
-} from '../notifications.types';
+import { NotificationSeverity } from '../notifications.types';
 import {
   DEFAULT_CTA_STYLE_BY_SEVERITY,
   NOTIFICATION_CATEGORY_LABELS,
   QUIET_HOURS_BYPASS_SEVERITY,
 } from '../notifications.constants';
-import { NotificationPresentation, PresentedNotification } from '../notifications.interface';
-
-type CatalogDisplayFields = { category?: NotificationCategory; ctaStyle?: NotificationCtaStyle };
+import {
+  CatalogDisplayFields,
+  NotificationCategoryChip,
+  NotificationPresentation,
+  PresentedNotification,
+} from '../notifications.interface';
 
 function catalogDisplayFieldsOf(type: string): CatalogDisplayFields | undefined {
   return (NOTIFICATION_CATALOG as Record<string, CatalogDisplayFields>)[type];
 }
 
 /** A type's inbox chip — 'general' for a type no longer in the catalog. */
-export function categoryOf(type: string): {
-  category: NotificationCategoryOrGeneral;
-  categoryLabel: string;
-} {
+export function categoryOf(type: string): NotificationCategoryChip {
   const category = catalogDisplayFieldsOf(type)?.category ?? 'general';
   return { category, categoryLabel: NOTIFICATION_CATEGORY_LABELS[category] };
 }

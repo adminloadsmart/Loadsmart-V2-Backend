@@ -35,7 +35,10 @@ import { DriverEntity } from './entities/driver.entity';
 import { SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
-import { DriverTenantRelationEntity } from './entities/driver-tenant-relation.entity';
+import {
+  DriverInviteEvent,
+  DriverTenantRelationEntity,
+} from './entities/driver-tenant-relation.entity';
 
 /* Service-layer inputs — shapes accepted from the controller. */
 
@@ -911,4 +914,42 @@ export interface DriverImportReport {
   created: number;
   failed: number;
   results: DriverImportResult[];
+}
+
+/** How one code is sent: its HTTP status, and the message shown to the user as-is (Title Case to
+ *  match the UI). */
+export interface DriverErrorDefinition {
+  statusCode: 404 | 409;
+  message: string;
+}
+
+/** ILIKE patterns for the roster search box (driver-tenant-relation.repository.ts) — `phone` is
+ *  null when the term has no digits. */
+export interface DriverSearchPatterns {
+  name: string;
+  phone: string | null;
+  license: string;
+}
+
+/** One page of a tenant's driver relations and the total across pages. */
+export type DriverRelationPage = Pick<Paginated<DriverTenantRelationEntity>, 'items' | 'total'>;
+
+/** What the invitation drawer's timeline is built from (invitation-timeline.ts). */
+export interface InvitationTimelineInput {
+  events: readonly DriverInviteEvent[];
+  toActor: (userId: string | null) => DriverInvitationActor | null;
+  firstAppLoginAt: Date | null;
+  status: DriverInvitationStatus;
+  expiresAt: Date | null;
+}
+
+/** A driver's trip count and on-time share, for the detail page's performance section. */
+export interface DriverTripStats {
+  total: number;
+  onTimePercentage: number | null;
+}
+
+/** The daily DRIVER_AVAILABILITY_RETURN_JOB's result. */
+export interface DriverAvailabilityReturnResult {
+  returnedToAvailable: number;
 }

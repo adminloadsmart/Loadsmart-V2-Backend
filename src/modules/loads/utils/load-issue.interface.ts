@@ -8,4 +8,6 @@ export interface ReportLoadIssueInput {
   locationLabel: string;
   locationCapturedAt: string;
   photoFileKeys?: string[];
+  /** Expected delay this problem causes, in minutes (LS_N_0037). */
+  etaImpactMinutes?: number;
 }

@@ -1,5 +1,5 @@
+import { ElrContent } from '../utils/elr.interface';
 import PDFDocument from 'pdfkit';
-import { ElrContent } from './elr-content';
 
 /** Renders the e-LR as a one-page A4 PDF. The built-in Helvetica has no ₹ glyph, so amounts are
  *  printed with "Rs." */
