@@ -81,6 +81,7 @@ export class OrganizationService {
       pinCode: string | null;
       hasOwnFleet: boolean | null;
       seatLimit: number | null;
+      lateDeliveryThresholdMinutes: number | null;
       onlineKycVerifierId: string | null;
       physicalKycAgentId: string | null;
       onlineKycCompletedAt: Date | null;
