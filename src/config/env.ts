@@ -36,6 +36,8 @@ export const env = {
   databaseUrl: required('DATABASE_URL'),
   jwtSecret,
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  // The tracking service's Redis (ETA/distance-left for the driver app's Home screen). Unset = off.
+  trackingRedisUrl: process.env.TRACKING_REDIS_URL || undefined,
   accessTokenTtlSeconds: numberWithDefault('ACCESS_TOKEN_TTL_SECONDS', 15 * 60),
   refreshTokenTtlMs: numberWithDefault('REFRESH_TOKEN_TTL_MS', 30 * 24 * 60 * 60 * 1000),
   signupOtpTtlSeconds: numberWithDefault('SIGNUP_OTP_TTL_SECONDS', 600),

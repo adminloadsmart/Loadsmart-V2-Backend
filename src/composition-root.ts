@@ -479,6 +479,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // Driver-app self-service ("my loads") — built here, not alongside driverAuth above, since it
   // needs loads.loadService, which doesn't exist until this point. See docs/driver-auth.md.
   const driverPortal = createDriverPortalModule({
+    dataSource,
     driverRepository: driver.driverRepository,
     driverTenantRelationRepository: driver.driverTenantRelationRepository,
     driverService: driver.driverService,

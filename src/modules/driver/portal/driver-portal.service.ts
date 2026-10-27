@@ -15,6 +15,7 @@ import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity'
 import { LoadService, TripsDoneResult } from '../../loads/load.service';
 import { ListLoadsInput } from '../../loads/utils/load.interface';
 import { TripListRow } from '../../loads/utils/trip-view';
+import { TrackingEtaReader, TripEta } from './tracking-eta.reader';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ListNotificationsInput } from '../../notifications/notifications.interface';
 import { OrganizationService } from '../../organization/organization.service';
@@ -79,6 +80,7 @@ function inviteCardStatusOf(
 function toHomeCurrentTrip(
   job: TripListRow,
   organizationName: string | null,
+  eta: TripEta | null,
 ): DriverHomeCurrentTrip {
   const destination = job.route
     ? { location: job.route.deliveryPointLocation, city: job.route.deliveryPointCity }
@@ -92,8 +94,11 @@ function toHomeCurrentTrip(
       ? { title: job.route.loadingPointTitle, city: job.route.loadingPointCity }
       : null,
     destination,
-    distanceLeftKm: null,
-    etaAt: null,
+    distanceKm: eta?.distanceKm ?? null,
+    distanceLeftKm: eta?.remainingKm ?? null,
+    etaAt: eta?.etaAt ?? null,
+    etaStale: eta?.stale ?? false,
+    etaSource: eta?.source ?? null,
     directionsQuery: destination
       ? [destination.location, destination.city].filter(Boolean).join(', ')
       : null,
@@ -130,6 +135,7 @@ export class DriverPortalService {
     private readonly organizationService: OrganizationService,
     private readonly loadService: LoadService,
     private readonly notificationsService: NotificationsService,
+    private readonly trackingEtaReader?: TrackingEtaReader,
   ) {}
 
   /**
@@ -399,6 +405,10 @@ export class DriverPortalService {
       ),
       this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
+    const currentJob = activeJobs.items[0] ?? null;
+    const currentEta = currentJob
+      ? ((await this.trackingEtaReader?.getTripEta(currentJob.id)) ?? null)
+      : null;
     const organizationOf = (job: TripListRow) =>
       profile.fleets.find((fleet) => fleet.tenantId === job.tenantId)?.organizationName ?? null;
 
@@ -416,8 +426,8 @@ export class DriverPortalService {
       },
       currentJob: activeJobs.items[0] ?? null,
       upcomingJobs: upcomingJobs.items,
-      currentTrip: activeJobs.items[0]
-        ? toHomeCurrentTrip(activeJobs.items[0], organizationOf(activeJobs.items[0]))
+      currentTrip: currentJob
+        ? toHomeCurrentTrip(currentJob, organizationOf(currentJob), currentEta)
         : null,
       nextTrip: upcomingJobs.items[0]
         ? toHomeNextTrip(upcomingJobs.items[0], organizationOf(upcomingJobs.items[0]))

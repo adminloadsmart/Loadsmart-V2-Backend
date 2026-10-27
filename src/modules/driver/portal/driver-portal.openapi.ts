@@ -183,8 +183,9 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         'tenant relation required) — driver name and unreadNotificationCount still populate in ' +
         'that case, but stats/currentJob/upcomingJobs/currentTrip/nextTrip come back zeroed/empty. ' +
         'currentTrip/nextTrip/money are display-ready projections for the card layout; ' +
-        'currentTrip.distanceLeftKm/etaAt and money.cashHeld are null until live tracking/ETA ' +
-        'and driver expense data exist. Settlement Due, ' +
+        "currentTrip.distanceLeftKm/etaAt come from the tracking service's ETA (null until the " +
+        'trip has a planned route; etaSource live|planned, etaStale = last fix is old); money.cashHeld ' +
+        'is null until driver expense data exists. Settlement Due, ' +
         'per-trip Distance, and a driver Score/Rating are deliberately not included — no backing ' +
         'data exists for any of them yet.',
     ),
@@ -194,7 +195,7 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
           '{ data: { driver: { fullName, vehicleNumber }, stats: { tripsDone, onTimePercentage, ' +
           'openTrips }, currentJob: TripListRow | null, upcomingJobs: TripListRow[], ' +
           'currentTrip: { id, code, status, organizationName, origin, destination, ' +
-          'distanceLeftKm, etaAt, directionsQuery } | null, nextTrip: { id, code, ' +
+          'distanceKm, distanceLeftKm, etaAt, etaStale, etaSource, directionsQuery } | null, nextTrip: { id, code, ' +
           'organizationName, origin, destination, pickupDate } | null, money: { cashHeld, ' +
           'organizationName }, unreadNotificationCount } }',
       },

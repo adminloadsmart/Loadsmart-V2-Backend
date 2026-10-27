@@ -23,6 +23,7 @@ import {
   createDriverAuthProtectedRoutes,
 } from './auth/driver-auth.routes';
 import { DriverPortalController } from './portal/driver-portal.controller';
+import { RedisTrackingEtaReader } from './portal/tracking-eta.reader';
 import { DriverPortalService } from './portal/driver-portal.service';
 import { createDriverPortalRoutes } from './portal/driver-portal.routes';
 import { DriverIdentityService } from './auth/driver-identity.service';
@@ -201,6 +202,7 @@ export function createDriverIdentityModule(
 // which also accepts an identity-access token (requireTenant: false) — see
 // driver-portal.routes.ts's comment.
 export function createDriverPortalModule(deps: {
+  dataSource: DataSource;
   driverRepository: DriverRepository;
   driverTenantRelationRepository: DriverTenantRelationRepository;
   driverService: DriverService;
@@ -216,6 +218,7 @@ export function createDriverPortalModule(deps: {
     deps.organizationService,
     deps.loadService,
     deps.notificationsService,
+    new RedisTrackingEtaReader(deps.dataSource),
   );
   const controller = new DriverPortalController(
     driverPortalService,

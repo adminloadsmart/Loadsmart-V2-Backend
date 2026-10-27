@@ -99,10 +99,17 @@ export interface DriverHomeCurrentTrip {
   organizationName: string | null;
   origin: { title: string; city: string } | null;
   destination: { location: string; city: string | null } | null;
-  /** Backs "142 km left · arriving by 3:10 PM". Always null for now — no live tracking/ETA
-   *  source or delivery-point coordinates exist yet; the app should hide the line when null. */
+  /** Backs "142 km left · arriving by 3:10 PM", from the tracking service's ETA. Null while the
+   *  trip has none (not in transit yet, no route/coordinates, tracking off) — hide the line. */
+  /** Total planned route length (tracking.trip_routes), whatever the truck's progress. */
+  distanceKm: number | null;
   distanceLeftKm: number | null;
   etaAt: string | null;
+  /** True when the last location fix is old, so distanceLeftKm/etaAt are the last known values. */
+  etaStale: boolean;
+  /** 'live' = tracking's running ETA; 'planned' = whole-route distance/time from now, shown
+   *  before the truck has a live ETA (approximate). Null when there is no ETA. */
+  etaSource: 'live' | 'planned' | null;
   /** "Open directions" — destination address for a maps deep link until coordinates exist. */
   directionsQuery: string | null;
 }
