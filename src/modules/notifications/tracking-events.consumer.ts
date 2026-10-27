@@ -1,7 +1,6 @@
 import Redis from 'ioredis';
 import { hostname } from 'os';
 import { stopPlaceKindOf } from './halt-exclusions';
-import { NotificationTriggers } from './notification-triggers';
 import {
   VEHICLE_HALT_ALERT_STEPS,
   TRACKING_EVENT_SEEN_TTL_SECONDS,
@@ -11,8 +10,14 @@ import {
   TRACKING_EVENTS_ERROR_BACKOFF_MS,
   TRACKING_EVENTS_MAX_ATTEMPTS,
 } from './notifications.constants';
-import type { GeofenceTransitionNotice } from '../geofences/utils/geofence.interface';
-import { TrackingEvent, TrackingEventHandlers } from './notifications.interface';
+import {
+  NotificationTriggers,
+  TrackingEvent,
+  TrackingEventHandlerDeps,
+  TrackingEventHandlers,
+  TrackingEventsConsumer,
+  TrackingStreamEntry,
+} from './notifications.interface';
 import { TrackingEventType } from './notifications.types';
 
 /**
@@ -38,13 +43,7 @@ export const TRACKING_EVENTS_CONSUMER_GROUP = 'loadsmart-backend';
  *  "Send alerts to". */
 export function createTrackingEventHandlers(
   triggers: NotificationTriggers,
-  deps: {
-    markArrivedAtPickup(tenantId: string, loadId: string, at: Date): Promise<boolean>;
-    markDepartedPickup(tenantId: string, loadId: string, at: Date): Promise<boolean>;
-    markReachedDeliveryPoint(tenantId: string, loadId: string, at: Date): Promise<boolean>;
-    markDepartedDrop(tenantId: string, loadId: string, at: Date): Promise<boolean>;
-    notifyGeofenceTransition(notice: GeofenceTransitionNotice): Promise<void>;
-  },
+  deps: TrackingEventHandlerDeps,
 ): TrackingEventHandlers {
   const geofenceTransition =
     (event: 'enter' | 'exit') =>
@@ -259,9 +258,7 @@ function occurredAtOf(event: TrackingEvent): Date {
 const stringOf = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value.trim() : null;
 
-type StreamEntry = [id: string, fields: string[]];
-
-function parseEntry([streamId, fields]: StreamEntry): TrackingEvent {
+function parseEntry([streamId, fields]: TrackingStreamEntry): TrackingEvent {
   const map: Record<string, string> = {};
   for (let i = 0; i + 1 < fields.length; i += 2) map[fields[i]] = fields[i + 1];
   let payload: Record<string, unknown> = {};
@@ -284,7 +281,7 @@ function parseEntry([streamId, fields]: StreamEntry): TrackingEvent {
 export function startTrackingEventsConsumer(
   redisUrl: string,
   handlers: TrackingEventHandlers,
-): { close(): Promise<void> } {
+): TrackingEventsConsumer {
   // Its own connection: XREADGROUP BLOCK holds it while waiting.
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const consumer = `${hostname()}-${process.pid}`;
@@ -306,7 +303,7 @@ export function startTrackingEventsConsumer(
     }
   };
 
-  const handle = async (entry: StreamEntry) => {
+  const handle = async (entry: TrackingStreamEntry) => {
     const event = parseEntry(entry);
     const seenKey = `tracking-event:seen:${event.eventId}`;
     const handler = handlers[event.type as TrackingEventType];
@@ -349,7 +346,7 @@ export function startTrackingEventsConsumer(
           '0-0',
           'COUNT',
           TRACKING_EVENTS_BATCH_SIZE,
-        )) as [string, StreamEntry[]];
+        )) as [string, TrackingStreamEntry[]];
         for (const entry of claimed ?? []) await handle(entry);
 
         const result = (await redis.xreadgroup(
@@ -363,7 +360,7 @@ export function startTrackingEventsConsumer(
           'STREAMS',
           TRACKING_EVENTS_STREAM,
           '>',
-        )) as [string, StreamEntry[]][] | null;
+        )) as [string, TrackingStreamEntry[]][] | null;
         for (const [, entries] of result ?? []) {
           for (const entry of entries) await handle(entry);
         }

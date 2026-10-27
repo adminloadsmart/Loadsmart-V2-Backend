@@ -1,32 +1,6 @@
 import { LoadEntity } from '../entities/load.entity';
 import { resolveLoadOrigin } from '../utils/load-origin';
-
-/** What the shipper adds when making the e-LR — the rest fills in from the load. */
-export interface ElrInput {
-  packages: number;
-  sealNumber?: string;
-  /** Freight stays hidden on the LR unless the shipper ticks this. */
-  showFreight?: boolean;
-  /** Own fleet may type the invoice instead of uploading it. */
-  invoiceNumber?: string;
-  /** YYYY-MM-DD. */
-  invoiceDate?: string;
-  invoiceValue?: number;
-}
-
-export interface ElrRow {
-  label: string;
-  value: string;
-}
-
-export interface ElrContent {
-  title: string;
-  /** "LR number" unless set — the renderer also prints Loadsmart's invoices. */
-  numberLabel?: string;
-  elrNumber: string;
-  date: string;
-  sections: { heading: string; rows: ElrRow[] }[];
-}
+import { ElrInput, ElrContent } from '../utils/elr.interface';
 
 const dash = (value: string | number | null | undefined) =>
   value === null || value === undefined || value === '' ? '—' : String(value);

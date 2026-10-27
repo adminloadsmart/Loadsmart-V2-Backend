@@ -1,4 +1,3 @@
-import { NotificationTriggers } from './notification-triggers';
 import type { TrackingClient } from '../../adapters/tracking.client';
 import type { AssignmentCompliance, AssignmentTarget } from '../loads/utils/load.interface';
 import {
@@ -34,7 +33,7 @@ import {
   VehicleReachedDropContext,
   VehicleReachedPickupContext,
 } from './catalog/notification-catalog';
-import { findHaltExclusion, HaltGeofences } from './halt-exclusions';
+import { findHaltExclusion } from './halt-exclusions';
 import { LoadAlertRepository } from './load-alert.repository';
 import { licenceMismatchOf } from './licence-check';
 import {
@@ -47,7 +46,13 @@ import {
   MS_PER_MINUTE,
   VEHICLE_HALT_SAME_SPOT_M,
 } from './notifications.constants';
-import { LoadAlertSnapshot, LoadEventNotifier } from './notifications.interface';
+import {
+  HaltGeofences,
+  LoadAlertSnapshot,
+  LoadEventNotifier,
+  NotificationTriggers,
+  ShortageOrDamageSummary,
+} from './notifications.interface';
 import {
   distanceKmBetween,
   distanceMetresBetween,
@@ -242,11 +247,7 @@ function balanceAmountOf(snapshot: LoadAlertSnapshot): string | null {
 
 /** LS_N_0034 — what the E-POD recorded against the lorry receipt: a shortage (and how much, when
  *  it says), damage or wet cargo. */
-function shortageOrDamageOf(snapshot: LoadAlertSnapshot): {
-  shortage: boolean;
-  shortTonnes: string | null;
-  damaged: boolean;
-} {
+function shortageOrDamageOf(snapshot: LoadAlertSnapshot): ShortageOrDamageSummary {
   const tonnesShort = Number(snapshot.numberOfTonnesShort ?? 0);
   const status = snapshot.shortageOrDamage;
   return {

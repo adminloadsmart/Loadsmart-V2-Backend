@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  createHaltGeofences,
-  findHaltExclusion,
-  HaltGeofence,
-  HaltGeofences,
-  stopPlaceKindOf,
-  TripEnd,
-} from './halt-exclusions';
+import { createHaltGeofences, findHaltExclusion, stopPlaceKindOf } from './halt-exclusions';
 import type { GeofenceEntity } from '../geofences/entities/geofence.entity';
+import { HaltGeofence, HaltGeofences, TripEnd } from './notifications.interface';
 
 // ~111 m per 0.001° of latitude.
 const ANCHOR = { lat: 22.7196, lng: 75.8577 };

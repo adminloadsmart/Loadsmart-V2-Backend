@@ -1,4 +1,4 @@
-import { MasterApprovalNotifier } from '../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { CustomerRepository } from './customer.repository';

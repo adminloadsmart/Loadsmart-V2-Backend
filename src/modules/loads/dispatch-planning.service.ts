@@ -14,7 +14,6 @@ import { CodeSequenceRepository } from './code-sequence.repository';
 import { LoadActivityService } from './load-activity.service';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
-import { LoadStatus } from './utils/loads.types';
 import { computeFitVerdict, FitResult } from './utils/fit-engine';
 import { formatLoadCode } from './utils/code.util';
 import {
@@ -34,7 +33,11 @@ import {
   assignmentBlockedError,
   assignmentBlockedEvent,
 } from './assignment-compliance.service';
-import { AssignmentCompliance, AssignmentComplianceFailure } from './utils/load.interface';
+import {
+  AssignmentCompliance,
+  AssignmentComplianceFailure,
+  LoadStageHook,
+} from './utils/load.interface';
 
 const MIN_OVERRIDE_REASON_LENGTH = 15; // V-17
 
@@ -78,7 +81,7 @@ export class DispatchPlanningService {
     private readonly onLoadEvent?: LoadEventNotifier,
     /** Own-fleet loads are born at Truck assigned — the stage hooks (tracking source, alerts)
      *  run for them after commit. */
-    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
+    private readonly onStageEntered?: LoadStageHook,
   ) {}
 
   /**

@@ -11,6 +11,13 @@ import {
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
+import type { AuditAction } from '../../audit/audit.types';
+import type { UpdateLoadData } from '../load.repository';
+import type { LoadEntity } from '../entities/load.entity';
+
+/** Runs after a load enters a stage (LoadStageService.transition) — e.g. queue the no-tracking
+ *  alerts, or open a Loadsmart claim. */
+export type LoadStageHook = (load: LoadEntity, to: LoadStatus) => Promise<void>;
 
 /** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
  *  endpoint (Plan Dispatch v2.0 R-16). `freightValue` is optional: defaults to the load's
@@ -131,4 +138,43 @@ export interface AssignmentCompliance {
   vehicleChecked: boolean;
   driverChecked: boolean;
   failure: AssignmentComplianceFailure | null;
+}
+
+export interface StageTransitionInput {
+  tenantId: string;
+  loadId: string;
+  to: LoadStatus;
+  /** Null for a system move (live tracking) — no user made it. */
+  actorId: string | null;
+  /** Set when the driver app made the move — audit_logs.user_id has an FK to auth.users that a
+   *  masters.drivers id would violate, so the driver is carried in newData instead. */
+  driverOwnerId?: string;
+  /** Extra columns written in the same UPDATE as the status. */
+  fields?: UpdateLoadData;
+  /** Already-read row, to skip a re-read; its status is the expected `from`. */
+  load?: LoadEntity;
+  auditAction?: AuditAction;
+  metadata?: Record<string, unknown>;
+}
+
+/** The load fields its stepper path depends on (load-stages.ts's stagePathFor). */
+export interface StagePathLoad {
+  sourceType: LoadSourceType;
+  status: LoadStatus;
+  deliveryIssueSettledAt: Date | null;
+}
+
+/** The load fields a stage's business preconditions read (load-stages.ts's stageGateError). */
+export interface StageGateLoad {
+  sourceType: LoadSourceType;
+  memoAcceptedAt: Date | null;
+  lsPapersApprovedAt?: Date | null;
+  podStatus?: string | null;
+}
+
+/** What a truck can be tracked with (tracking-source.ts's initialTrackingSource). */
+export interface TruckTrackingCapabilities {
+  hasGps: boolean;
+  hasDriverApp: boolean;
+  hasVehicleNumber: boolean;
 }

@@ -1,4 +1,4 @@
-import { MasterApprovalNotifier } from '../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { DataSource } from 'typeorm';
 import { createDriverAuth } from '../../shared/middleware/driver-auth.middleware';
 import { DriverRepository } from './driver.repository';

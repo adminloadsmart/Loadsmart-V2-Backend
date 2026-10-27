@@ -2,14 +2,7 @@ import { rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { DEFAULT_LATE_DELIVERY_THRESHOLD_MINUTES } from './organization.constants';
 import { OrganizationService } from './organization.service';
-
-export interface LateDeliverySetting {
-  /** The limit in force — the company's own, else the default. */
-  thresholdMinutes: number;
-  /** True when the company never set one (or reset it). */
-  isDefault: boolean;
-  defaultThresholdMinutes: number;
-}
+import { LateDeliverySetting } from './organization.types';
 
 /**
  * Company-level settings the org admin owns (Settings). Today: LS_N_0030's "late by more than"

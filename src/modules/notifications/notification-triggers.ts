@@ -1,6 +1,10 @@
 import { JobQueue } from '../../jobs/queue-registry';
 import { NOTIFICATION_CATALOG } from './catalog/notification-catalog';
-import { NotificationTypeDefinition } from './catalog/notification-catalog.types';
+import {
+  NotificationTriggerPayload,
+  NotificationTriggerOptions,
+  NotificationTriggers,
+} from './notifications.interface';
 
 /**
  * Queue-backed entry point for event-driven notifications (e.g. LS_N_0001 "account approved",
@@ -16,51 +20,8 @@ import { NotificationTypeDefinition } from './catalog/notification-catalog.types
  */
 export const NOTIFICATION_TRIGGERS_QUEUE = 'notification-triggers';
 
-type Catalog = typeof NOTIFICATION_CATALOG;
-export type NotificationTypeKey = keyof Catalog & string;
-export type NotificationContextOf<K extends NotificationTypeKey> =
-  Catalog[K] extends NotificationTypeDefinition<infer TContext> ? TContext : never;
-
-export interface NotificationTriggerPayload {
-  type: NotificationTypeKey;
-  tenantId: string;
-  context: unknown;
-  /** Set on the one reminder job scheduled for a type with `reminderAfterMs`. */
-  isReminder?: boolean;
-}
-
-/** Per-type "is this still worth sending?" checks, run by the trigger worker right before each
- *  send (initial and reminder) — e.g. LS_N_0003 only while the document is still invalid. A type
- *  without one is always sent. Supplied by composition-root.ts, since the checks read other
- *  modules' state. */
-export type NotificationRelevanceChecks = {
-  [K in NotificationTypeKey]?: (
-    tenantId: string,
-    context: NotificationContextOf<K>,
-  ) => Promise<boolean>;
-};
-
-/** Per-type hook that finalises the context right before sending — e.g. LS_N_0006 turns
- *  "capabilities before the change" into the actual added/removed lists. Returning null means
- *  there's nothing worth sending (e.g. the changes cancelled out). Supplied by
- *  composition-root.ts, like relevance checks. */
-export type NotificationContextResolvers = {
-  [K in NotificationTypeKey]?: (
-    tenantId: string,
-    context: NotificationContextOf<K>,
-  ) => Promise<NotificationContextOf<K> | null>;
-};
-
-interface TriggerOptions {
-  frequency?: 'always' | 'once_per_tenant';
-  dedupeKey?: (context: unknown) => string;
-  reminderAfterMs?: number;
-  debounceMs?: number;
-  delayMs?: number;
-}
-
-export function triggerOptionsOf(type: string): TriggerOptions | undefined {
-  return (NOTIFICATION_CATALOG as Record<string, TriggerOptions>)[type];
+export function triggerOptionsOf(type: string): NotificationTriggerOptions | undefined {
+  return (NOTIFICATION_CATALOG as Record<string, NotificationTriggerOptions>)[type];
 }
 
 /** Key identifying one occurrence of the event — tenant for once_per_tenant, else the type's own
@@ -78,16 +39,6 @@ export function occurrenceKey(
 // BullMQ deduplication ids — '__'-separated, never ':' (BullMQ rejects ':' in job ids).
 export const triggerDedupeId = (type: string, key: string) => `${type}__${key}`;
 export const reminderDedupeId = (type: string, key: string) => `${type}__reminder__${key}`;
-
-export interface NotificationTriggers {
-  enqueue<K extends NotificationTypeKey>(
-    type: K,
-    tenantId: string,
-    context: NotificationContextOf<K>,
-    /** Send this long from now instead of immediately (needs an occurrence key — dedupeKey). */
-    options?: { delayMs?: number },
-  ): Promise<void>;
-}
 
 export function createNotificationTriggers(queue: JobQueue): NotificationTriggers {
   return {

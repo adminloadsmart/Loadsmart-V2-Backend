@@ -9,6 +9,12 @@ import {
 
 export type GeofenceParams = { geofenceId: string };
 
+/** A point as the geofence tests and distance helpers take it (GeoPoint is the stored form). */
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
 export interface GeofenceRecipientInput {
   userId: string;
   channels: GeofenceAlertChannel[];

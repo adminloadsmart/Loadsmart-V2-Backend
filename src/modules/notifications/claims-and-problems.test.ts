@@ -8,9 +8,9 @@ import {
 } from './catalog/notification-catalog';
 import type { LoadAlertRepository } from './load-alert.repository';
 import { createLoadAlertResolvers } from './load-alerts';
-import type { NotificationTriggers } from './notification-triggers';
 import type { LoadAlertSnapshot } from './notifications.interface';
 import { createTripTimingChecks } from './trip-timing';
+import { NotificationTriggers } from './notifications.interface';
 
 const DAY = 24 * 60 * 60 * 1000;
 const recipient = { userId: 'user-1', fullName: 'Asha Verma' };

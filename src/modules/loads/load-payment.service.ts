@@ -8,7 +8,11 @@ import { LoadActivityService } from './load-activity.service';
 import { LoadStageService } from './load-stage.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
-import { RecordAdvanceInput, RecordBalanceInput } from './utils/load-payment.interface';
+import {
+  RecordAdvanceInput,
+  RecordBalanceInput,
+  LoadsmartBilling,
+} from './utils/load-payment.interface';
 
 export function computeShareAmount(load: LoadEntity, percentage: string): string {
   const pct = Number(percentage) / 100;
@@ -16,11 +20,6 @@ export function computeShareAmount(load: LoadEntity, percentage: string): string
   const base =
     load.freightType === 'flat' ? freightValue : freightValue * Number(load.plannedCapacityTonnes);
   return (base * pct).toFixed(2);
-}
-
-/** Loadsmart's invoice lookup — set by the Loadsmart ops module, which owns the invoices. */
-export interface LoadsmartBilling {
-  balanceDueOf(tenantId: string, loadId: string): Promise<string | null>;
 }
 
 export class LoadPaymentService {

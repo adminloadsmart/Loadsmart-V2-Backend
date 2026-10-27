@@ -1,13 +1,15 @@
-import type { LoadIssueCategory } from '../loads/utils/loads.types';
 import { LoadIssueReportEntity } from '../loads/entities/load-issue-report.entity';
-import { NotificationTriggers } from './notification-triggers';
 import {
   BreakdownReportedContext,
   DriverProblemReportedContext,
 } from './catalog/notification-catalog';
 import { DRIVER_PROBLEM_ALERT_CATEGORIES, INDIA_TIME_ZONE } from './notifications.constants';
 import { LoadAlertRepository } from './load-alert.repository';
-import { LoadAlertSnapshot } from './notifications.interface';
+import {
+  IssueReportedNotifier,
+  IssueWithLoad,
+  NotificationTriggers,
+} from './notifications.interface';
 
 /**
  * A driver's "Report an issue" from the driver app. LoadService.reportIssue calls the notifier
@@ -18,13 +20,6 @@ import { LoadAlertSnapshot } from './notifications.interface';
  *   other) → LS_N_0037 "driver reported a problem";
  * - anything else (traffic jam, rest stop) is routine — on the load's timeline only.
  */
-export type IssueReportedNotifier = (event: {
-  tenantId: string;
-  loadId: string;
-  issueId: string;
-  category: LoadIssueCategory;
-}) => Promise<void>;
-
 export function createIssueReportedNotifier(triggers: NotificationTriggers): IssueReportedNotifier {
   return async ({ tenantId, loadId, issueId, category }) => {
     try {
@@ -53,7 +48,7 @@ async function findIssueWithLoad(
   loadAlertRepository: LoadAlertRepository,
   tenantId: string,
   issueId: string,
-): Promise<{ issue: LoadIssueReportEntity; load: LoadAlertSnapshot } | undefined> {
+): Promise<IssueWithLoad | undefined> {
   const issue = await loadAlertRepository.findIssueReport(tenantId, issueId);
   if (!issue) return undefined;
   const load = await loadAlertRepository.findSnapshot(tenantId, issue.loadId);

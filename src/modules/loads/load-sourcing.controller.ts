@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
-import { LoadBidService, RecordBidInput } from './bids/load-bid.service';
-import { AcceptMemoInput, LoadMemoService, NameDriverInput } from './memo/load-memo.service';
+import { LoadBidService } from './bids/load-bid.service';
+import { LoadMemoService } from './memo/load-memo.service';
 import { LoadParams } from './utils/load.interface';
-
-type BidParams = LoadParams & { bidId: string };
+import { RecordBidInput, LoadBidParams } from './utils/load-bid.interface';
+import { AcceptMemoInput, NameDriverInput } from './utils/load-memo.interface';
 
 /** Bids, indent acceptance, driver and load memo — Sourcing (stages 1–3) for market and indent. */
 export class LoadSourcingController {
@@ -28,7 +28,7 @@ export class LoadSourcingController {
     respond(res, bid, 201);
   };
 
-  setBidTruck = async (req: Request<BidParams>, res: Response) => {
+  setBidTruck = async (req: Request<LoadBidParams>, res: Response) => {
     const bid = await this.bidService.setBidTruck(
       requireTenantId(req),
       req.user!.id,
@@ -39,7 +39,7 @@ export class LoadSourcingController {
     respond(res, bid);
   };
 
-  acceptBid = async (req: Request<BidParams>, res: Response) => {
+  acceptBid = async (req: Request<LoadBidParams>, res: Response) => {
     const load = await this.bidService.acceptBid(
       requireTenantId(req),
       req.user!.id,

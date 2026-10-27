@@ -30,7 +30,7 @@ import { TruckTypeService } from '../truck-type/truck-type.service';
 import { FleetDriverLinkService } from '../fleet-driver-link/fleet-driver-link.service';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
 import { Paginated, paginate } from '../../../shared/utils/pagination';
-import { MasterApprovalNotifier } from '../../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../../notifications/notifications.interface';
 import {
   AddVehicleDocumentInput,
   CreateVehicleInput,

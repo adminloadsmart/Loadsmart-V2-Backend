@@ -1,12 +1,20 @@
 import { DEFAULT_GEOFENCE_RADIUS_M } from '../../shared/constants/location-source';
 import type { GeofenceRepository } from '../geofences/geofence.repository';
-import { GeofenceArea, geofenceContains } from '../geofences/utils/geofence.geo';
+import { geofenceContains } from '../geofences/utils/geofence.geo';
 import {
   GeofenceType,
   HALT_EXPECTED_GEOFENCE_TYPES,
   HaltExpectedGeofenceType,
 } from '../geofences/utils/geofence.types';
+import { LatLng } from '../geofences/utils/geofence.interface';
 import { distanceMetresBetween } from './utils/trip-time';
+import {
+  HaltExclusion,
+  HaltExclusionInput,
+  HaltGeofence,
+  HaltGeofences,
+  TripEnd,
+} from './notifications.interface';
 
 /**
  * LS_N_0027 (vehicle halted) — the places where a long halt is expected and so not alerted: the
@@ -20,7 +28,6 @@ import { distanceMetresBetween } from './utils/trip-time';
  * types (yard, fuel pump, no-go area) never excuse a halt. Tracking may also tag the halt itself
  * (`stopPlaceKind` on its HALT-GPS alert), which is honoured as-is.
  */
-export type HaltExclusionKind = 'origin' | 'destination' | HaltExpectedGeofenceType;
 
 /** The geofence types the halt check reads. */
 export const HALT_CHECK_GEOFENCE_TYPES: readonly GeofenceType[] = [
@@ -28,19 +35,6 @@ export const HALT_CHECK_GEOFENCE_TYPES: readonly GeofenceType[] = [
   'unloading_point',
   ...HALT_EXPECTED_GEOFENCE_TYPES,
 ];
-
-/** One active geofence as the halt check sees it. */
-export interface HaltGeofence extends GeofenceArea {
-  type: GeofenceType;
-  name: string;
-  loadingPointId: string | null;
-  customerDeliveryPointId: string | null;
-}
-
-/** The tenant's active HALT_CHECK_GEOFENCE_TYPES geofences. */
-export interface HaltGeofences {
-  list(tenantId: string): Promise<HaltGeofence[]>;
-}
 
 export function createHaltGeofences(
   repository: Pick<GeofenceRepository, 'listActiveByTypes'>,
@@ -63,20 +57,6 @@ export function createHaltGeofences(
   };
 }
 
-interface Point {
-  lat: number;
-  lng: number;
-}
-
-/** A trip end: its master point id(s) — what a geofence links to — and the master pin. */
-export interface TripEnd {
-  loadingPointId: string | null;
-  customerDeliveryPointId: string | null;
-  /** The master point's pin and geofence radius (null = default) — used only when no geofence
-   *  is linked to the point. */
-  pin: (Point & { radiusM: number | null }) | null;
-}
-
 /** `stopPlaceKind` as tracking may send it on a HALT-GPS alert — anything else is ignored. */
 export function stopPlaceKindOf(value: unknown): HaltExpectedGeofenceType | null {
   return typeof value === 'string' &&
@@ -86,7 +66,7 @@ export function stopPlaceKindOf(value: unknown): HaltExpectedGeofenceType | null
 }
 
 /** Inside the trip end: its linked geofence(s) when it has any, else the master pin + radius. */
-function insideTripEnd(anchor: Point, end: TripEnd | null, linked: HaltGeofence[]): boolean {
+function insideTripEnd(anchor: LatLng, end: TripEnd | null, linked: HaltGeofence[]): boolean {
   if (!end) return false;
   if (linked.length > 0) return linked.some((geofence) => geofenceContains(geofence, anchor));
   return (
@@ -96,40 +76,34 @@ function insideTripEnd(anchor: Point, end: TripEnd | null, linked: HaltGeofence[
 }
 
 /** Why this halt is expected, or null when it isn't (and may be alerted). */
-export async function findHaltExclusion(input: {
-  tenantId: string;
-  anchor: Point;
-  origin: TripEnd | null;
-  destination: TripEnd | null;
-  trackingStopPlaceKind: HaltExpectedGeofenceType | null;
-  geofences: HaltGeofences;
-}): Promise<{ kind: HaltExclusionKind; name: string | null } | null> {
+export async function findHaltExclusion(input: HaltExclusionInput): Promise<HaltExclusion | null> {
   if (input.trackingStopPlaceKind) return { kind: input.trackingStopPlaceKind, name: null };
   const { anchor, origin, destination } = input;
   const geofences = await input.geofences.list(input.tenantId);
 
   const originGeofences = geofences.filter(
-    (g) =>
-      g.type === 'loading_point' &&
+    (geofence) =>
+      geofence.type === 'loading_point' &&
       origin?.loadingPointId != null &&
-      g.loadingPointId === origin.loadingPointId,
+      geofence.loadingPointId === origin.loadingPointId,
   );
   if (insideTripEnd(anchor, origin, originGeofences)) return { kind: 'origin', name: null };
 
   const destinationGeofences = geofences.filter(
-    (g) =>
-      g.type === 'unloading_point' &&
+    (geofence) =>
+      geofence.type === 'unloading_point' &&
       ((destination?.customerDeliveryPointId != null &&
-        g.customerDeliveryPointId === destination.customerDeliveryPointId) ||
-        (destination?.loadingPointId != null && g.loadingPointId === destination.loadingPointId)),
+        geofence.customerDeliveryPointId === destination.customerDeliveryPointId) ||
+        (destination?.loadingPointId != null &&
+          geofence.loadingPointId === destination.loadingPointId)),
   );
   if (insideTripEnd(anchor, destination, destinationGeofences))
     return { kind: 'destination', name: null };
 
   const stop = geofences.find(
-    (g) =>
-      (HALT_EXPECTED_GEOFENCE_TYPES as readonly string[]).includes(g.type) &&
-      geofenceContains(g, anchor),
+    (geofence) =>
+      (HALT_EXPECTED_GEOFENCE_TYPES as readonly string[]).includes(geofence.type) &&
+      geofenceContains(geofence, anchor),
   );
   return stop ? { kind: stop.type as HaltExpectedGeofenceType, name: stop.name } : null;
 }

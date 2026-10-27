@@ -21,7 +21,6 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
 import { StorageService } from '../storage/storage.service';
-import { NotificationTriggers } from '../notifications/notification-triggers';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
@@ -45,6 +44,7 @@ import {
   VerifyOrganizationDocumentInput,
 } from './utils/admin.interface';
 import { CreateStaffInput, UpdateStaffInput } from '../auth/auth.types';
+import { NotificationTriggers } from '../notifications/notifications.interface';
 
 export class AdminService {
   constructor(

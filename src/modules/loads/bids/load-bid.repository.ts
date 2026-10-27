@@ -3,22 +3,7 @@ import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity
 import { LoadPostingEntity } from '../load-posting/entities/load-posting.entity';
 import { LoadRecipientEntity } from '../load-posting/entities/load-recipient.entity';
 import { LoadBidEntity } from './load-bid.entity';
-
-export type CreateLoadBidData = Pick<
-  LoadBidEntity,
-  | 'tenantId'
-  | 'loadId'
-  | 'recipientId'
-  | 'source'
-  | 'lsPartnerBidId'
-  | 'transporterId'
-  | 'rate'
-  | 'vehicleNumber'
-  | 'channel'
-  | 'expiresAt'
-  | 'enteredBy'
-  | 'entryReason'
->;
+import { CreateLoadBidData } from '../utils/load-bid.interface';
 
 export class LoadBidRepository {
   private readonly bids: Repository<LoadBidEntity>;

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NOTIFICATION_CATALOG } from './catalog/notification-catalog';
 import type { NotificationRecipient } from './catalog/notification-catalog.types';
-import type { NotificationTriggers } from './notification-triggers';
 import type { TrackingEvent } from './notifications.interface';
 import { createTrackingEventHandlers } from './tracking-events.consumer';
+import { NotificationTriggers } from './notifications.interface';
 
 const AT = '2026-10-19T10:15:00.000Z';
 const recipient = { fullName: 'Priya Sharma' } as NotificationRecipient;

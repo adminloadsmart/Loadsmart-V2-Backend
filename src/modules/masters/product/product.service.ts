@@ -12,7 +12,7 @@ import {
 import { ProductEntity } from './entities/product.entity';
 import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../../shared/utils/csv';
 import { CreateProductInput, ListProductsInput, UpdateProductInput } from './product.interface';
-import { MasterApprovalNotifier } from '../../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../../notifications/notifications.interface';
 import { paginate } from '../../../shared/utils/pagination';
 
 const MOVED_WINDOW_MONTHS = 6;

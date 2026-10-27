@@ -1,4 +1,13 @@
-import { DataSource, In, IsNull, MoreThan, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import {
+  DataSource,
+  In,
+  IsNull,
+  MoreThan,
+  MoreThanOrEqual,
+  Not,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { RequisitionEntity } from '../loads/entities/requisition.entity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
@@ -10,9 +19,9 @@ import { DriverVerificationEntity } from '../driver/entities/driver-verification
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
 import { ProductEntity } from '../masters/product/entities/product.entity';
 import { LoadIssueReportEntity } from '../loads/entities/load-issue-report.entity';
+import { LoadActivityEntity } from '../loads/entities/load-activity.entity';
 import {
   DELIVERED_LOAD_STATUSES,
-  UNLOADED_LOAD_STATUSES,
   LoadStatus,
   PodStatus,
   UPCOMING_LOAD_STATUSES,
@@ -24,21 +33,32 @@ import {
   DEFAULT_CLAIM_WINDOW_DAYS,
   DEFAULT_REPORTING_TIME_IST,
   INDIA_TIME_ZONE,
+  TRIP_FINISHED_LOAD_STATUSES,
 } from './notifications.constants';
 import {
+  DetentionCandidate,
+  AssignedLoadDue,
+  DestinationCoordinates,
   DetentionTerms,
   LicenceCheckRow,
   LoadAlertSnapshot,
   LoadPersonRef,
+  LoadRef,
   NextPlannedTrip,
+  OriginCoordinates,
+  PodPendingLoad,
+  RawAssignedLoadDueRow,
+  RawDetentionRow,
+  RawPodPendingRow,
   RequisitionAlertSummary,
+  TrackedArrival,
 } from './notifications.interface';
 
 /** Numeric coordinates, or both null when either is missing. */
 function coordinatesOf(
   lat: string | number | null | undefined,
   lng: string | number | null | undefined,
-): { originLat: number | null; originLng: number | null } {
+): OriginCoordinates {
   const latitude = lat == null ? NaN : Number(lat);
   const longitude = lng == null ? NaN : Number(lng);
   return Number.isFinite(latitude) && Number.isFinite(longitude)
@@ -49,7 +69,7 @@ function coordinatesOf(
 function destinationCoordinatesOf(
   lat: string | number | null | undefined,
   lng: string | number | null | undefined,
-): { destinationLat: number | null; destinationLng: number | null } {
+): DestinationCoordinates {
   const { originLat, originLng } = coordinatesOf(lat, lng);
   return { destinationLat: originLat, destinationLng: originLng };
 }
@@ -57,9 +77,6 @@ function destinationCoordinatesOf(
 function routeOf(originCity: string | null, destinationCity: string | null): string | null {
   return originCity && destinationCity ? `${originCity} to ${destinationCity}` : null;
 }
-
-/** A tracking-driven arrival: at the loading point or the unloading (delivery) point. */
-export type TrackedArrival = 'reached_loading' | 'reached_unloading';
 
 /** The same arrival under the status names before the 13-stage lifecycle — the
  *  LoadLifecycleStages migration renames loads.status but not the activity history, so a trip
@@ -69,17 +86,6 @@ const PRE_LIFECYCLE_ARRIVAL: Record<TrackedArrival, string> = {
   reached_unloading: 'reached_delivery_point',
 };
 
-/** The load (aliased `load`) reached `arrival` through tracking's geofence — LoadService's
- *  advanceFromTracking records that step with `source: 'tracking'`; a manual tap has none. */
-const arrivedByTrackingSql = (arrival: TrackedArrival) => `EXISTS (
-  SELECT 1 FROM loads.load_activities activity
-  WHERE activity.tenant_id = load.tenant_id
-    AND activity.load_id = load.id
-    AND activity.action = 'STATUS_CHANGED'
-    AND activity.to_value IN ('${arrival}', '${PRE_LIFECYCLE_ARRIVAL[arrival]}')
-    AND activity.metadata->>'source' = 'tracking'
-)`;
-
 /** Only if the organization row is missing — the real defaults are the columns' (migration
  *  AddDetentionTermsAndDropDeparture). */
 const DEFAULT_DETENTION_TERMS: DetentionTerms = {
@@ -88,28 +94,12 @@ const DEFAULT_DETENTION_TERMS: DetentionTerms = {
   ratePerHour: 500,
 };
 
-interface RawDetentionRow {
-  loadId: string;
-  tenantId: string;
-  arrivedAt: Date | string;
-  freeHours: number | string;
-}
-
 const detentionCandidateOf = (row: RawDetentionRow): DetentionCandidate => ({
   loadId: row.loadId,
   tenantId: row.tenantId,
   arrivedAt: new Date(row.arrivedAt),
   freeHours: Number(row.freeHours),
 });
-
-/** A load in detention, as the trip-timing sweep needs it (LS_N_0023/0032). */
-export interface DetentionCandidate {
-  loadId: string;
-  tenantId: string;
-  /** When the vehicle reached the point — the clock's start. */
-  arrivedAt: Date;
-  freeHours: number;
-}
 
 /**
  * Read side of the loads data the load-event notifications need (load-alerts.ts) and the
@@ -357,11 +347,7 @@ export class LoadAlertRepository {
   /** LS_N_0034 — loads whose E-POD recorded a shortage or damage and whose claim-window reminder
    *  (`daysBefore` days before the company's window closes) fell due after `from` and on or
    *  before `to`. Companies whose window is no longer than `daysBefore` get no reminder. */
-  async findClaimReminderDueBetween(
-    from: Date,
-    to: Date,
-    daysBefore: number,
-  ): Promise<{ loadId: string; tenantId: string }[]> {
+  async findClaimReminderDueBetween(from: Date, to: Date, daysBefore: number): Promise<LoadRef[]> {
     const dueAt = `load.delivered_at + make_interval(days => org.claim_window_days - :daysBefore)`;
     return this.loads
       .createQueryBuilder('load')
@@ -370,7 +356,7 @@ export class LoadAlertRepository {
       .addSelect('load.tenant_id', 'tenantId')
       .where('load.status IN (:...deliveredStatuses)', {
         // The E-POD is in — delivered (either stage), a money stage after it, or closed.
-        deliveredStatuses: [...UNLOADED_LOAD_STATUSES, 'closed'],
+        deliveredStatuses: [...TRIP_FINISHED_LOAD_STATUSES],
       })
       .andWhere(
         '(load.number_of_tonnes_short > 0 OR load.shortage_or_damage IN (:...claimableStatuses))',
@@ -379,7 +365,7 @@ export class LoadAlertRepository {
       .andWhere('org.claim_window_days > :daysBefore', { daysBefore })
       .andWhere(`${dueAt} > :from`, { from })
       .andWhere(`${dueAt} <= :to`, { to })
-      .getRawMany();
+      .getRawMany<LoadRef>();
   }
 
   /** The company's detention terms — the database holds the defaults (4 h / 4 h / ₹500). */
@@ -464,30 +450,26 @@ export class LoadAlertRepository {
    *  whose reporting time is after `from` and on or before
    *  `to`. The reporting time is the posting's pickup time, else the requisition's pickup date at
    *  DEFAULT_REPORTING_TIME_IST — the same rule as reportingAtOf (utils/trip-time.ts). */
-  async findAssignedLoadsDueBetween(
-    from: Date,
-    to: Date,
-  ): Promise<{ loadId: string; tenantId: string; reportingAt: Date }[]> {
+  async findAssignedLoadsDueBetween(from: Date, to: Date): Promise<AssignedLoadDue[]> {
     const notAtPlant: LoadStatus[] = ['truck_assigned', 'in_transit_loading'];
     const reportingAt =
       'COALESCE(posting.pickup_at, ' +
       '(requisition.pickup_date + CAST(:defaultReportingTime AS time)) AT TIME ZONE :timeZone)';
-    const rows: { loadId: string; tenantId: string; reportingAt: Date | string }[] =
-      await this.loads
-        .createQueryBuilder('load')
-        .leftJoin('load.requisition', 'requisition')
-        .leftJoin(LoadPostingEntity, 'posting', 'posting.id = load.posting_id')
-        .select('load.id', 'loadId')
-        .addSelect('load.tenant_id', 'tenantId')
-        .addSelect(reportingAt, 'reportingAt')
-        .where('load.status IN (:...statuses)', { statuses: notAtPlant })
-        .andWhere(`${reportingAt} > :from`, { from })
-        .andWhere(`${reportingAt} <= :to`, { to })
-        .setParameters({
-          defaultReportingTime: DEFAULT_REPORTING_TIME_IST,
-          timeZone: INDIA_TIME_ZONE,
-        })
-        .getRawMany();
+    const rows = await this.loads
+      .createQueryBuilder('load')
+      .leftJoin('load.requisition', 'requisition')
+      .leftJoin(LoadPostingEntity, 'posting', 'posting.id = load.posting_id')
+      .select('load.id', 'loadId')
+      .addSelect('load.tenant_id', 'tenantId')
+      .addSelect(reportingAt, 'reportingAt')
+      .where('load.status IN (:...statuses)', { statuses: notAtPlant })
+      .andWhere(`${reportingAt} > :from`, { from })
+      .andWhere(`${reportingAt} <= :to`, { to })
+      .setParameters({
+        defaultReportingTime: DEFAULT_REPORTING_TIME_IST,
+        timeZone: INDIA_TIME_ZONE,
+      })
+      .getRawMany<RawAssignedLoadDueRow>();
     return rows.map((row) => ({ ...row, reportingAt: new Date(row.reportingAt) }));
   }
 
@@ -497,18 +479,20 @@ export class LoadAlertRepository {
    *  arrival was tapped by hand has no exit to wait for, so its detention ends at loading
    *  confirmed. */
   async findLoadingDetentionCandidates(now: Date): Promise<DetentionCandidate[]> {
-    const rows: RawDetentionRow[] = await this.loads
+    const query = this.loads
       .createQueryBuilder('load')
       .innerJoin(OrganizationEntity, 'org', 'org.id = load.tenant_id')
       .select('load.id', 'loadId')
       .addSelect('load.tenant_id', 'tenantId')
       .addSelect('load.at_plant_at', 'arrivedAt')
       .addSelect('org.loading_free_hours', 'freeHours')
-      .where('load.at_plant_at + make_interval(hours => org.loading_free_hours) <= :now', { now })
-      .andWhere(
-        `(load.status = 'reached_loading' OR (load.status = 'loaded' AND ${arrivedByTrackingSql('reached_loading')}))`,
-      )
-      .getRawMany();
+      .where('load.at_plant_at + make_interval(hours => org.loading_free_hours) <= :now', { now });
+    const arrivedByTracking = this.arrivedByTrackingCondition(query, 'reached_loading');
+    query.andWhere(
+      `(load.status = :atLoading OR (load.status = :loaded AND ${arrivedByTracking}))`,
+      { atLoading: 'reached_loading', loaded: 'loaded' },
+    );
+    const rows = await query.getRawMany<RawDetentionRow>();
     return rows.map(detentionCandidateOf);
   }
 
@@ -523,7 +507,7 @@ export class LoadAlertRepository {
   ): Promise<DetentionCandidate[]> {
     const freeHours =
       'COALESCE(customer.free_hours_at_drop, posting_customer.free_hours_at_drop, org.unloading_free_hours)';
-    const rows: RawDetentionRow[] = await this.loads
+    const query = this.loads
       .createQueryBuilder('load')
       .innerJoin(OrganizationEntity, 'org', 'org.id = load.tenant_id')
       .leftJoin(RequisitionEntity, 'requisition', 'requisition.id = load.requisition_id')
@@ -537,27 +521,29 @@ export class LoadAlertRepository {
       .where(`load.reached_delivery_point_at + make_interval(hours => ${freeHours}) <= :now`, {
         now,
       })
-      .andWhere('load.departed_drop_at IS NULL')
-      .andWhere(
-        `(load.status = 'reached_unloading' OR (load.status IN (:...unloadedStatuses) AND load.delivered_at > :followSince AND ${arrivedByTrackingSql('reached_unloading')}))`,
-        { followSince, unloadedStatuses: [...UNLOADED_LOAD_STATUSES, 'closed'] },
-      )
-      .getRawMany();
+      .andWhere('load.departed_drop_at IS NULL');
+    const arrivedByTracking = this.arrivedByTrackingCondition(query, 'reached_unloading');
+    query.andWhere(
+      `(load.status = :atUnloading OR (load.status IN (:...unloadedStatuses) AND load.delivered_at > :followSince AND ${arrivedByTracking}))`,
+      {
+        atUnloading: 'reached_unloading',
+        followSince,
+        unloadedStatuses: [...TRIP_FINISHED_LOAD_STATUSES],
+      },
+    );
+    const rows = await query.getRawMany<RawDetentionRow>();
     return rows.map(detentionCandidateOf);
   }
 
   /** LS_N_0039 — loads still waiting on a POD whose wait started after `from` and on or before
    *  `to`: at the delivery point with no E-POD yet (since it got there), or delivered with the
    *  E-POD rejected and not re-uploaded (since the rejection). */
-  async findPodPendingBetween(
-    from: Date,
-    to: Date,
-  ): Promise<{ loadId: string; tenantId: string; since: Date }[]> {
+  async findPodPendingBetween(from: Date, to: Date): Promise<PodPendingLoad[]> {
     const atDrop: LoadStatus = 'reached_unloading';
     const rejected: PodStatus = 'rejected';
     const since =
       'CASE WHEN load.status = :atDrop THEN load.reached_delivery_point_at ELSE load.pod_reviewed_at END';
-    const rows: { loadId: string; tenantId: string; since: Date | string }[] = await this.loads
+    const rows = await this.loads
       .createQueryBuilder('load')
       .select('load.id', 'loadId')
       .addSelect('load.tenant_id', 'tenantId')
@@ -568,7 +554,7 @@ export class LoadAlertRepository {
       )
       .andWhere(`${since} > :from`, { from })
       .andWhere(`${since} <= :to`, { to })
-      .getRawMany();
+      .getRawMany<RawPodPendingRow>();
     return rows.map((row) => ({ ...row, since: new Date(row.since) }));
   }
 
@@ -578,12 +564,33 @@ export class LoadAlertRepository {
     loadId: string,
     arrival: TrackedArrival,
   ): Promise<boolean> {
-    return this.loads
+    const query = this.loads
       .createQueryBuilder('load')
       .where('load.tenant_id = :tenantId', { tenantId })
-      .andWhere('load.id = :loadId', { loadId })
-      .andWhere(arrivedByTrackingSql(arrival))
-      .getExists();
+      .andWhere('load.id = :loadId', { loadId });
+    return query.andWhere(this.arrivedByTrackingCondition(query, arrival)).getExists();
+  }
+
+  /** `EXISTS (…)` on `query`'s `load` alias: tracking's geofence (not a manual tap) moved the
+   *  load to `arrival` — LoadService's advanceFromTracking records that step with
+   *  `source: 'tracking'`. */
+  private arrivedByTrackingCondition(
+    query: SelectQueryBuilder<LoadEntity>,
+    arrival: TrackedArrival,
+  ): string {
+    const trackedStep = query
+      .subQuery()
+      .select('1')
+      .from(LoadActivityEntity, 'activity')
+      .where('activity.tenant_id = load.tenant_id')
+      .andWhere('activity.load_id = load.id')
+      .andWhere('activity.action = :statusChangedAction', { statusChangedAction: 'STATUS_CHANGED' })
+      .andWhere('activity.to_value IN (:...arrivalStatuses)', {
+        arrivalStatuses: [arrival, PRE_LIFECYCLE_ARRIVAL[arrival]],
+      })
+      .andWhere("activity.metadata->>'source' = :trackingSource", { trackingSource: 'tracking' })
+      .getQuery();
+    return `EXISTS ${trackedStep}`;
   }
 
   /** The earliest not-yet-started trip on a vehicle picking up on or after `fromDate`. */

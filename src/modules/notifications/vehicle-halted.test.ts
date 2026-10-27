@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TrackingClient, TripEta, TripPosition } from '../../adapters/tracking.client';
 import { NOTIFICATION_CATALOG, VehicleHaltedContext } from './catalog/notification-catalog';
-import type { HaltGeofence, HaltGeofences } from './halt-exclusions';
 import type { LoadAlertRepository } from './load-alert.repository';
 import { createLoadAlertResolvers } from './load-alerts';
-import type { NotificationTriggers } from './notification-triggers';
 import type { LoadAlertSnapshot, TrackingEvent } from './notifications.interface';
 import { createTrackingEventHandlers } from './tracking-events.consumer';
+import { NotificationTriggers, HaltGeofence, HaltGeofences } from './notifications.interface';
 
 const HOUR = 60 * 60 * 1000;
 const ANCHOR = { lat: 22.7196, lng: 75.8577 };

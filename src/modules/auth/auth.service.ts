@@ -79,8 +79,8 @@ import {
 } from '../../shared/constants/seat-screens';
 import { buildCsv, CSV_EXPORT_MAX_ROWS } from '../../shared/utils/csv';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
-import { NotificationTriggers } from '../notifications/notification-triggers';
 import { joinCapabilities } from '../notifications/capability-wording';
+import { NotificationTriggers } from '../notifications/notifications.interface';
 
 // Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
 type DeviceContext = {

@@ -40,8 +40,7 @@ import {
   ListLoadsInput,
   UploadPodInput,
 } from './utils/load.interface';
-import { IssueReportedNotifier } from '../notifications/breakdown-alerts';
-import { LoadEventNotifier } from '../notifications/notifications.interface';
+import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,

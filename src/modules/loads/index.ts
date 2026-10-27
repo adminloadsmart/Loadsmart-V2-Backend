@@ -24,12 +24,14 @@ import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
-import { IssueReportedNotifier } from '../notifications/breakdown-alerts';
-import { LoadEventNotifier } from '../notifications/notifications.interface';
+import {
+  LoadEventNotifier,
+  NotificationTriggers,
+  IssueReportedNotifier,
+} from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
 import { AssignmentComplianceService } from './assignment-compliance.service';
-import { LoadPostingHooks } from './load-posting/load-posting.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadStatus } from './utils/loads.types';
 import { LoadBidRepository } from './bids/load-bid.repository';
@@ -40,17 +42,16 @@ import { LoadSourcingController } from './load-sourcing.controller';
 import { createLoadSourcingRoutes } from './load-sourcing.routes';
 import { ElrService } from './elr/elr.service';
 import { createJobQueue } from '../../jobs/queue-registry';
-import { NotificationTriggers } from '../notifications/notification-triggers';
 import { LoadAlertScheduler, LOAD_REMINDERS_QUEUE } from './alerts/load-alert-scheduler';
 import { createTrackingSourceHook } from './tracking-source.hook';
-import { DriverTripNotifier } from './alerts/pod-reminder';
 import { createLoadRemindersWorker } from './workers/load-reminders.worker';
 import { LoadVerificationRepository } from './verification/load-verification.repository';
-import {
-  LoadVerificationService,
-  VehicleRegistryClient,
-} from './verification/load-verification.service';
+import { LoadVerificationService } from './verification/load-verification.service';
 import { DlVerificationClient } from '../../adapters/sarathi.client';
+import { DriverTripNotifier } from './utils/load-alert.interface';
+import { LoadStageHook } from './utils/load.interface';
+import { LoadPostingHooks } from './load-posting/utils/load-posting.interface';
+import { VehicleRegistryClient } from './utils/load-verification.interface';
 
 export function createLoadsModule(
   dataSource: DataSource,
@@ -115,7 +116,7 @@ export function createLoadsModule(
 
   // Everything that reacts to a stage move — the alert scheduler here, and the Loadsmart ops
   // module (built later, it pushes its own hook in composition-root.ts).
-  const stageHooks: ((load: LoadEntity, to: LoadStatus) => Promise<void>)[] = [
+  const stageHooks: LoadStageHook[] = [
     loadAlertScheduler.onStageEntered,
     // Saves loads.tracking_source when a truck is assigned.
     createTrackingSourceHook(dataSource, loadRepository),

@@ -3,9 +3,9 @@ import type { TrackingClient } from '../../adapters/tracking.client';
 import { NOTIFICATION_CATALOG } from './catalog/notification-catalog';
 import type { LoadAlertRepository } from './load-alert.repository';
 import { createLoadAlertResolvers, createLoadEventNotifier } from './load-alerts';
-import type { NotificationTriggers } from './notification-triggers';
 import type { LoadAlertSnapshot } from './notifications.interface';
 import { createTripTimingChecks } from './trip-timing';
+import { NotificationTriggers } from './notifications.interface';
 
 const HOUR = 60 * 60 * 1000;
 const recipient = { userId: 'user-1', fullName: 'Asha Verma' };

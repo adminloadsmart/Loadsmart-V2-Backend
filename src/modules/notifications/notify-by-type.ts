@@ -2,13 +2,16 @@ import { AuthRepository } from '../auth/auth.repository';
 import { AuthService } from '../auth/auth.service';
 import { UserEntity } from '../auth/entities/user.entity';
 import { NotificationsService } from './notifications.service';
-import { ChannelPreferenceFlags, NotificationDestinations } from './notifications.interface';
+import {
+  ChannelPreferenceFlags,
+  NotificationDestinations,
+  NotificationTriggers,
+} from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
 import { NotificationTypeDefinition } from './catalog/notification-catalog.types';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
 import { rethrow } from '../../shared/errors';
 import { redisManager } from '../../db/redis';
-import { NotificationTriggers } from './notification-triggers';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 import { QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
 import { getQuietHoursDelayMs } from './utils/quiet-hours';
@@ -101,8 +104,12 @@ async function notifyByTypeImpl(
             // LS_N_0048: compliance.manage + dispatch.planning.manage holders + org admins).
             (
               await Promise.all(
-                (Array.isArray(byPermission) ? byPermission : [byPermission]).map((p) =>
-                  deps.authRepository.listUsersWithPermission(tenantId, p.permission, p.role),
+                (Array.isArray(byPermission) ? byPermission : [byPermission]).map((holder) =>
+                  deps.authRepository.listUsersWithPermission(
+                    tenantId,
+                    holder.permission,
+                    holder.role,
+                  ),
                 ),
               )
             )

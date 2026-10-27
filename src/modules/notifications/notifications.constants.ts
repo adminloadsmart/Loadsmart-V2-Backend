@@ -5,7 +5,12 @@ import {
   NotificationSeverity,
 } from './notifications.types';
 import { QuietHoursSetting } from './notifications.interface';
-import type { LoadIssueCategory, ShortageOrDamageStatus } from '../loads/utils/loads.types';
+import {
+  UNLOADED_LOAD_STATUSES,
+  type LoadIssueCategory,
+  type LoadStatus,
+  type ShortageOrDamageStatus,
+} from '../loads/utils/loads.types';
 
 /** Inbox chip text per category (see NOTIFICATION_CATEGORIES). */
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategoryOrGeneral, string> = {
@@ -176,3 +181,31 @@ export const TRANSPORT_LICENCE_CLASSES: readonly string[] = [
   'HTV',
   'HPMV',
 ];
+
+/** LS_N_0060 — trip stages the morning brief counts as "on road" (left the plant, not yet
+ *  delivered). */
+export const DAILY_BRIEF_RUNNING_STATUSES: readonly LoadStatus[] = [
+  'in_transit_unloading',
+  'reached_unloading',
+];
+
+/** LS_N_0060 — at the unloading point and not yet delivered; the E-POD is what moves it to
+ *  delivered. A rejected E-POD not yet re-uploaded counts too (LS_N_0039 hands both to this
+ *  count after 72 h). */
+export const DAILY_BRIEF_POD_PENDING_STATUS: LoadStatus = 'reached_unloading';
+
+/** LS_N_0059/0060 — a vehicle with a load in any other stage still has a trip in hand. */
+export const TRIP_FINISHED_LOAD_STATUSES: readonly LoadStatus[] = [
+  ...UNLOADED_LOAD_STATUSES,
+  'closed',
+];
+
+/** LS_N_0057 — how far back the average service/breakdown cost looks. */
+export const MAINTENANCE_COST_AVERAGE_MONTHS = 12;
+
+/** LS_N_0058 — the tyres queue's next step, as the alert words it. */
+export const TYRE_ACTION_LABELS: Record<string, string> = {
+  retread: 'retread',
+  new_tyre: 'replacement',
+  scrap: 'scrapping',
+};

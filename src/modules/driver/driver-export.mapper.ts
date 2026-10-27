@@ -12,18 +12,17 @@ import {
   DRIVER_VERIFICATION_STATUS_LABELS,
 } from './driver.constants';
 import { toDateString } from '../../shared/utils/date';
-
-type Cell = string | number;
+import { DriverExportCell } from './drivers.types';
 
 /** numeric/decimal columns come back from pg as strings. */
-function num(value: string | number | null | undefined): Cell | undefined {
+function num(value: string | number | null | undefined): DriverExportCell | undefined {
   return value === null || value === undefined ? undefined : Number(value);
 }
 
 const yesNo = (value: boolean): string => DRIVER_EXPORT_BOOLEAN_LABELS[`${value}`];
 
 /** Dates as the sheet's other date columns write them (YYYY-MM-DD). */
-function dateCell(value: Date | string | null | undefined): Cell | undefined {
+function dateCell(value: Date | string | null | undefined): DriverExportCell | undefined {
   if (!value) return undefined;
   return typeof value === 'string' ? value : toDateString(value);
 }
@@ -41,7 +40,7 @@ function availabilityLabel(row: DriverRosterRow): string {
 }
 
 /** "New" until a real score exists — the same badge the roster shows. */
-function driverScoreCell(row: DriverRosterRow): Cell {
+function driverScoreCell(row: DriverRosterRow): DriverExportCell {
   const { driverScore, scoreStatus } = row.performance;
   return driverScore ?? DRIVER_SCORE_STATUS_LABELS[scoreStatus];
 }
@@ -51,7 +50,7 @@ function driverScoreCell(row: DriverRosterRow): Cell {
  *  performance) plus the profile fields behind it. */
 export function driverToExportRow(
   row: DriverRosterRow,
-): Record<DriverExportColumnKey, Cell | undefined> {
+): Record<DriverExportColumnKey, DriverExportCell | undefined> {
   const { licence, contact, assignment, availability, performance } = row;
   return {
     fullName: row.fullName,

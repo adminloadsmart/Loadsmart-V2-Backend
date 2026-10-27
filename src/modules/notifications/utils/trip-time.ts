@@ -1,3 +1,4 @@
+import type { LatLng } from '../../geofences/utils/geofence.interface';
 import {
   DEFAULT_REPORTING_TIME_IST,
   INDIA_TIME_ZONE,
@@ -22,6 +23,11 @@ export function promisedAtOf(promisedDate: string | null): Date | null {
   return new Date(Date.parse(`${promisedDate}T23:59:00Z`) - INDIA_UTC_OFFSET_MS);
 }
 
+/** The India date of a moment, YYYY-MM-DD — "today" for the daily checks. */
+export function indiaDate(at: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: INDIA_TIME_ZONE }).format(at);
+}
+
 /** "17 Oct, 14:30" in India time. */
 export function formatIndiaDateTime(at: Date | string): string {
   return new Intl.DateTimeFormat('en-GB', {
@@ -34,10 +40,7 @@ export function formatIndiaDateTime(at: Date | string): string {
 }
 
 /** Straight-line metres between two points (haversine) — geofence checks (LS_N_0027). */
-export function distanceMetresBetween(
-  from: { lat: number; lng: number },
-  to: { lat: number; lng: number },
-): number {
+export function distanceMetresBetween(from: LatLng, to: LatLng): number {
   const EARTH_RADIUS_M = 6_371_000;
   const radians = (degrees: number) => (degrees * Math.PI) / 180;
   const dLat = radians(to.lat - from.lat);
@@ -49,9 +52,6 @@ export function distanceMetresBetween(
 }
 
 /** Straight-line km between two points, rounded — "last seen N km away" (LS_N_0021). */
-export function distanceKmBetween(
-  from: { lat: number; lng: number },
-  to: { lat: number; lng: number },
-): number {
+export function distanceKmBetween(from: LatLng, to: LatLng): number {
   return Math.round(distanceMetresBetween(from, to) / 1000);
 }

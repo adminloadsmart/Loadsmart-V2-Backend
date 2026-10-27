@@ -1,6 +1,10 @@
 import { JobQueue } from '../../jobs/queue-registry';
-import { NotificationTriggers } from './notification-triggers';
-import { DetentionCandidate, LoadAlertRepository } from './load-alert.repository';
+import { LoadAlertRepository } from './load-alert.repository';
+import {
+  DetentionCandidate,
+  NotificationTriggers,
+  TripTimingRunCounts,
+} from './notifications.interface';
 import {
   CLAIM_REMINDER_DAYS_BEFORE,
   DETENTION_ALERT_MAX_HOURS,
@@ -42,13 +46,7 @@ export function createTripTimingChecks(
   const detentionRepeatMinutes = DETENTION_REPEAT_HOURS * 60;
 
   return {
-    async run(now: Date = new Date()): Promise<{
-      notReported: number;
-      detention: number;
-      unloadingDetention: number;
-      claimReminders: number;
-      podPending: number;
-    }> {
+    async run(now: Date = new Date()): Promise<TripTimingRunCounts> {
       const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * MS_PER_MINUTE);
 
       let notReported = 0;

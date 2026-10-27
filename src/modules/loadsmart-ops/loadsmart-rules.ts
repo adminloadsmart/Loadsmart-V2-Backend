@@ -3,6 +3,13 @@
  * Loadsmart keeps: margin% = (price − partner rate) / price. All rates are in the load's own
  * freight basis (per trip, or per tonne × the load's tonnes).
  */
+import {
+  InvoiceAmounts,
+  InvoiceAmountsInput,
+  PartnerBalanceInput,
+  PartnerPaymentAmounts,
+  SourcingPostingFields,
+} from './loadsmart.interface';
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
@@ -45,13 +52,6 @@ export function tripAmount(
   return round2(freightType === 'per_ton' ? rate * tonnes : rate);
 }
 
-export interface PartnerPaymentAmounts {
-  gross: number;
-  tds: number;
-  deductions: number;
-  net: number;
-}
-
 /** "The team lead releases the advance, less TDS." */
 export function partnerAdvance(
   partnerTrip: number,
@@ -66,40 +66,16 @@ export function partnerAdvance(
 /** "Payables pays the partner's balance, less any deductions": the partner's trip amount plus
  *  approved charges, less the advance already paid (gross), the claim recovered from the partner,
  *  and TDS on what is being paid now. */
-export function partnerBalance(input: {
-  partnerTrip: number;
-  approvedCharges: number;
-  advanceGross: number;
-  claimRecovery: number;
-  tdsPercent: number;
-}): PartnerPaymentAmounts {
+export function partnerBalance(input: PartnerBalanceInput): PartnerPaymentAmounts {
   const gross = round2(input.partnerTrip + input.approvedCharges - input.advanceGross);
   const tds = round2((gross * input.tdsPercent) / 100);
   const deductions = round2(input.claimRecovery);
   return { gross, tds, deductions, net: round2(gross - tds - deductions) };
 }
 
-export interface InvoiceAmounts {
-  freight: number;
-  charges: number;
-  claimCredit: number;
-  taxable: number;
-  gstPercent: number;
-  gst: number;
-  total: number;
-  advanceReceived: number;
-  balanceDue: number;
-}
-
 /** The shipper's invoice: freight at Loadsmart's price plus approved charges, less the settled
  *  claim credited to the shipper, plus GST; the advance already paid comes off the balance due. */
-export function invoiceAmounts(input: {
-  freight: number;
-  approvedCharges: number;
-  claimCredit: number;
-  gstPercent: number;
-  advanceReceived: number;
-}): InvoiceAmounts {
+export function invoiceAmounts(input: InvoiceAmountsInput): InvoiceAmounts {
   const taxable = round2(input.freight + input.approvedCharges - input.claimCredit);
   const gst = round2((taxable * input.gstPercent) / 100);
   const total = round2(taxable + gst);
@@ -117,17 +93,7 @@ export function invoiceAmounts(input: {
 }
 
 /** What the Approval team has to check before posting the load on the board. */
-export function missingSourcingFields(
-  posting: {
-    customerId: string | null;
-    rate: string | null;
-    pickupAt: Date | null;
-    weightTonnes: string | null;
-    truckTypeId: string | null;
-    pickupAddress: { latitude: number | null; longitude: number | null } | null;
-    dropAddress: { latitude: number | null; longitude: number | null } | null;
-  } | null,
-): string[] {
+export function missingSourcingFields(posting: SourcingPostingFields | null): string[] {
   if (!posting) return ['posting'];
   const missing: string[] = [];
   if (!posting.customerId) missing.push('customer');

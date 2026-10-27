@@ -32,7 +32,9 @@ import { DriverVerificationEntity } from './entities/driver-verification.entity'
 import { toDateString } from '../../shared/utils/date';
 import {
   CreateDriverTenantRelationData,
+  DriverRelationPage,
   DriverRosterCounts,
+  DriverSearchPatterns,
   InviteSendColumns,
   ListDriversFilters,
   ListInvitationsInput,
@@ -131,11 +133,7 @@ function lapsedExpiryEvents(relation: DriverTenantRelationEntity, now: Date): Dr
  * with or without it; licence numbers have whitespace stripped. `phone` is null when the term
  * has no digits, since an empty pattern would match every row.
  */
-function driverSearchPatterns(search: string): {
-  name: string;
-  phone: string | null;
-  license: string;
-} {
+function driverSearchPatterns(search: string): DriverSearchPatterns {
   let digits = search.replace(/\D+/g, '');
   if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
   return {
@@ -538,7 +536,7 @@ export class DriverTenantRelationRepository {
     tenantId: string,
     filters: ListDriversFilters,
     onLoadDriverIds: readonly string[] = [],
-  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
+  ): Promise<DriverRelationPage> {
     const { page, limit } = filters;
     const where = await this.findRosterWhere(tenantId, filters, onLoadDriverIds);
     if (!where) return { items: [], total: 0 };
@@ -815,7 +813,7 @@ export class DriverTenantRelationRepository {
     tenantId: string,
     filters: ListJoinRequestsInput,
     rejectedSince: Date,
-  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
+  ): Promise<DriverRelationPage> {
     const { search, page, limit } = filters;
     const base: FindOptionsWhere<DriverTenantRelationEntity> = {
       tenantId,
@@ -878,7 +876,7 @@ export class DriverTenantRelationRepository {
   async listInvitations(
     tenantId: string,
     filters: ListInvitationsInput,
-  ): Promise<{ items: DriverTenantRelationEntity[]; total: number }> {
+  ): Promise<DriverRelationPage> {
     const { status, phoneNumber, page, limit } = filters;
 
     const query = this.relations

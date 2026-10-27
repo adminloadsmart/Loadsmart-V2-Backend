@@ -12,6 +12,8 @@ import {
 import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { LoginAttemptEntity } from './entities/login-attempt.entity';
+import { RoleEntity } from '../roles/entities/role.entity';
+import { UserPermissionEntity } from '../roles/entities/user-permission.entity';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { NotFoundError } from '../../shared/errors';
 import { LoginPortal, DevicePlatform } from './auth.types';
@@ -55,14 +57,24 @@ export class AuthRepository {
       .createQueryBuilder('user')
       .innerJoinAndSelect('user.role', 'role')
       .where('user.tenant_id = :tenantId', { tenantId })
-      .andWhere('user.deleted_at IS NULL')
-      .andWhere(
-        `(EXISTS (SELECT 1 FROM auth.role_permissions rp JOIN auth.permissions p ON p.id = rp.permission_id
-                  WHERE rp.role_id = user.role_id AND p.key = :permissionKey)
-          OR EXISTS (SELECT 1 FROM auth.user_permissions up JOIN auth.permissions p ON p.id = up.permission_id
-                     WHERE up.user_id = user.id AND p.key = :permissionKey))`,
-        { permissionKey },
-      );
+      .andWhere('user.deleted_at IS NULL');
+    const grantedByRole = query
+      .subQuery()
+      .select('1')
+      .from(RoleEntity, 'grantingRole')
+      .innerJoin('grantingRole.permissions', 'rolePermission')
+      .where('grantingRole.id = user.role_id')
+      .andWhere('rolePermission.key = :permissionKey')
+      .getQuery();
+    const grantedDirectly = query
+      .subQuery()
+      .select('1')
+      .from(UserPermissionEntity, 'directGrant')
+      .innerJoin('directGrant.permission', 'grantedPermission')
+      .where('directGrant.user_id = user.id')
+      .andWhere('grantedPermission.key = :permissionKey')
+      .getQuery();
+    query.andWhere(`(EXISTS ${grantedByRole} OR EXISTS ${grantedDirectly})`, { permissionKey });
     if (roleName) query.andWhere('role.name = :roleName', { roleName });
     return query.getMany();
   }

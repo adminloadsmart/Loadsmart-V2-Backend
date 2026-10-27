@@ -13,10 +13,7 @@ import { LoadStageService } from '../loads/load-stage.service';
 import { renderElrPdf } from '../loads/elr/elr-pdf';
 import { LoadStatus } from '../loads/utils/loads.types';
 import { istDateOf } from '../loads/verification/verification-rules';
-import { NotificationTriggers } from '../notifications/notification-triggers';
-import { LsInvoiceEntity } from './entities/ls-invoice.entity';
 import { LsPartnerPaymentEntity } from './entities/ls-partner-payment.entity';
-import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import {
   DEFAULT_GST_PERCENT,
@@ -25,6 +22,17 @@ import {
 } from './loadsmart.types';
 import { invoiceAmounts, partnerBalance, tripAmount } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
+import { NotificationTriggers } from '../notifications/notifications.interface';
+import {
+  ClaimQueueItem,
+  GenerateInvoiceInput,
+  GeneratedInvoice,
+  LoadsmartActor,
+  OriginalPodInput,
+  RateLoadInput,
+  SettleClaimInput,
+  UtrInput,
+} from './loadsmart.interface';
 
 /** Loadsmart-wide invoice numbering — one sequence across every shipper. */
 const LOADSMART_INVOICE_SCOPE = '00000000-0000-0000-0000-000000000000';
@@ -88,24 +96,19 @@ export class LsSettlementService extends LsServiceBase {
 
   // --- 29–31 · POD and CS -----------------------------------------------------------------
 
-  async csQueue(): Promise<{ load: LoadEntity; claim: LoadClaimEntity | null }[]> {
+  async csQueue(): Promise<ClaimQueueItem[]> {
     const sourcings = await this.repository.listLoadsAt(['delivered_with_issues']);
     return Promise.all(
-      sourcings.map(async (s) => ({
-        load: s.load,
-        claim: await this.repository.findClaim(s.loadId),
+      sourcings.map(async (sourcing) => ({
+        load: sourcing.load,
+        claim: await this.repository.findClaim(sourcing.loadId),
       })),
     );
   }
 
   /** "Settles it with the partner": once the claim value is added, the shipper records what is
    *  recovered from the partner, and the load is Delivered without issues. */
-  async settleClaim(
-    tenantId: string,
-    actorId: string,
-    loadId: string,
-    input: { partnerRecovery: number; note: string },
-  ) {
+  async settleClaim(tenantId: string, actorId: string, loadId: string, input: SettleClaimInput) {
     try {
       const sourcing = await this.assertWonLoad(loadId, tenantId);
       const claim = await this.repository.findClaim(loadId);
@@ -144,15 +147,11 @@ export class LsSettlementService extends LsServiceBase {
 
   async podQueue() {
     const sourcings = await this.repository.listLoadsAt(['delivered_ok']);
-    return sourcings.filter((s) => s.load.podStatus === 'accepted');
+    return sourcings.filter((sourcing) => sourcing.load.podStatus === 'accepted');
   }
 
   /** "Rates the shipper and the partner." */
-  async rate(
-    actorId: string,
-    loadId: string,
-    input: { shipperScore: number; partnerScore: number; note?: string },
-  ) {
+  async rate(actorId: string, loadId: string, input: RateLoadInput) {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       for (const [subject, score] of [
@@ -184,11 +183,7 @@ export class LsSettlementService extends LsServiceBase {
 
   /** "Sends the original POD" — the POD team marks the signed original received at the office.
    *  "Original POD unlocks money." */
-  async markOriginalPodReceived(
-    actorId: string,
-    loadId: string,
-    input: { courierName?: string; trackingNumber?: string },
-  ) {
+  async markOriginalPodReceived(actorId: string, loadId: string, input: OriginalPodInput) {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       await this.repository.updateSourcing(sourcing.id, {
@@ -221,10 +216,10 @@ export class LsSettlementService extends LsServiceBase {
   /** "Raises the shipper's invoice with the POD" — the shipper generates it. */
   async generateInvoice(
     tenantId: string,
-    actor: { id: string; role: string },
+    actor: LoadsmartActor,
     loadId: string,
-    input: { gstPercent?: number; dueDays?: number },
-  ): Promise<{ invoice: LsInvoiceEntity; downloadUrl: string | null }> {
+    input: GenerateInvoiceInput,
+  ): Promise<GeneratedInvoice> {
     try {
       const sourcing = await this.assertWonLoad(loadId, tenantId);
       const load = sourcing.load;
@@ -236,7 +231,7 @@ export class LsSettlementService extends LsServiceBase {
       }
       const claim = await this.claimOf(loadId);
       const payments = await this.loadPaymentRepository.listByLoad(sourcing.tenantId, loadId);
-      const advance = payments.find((p) => p.paymentType === 'advance');
+      const advance = payments.find((payment) => payment.paymentType === 'advance');
       const amounts = invoiceAmounts({
         freight: tripAmount(
           Number(load.freightValue ?? 0),
@@ -372,12 +367,12 @@ export class LsSettlementService extends LsServiceBase {
   async receivablesQueue() {
     const sourcings = await this.repository.listLoadsAt(['invoice_generated', 'payment']);
     return Promise.all(
-      sourcings.map(async (s) => ({
-        load: s.load,
-        invoice: await this.repository.findInvoice(s.tenantId, s.loadId),
-        payments: (await this.loadPaymentRepository.listByLoad(s.tenantId, s.loadId)).filter(
-          (p) => p.paymentType === 'balance',
-        ),
+      sourcings.map(async (sourcing) => ({
+        load: sourcing.load,
+        invoice: await this.repository.findInvoice(sourcing.tenantId, sourcing.loadId),
+        payments: (
+          await this.loadPaymentRepository.listByLoad(sourcing.tenantId, sourcing.loadId)
+        ).filter((payment) => payment.paymentType === 'balance'),
       })),
     );
   }
@@ -386,7 +381,7 @@ export class LsSettlementService extends LsServiceBase {
   async payPartnerBalance(
     actorId: string,
     loadId: string,
-    input: { utrReference: string },
+    input: UtrInput,
   ): Promise<LsPartnerPaymentEntity> {
     try {
       const sourcing = await this.assertWonLoad(loadId);

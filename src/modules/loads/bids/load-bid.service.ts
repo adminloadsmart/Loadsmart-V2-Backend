@@ -14,49 +14,17 @@ import {
   manualRateError,
   rankBids,
 } from './bid-rules';
-import { BidStatus, LoadStatus } from '../utils/loads.types';
 import {
   LoadVerificationService,
   truckVerifiedOf,
 } from '../verification/load-verification.service';
-
-export interface RecordBidInput {
-  transporterId: string;
-  rate: number;
-  vehicleNumber?: string;
-  /** Why the shipper is typing in a rate given by phone — logged with their name. */
-  reason: string;
-}
-
-export interface BidView {
-  id: string;
-  /** `loadsmart` bids are shown first and highlighted, without the partner's name. */
-  source: LoadBidEntity['source'];
-  highlighted: boolean;
-  transporter: { id: string | null; name: string };
-  rate: string;
-  vehicleNumber: string | null;
-  truckVerified: boolean | null;
-  channel: LoadBidEntity['channel'];
-  status: BidStatus;
-  /** 1 = best live bid; null for bids that are no longer live. */
-  rank: number | null;
-  canAccept: boolean;
-  /** Why Accept is off, e.g. no truck number yet. */
-  acceptBlocker: string | null;
-  enteredBy: string | null;
-  entryReason: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-}
-
-export interface LoadBidsView {
-  loadId: string;
-  loadStatus: LoadStatus;
-  /** When bidding closes — 4 hours after the load was sent; null for indent. */
-  biddingClosesAt: string | null;
-  bids: BidView[];
-}
+import {
+  BidView,
+  LoadBidsView,
+  LoadsmartBidAcceptedHook,
+  LoadsmartBidInput,
+  RecordBidInput,
+} from '../utils/load-bid.interface';
 
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
 
@@ -83,15 +51,9 @@ export class LoadBidService {
 
   /** Set by the Loadsmart ops module (it is built after this service and itself posts bids
    *  through it) — marks the sourcing won and the partner on the truck. */
-  private onLoadsmartBidAccepted?: (
-    bid: LoadBidEntity,
-    load: LoadEntity,
-    actorId: string,
-  ) => Promise<void>;
+  private onLoadsmartBidAccepted?: LoadsmartBidAcceptedHook;
 
-  setLoadsmartBidAcceptedHook(
-    hook: (bid: LoadBidEntity, load: LoadEntity, actorId: string) => Promise<void>,
-  ): void {
+  setLoadsmartBidAcceptedHook(hook: LoadsmartBidAcceptedHook): void {
     this.onLoadsmartBidAccepted = hook;
   }
 
@@ -102,12 +64,7 @@ export class LoadBidService {
     tenantId: string,
     actorId: string,
     loadId: string,
-    input: {
-      rate: string;
-      vehicleNumber: string;
-      truckVerified: boolean | null;
-      lsPartnerBidId: string;
-    },
+    input: LoadsmartBidInput,
   ): Promise<LoadBidEntity> {
     try {
       const load = await this.assertLoad(tenantId, loadId);

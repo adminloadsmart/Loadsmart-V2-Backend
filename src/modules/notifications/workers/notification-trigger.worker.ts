@@ -5,13 +5,15 @@ import { NOTIFICATION_CATALOG } from '../catalog/notification-catalog';
 import { NotifyByType } from '../notify-by-type';
 import {
   NOTIFICATION_TRIGGERS_QUEUE,
-  NotificationContextResolvers,
-  NotificationRelevanceChecks,
-  NotificationTriggerPayload,
   occurrenceKey,
   reminderDedupeId,
   triggerOptionsOf,
 } from '../notification-triggers';
+import {
+  NotificationContextResolvers,
+  NotificationRelevanceChecks,
+  NotificationTriggerPayload,
+} from '../notifications.interface';
 
 /**
  * BullMQ Worker for the 'notification-triggers' queue (see notification-triggers.ts), started

@@ -6,6 +6,7 @@ import {
   PriceBasis,
   PriceMode,
 } from './load-posting.types';
+import type { LoadEntity } from '../../entities/load.entity';
 
 /** A new (not yet in any master) address, picked from Google Maps or the pincode lookup. Saved to
  *  the right master only when the load is posted. */
@@ -150,4 +151,9 @@ export interface DraftBody {
 
 export interface DraftParams {
   draftId: string;
+}
+
+/** Set by the Loadsmart ops module once built — every market posting opens a sourcing too. */
+export interface LoadPostingHooks {
+  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
 }

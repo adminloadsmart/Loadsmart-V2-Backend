@@ -228,3 +228,9 @@ export type JobParams = { jobId: string };
 export type VehicleParams = { vehicleId: string };
 export type TyreParams = { tyreId: string };
 export type BatteryPackParams = { packId: string };
+
+/** LS_N_0055 — a closed workshop visit (NotificationsGateway.vehicleBackInService). */
+export interface VehicleBackInServiceEvent {
+  tenantId: string;
+  jobId: string;
+}

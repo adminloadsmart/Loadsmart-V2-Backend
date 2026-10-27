@@ -324,3 +324,6 @@ export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
  *  update; see utils/tracking-source.ts for the starting value. */
 export const TRACKING_SOURCES = ['gps', 'driver_app', 'sim', 'fastag'] as const;
 export type TrackingSource = (typeof TRACKING_SOURCES)[number];
+
+export type CodeSequenceEntityKind =
+  'requisition' | 'load' | 'customer' | 'transporter' | 'lr' | 'ls_invoice';

@@ -5,14 +5,16 @@ import { validate } from '../../shared/middleware/validate.middleware';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
 import { respond } from '../../shared/responses/respond';
 import { NotFoundError } from '../../shared/errors';
-import { AuthRepository } from '../auth/auth.repository';
-import { AuthService } from '../auth/auth.service';
-import { NotificationsService } from './notifications.service';
-import { NotificationDestinations } from './notifications.interface';
+import {
+  NotificationDestinations,
+  NotificationContextOf,
+  NotificationTypeKey,
+  NotificationSampleContexts,
+  NotificationsTestDeps,
+} from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
 import { NOTIFICATION_CATALOG, IN_APP_HIDDEN_TYPES } from './catalog/notification-catalog';
 import { NotificationTypeDefinition } from './catalog/notification-catalog.types';
-import { NotificationContextOf, NotificationTypeKey } from './notification-triggers';
 
 /**
  * TEMPORARY, non-production test endpoint — POST /v1/notifications/test/trigger-all. Sends each
@@ -30,8 +32,6 @@ import { NotificationContextOf, NotificationTypeKey } from './notification-trigg
  * per org rules, rate limits, reminders and debouncing are deliberately bypassed: the point is to
  * see each message once, on demand.
  */
-
-type SampleContexts = { [K in NotificationTypeKey]?: NotificationContextOf<K> };
 
 const SAMPLE_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -59,7 +59,7 @@ function addDays(today: string, days: number): string {
 
 /** Fixed sample context per type — compile-checked against each type's own context. Dates are
  *  consistent with the counts (e.g. "expires in 7 days" carries an expiry date 7 days out). */
-function sampleContexts(today: string): SampleContexts {
+function sampleContexts(today: string): NotificationSampleContexts {
   return {
     'vehicle.document_expiry': {
       vehicleId: SAMPLE_ID,
@@ -232,7 +232,7 @@ function allSampleContexts(
     consignee: 'Sundram Buildwell',
   };
   return {
-    ...(sampleContexts(today) as Required<SampleContexts>),
+    ...(sampleContexts(today) as Required<NotificationSampleContexts>),
     'organization.account_approved': { orgName: 'Acme Logistics' },
     'organization.signup_received': { orgName: 'Acme Logistics' },
     'organization.document_more_info_needed': {
@@ -570,12 +570,6 @@ function allSampleContexts(
     'driver.link_accepted': driverLink,
     'driver.account_deleted': driverLink,
   };
-}
-
-export interface NotificationsTestDeps {
-  notificationsService: NotificationsService;
-  authRepository: AuthRepository;
-  authService: AuthService;
 }
 
 export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Router {

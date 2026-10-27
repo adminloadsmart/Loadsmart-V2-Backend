@@ -18,8 +18,8 @@ import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository, CreateLoadData } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadEntity } from '../entities/load.entity';
-import { LoadStatus } from '../utils/loads.types';
 import { formatLoadCode } from '../utils/code.util';
+import { LoadStageHook } from '../utils/load.interface';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
@@ -30,6 +30,7 @@ import {
   PickupInput,
   TruckPickInput,
   PostLoadInput,
+  LoadPostingHooks,
 } from './utils/load-posting.interface';
 import {
   DEFAULT_ADVANCE_PERCENTAGE,
@@ -91,10 +92,6 @@ export interface PostLoadResult {
  *
  * Sending the message to transporters is behind LoadDispatchNotifier and happens after commit.
  */
-export interface LoadPostingHooks {
-  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
-}
-
 export class LoadPostingService {
   constructor(
     private readonly dataSource: DataSource,
@@ -115,7 +112,7 @@ export class LoadPostingService {
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
     /** Queues the no-tracking alerts for own-fleet loads, which are born at Truck assigned. */
-    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
+    private readonly onStageEntered?: LoadStageHook,
     /** Set by the Loadsmart ops module once built: every market posting goes to Loadsmart too
      *  ("Loadsmart is always ticked") and opens a sourcing for its Approval team. */
     private readonly hooks: LoadPostingHooks = {},

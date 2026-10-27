@@ -34,7 +34,7 @@ import { humanizeStatus } from '../../shared/utils/humanize';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
-import { MasterApprovalNotifier } from '../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-analytics.repository';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
@@ -84,6 +84,8 @@ import {
   SetDriverOperationalStatusInput,
   UpdateDriverInput,
   CreateDriverTenantRelationData,
+  DriverAvailabilityReturnResult,
+  DriverTripStats,
   InviteDriverByPhoneInput,
   InviteDriverByPhoneResult,
 } from './drivers.interface';
@@ -453,7 +455,7 @@ function toScoreStatus(totalTrips: number, driverScore: number | null): DriverSc
 
 function toDriverDetailSections(
   relation: DriverTenantRelationEntity,
-  tripStats: { total: number; onTimePercentage: number | null },
+  tripStats: DriverTripStats,
   activeLoad: LoadEntity | null,
   appLastSeenAt: Date | null,
 ): DriverDetailSections {
@@ -1320,7 +1322,7 @@ export class DriverService {
 
   /** Daily DRIVER_AVAILABILITY_RETURN_JOB — drivers whose "fit to drive again from" date
    *  (`today`, India, or earlier) has come are set back to Available. */
-  async returnFitDriversToAvailable(today: string): Promise<{ returnedToAvailable: number }> {
+  async returnFitDriversToAvailable(today: string): Promise<DriverAvailabilityReturnResult> {
     return { returnedToAvailable: await this.driverRepository.returnFitDriversToActive(today) };
   }
 

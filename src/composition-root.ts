@@ -287,7 +287,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // built here, after admin, since notifyByType needs auth and the relevance checks / context
   // resolvers read other modules' state. See modules/notifications/notification-triggers.ts.
   const masterApprovalResolvers = createMasterApprovalResolvers({
-    dataSource,
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
     getUserFullName: async (userId) =>
       (await auth.authRepository.findUserById(userId))?.fullName ?? null,
     getUserRoleName: async (userId) =>
@@ -297,21 +297,31 @@ export function buildContainer(dataSource: DataSource): Container {
   // LS_N_0047/0048 — the daily 9:00 IST vehicle-document check and the Monday roll-up (see
   // modules/notifications/vehicle-document-alerts.ts). Registering the schedules is idempotent;
   // a failure here is logged, never fatal to boot.
-  const vehicleDocumentAlerts = createVehicleDocumentAlerts(
-    dataSource,
-    notifications.triggers,
-    notifications.loadAlertRepository,
-  );
+  const listUsersWithPermission = (tenantId: string, permission: string) =>
+    auth.authRepository.listUsersWithPermission(tenantId, permission);
+  const vehicleDocumentAlerts = createVehicleDocumentAlerts({
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
+    triggers: notifications.triggers,
+    loadAlertRepository: notifications.loadAlertRepository,
+    listUsersWithPermission,
+  });
   // LS_N_0056/0057 — service due soon / overdue, swept in the same daily 9:00 IST job.
-  const serviceAlerts = createServiceAlerts(dataSource, notifications.triggers);
+  const serviceAlerts = createServiceAlerts({
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
+    triggers: notifications.triggers,
+    listUsersWithPermission,
+  });
   // LS_N_0058 — tyres in the maintenance tyres queue, rolled up per vehicle, same daily tick.
   const tyreAlerts = createTyreAlerts({
-    dataSource,
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
     triggers: notifications.triggers,
     listTyreQueue: (tenantId) => maintenance.tyreService.listQueue(tenantId),
   });
   // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
-  const digests = createDigests(dataSource, notifications.triggers);
+  const digests = createDigests({
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
+    triggers: notifications.triggers,
+  });
   // LS_N_0021/0023 — the 5-minute trip-timing sweep (trip-timing.ts).
   const tripTimingChecks = createTripTimingChecks(
     notifications.loadAlertRepository,
@@ -382,7 +392,9 @@ export function buildContainer(dataSource: DataSource): Container {
         'vehicle.compliance_expired',
       ),
       // LS_N_0012 only if the vehicle is still unverified when the 24h retry window ends.
-      'vehicle.vahan_unverified': createVahanStillUnverifiedCheck(dataSource),
+      'vehicle.vahan_unverified': createVahanStillUnverifiedCheck(
+        notifications.scheduledAlertRepository,
+      ),
       // LS_N_0056/0057 — each due-soon stage once per service cycle; overdue once per run day.
       'vehicle.service_due_soon': serviceAlerts.dueSoonNotAlreadySent,
       'vehicle.service_overdue': serviceAlerts.overdueNotAlreadySentToday,
@@ -454,9 +466,8 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.invoice_due_reminder': loadAlertResolvers.invoiceDueReminder,
       // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
       'vehicle.back_in_service': createBackInServiceResolver({
-        dataSource,
-        listUsersWithPermission: (tenantId, permission) =>
-          auth.authRepository.listUsersWithPermission(tenantId, permission),
+        scheduledAlertRepository: notifications.scheduledAlertRepository,
+        listUsersWithPermission,
       }),
     },
   );

@@ -11,6 +11,7 @@ import { ReferralCodeService } from './referral-code.service';
 import { OrganizationController } from './organization.controller';
 import { OrganizationSettingsService } from './organization-settings.service';
 import { createOrganizationOnboardingRoutes as buildOnboardingRouter } from './organization.routes';
+import { OrganizationOnboardingDeps } from './organization.types';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { IdfyClient } from '../../adapters/idfy.client';
@@ -87,7 +88,7 @@ export function createOrganizationModule(
 // auth's own protectedRouter — see organization.routes.ts for why the URLs stay unchanged.
 export function createOrganizationOnboardingRoutes(
   authService: AuthService,
-  deps: { organizationService: OrganizationService; auditService: AuditService },
+  deps: OrganizationOnboardingDeps,
 ) {
   const controller = new OrganizationController(
     authService,

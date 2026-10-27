@@ -1,6 +1,4 @@
-import type { DriverInvitationActor, DriverInvitationTimelineStep } from './drivers.interface';
-import type { DriverInviteEvent } from './entities/driver-tenant-relation.entity';
-import type { DriverInvitationStatus } from './drivers.types';
+import type { DriverInvitationTimelineStep, InvitationTimelineInput } from './drivers.interface';
 
 /**
  * The invitation drawer's single thread, sorted by time: every stored event (a Resend is its own
@@ -9,13 +7,9 @@ import type { DriverInvitationStatus } from './drivers.types';
  * once it ran out (logged for good if it's later resent), otherwise `awaiting_response`.
  * Legacy `viewed` entries (an in-app notification opened) are dropped.
  */
-export function buildInvitationTimeline(input: {
-  events: readonly DriverInviteEvent[];
-  toActor: (userId: string | null) => DriverInvitationActor | null;
-  firstAppLoginAt: Date | null;
-  status: DriverInvitationStatus;
-  expiresAt: Date | null;
-}): DriverInvitationTimelineStep[] {
+export function buildInvitationTimeline(
+  input: InvitationTimelineInput,
+): DriverInvitationTimelineStep[] {
   const timeline: DriverInvitationTimelineStep[] = input.events.flatMap(
     (event): DriverInvitationTimelineStep[] => {
       const at = new Date(event.at);

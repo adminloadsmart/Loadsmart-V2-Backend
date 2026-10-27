@@ -78,3 +78,9 @@ export interface DriverInviteNotifyResult {
   pushed: boolean;
   notificationId: string | null;
 }
+
+/** A driver's latest app activity across their sessions (DriverAuthRepository). */
+export interface DriverLastSeenRow {
+  driverId: string;
+  lastSeenAt: Date;
+}

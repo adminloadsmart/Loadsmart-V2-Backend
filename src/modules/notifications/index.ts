@@ -9,6 +9,7 @@ import { NotificationsController } from './notifications.controller';
 import { createNotificationsRoutes } from './notifications.routes';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
 import { LoadAlertRepository } from './load-alert.repository';
+import { ScheduledAlertRepository } from './scheduled-alert.repository';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationPreferencesController } from './notification-preferences.controller';
 import { createNotificationPreferencesRoutes } from './notification-preferences.routes';
@@ -19,11 +20,8 @@ import { SmsChannel } from './channels/sms.channel';
 import { PushChannel } from './channels/push.channel';
 import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationChannelName } from './notifications.types';
-import {
-  createNotificationTriggers,
-  NOTIFICATION_TRIGGERS_QUEUE,
-  NotificationTriggers,
-} from './notification-triggers';
+import { createNotificationTriggers, NOTIFICATION_TRIGGERS_QUEUE } from './notification-triggers';
+import { NotificationTriggers } from './notifications.interface';
 
 export interface NotificationsModule {
   service: NotificationsService;
@@ -36,6 +34,7 @@ export interface NotificationsModule {
   // Loads read side for the load-event notifications and the "cannot be dispatched" card —
   // handed to their resolvers/checks, which composition-root.ts wires up.
   loadAlertRepository: LoadAlertRepository;
+  scheduledAlertRepository: ScheduledAlertRepository;
   // Queue-backed trigger entry point (see notification-triggers.ts) — only needs this module's
   // own queue, so trigger sites can take it without depending on notifyByType's build order.
   // Its worker is built in composition-root.ts (it runs notifyByType).
@@ -86,6 +85,7 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
   const triggers = createNotificationTriggers(triggersQueue);
 
   const loadAlertRepository = new LoadAlertRepository(dataSource);
+  const scheduledAlertRepository = new ScheduledAlertRepository(dataSource);
 
   return {
     service,
@@ -93,6 +93,7 @@ export function createNotificationsModule(dataSource: DataSource): Notifications
     worker,
     notificationPreferencesRepository,
     loadAlertRepository,
+    scheduledAlertRepository,
     triggers,
     triggersQueue,
   };

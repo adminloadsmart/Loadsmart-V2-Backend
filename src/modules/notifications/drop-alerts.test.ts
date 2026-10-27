@@ -6,11 +6,11 @@ import {
   TripCompletedContext,
   VehicleReachedDropContext,
 } from './catalog/notification-catalog';
-import type { DetentionCandidate, LoadAlertRepository } from './load-alert.repository';
+import type { LoadAlertRepository } from './load-alert.repository';
 import { createLoadAlertResolvers } from './load-alerts';
-import type { NotificationTriggers } from './notification-triggers';
-import type { LoadAlertSnapshot } from './notifications.interface';
+import type { DetentionCandidate, LoadAlertSnapshot } from './notifications.interface';
 import { createTripTimingChecks } from './trip-timing';
+import { NotificationTriggers } from './notifications.interface';
 
 const HOUR = 60 * 60 * 1000;
 const NOW = new Date('2026-10-20T12:00:00.000Z');

@@ -1,4 +1,5 @@
-import { BidSource, BidStatus } from '../utils/loads.types';
+import { BidStatus } from '../utils/loads.types';
+import { BidLike } from '../utils/load-bid.interface';
 
 /**
  * Pure bidding and load-memo rules from the client's flow — no DB/IO, unit-tested in
@@ -26,19 +27,6 @@ export function manualRateError(sentAt: Date, now: Date): string | null {
     return 'Bidding on this load has closed — bids expire 4 hours after posting';
   }
   return null;
-}
-
-export interface BidLike {
-  id: string;
-  /** Defaults to a transporter's bid. */
-  source?: BidSource;
-  status: BidStatus;
-  rate: string;
-  vehicleNumber: string | null;
-  /** Govt-portal truck check — null until it runs (Phase 3), then pass/fail. */
-  truckVerified: boolean | null;
-  expiresAt: Date | null;
-  createdAt: Date;
 }
 
 /** A live bid past its window is expired, whatever the row still says. */

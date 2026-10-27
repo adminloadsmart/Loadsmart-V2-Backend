@@ -5,7 +5,7 @@ import { LoadActivityService } from '../loads/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { LoadBidEntity } from '../loads/bids/load-bid.entity';
 import { LoadBidService } from '../loads/bids/load-bid.service';
-import { LoadMemoService, NameDriverInput } from '../loads/memo/load-memo.service';
+import { LoadMemoService } from '../loads/memo/load-memo.service';
 import { LoadService } from '../loads/load.service';
 import { LoadStageService } from '../loads/load-stage.service';
 import { hasLoadingPapers } from '../loads/utils/load-stages';
@@ -24,7 +24,6 @@ import {
   DEFAULT_TRUCKER_ADVANCE_PERCENT,
   MIN_MARGIN_PERCENT,
   PARTNER_CALL_AFTER_MS,
-  PartnerType,
 } from './loadsmart.types';
 import {
   effectiveMarginPercent,
@@ -35,50 +34,23 @@ import {
   shipperPriceFor,
 } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
+import { NameDriverInput } from '../loads/utils/load-memo.interface';
+import {
+  ApprovePapersInput,
+  ApproveSourcingInput,
+  ApproveVerificationInput,
+  CommercialTermsInput,
+  LoadBoardRow,
+  LoadsmartActor,
+  PartnerBidInput,
+  PartnerBidView,
+  PartnerInput,
+  PlacementView,
+  SendBidInput,
+  UtrInput,
+} from './loadsmart.interface';
 
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
-
-export interface PartnerInput {
-  name: string;
-  phone: string;
-  partnerType: PartnerType;
-  status?: 'active' | 'inactive';
-  tdsPercent?: number;
-  bankAccountNumber?: string;
-  bankIfsc?: string;
-  upiId?: string;
-}
-
-export interface PartnerBidView {
-  id: string;
-  partner: { id: string; name: string; partnerType: PartnerType };
-  rate: string;
-  vehicleNumber: string | null;
-  truckVerified: boolean | null;
-  status: LsPartnerBidEntity['status'];
-  /** Loadsmart's price to the shipper at the sourcing's margin. */
-  shipperPrice: number;
-  createdAt: string;
-}
-
-export interface PlacementView {
-  sourcing: LsSourcingEntity;
-  bids: PartnerBidView[];
-  /** "Calls partners who haven't bid in 5 minutes" — empty until the load has been on the board
-   *  for 5 minutes. */
-  callList: { id: string; name: string; phone: string }[];
-}
-
-/** Partners see only Loadsmart's rate to them — never the shipper, the target or the margin. */
-export interface LoadBoardRow {
-  sourcingId: string;
-  loadCode: string;
-  partnerRate: string | null;
-  pickupAt: string | null;
-  route: { from: string | null; to: string | null };
-  truckTypeId: string | null;
-  weightTonnes: string | null;
-}
 
 /**
  * Loadsmart load, part 1 — posting to loaded, run by the ops console:
@@ -164,11 +136,7 @@ export class LsSourcingService extends LsServiceBase {
     };
   }
 
-  async saveTerms(
-    actorId: string,
-    tenantId: string,
-    input: { marginPercent: number; truckerAdvancePercent: number },
-  ) {
+  async saveTerms(actorId: string, tenantId: string, input: CommercialTermsInput) {
     try {
       await this.repository.terms.save({
         tenantId,
@@ -224,7 +192,7 @@ export class LsSourcingService extends LsServiceBase {
   async approve(
     actorId: string,
     sourcingId: string,
-    input: { marginPercent?: number; truckerAdvancePercent?: number; acknowledgeMissing?: boolean },
+    input: ApproveSourcingInput,
   ): Promise<LsSourcingEntity> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
@@ -315,9 +283,9 @@ export class LsSourcingService extends LsServiceBase {
   /** Placement records a partner's rate and truck. "Bids from salespeople are not taken." The
    *  truck is checked on VAHAN straight away. */
   async recordPartnerBid(
-    actor: { id: string; role: string },
+    actor: LoadsmartActor,
     sourcingId: string,
-    input: { partnerId: string; rate: number; vehicleNumber?: string },
+    input: PartnerBidInput,
   ): Promise<PartnerBidView> {
     try {
       if (actor.role === SALES_ROLE) throw new ConflictError('Bids from salespeople are not taken');
@@ -404,10 +372,10 @@ export class LsSourcingService extends LsServiceBase {
       sourcing.postedAt &&
       this.now().getTime() - sourcing.postedAt.getTime() >= PARTNER_CALL_AFTER_MS;
     const callList = callDue
-      ? (await this.repository.partnersWithoutBid(sourcingId)).map((p) => ({
-          id: p.id,
-          name: p.name,
-          phone: p.phone,
+      ? (await this.repository.partnersWithoutBid(sourcingId)).map((partner) => ({
+          id: partner.id,
+          name: partner.name,
+          phone: partner.phone,
         }))
       : [];
     return {
@@ -423,11 +391,7 @@ export class LsSourcingService extends LsServiceBase {
 
   /** "Sends the shipper one best bid, without the partner's name." Priced at the margin unless
    *  Placement sets the price; under 6% needs the negotiation note. */
-  async sendBid(
-    actorId: string,
-    sourcingId: string,
-    input: { partnerBidId: string; shipperPrice?: number; negotiationNote?: string },
-  ): Promise<LoadBidEntity> {
+  async sendBid(actorId: string, sourcingId: string, input: SendBidInput): Promise<LoadBidEntity> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
       if (sourcing.status !== 'posted' && sourcing.status !== 'bid_sent') {
@@ -561,7 +525,9 @@ export class LsSourcingService extends LsServiceBase {
   /** Loads waiting for the Verification team, with their portal checks. */
   async verificationQueue() {
     const sourcings = await this.repository.listLoadsAt(['truck_assigned']);
-    const waiting = sourcings.filter((s) => s.driverNamedAt && !s.load.lsVerificationApprovedAt);
+    const waiting = sourcings.filter(
+      (sourcing) => sourcing.driverNamedAt && !sourcing.load.lsVerificationApprovedAt,
+    );
     return Promise.all(
       waiting.map(async (sourcing) => ({
         sourcing,
@@ -572,11 +538,7 @@ export class LsSourcingService extends LsServiceBase {
 
   /** "Verification team approves the truck and driver after the portal checks. Asks the shipper
    *  for the loading contact if it is missing." Then the memo goes to the shipper. */
-  async approveVerification(
-    actorId: string,
-    loadId: string,
-    input: { loadingContactName?: string; loadingContactPhone?: string },
-  ) {
+  async approveVerification(actorId: string, loadId: string, input: ApproveVerificationInput) {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       if (!sourcing.driverNamedAt)
@@ -622,7 +584,7 @@ export class LsSourcingService extends LsServiceBase {
     tenantId: string,
     actorId: string,
     loadId: string,
-    input: { ewayBillNamesLoadsmart: boolean },
+    input: ApprovePapersInput,
   ) {
     try {
       const sourcing = await this.assertWonLoad(loadId, tenantId);
@@ -657,7 +619,7 @@ export class LsSourcingService extends LsServiceBase {
   async payPartnerAdvance(
     actorId: string,
     loadId: string,
-    input: { utrReference: string },
+    input: UtrInput,
   ): Promise<LsPartnerPaymentEntity> {
     try {
       const sourcing = await this.assertWonLoad(loadId);

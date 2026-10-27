@@ -185,16 +185,16 @@ export class NotificationRepository {
     hiddenTypes: string[] = [],
     latestOnlyTypes: string[] = [],
   ): Promise<[NotificationEntity[], number]> {
-    const qb = this.inboxQuery(tenantId, recipientUserId, hiddenTypes, latestOnlyTypes);
+    const query = this.inboxQuery(tenantId, recipientUserId, hiddenTypes, latestOnlyTypes);
 
     if (input.unreadOnly) {
-      qb.andWhere('notification.read_at IS NULL');
+      query.andWhere('notification.read_at IS NULL');
     }
     if (input.severity) {
-      qb.andWhere('notification.severity = :severity', { severity: input.severity });
+      query.andWhere('notification.severity = :severity', { severity: input.severity });
     }
 
-    return qb
+    return query
       .orderBy('notification.created_at', 'DESC')
       .skip((input.page - 1) * input.limit)
       .take(input.limit)
@@ -293,7 +293,7 @@ export class NotificationRepository {
     recipientUserId: string,
     hiddenTypes: string[] = [],
   ): Promise<number> {
-    const qb = this.repo
+    const query = this.repo
       .createQueryBuilder()
       .update(NotificationEntity)
       .set({ readAt: new Date() })
@@ -301,8 +301,8 @@ export class NotificationRepository {
       .andWhere('recipient_user_id = :recipientUserId', { recipientUserId })
       .andWhere('show_in_app = true')
       .andWhere('read_at IS NULL');
-    if (hiddenTypes.length) qb.andWhere('type NOT IN (:...hiddenTypes)', { hiddenTypes });
-    const result = await qb.execute();
+    if (hiddenTypes.length) query.andWhere('type NOT IN (:...hiddenTypes)', { hiddenTypes });
+    const result = await query.execute();
     return result.affected ?? 0;
   }
 
