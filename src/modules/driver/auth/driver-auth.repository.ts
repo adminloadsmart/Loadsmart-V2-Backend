@@ -22,6 +22,8 @@ export class DriverSessionRepository {
     deviceType?: DriverDevicePlatform | null;
     deviceInfo?: string | null;
     ipAddress?: string | null;
+    accessJti?: string | null;
+    accessExpiresAt?: Date | null;
   }): Promise<DriverSessionEntity> {
     const session = this.sessions.create({ ...data, revokedAt: null, lastSeen: new Date() });
     return this.sessions.save(session);
@@ -48,8 +50,23 @@ export class DriverSessionRepository {
     await this.sessions.update({ id }, { revokedAt: new Date() });
   }
 
-  async revokeAllForDriver(driverId: string): Promise<void> {
-    await this.sessions.update({ driverId, revokedAt: IsNull() }, { revokedAt: new Date() });
+  /** Revokes every live session of the driver and returns each one's access token, so the caller
+   *  can blocklist them (see DriverAuthService.issueLoginSession). */
+  async revokeAllForDriver(
+    driverId: string,
+  ): Promise<{ accessJti: string | null; accessExpiresAt: Date | null }[]> {
+    const result = await this.sessions
+      .createQueryBuilder()
+      .update(DriverSessionEntity)
+      .set({ revokedAt: () => 'now()' })
+      .where('driver_id = :driverId', { driverId })
+      .andWhere('revoked_at IS NULL')
+      .returning(['access_jti', 'access_expires_at'])
+      .execute();
+
+    return (
+      (result.raw ?? []) as { access_jti: string | null; access_expires_at: Date | null }[]
+    ).map((row) => ({ accessJti: row.access_jti, accessExpiresAt: row.access_expires_at }));
   }
 
   // Account deletion: revokes every live session and drops the push tokens on all of the driver's
