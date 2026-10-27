@@ -2,13 +2,16 @@ import { AuthRepository } from '../auth/auth.repository';
 import { AuthService } from '../auth/auth.service';
 import { UserEntity } from '../auth/entities/user.entity';
 import { NotificationsService } from './notifications.service';
-import { ChannelPreferenceFlags, NotificationDestinations } from './notifications.interface';
+import {
+  ChannelPreferenceFlags,
+  NotificationDestinations,
+  NotificationTriggers,
+} from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
 import { NotificationTypeDefinition } from './catalog/notification-catalog.types';
 import { NotificationPreferencesRepository } from './notification-preferences.repository';
 import { rethrow } from '../../shared/errors';
 import { redisManager } from '../../db/redis';
-import { NotificationTriggers } from './notification-triggers';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 import { QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
 import { getQuietHoursDelayMs } from './utils/quiet-hours';
@@ -101,8 +104,12 @@ async function notifyByTypeImpl(
             // LS_N_0048: compliance.manage + dispatch.planning.manage holders + org admins).
             (
               await Promise.all(
-                (Array.isArray(byPermission) ? byPermission : [byPermission]).map((p) =>
-                  deps.authRepository.listUsersWithPermission(tenantId, p.permission, p.role),
+                (Array.isArray(byPermission) ? byPermission : [byPermission]).map((holder) =>
+                  deps.authRepository.listUsersWithPermission(
+                    tenantId,
+                    holder.permission,
+                    holder.role,
+                  ),
                 ),
               )
             )
@@ -123,11 +130,13 @@ async function notifyByTypeImpl(
 
     // Each recipient's own mediums for this type (Settings → Notifications): their saved row, else
     // the org_admin's setting, else the type's defaultChannels — see utils/channel-preferences.ts.
-    // Loaded once per dispatch (one query for every recipient's own row).
+    // Loaded once per dispatch (one query for every recipient's own row). The defaults come from
+    // the in-code catalog (the source of truth), not the seeded row, so a stale or missing
+    // notification_types row can't silently turn email/WhatsApp/push off.
     const notificationType = await deps.notificationPreferencesRepository.findTypeByKey(type);
     if (!notificationType) {
       console.warn(
-        `No notification_types row for "${type}" — external channels disabled for this dispatch until it's seeded (see src/db/seed-notification-types.ts)`,
+        `No notification_types row for "${type}" — using the catalog's default channels; saved preferences can't apply until it's seeded (see src/db/seed-notification-types.ts)`,
       );
     }
     const organizationPreference = notificationType
@@ -148,13 +157,11 @@ async function notifyByTypeImpl(
     );
     const isShownInApp = definition.inApp !== false;
     const channelPreferencesOf = (recipientId: string): ChannelPreferenceFlags =>
-      notificationType
-        ? resolveChannelPreferences({
-            userPreference: userPreferenceByUserId.get(recipientId) ?? null,
-            organizationPreference,
-            defaultChannels: notificationType.defaultChannels,
-          })
-        : { inApp: true, email: false, sms: false, push: false, whatsapp: false };
+      resolveChannelPreferences({
+        userPreference: userPreferenceByUserId.get(recipientId) ?? null,
+        organizationPreference,
+        defaultChannels: definition.defaultChannels,
+      });
     // Org quiet hours: hold push/SMS/WhatsApp until the window ends (P1 bypasses — see
     // quiet-hours.ts). Worked out once per dispatch, like the preference row above.
     const quietHoursDelayMs = getQuietHoursDelayMs(

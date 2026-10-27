@@ -44,7 +44,7 @@ export class PushChannel implements NotificationChannel {
       data: {
         ...(notification.metadata
           ? Object.fromEntries(
-              Object.entries(notification.metadata).map(([k, v]) => [k, String(v)]),
+              Object.entries(notification.metadata).map(([key, value]) => [key, String(value)]),
             )
           : {}),
         severity: notification.severity,

@@ -1,6 +1,8 @@
 import { NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { env } from '../../config/env';
 import { paginate } from '../../shared/utils/pagination';
+import { isMsg91SkippedNumber } from '../../shared/utils/phone-number';
+import { PHONE_NOTIFICATION_CHANNELS } from './notifications.constants';
 import { JobQueue } from '../../jobs/queue-registry';
 import { NotificationRepository } from './notification.repository';
 import { IN_APP_HIDDEN_TYPES, IN_APP_LATEST_ONLY_TYPES } from './catalog/notification-catalog';
@@ -47,7 +49,16 @@ export class NotificationsService {
    */
   async send(tenantId: string, input: CreateNotificationInput): Promise<NotificationEntity> {
     try {
-      const channels = input.channels ?? [];
+      // SMS/WhatsApp to a test number (isMsg91SkippedNumber) is dropped here, before any delivery
+      // row or job exists — so it's neither sent nor recorded as sent. Other channels still go.
+      const channels = (input.channels ?? []).filter((channel) => {
+        const destination = resolveDestination(channel, input.destinations);
+        return !(
+          PHONE_NOTIFICATION_CHANNELS.includes(channel) &&
+          destination &&
+          isMsg91SkippedNumber(destination)
+        );
+      });
       const destinations: Partial<Record<NotificationChannelName, string>> = {};
 
       for (const channel of channels) {

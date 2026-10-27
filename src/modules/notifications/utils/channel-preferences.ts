@@ -1,7 +1,5 @@
-import { NotificationPreferenceEntity } from '../entities/notification-preference.entity';
-import { UserNotificationPreferenceEntity } from '../entities/user-notification-preference.entity';
 import { NotificationChannelName, NotificationPreferenceChannel } from '../notifications.types';
-import { ChannelPreferenceFlags } from '../notifications.interface';
+import { ChannelPreferenceFlags, ChannelPreferenceSources } from '../notifications.interface';
 
 /**
  * A user's effective mediums for one notification type, most specific first:
@@ -10,11 +8,9 @@ import { ChannelPreferenceFlags } from '../notifications.interface';
  *  3. else the type's defaultChannels (in-app on).
  * Never enables a medium the type doesn't support — callers clamp with supportedChannelsOf.
  */
-export function resolveChannelPreferences(params: {
-  userPreference: UserNotificationPreferenceEntity | null;
-  organizationPreference: NotificationPreferenceEntity | null;
-  defaultChannels: NotificationChannelName[];
-}): ChannelPreferenceFlags {
+export function resolveChannelPreferences(
+  params: ChannelPreferenceSources,
+): ChannelPreferenceFlags {
   const { userPreference, organizationPreference, defaultChannels } = params;
   if (userPreference) {
     return {

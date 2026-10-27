@@ -1,13 +1,19 @@
-import { DataSource } from 'typeorm';
-import { NotificationTriggers } from './notification-triggers';
 import {
+  MASTER_KIND_LABELS,
   MasterApprovalRequestedContext,
   MasterApprovalsWaitingContext,
   MasterApprovedContext,
   MasterKind,
   MasterRejectedContext,
+  VahanUnverifiedContext,
   masterApprovers,
 } from './catalog/notification-catalog';
+import {
+  MasterApprovalNotifier,
+  MasterApprovalResolverDeps,
+  NotificationTriggers,
+} from './notifications.interface';
+import { ScheduledAlertRepository } from './scheduled-alert.repository';
 
 /**
  * LS_N_0009 "master addition needs approval" / LS_N_0010 "master approved". The masters, driver
@@ -15,31 +21,6 @@ import {
  * it only queues a trigger (names and counts are resolved later in the trigger worker, keeping
  * their request path light) and never throws, so it can't change what those services do.
  */
-export interface MasterApprovalEvent {
-  kind: MasterKind;
-  tenantId: string;
-  recordId: string;
-  masterValue: string;
-  createdBy: string | null;
-}
-
-export interface MasterApprovalNotifier {
-  /** Call after a record is created — no-op unless it's actually waiting for approval. */
-  requested(event: MasterApprovalEvent & { pending: boolean }): Promise<void>;
-  /** Call after a pending record is approved. */
-  approved(event: MasterApprovalEvent & { approvedBy: string }): Promise<void>;
-  /** Call after a pending record is rejected (LS_N_0011). */
-  rejected(event: MasterApprovalEvent & { rejectedBy: string; reason: string }): Promise<void>;
-  /** Call after a Vahan verification result is recorded for a vehicle (LS_N_0012) — no-op
-   *  unless it's a failure (not_found / manual_review). */
-  vahanResult(event: {
-    tenantId: string;
-    vehicleId: string;
-    vehicleNo: string;
-    createdBy: string | null;
-    verificationStatus: string;
-  }): Promise<void>;
-}
 
 /** Recorded Vahan results that count as "returned nothing or failed" (LS_N_0012). */
 const VAHAN_FAILED_STATUSES = ['not_found', 'manual_review'];
@@ -115,62 +96,37 @@ export function createMasterApprovalNotifier(
 /** LS_N_0012's relevance check, run when the 24h wait is over: only if the vehicle still exists
  *  and its latest recorded Vahan result is not 'verified' (a successful retry in the meantime
  *  cancels the alert). */
-export function createVahanStillUnverifiedCheck(dataSource: DataSource) {
-  return async (tenantId: string, context: { vehicleId: string }): Promise<boolean> => {
-    const [vehicle] = await dataSource.query(
-      `SELECT 1 FROM masters.vehicles WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-      [context.vehicleId, tenantId],
+export function createVahanStillUnverifiedCheck(
+  scheduledAlertRepository: ScheduledAlertRepository,
+) {
+  return async (tenantId: string, context: VahanUnverifiedContext): Promise<boolean> => {
+    if (!(await scheduledAlertRepository.vehicleExists(tenantId, context.vehicleId))) return false;
+    const latestStatus = await scheduledAlertRepository.findLatestVahanStatus(
+      tenantId,
+      context.vehicleId,
     );
-    if (!vehicle) return false;
-    const [latest] = await dataSource.query(
-      `SELECT verification_status FROM masters.vehicle_verification_snapshots
-        WHERE vehicle_id = $1 AND tenant_id = $2 ORDER BY checked_at DESC, created_at DESC LIMIT 1`,
-      [context.vehicleId, tenantId],
-    );
-    return latest?.verification_status !== 'verified';
+    return latestStatus !== 'verified';
   };
 }
-
-/** Pending records per kind, matching each service's own "pending" (products use
- *  approval_status; the rest use status). Raw counts so no other module's code is touched. */
-const PENDING_COUNT_SQL: Record<MasterKind, string> = {
-  vehicle: `SELECT count(*)::int AS n FROM masters.vehicles WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
-  // Drivers are a global profile; "pending" is the organisation's relation awaiting staff review
-  // (driver-tenant-relation.repository.ts's pending list).
-  driver: `SELECT count(*)::int AS n FROM masters.driver_tenant_relations WHERE tenant_id = $1 AND status = 'pending_staff_review' AND deleted_at IS NULL`,
-  loading_point: `SELECT count(*)::int AS n FROM masters.loading_points WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
-  product: `SELECT count(*)::int AS n FROM masters.products WHERE tenant_id = $1 AND approval_status = 'pending_approval' AND deleted_at IS NULL`,
-  customer: `SELECT count(*)::int AS n FROM customers.customers WHERE tenant_id = $1 AND status = 'pending' AND deleted_at IS NULL`,
-};
 
 /** Records still pending of the kinds a user with these permissions/role can approve — LS_N_0010's
  *  "N waiting" and LS_N_0060's morning-brief approvals count. */
 export async function countPendingApprovals(
-  dataSource: DataSource,
+  scheduledAlertRepository: ScheduledAlertRepository,
   tenantId: string,
   permissions: string[],
   role: string | null,
 ): Promise<number> {
-  const kinds = (Object.keys(PENDING_COUNT_SQL) as MasterKind[]).filter((kind) => {
+  const approvableKinds = (Object.keys(MASTER_KIND_LABELS) as MasterKind[]).filter((kind) => {
     const approvers = masterApprovers(kind);
     return (
       permissions.includes(approvers.permission) && (!approvers.role || approvers.role === role)
     );
   });
-  const counts = await Promise.all(
-    kinds.map(async (kind) => {
-      const [row] = await dataSource.query(PENDING_COUNT_SQL[kind], [tenantId]);
-      return (row?.n as number) ?? 0;
-    }),
+  const pendingCounts = await Promise.all(
+    approvableKinds.map((kind) => scheduledAlertRepository.countPendingMasters(tenantId, kind)),
   );
-  return counts.reduce((sum, n) => sum + n, 0);
-}
-
-export interface MasterApprovalResolverDeps {
-  dataSource: DataSource;
-  getUserFullName(userId: string): Promise<string | null>;
-  getUserRoleName(userId: string): Promise<string | null>;
-  getEffectivePermissions(userId: string): Promise<string[]>;
+  return pendingCounts.reduce((sum, pendingCount) => sum + pendingCount, 0);
 }
 
 /** Context resolvers for the trigger worker (wired in composition-root.ts). */
@@ -211,7 +167,7 @@ export function createMasterApprovalResolvers(deps: MasterApprovalResolverDeps) 
         deps.getUserRoleName(context.userId),
       ]);
       const waitingCount = await countPendingApprovals(
-        deps.dataSource,
+        deps.scheduledAlertRepository,
         tenantId,
         permissions,
         role,

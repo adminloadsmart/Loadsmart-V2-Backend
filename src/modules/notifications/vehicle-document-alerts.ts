@@ -1,14 +1,24 @@
-import { DataSource } from 'typeorm';
 import { Job, Worker } from 'bullmq';
 import { getQueueConnection } from '../../jobs/queue-connection';
 import { JobQueue } from '../../jobs/queue-registry';
+import { COMPLIANCE_MANAGE } from '../../shared/constants/permissions';
+import { addDays } from '../maintenance/calculations/dates';
 import { DOCUMENT_TYPE_LABELS } from '../masters/vehicle/vehicle.constants';
+import { VehicleDocumentTypeWithExpiry } from '../masters/vehicle/vehicle.type';
 import {
-  VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY,
-  VehicleDocumentTypeWithExpiry,
-} from '../masters/vehicle/vehicle.type';
-import { NotificationTriggers } from './notification-triggers';
-import { LoadAlertRepository } from './load-alert.repository';
+  DriverLicenceExpiredContext,
+  DriverLicenceExpiringContext,
+  VehicleDocumentExpiredContext,
+  VehicleDocumentExpiringContext,
+} from './catalog/notification-catalog';
+import { INDIA_TIME_ZONE, MS_PER_HOUR } from './notifications.constants';
+import {
+  DailyNotificationSweep,
+  ExpiringVehicleDocument,
+  NotificationScheduleJobData,
+  VehicleDocumentAlertsDeps,
+} from './notifications.interface';
+import { indiaDate } from './utils/trip-time';
 
 /**
  * LS_N_0047 "vehicle document expiring" / LS_N_0048 "vehicle document expired" — replaces the old
@@ -23,154 +33,76 @@ import { LoadAlertRepository } from './load-alert.repository';
 export const NOTIFICATION_SCHEDULES_QUEUE = 'notification-schedules';
 const DAILY_JOB = 'vehicle-documents-daily';
 const WEEKLY_JOB = 'vehicle-documents-weekly-rollup';
-const TIMEZONE = 'Asia/Kolkata';
 const LADDER_DAYS = [30, 15, 7, 3, 1];
 const EXPIRED_REPEAT_DAYS = 7;
 const ROLLUP_WINDOW_DAYS = 30;
 const DRIVER_LADDER_DAYS = [30, 15, 7];
-const HOUR_MS = 60 * 60 * 1000;
 /** LS_N_0018 ladder on the expiry date: reminder at +2h (from the initial, via reminderAfterMs)
  *  and org-admin escalation at +4h. */
-const DRIVER_ESCALATION_AFTER_MS = 4 * HOUR_MS;
+const DRIVER_ESCALATION_AFTER_MS = 4 * MS_PER_HOUR;
 
 /** Registers the two cron schedules (idempotent — safe on every boot / every instance). */
 export async function scheduleVehicleDocumentChecks(queue: JobQueue): Promise<void> {
-  await queue.upsertSchedule(DAILY_JOB, '0 9 * * *', TIMEZONE, DAILY_JOB);
-  await queue.upsertSchedule(WEEKLY_JOB, '0 9 * * 1', TIMEZONE, WEEKLY_JOB);
-}
-
-export function indiaDate(at: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(at); // YYYY-MM-DD
-}
-
-interface DocumentRow {
-  id: string;
-  tenant_id: string;
-  vehicle_id: string;
-  document_type: VehicleDocumentTypeWithExpiry;
-  expiry_date: string;
-  days_left: number;
-  vehicle_no: string;
+  await queue.upsertSchedule(DAILY_JOB, '0 9 * * *', INDIA_TIME_ZONE, DAILY_JOB);
+  await queue.upsertSchedule(WEEKLY_JOB, '0 9 * * 1', INDIA_TIME_ZONE, WEEKLY_JOB);
 }
 
 const label = (type: VehicleDocumentTypeWithExpiry) => DOCUMENT_TYPE_LABELS[type] ?? type;
 
-export function createVehicleDocumentAlerts(
-  dataSource: DataSource,
-  triggers: NotificationTriggers,
-  // The "cannot be dispatched" card's first affected trip.
-  loadAlertRepository: LoadAlertRepository,
-) {
-  const documents = (today: string, where: string): Promise<DocumentRow[]> =>
-    dataSource.query(
-      `SELECT d.id, d.tenant_id, d.vehicle_id, d.document_type, d.expiry_date::text AS expiry_date,
-              (d.expiry_date - $1::date) AS days_left, v.registration_number AS vehicle_no
-         FROM masters.vehicle_documents d
-         JOIN masters.vehicles v ON v.id = d.vehicle_id AND v.deleted_at IS NULL
-        WHERE d.deleted_at IS NULL AND d.expiry_date IS NOT NULL
-          AND d.document_type = ANY($2) AND ${where}
-        ORDER BY d.expiry_date ASC, d.id ASC`,
-      [today, [...VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY]],
+export function createVehicleDocumentAlerts(deps: VehicleDocumentAlertsDeps) {
+  const { scheduledAlertRepository, triggers, loadAlertRepository } = deps;
+
+  const documentsExpiringWithinRollup = (today: string) =>
+    scheduledAlertRepository.findVehicleDocumentsExpiringBetween(
+      today,
+      today,
+      addDays(today, ROLLUP_WINDOW_DAYS),
     );
 
-  /** Planned (not yet started) trips on a vehicle whose pickup is on/after `fromDate`
-   *  (`strictlyAfter` → after). */
-  const plannedTrips = async (
-    tenantId: string,
-    vehicleId: string,
-    fromDate: string,
-    strictlyAfter: boolean,
-  ): Promise<number> => {
-    const [row] = await dataSource.query(
-      `SELECT count(*)::int AS n FROM loads.loads l
-         JOIN loads.requisitions r ON r.id = l.requisition_id
-        WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'bids_received', 'truck_assigned')
-          AND r.pickup_date ${strictlyAfter ? '>' : '>='} $3::date`,
-      [tenantId, vehicleId, fromDate],
-    );
-    return row?.n ?? 0;
-  };
-
-  /** Drivers whose licence is exactly `daysLeft` days from `today` (0 = expires today) — one row
-   *  per organisation they belong to (drivers are a global profile; membership is
-   *  driver_tenant_relations, rejected relations excluded). */
-  const drivers = (
-    today: string,
-    daysLeft: number[],
-  ): Promise<
-    {
-      id: string;
-      tenant_id: string;
-      full_name: string;
-      license_number: string | null;
-      expiry_date: string;
-      days_left: number;
-    }[]
-  > =>
-    dataSource.query(
-      `SELECT d.id, r.tenant_id, d.full_name, d.license_number, d.license_expiry::text AS expiry_date,
-              (d.license_expiry - $1::date) AS days_left
-         FROM masters.driver_tenant_relations r
-         JOIN masters.drivers d ON d.id = r.driver_id AND d.deleted_at IS NULL
-        WHERE r.deleted_at IS NULL AND r.status <> 'rejected' AND d.license_expiry IS NOT NULL
-          AND (d.license_expiry - $1::date) = ANY($2)`,
-      [today, daysLeft],
-    );
-
-  /** Upcoming (not yet started) trips a driver is rostered on, from `today`. */
-  const driverTrips = async (tenantId: string, driverId: string, today: string) => {
-    const [row] = await dataSource.query(
-      `SELECT count(*)::int AS n,
-              count(*) FILTER (WHERE r.pickup_date = $3::date)::int AS today
-         FROM loads.loads l JOIN loads.requisitions r ON r.id = l.requisition_id
-        WHERE l.tenant_id = $1 AND l.driver_id = $2 AND l.status IN ('created', 'bids_received', 'truck_assigned')
-          AND r.pickup_date >= $3::date`,
-      [tenantId, driverId, today],
-    );
-    return { upcoming: (row?.n as number) ?? 0, pickupToday: ((row?.today as number) ?? 0) > 0 };
-  };
-
-  const hasComplianceHolders = async (tenantId: string): Promise<boolean> => {
-    const [row] = await dataSource.query(
-      `SELECT 1 FROM auth.users u WHERE u.tenant_id = $1 AND u.deleted_at IS NULL AND (
-          EXISTS (SELECT 1 FROM auth.role_permissions rp JOIN auth.permissions p ON p.id = rp.permission_id
-                   WHERE rp.role_id = u.role_id AND p.key = 'compliance.manage')
-          OR EXISTS (SELECT 1 FROM auth.user_permissions up JOIN auth.permissions p ON p.id = up.permission_id
-                      WHERE up.user_id = u.id AND p.key = 'compliance.manage')) LIMIT 1`,
-      [tenantId],
-    );
-    return Boolean(row);
-  };
+  const hasComplianceHolders = async (tenantId: string): Promise<boolean> =>
+    (await deps.listUsersWithPermission(tenantId, COMPLIANCE_MANAGE)).length > 0;
 
   /** LS_N_0049 — the driver half of the daily check. */
   const runDriverLicences = async (today: string) => {
-    const expiring = await drivers(today, DRIVER_LADDER_DAYS);
-    for (const driver of expiring) {
-      await triggers.enqueue('driver.licence_expiry', driver.tenant_id, {
-        tenantId: driver.tenant_id,
-        driverId: driver.id,
-        driverName: driver.full_name,
-        dlNo: driver.license_number,
-        expiryDate: driver.expiry_date,
-        daysLeft: Number(driver.days_left),
-        tripCount: (await driverTrips(driver.tenant_id, driver.id, today)).upcoming,
+    const expiringLicences = await scheduledAlertRepository.findDriverLicencesExpiringIn(
+      today,
+      DRIVER_LADDER_DAYS,
+    );
+    for (const licence of expiringLicences) {
+      const trips = await scheduledAlertRepository.countDriverUpcomingTrips(
+        licence.tenantId,
+        licence.driverId,
+        today,
+      );
+      await triggers.enqueue('driver.licence_expiry', licence.tenantId, {
+        tenantId: licence.tenantId,
+        driverId: licence.driverId,
+        driverName: licence.driverName,
+        dlNo: licence.licenceNumber,
+        expiryDate: licence.expiryDate,
+        daysLeft: licence.daysLeft,
+        tripCount: trips.upcoming,
         runDate: today,
       });
     }
-    const expiredToday = await drivers(today, [0]);
-    for (const driver of expiredToday) {
-      const trips = await driverTrips(driver.tenant_id, driver.id, today);
-      const includeOrgAdmins = trips.pickupToday || !(await hasComplianceHolders(driver.tenant_id));
+    const expiredToday = await scheduledAlertRepository.findDriverLicencesExpiringIn(today, [0]);
+    for (const licence of expiredToday) {
+      const trips = await scheduledAlertRepository.countDriverUpcomingTrips(
+        licence.tenantId,
+        licence.driverId,
+        today,
+      );
+      const includeOrgAdmins = trips.pickupToday || !(await hasComplianceHolders(licence.tenantId));
       const context = {
-        tenantId: driver.tenant_id,
-        driverId: driver.id,
-        driverName: driver.full_name,
-        dlNo: driver.license_number,
-        expiryDate: driver.expiry_date,
+        tenantId: licence.tenantId,
+        driverId: licence.driverId,
+        driverName: licence.driverName,
+        dlNo: licence.licenceNumber,
+        expiryDate: licence.expiryDate,
         tripCount: trips.upcoming,
         runDate: today,
       };
-      await triggers.enqueue('driver.licence_expired', driver.tenant_id, {
+      await triggers.enqueue('driver.licence_expired', licence.tenantId, {
         ...context,
         stage: 'initial',
         includeOrgAdmins,
@@ -179,148 +111,151 @@ export function createVehicleDocumentAlerts(
       if (!includeOrgAdmins) {
         await triggers.enqueue(
           'driver.licence_expired',
-          driver.tenant_id,
+          licence.tenantId,
           { ...context, stage: 'escalation', includeOrgAdmins: false },
           { delayMs: DRIVER_ESCALATION_AFTER_MS },
         );
       }
     }
-    return { driversExpiring: expiring.length, driversExpired: expiredToday.length };
+    return { driversExpiring: expiringLicences.length, driversExpired: expiredToday.length };
   };
 
   /** One message per vehicle per day: the first (soonest-expiring) qualifying document. */
-  const firstPerVehicle = (rows: DocumentRow[]) => {
-    const byVehicle = new Map<string, DocumentRow>();
-    for (const row of rows) if (!byVehicle.has(row.vehicle_id)) byVehicle.set(row.vehicle_id, row);
-    return [...byVehicle.values()];
+  const firstPerVehicle = (documents: ExpiringVehicleDocument[]) => {
+    const documentByVehicle = new Map<string, ExpiringVehicleDocument>();
+    for (const document of documents) {
+      if (!documentByVehicle.has(document.vehicleId)) {
+        documentByVehicle.set(document.vehicleId, document);
+      }
+    }
+    return [...documentByVehicle.values()];
   };
 
   return {
     async runDaily(today: string) {
-      const expiringRows = firstPerVehicle(
-        await documents(today, `(d.expiry_date - $1::date) IN (${LADDER_DAYS.join(',')})`),
-      );
-      const expiredRows = firstPerVehicle(
-        await documents(
+      const expiringDocuments = firstPerVehicle(
+        await scheduledAlertRepository.findVehicleDocumentsExpiringOn(
           today,
-          `d.expiry_date <= $1::date AND ($1::date - d.expiry_date) % ${EXPIRED_REPEAT_DAYS} = 0`,
+          LADDER_DAYS.map((days) => addDays(today, days)),
         ),
       );
-      const upcoming = await documents(
-        today,
-        `d.expiry_date BETWEEN $1::date AND $1::date + ${ROLLUP_WINDOW_DAYS}`,
+      const expiredDocuments = firstPerVehicle(
+        await scheduledAlertRepository.findVehicleDocumentsExpiredOnRepeat(
+          today,
+          EXPIRED_REPEAT_DAYS,
+        ),
       );
+      const upcomingDocuments = await documentsExpiringWithinRollup(today);
 
-      for (const row of expiringRows) {
-        await triggers.enqueue('vehicle.document_expiry', row.tenant_id, {
-          vehicleId: row.vehicle_id,
-          vehicleNo: row.vehicle_no,
-          docType: label(row.document_type),
-          expiryDate: row.expiry_date,
-          daysLeft: Number(row.days_left),
-          plannedTripCount: await plannedTrips(
-            row.tenant_id,
-            row.vehicle_id,
-            row.expiry_date,
-            true,
+      for (const document of expiringDocuments) {
+        await triggers.enqueue('vehicle.document_expiry', document.tenantId, {
+          vehicleId: document.vehicleId,
+          vehicleNo: document.vehicleNo,
+          docType: label(document.documentType),
+          expiryDate: document.expiryDate,
+          daysLeft: document.daysLeft,
+          plannedTripCount: await scheduledAlertRepository.countPlannedVehicleTrips(
+            document.tenantId,
+            document.vehicleId,
+            { fromDate: document.expiryDate, excludeFromDate: true },
           ),
-          otherCount: upcoming.filter((d) => d.tenant_id === row.tenant_id && d.id !== row.id)
-            .length,
+          otherCount: upcomingDocuments.filter(
+            (upcoming) => upcoming.tenantId === document.tenantId && upcoming.id !== document.id,
+          ).length,
           runDate: today,
         });
       }
-      for (const row of expiredRows) {
-        await triggers.enqueue('vehicle.compliance_expired', row.tenant_id, {
-          vehicleId: row.vehicle_id,
-          vehicleNo: row.vehicle_no,
-          docType: label(row.document_type),
-          expiryDate: row.expiry_date,
-          affectedTripCount: await plannedTrips(row.tenant_id, row.vehicle_id, today, false),
+      for (const document of expiredDocuments) {
+        await triggers.enqueue('vehicle.compliance_expired', document.tenantId, {
+          vehicleId: document.vehicleId,
+          vehicleNo: document.vehicleNo,
+          docType: label(document.documentType),
+          expiryDate: document.expiryDate,
+          affectedTripCount: await scheduledAlertRepository.countPlannedVehicleTrips(
+            document.tenantId,
+            document.vehicleId,
+            { fromDate: today },
+          ),
           nextAffectedTrip: await loadAlertRepository.findNextPlannedTrip(
-            row.tenant_id,
-            row.vehicle_id,
+            document.tenantId,
+            document.vehicleId,
             today,
           ),
           runDate: today,
         });
       }
       return {
-        expiring: expiringRows.length,
-        expired: expiredRows.length,
+        expiring: expiringDocuments.length,
+        expired: expiredDocuments.length,
         ...(await runDriverLicences(today)),
       };
     },
 
-    async runWeeklyRollup(today: string): Promise<{ organisations: number }> {
-      const upcoming = await documents(
-        today,
-        `d.expiry_date BETWEEN $1::date AND $1::date + ${ROLLUP_WINDOW_DAYS}`,
-      );
-      const byTenant = new Map<string, DocumentRow[]>();
-      for (const row of upcoming)
-        byTenant.set(row.tenant_id, [...(byTenant.get(row.tenant_id) ?? []), row]);
-      for (const [tenantId, rows] of byTenant) {
+    async runWeeklyRollup(today: string) {
+      const upcomingDocuments = await documentsExpiringWithinRollup(today);
+      const documentsByTenant = new Map<string, ExpiringVehicleDocument[]>();
+      for (const document of upcomingDocuments) {
+        documentsByTenant.set(document.tenantId, [
+          ...(documentsByTenant.get(document.tenantId) ?? []),
+          document,
+        ]);
+      }
+      for (const [tenantId, documents] of documentsByTenant) {
         await triggers.enqueue('vehicle.documents_expiring_rollup', tenantId, {
-          docCount: rows.length,
-          docList: rows
-            .map((row) => `${label(row.document_type)} on ${row.vehicle_no} — ${row.expiry_date}`)
+          docCount: documents.length,
+          docList: documents
+            .map(
+              (document) =>
+                `${label(document.documentType)} on ${document.vehicleNo} — ${document.expiryDate}`,
+            )
             .join('; '),
           runDate: today,
         });
       }
-      return { organisations: byTenant.size };
+      return { organisations: documentsByTenant.size };
     },
 
     /** Relevance check for LS_N_0047/0048: never twice for the same vehicle on the same day,
      *  even if a check is re-run after its first job already completed. */
     notAlreadySentToday:
-      (type: string) =>
-      async (tenantId: string, context: { vehicleId: string; runDate: string }) => {
-        const [row] = await dataSource.query(
-          `SELECT 1 FROM notifications.notifications WHERE tenant_id = $1 AND type = $2
-              AND metadata->>'vehicle_id' = $3 AND metadata->>'run_date' = $4 LIMIT 1`,
-          [tenantId, type, context.vehicleId, context.runDate],
-        );
-        return !row;
-      },
+      (type: 'vehicle.document_expiry' | 'vehicle.compliance_expired') =>
+      async (
+        tenantId: string,
+        context: VehicleDocumentExpiringContext | VehicleDocumentExpiredContext,
+      ) =>
+        !(await scheduledAlertRepository.hasSentNotification(tenantId, type, {
+          vehicle_id: context.vehicleId,
+          run_date: context.runDate,
+        })),
 
     /** LS_N_0049 (expiring): one per driver per day, even if the check is re-run. */
-    driverExpiringNotSentToday: async (
-      tenantId: string,
-      context: { driverId: string; runDate: string },
-    ) => {
-      const [row] = await dataSource.query(
-        `SELECT 1 FROM notifications.notifications WHERE tenant_id = $1
-            AND type = 'driver.licence_expiry' AND metadata->>'driver_id' = $2
-            AND metadata->>'run_date' = $3 LIMIT 1`,
-        [tenantId, context.driverId, context.runDate],
-      );
-      return !row;
-    },
+    driverExpiringNotSentToday: async (tenantId: string, context: DriverLicenceExpiringContext) =>
+      !(await scheduledAlertRepository.hasSentNotification(tenantId, 'driver.licence_expiry', {
+        driver_id: context.driverId,
+        run_date: context.runDate,
+      })),
 
     /** LS_N_0049 (expired): each ladder step at most once, and the reminder/escalation only while
      *  the licence is still expired — a renewal (expiry moved past today) cancels them. */
     driverExpiredStillRelevant: async (
       tenantId: string,
-      context: { driverId: string; runDate: string; stage: string; isReminder?: boolean },
+      context: DriverLicenceExpiredContext & { isReminder?: boolean },
     ) => {
-      const [driver] = await dataSource.query(
-        `SELECT 1 FROM masters.drivers d
-           JOIN masters.driver_tenant_relations r ON r.driver_id = d.id AND r.tenant_id = $2
-                AND r.deleted_at IS NULL AND r.status <> 'rejected'
-          WHERE d.id = $1 AND d.deleted_at IS NULL
-            AND d.license_expiry IS NOT NULL AND d.license_expiry <= $3::date`,
-        [context.driverId, tenantId, context.runDate],
+      const stillExpired = await scheduledAlertRepository.hasExpiredDriverLicence(
+        tenantId,
+        context.driverId,
+        context.runDate,
       );
-      if (!driver) return false;
-      const step = context.isReminder ? 'reminder' : context.stage;
-      const [sent] = await dataSource.query(
-        `SELECT 1 FROM notifications.notifications WHERE tenant_id = $1
-            AND type = 'driver.licence_expired' AND metadata->>'driver_id' = $2
-            AND metadata->>'run_date' = $3 AND metadata->>'ladder_step' = $4 LIMIT 1`,
-        [tenantId, context.driverId, context.runDate, step],
-      );
-      return !sent;
+      if (!stillExpired) return false;
+      return !(await scheduledAlertRepository.hasSentNotification(
+        tenantId,
+        'driver.licence_expired',
+        {
+          driver_id: context.driverId,
+          run_date: context.runDate,
+          ladder_step: context.isReminder ? 'reminder' : context.stage,
+        },
+      ));
     },
   };
 }
@@ -330,13 +265,13 @@ export function createVehicleDocumentAlerts(
 export function createNotificationScheduleWorker(
   alerts: ReturnType<typeof createVehicleDocumentAlerts>,
   // LS_N_0056/0057 — the service-distance sweep shares the daily 9:00 tick.
-  serviceAlerts?: { runDaily(today: string): Promise<Record<string, number>> },
+  serviceAlerts?: DailyNotificationSweep,
   // LS_N_0059/0060 — digest jobs on the same queue, by job name (see digests.ts).
   otherJobs: Record<string, (today: string) => Promise<unknown>> = {},
 ): Worker {
-  return new Worker<{ today?: string }>(
+  return new Worker<NotificationScheduleJobData>(
     NOTIFICATION_SCHEDULES_QUEUE,
-    async (job: Job<{ today?: string }>) => {
+    async (job: Job<NotificationScheduleJobData>) => {
       const today = job.data?.today ?? indiaDate();
       if (job.name === DAILY_JOB) {
         return { ...(await alerts.runDaily(today)), ...(await serviceAlerts?.runDaily(today)) };
