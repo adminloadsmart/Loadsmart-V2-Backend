@@ -89,6 +89,25 @@ describe('DriverAuthService — one login per driver', () => {
     expect(calls).toEqual(['revokeAll', 'create']);
   });
 
+  it.each([
+    ['no relation', []],
+    ['one relation', [RELATION]],
+    ['several relations', [RELATION, { ...RELATION, id: 'rel-2', tenantId: 'tenant-2' }]],
+  ])('OTP login returns an identity-scoped token pair with %s', async (_label, relations) => {
+    const { service } = build(relations);
+    const result = await service.verifyOtp(LOGIN);
+
+    expect(result).toMatchObject({ accessToken: 'signed-token', refreshToken: expect.any(String) });
+    expect(result).not.toHaveProperty('tenantSelectionToken');
+    expect((result as { tenants: unknown[] }).tenants).toHaveLength(relations.length);
+    const claims = vi.mocked(signToken).mock.calls.at(-1)![0] as {
+      purpose: string;
+      tenantId?: string;
+    };
+    expect(claims.purpose).toBe('driver-identity-access');
+    expect(claims.tenantId).toBeUndefined();
+  });
+
   it('picking an organisation after OTP closes older sessions', async () => {
     const { service, calls } = build();
     await service.selectTenant({
