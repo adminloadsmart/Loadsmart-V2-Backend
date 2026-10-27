@@ -55,3 +55,14 @@ export const GEOFENCES_MANAGE = 'geofences.manage';
 // default (db/seed-roles.ts); an org admin grants it to specific teammates via the existing
 // POST /roles/users/:userId/permissions.
 export const COMPLIANCE_MANAGE = 'compliance.manage';
+
+// Loadsmart ops console (loadsmart-ops/) — one key per ops team on a Loadsmart load. Platform
+// scope: each ls_* role holds its own team's key, load_console (the console lead) holds them all.
+export const LS_APPROVAL = 'loadsmart.approval'; // checks and posts loads on the load board
+export const LS_PLACEMENT = 'loadsmart.placement'; // partner bids, Loadsmart's bid, driver
+export const LS_VERIFICATION = 'loadsmart.verification'; // approves truck and driver
+export const LS_TRACKING = 'loadsmart.tracking'; // marks stages, papers, charges, POD approval
+export const LS_POD = 'loadsmart.pod'; // ratings, original POD
+export const LS_CS = 'loadsmart.cs'; // claims on loads delivered with issues
+export const LS_RECEIVABLES = 'loadsmart.receivables'; // shipper invoice and payment verification
+export const LS_PAYABLES = 'loadsmart.payables'; // partner advance and balance

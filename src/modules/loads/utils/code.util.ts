@@ -30,3 +30,11 @@ const TRANSPORTER_CODE_OFFSET = 1000;
 export function formatTransporterCode(sequenceValue: number): string {
   return `TRP-${TRANSPORTER_CODE_OFFSET + sequenceValue}`;
 }
+
+const LR_CODE_OFFSET = 1000;
+
+/** `LR-nnnn` — tenant-wide e-LR number (loads/elr/). LR numbers are statutory and never repeat
+ *  (C-04), which a per-tenant sequence guarantees. */
+export function formatLrNumber(sequenceValue: number): string {
+  return `LR-${LR_CODE_OFFSET + sequenceValue}`;
+}

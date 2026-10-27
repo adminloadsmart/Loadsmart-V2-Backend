@@ -9,7 +9,7 @@ import {
 // A moved load is anything that has progressed beyond dispatch planning. Delivery-only
 // metrics below still use delivered_at as their denominator, so active loads do not count as
 // late or on-time before delivery has happened.
-const MOVED_LOADS = `load.status <> 'created'`;
+const MOVED_LOADS = `load.status NOT IN ('created', 'bids_received')`;
 
 function applyDateRange(
   query: SelectQueryBuilder<LoadEntity>,

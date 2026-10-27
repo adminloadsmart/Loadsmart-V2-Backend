@@ -72,6 +72,18 @@ import { LoadPostingEntity } from '../modules/loads/load-posting/entities/load-p
 import { LoadRecipientEntity } from '../modules/loads/load-posting/entities/load-recipient.entity';
 import { LoadDraftEntity } from '../modules/loads/load-posting/entities/load-draft.entity';
 import { CustomerContractEntity } from '../modules/loads/load-posting/entities/customer-contract.entity';
+import { LoadBidEntity } from '../modules/loads/bids/load-bid.entity';
+import { LoadMemoEntity } from '../modules/loads/memo/load-memo.entity';
+import { LoadVerificationEntity } from '../modules/loads/verification/load-verification.entity';
+import { LsPartnerEntity } from '../modules/loadsmart-ops/entities/ls-partner.entity';
+import { LsCommercialTermsEntity } from '../modules/loadsmart-ops/entities/ls-commercial-terms.entity';
+import { LsSourcingEntity } from '../modules/loadsmart-ops/entities/ls-sourcing.entity';
+import { LsPartnerBidEntity } from '../modules/loadsmart-ops/entities/ls-partner-bid.entity';
+import { LoadChargeEntity } from '../modules/loadsmart-ops/entities/load-charge.entity';
+import { LsPartnerPaymentEntity } from '../modules/loadsmart-ops/entities/ls-partner-payment.entity';
+import { LoadClaimEntity } from '../modules/loadsmart-ops/entities/load-claim.entity';
+import { LoadRatingEntity } from '../modules/loadsmart-ops/entities/load-rating.entity';
+import { LsInvoiceEntity } from '../modules/loadsmart-ops/entities/ls-invoice.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -154,6 +166,18 @@ export const AppDataSource = new DataSource({
     LoadRecipientEntity,
     LoadDraftEntity,
     CustomerContractEntity,
+    LoadBidEntity,
+    LoadMemoEntity,
+    LoadVerificationEntity,
+    LsPartnerEntity,
+    LsCommercialTermsEntity,
+    LsSourcingEntity,
+    LsPartnerBidEntity,
+    LoadChargeEntity,
+    LsPartnerPaymentEntity,
+    LoadClaimEntity,
+    LoadRatingEntity,
+    LsInvoiceEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,

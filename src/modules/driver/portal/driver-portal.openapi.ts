@@ -175,7 +175,7 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Home screen — one call bundling driver name/vehicle number, on-time %/trips-done/open-' +
         'trips stats, the current active job (first of GET /me/loads?group=active), the ' +
-        'upcoming-jobs list (GET /me/loads?status=assigned, first 5), and the unread ' +
+        'upcoming-jobs list (GET /me/loads?status=truck_assigned, first 5), and the unread ' +
         "notification count. stats.openTrips (GET /me/loads?group=open's total) counts loads " +
         'not yet closed, including a delivered load pending or rejected E-POD review — it can ' +
         'overlap with stats.tripsDone, which answers a different question (completed-only, ' +
@@ -272,7 +272,7 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Load / Trip Detail for a load assigned to the caller — same shape as the staff ' +
         'GET /loads/{loadId}: status, documents (resolved to download URLs), payments, computed ' +
-        'e-way-bill expiry, the full activity timeline, the 8-step progress stepper, and the ' +
+        'e-way-bill expiry, the full activity timeline, the stage stepper for its route, and the ' +
         'next-action panel.',
     ),
     request: { params: driverPortalValidators.getMyLoad.shape.params },
@@ -345,8 +345,8 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Attach invoice/e-way bill/E-LR (mandatory) and confirm loading for a load assigned to ' +
         'the caller — same rules as the staff PATCH /loads/{loadId}/confirm-loading. A document ' +
-        'staff already attached never needs to be resent: the load only stays "assigned" while ' +
-        'any of the three mandatory documents are genuinely still missing from the row. Also ' +
+        'staff already attached never needs to be resent: the load moves to Loaded as soon as all ' +
+        'three mandatory documents are on the row. Only at the loading point. Also ' +
         'accepts two non-mandatory fields that never affect that flip: loadingPhotoFileKeys (up ' +
         'to 3 photos of the loaded truck, back and sides) and weighingSlipFileKey. File keys must ' +
         'be confirmed uploads from POST /driver-portal/files with the matching purpose ' +
@@ -359,8 +359,8 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          'Document(s) saved; load remains "assigned" until all three mandatory documents are ' +
-          'present, then flips to "loading_confirmed"',
+          'Document(s) saved; load stays at Reached loading point until all three mandatory ' +
+          'documents are present, then moves to Loaded',
       },
       400: {
         description: 'A file is not a confirmed upload for the expected purpose',
@@ -369,7 +369,7 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
       404: { description: 'Load not found, or not assigned to the caller', ...errorContent },
       409: {
         description:
-          'Load is not in the "assigned" state, or the E-LR number is already used on another load (C-04)',
+          'Load is not at the loading point, or the E-LR number is already used on another load (C-04)',
         ...errorContent,
       },
     },
@@ -413,9 +413,10 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.updateMyLoadStatus',
     ...authenticated(
-      'Manual tracking advance — At plant / In-transit / Reached delivery point — for a load ' +
-        'assigned to the caller. Same rules as the staff PATCH /loads/{loadId}/status: one hop ' +
-        'at a time, rejects skipping ahead or moving backward.',
+      'Manual stage mark — `in_transit_loading` (Start trip), `reached_loading`, ' +
+        '`in_transit_unloading` (left for the drop), `reached_unloading` — for a load assigned to ' +
+        'the caller. Same rules as the staff PATCH /loads/{loadId}/status: one stage at a time, ' +
+        'rejects skipping ahead or moving backward.',
     ),
     request: {
       params: driverPortalValidators.updateMyLoadStatus.shape.params,
@@ -478,17 +479,19 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.uploadMyPod',
     ...authenticated(
-      'Record proof of delivery for a load assigned to the caller — delivery receipt photo, ' +
-        'receiver name, and quantity received are required. Receiver verification is optional: ' +
+      'Record proof of delivery for a load assigned to the caller — POD front (podFileKey) and ' +
+        'back (podBackFileKey), receiver name, and quantity received are required. Receiver verification is optional: ' +
         'send podReceiverMobile only after it passed POST /loads/{loadId}/receiver-code/verify ' +
         '(else 400); omit it when the receiver has no phone, and the POD photo alone is the ' +
         'proof. For drivers numberOfTonnesShort is ' +
         'computed server-side (planned minus podQuantityReceived) and shortageOrDamage is raised ' +
         'to `shortage` when tonnes are short. shortageOrDamage ' +
-        '(none/shortage/damage/wet/both) captures cargo condition on arrival, and ' +
-        'damagePhotoKey becomes required when it is `damage`, `wet` or `both`. podFileKey and damagePhotoKey must both be ' +
-        'confirmed uploads from POST /driver-portal/files with purpose trips/pod. Marks the load ' +
-        'Delivered; own-fleet loads (the only kind reachable here) close immediately.',
+        '(none/shortage/damage/wet/both/pilferage) captures cargo condition on arrival, and ' +
+        'damagePhotoKey becomes required when it is `damage`, `wet` or `both`. podFileKey, ' +
+        'podBackFileKey and damagePhotoKey must be confirmed uploads from POST ' +
+        '/driver-portal/files with purpose trips/pod. Nothing noted → Delivered without issues; ' +
+        'anything noted → Delivered with issues until staff settle it. Closing waits on staff ' +
+        'accepting the E-POD.',
     ),
     request: {
       params: driverPortalValidators.uploadMyPod.shape.params,

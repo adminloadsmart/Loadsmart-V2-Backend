@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateSchema } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import {
   FREIGHT_TYPES,
@@ -87,6 +88,8 @@ export const verifyPodReceiverCodeBody = z
 export const uploadPodBody = z
   .object({
     podFileKey: z.string().trim().min(1),
+    // The back of the POD carries the receiver's damage/shortage remarks — required with the front.
+    podBackFileKey: z.string().trim().min(1),
     podReceiverName: z.string().trim().min(1).max(150),
     // Optional: a receiver without a phone skips code verification and the POD photo alone is the
     // proof. When a driver sends it, it must already be verified via the receiver-code/verify
@@ -218,5 +221,26 @@ export const loadValidators = {
   reviewPod: z.object({
     params,
     body: reviewPodBody,
+  }),
+
+  // The e-LR at the loading point — see elr/elr.service.ts.
+  generateElr: z.object({
+    params,
+    body: z
+      .object({
+        packages: z.number().int().positive(),
+        sealNumber: z.string().trim().min(1).max(50).optional(),
+        showFreight: z.boolean().optional(),
+        invoiceNumber: z.string().trim().min(1).max(50).optional(),
+        invoiceDate: isoDateSchema.optional(),
+        invoiceValue: z.number().positive().optional(),
+      })
+      .strict(),
+  }),
+
+  // Delivered with issues -> settled — see LoadService.settleDeliveryIssue.
+  settleDeliveryIssue: z.object({
+    params,
+    body: z.object({ note: z.string().trim().min(1).max(1000) }).strict(),
   }),
 };

@@ -61,7 +61,16 @@ export class MaintenanceFleetRepository {
       .where('load.tenant_id = :tenantId', { tenantId })
       .andWhere("load.source_type = 'market'")
       .andWhere('load.covers_vehicle_id IN (:...vehicleIds)', { vehicleIds })
-      .andWhere('load.status NOT IN (:...done)', { done: ['delivered', 'closed'] })
+      .andWhere('load.status NOT IN (:...done)', {
+        done: [
+          'delivered_ok',
+          'delivered_with_issues',
+          'original_pod_received',
+          'invoice_generated',
+          'payment',
+          'closed',
+        ],
+      })
       .groupBy('load.covers_vehicle_id')
       .getRawMany<{ vehicleId: string; count: number }>();
 

@@ -9,7 +9,6 @@ import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
-import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { StorageService } from '../storage/storage.service';
 import { msg } from '../../shared/i18n/translate';
 import { redisManager } from '../../db/redis';
@@ -19,17 +18,19 @@ import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadIssueRepository } from './load-issue.repository';
 import { LoadActivityService } from './load-activity.service';
+import { LoadStageService } from './load-stage.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
 import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
 import {
   COMPLETED_LOAD_STATUSES,
-  LOAD_STATUSES,
-  LoadStatus,
-  MANUAL_TRACKING_STATUSES,
+  DELIVERED_LOAD_STATUSES,
+  deliveredStageFor,
+  UNLOADED_LOAD_STATUSES,
   ManualTrackingStatus,
   PodReviewDecision,
 } from './utils/loads.types';
+import { hasLoadingPapers } from './utils/load-stages';
 import { LoadActivityWithActor } from './utils/load-activity.interface';
 import { ReportLoadIssueInput } from './utils/load-issue.interface';
 import {
@@ -84,6 +85,7 @@ export interface LoadDocumentKeys {
   ewayBillFileKey: string | null;
   elrFileKey: string | null;
   podFileKey: string | null;
+  podBackFileKey: string | null;
   weighingSlipFileKey: string | null;
   loadingPhotoFileKeys: string[] | null;
 }
@@ -112,6 +114,14 @@ const podReceiverVerifiedKey = (loadId: string, mobile: string) =>
 const podReceiverAttemptsKey = (loadId: string, mobile: string) =>
   `pod-receiver-attempts:${loadId}:${mobile}`;
 
+/** A Loadsmart load's delivery issue is settled through its claim (claim value, then settle —
+ *  loadsmart-ops LsShipperService), never directly; that path passes `viaClaim`. */
+function assertNotLoadsmartClaim(load: LoadEntity, viaClaim: boolean): void {
+  if (load.sourceType === 'loadsmart' && !viaClaim) {
+    throw new ConflictError('On a Loadsmart load, settle the claim instead');
+  }
+}
+
 export class LoadService {
   constructor(
     private readonly repository: LoadRepository,
@@ -119,10 +129,10 @@ export class LoadService {
     private readonly loadPaymentRepository: LoadPaymentRepository,
     private readonly loadIssueRepository: LoadIssueRepository,
     private readonly transporterService: TransporterService,
-    private readonly vehicleService: VehicleService,
     private readonly storageService: StorageService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    private readonly stageService: LoadStageService,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
     private readonly onBreakdownReported?: BreakdownReportedNotifier,
@@ -142,11 +152,11 @@ export class LoadService {
   }
 
   /**
-   * Load Assignment — market loads only. Own-fleet loads never reach this: vehicle+driver are
-   * already known at Dispatch Planning (the same vehicle/driver-resolution + compliance-warning
-   * logic this used to run lives in dispatch-planning.service.ts now), so they're created
-   * directly in `assigned`. Market loads pick their transporter, vehicle number, driver number
-   * and agreed freight here — none of that is known at planning time (Plan Dispatch v2.0 R-16).
+   * Load Assignment — market and indent loads. Own-fleet loads never reach this: vehicle+driver
+   * are already known at Dispatch Planning / posting, so they're created directly in
+   * `truck_assigned`. Market and indent loads pick their transporter, vehicle number, driver
+   * number and agreed freight here — none of that is known at planning time (Plan Dispatch v2.0
+   * R-16). Moves the load to Truck assigned, from Created or Bids received.
    */
   async assign(
     tenantId: string,
@@ -156,13 +166,13 @@ export class LoadService {
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
-      if (load.sourceType !== 'market') {
+      if (load.sourceType === 'own_fleet') {
         throw new ConflictError(
           'Own-fleet loads are assigned at Dispatch Planning, not through this endpoint',
         );
       }
-      if (load.status !== 'created') {
-        throw new ConflictError('Only a newly created load can be assigned');
+      if (load.status !== 'created' && load.status !== 'bids_received') {
+        throw new ConflictError('Only a load that has no truck yet can be assigned');
       }
 
       if (!input.transporterId) throw new ValidationError('transporterId is required');
@@ -192,42 +202,25 @@ export class LoadService {
       const freightValue =
         input.freightValue !== undefined ? String(input.freightValue) : load.expectedRate;
 
-      const updated = await this.repository.update(tenantId, loadId, {
-        status: 'assigned',
-        transporterId: input.transporterId,
-        vehicleNumber,
-        driverNumber: input.driverNumber?.trim() ?? null,
-        driverName: input.driverName?.trim() ?? null,
-        freightType: input.freightType,
-        freightValue,
-        updatedBy: actorId,
-      });
-      if (!updated) throw new ConflictError('Load assignment failed');
-
-      await this.loadActivityService.record(
+      const driverNumber = input.driverNumber?.trim() ?? null;
+      const driverName = input.driverName?.trim() ?? null;
+      return await this.stageService.transition({
         tenantId,
         loadId,
+        to: 'truck_assigned',
         actorId,
-        'STATUS_CHANGED',
-        'created',
-        'assigned',
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: actorId,
-        action: 'LOAD_ASSIGNED',
-        resourceType: 'load',
-        oldData: { id: loadId, status: 'created' },
-        newData: {
-          id: loadId,
-          status: 'assigned',
-          vehicleNumber: updated.vehicleNumber,
-          driverNumber: updated.driverNumber,
-          driverName: updated.driverName,
+        load,
+        auditAction: 'LOAD_ASSIGNED',
+        fields: {
+          transporterId: input.transporterId,
+          vehicleNumber,
+          driverNumber,
+          driverName,
+          freightType: input.freightType,
+          freightValue,
         },
+        metadata: { vehicleNumber, driverNumber, driverName },
       });
-
-      return updated;
     } catch (error) {
       rethrow(error, 'Failed to assign load');
     }
@@ -270,6 +263,7 @@ export class LoadService {
       ewayBillFileKey: await resolveNullable(load.ewayBillFileKey),
       elrFileKey: await resolveNullable(load.elrFileKey),
       podFileKey: await resolveNullable(load.podFileKey),
+      podBackFileKey: await resolveNullable(load.podBackFileKey),
       weighingSlipFileKey: await resolveNullable(load.weighingSlipFileKey),
       loadingPhotoFileKeys: load.loadingPhotoFileKeys
         ? await Promise.all(load.loadingPhotoFileKeys.map(resolve))
@@ -390,12 +384,11 @@ export class LoadService {
   }
 
   /**
-   * Attach/replace load documents (invoice/e-way bill/E-LR/loading photos/weighing slip) without
-   * confirmLoading's status-transition semantics below — usable at any point in the load's
-   * lifecycle except once closed (terminal), never checks completeness, never flips status.
-   * confirmLoading remains the only path that transitions at_plant -> loading_confirmed. Useful
-   * for correcting or adding a document after loading has already been confirmed (e.g. a wrong
-   * invoice number, or a document that only arrived after the fact).
+   * Attach/replace load documents (invoice/e-way bill/E-LR/loading photos/weighing slip) at any
+   * point in the load's lifecycle except once closed (terminal). Useful for correcting or adding
+   * a document after the fact (e.g. a wrong invoice number). Like confirmLoading, a load at the
+   * loading point moves to Loaded as soon as the three loading papers are all on it — "3 papers
+   * move it to Loaded" holds whichever endpoint delivered the last one.
    *
    * `driverOwnerId` is set only by driver-portal's self-service call — same ownership-check-as-
    * 404 convention as confirmLoading/uploadPod below.
@@ -422,23 +415,22 @@ export class LoadService {
       if (!updated) throw new ConflictError('Updating documents failed');
 
       await this.recordDocumentUpload(tenantId, loadId, actorId, input);
+      await this.notifyEwayBillGenerated(tenantId, loadId, fields, updated);
 
-      return updated;
+      return await this.advanceIfPapersComplete(tenantId, actorId, updated, driverOwnerId);
     } catch (error) {
       rethrow(error, 'Failed to update load documents');
     }
   }
 
-  /** Ops or the assigned driver attaches invoice/e-way bill/E-LR (mandatory — but only whichever
-   *  aren't already on the load, see isComplete below) plus optional loading photos/weighing slip,
-   *  and confirms loading — triggers tracking and, for market loads, enables advance payment.
-   *  Documents may be submitted one at a time or all together (load.validators.ts's
-   *  confirmLoading allows any non-empty subset); this only flips the load to loading_confirmed
-   *  once all three mandatory documents end up present on the row, whether accumulated across
-   *  calls or already present from an earlier caller.
+  /** Ops or the assigned driver attaches invoice/e-way bill/signed LR (mandatory — but only
+   *  whichever aren't already on the load) plus optional loading photos/weighing slip at the
+   *  loading point. Documents may be submitted one at a time or all together; the load moves to
+   *  Loaded once all three papers end up on the row, whether accumulated across calls or already
+   *  present from an earlier caller (advanceIfPapersComplete).
    *
    *  `driverOwnerId` is set only by driver-portal's self-service call — same ownership-check-as-
-   *  404 convention as uploadPod/reportIssue above. */
+   *  404 convention as uploadPod/reportIssue. */
   async confirmLoading(
     tenantId: string,
     actorId: string,
@@ -452,125 +444,73 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      if (load.status !== 'at_plant') {
-        throw new ConflictError('Only a load at the plant can have loading confirmed');
+      if (load.status !== 'reached_loading') {
+        throw new ConflictError('Loading papers can only be confirmed at the loading point');
       }
 
-      const now = new Date();
       const fields = await this.buildDocumentFields(tenantId, actorId, actorRole, load, input);
 
-      // Step 1 — persist whatever arrived this call as a plain partial update, then re-read.
-      // Completeness below is decided from this fresh, post-write row rather than an in-memory
-      // merge of the pre-write read above: that's what lets two concurrent calls, each landing
-      // one of the last two missing documents, both correctly see the full set once both writes
-      // commit — deciding from the pre-write view would let both conclude "still incomplete".
-      let updated = await this.repository.update(tenantId, loadId, fields);
+      // Persist whatever arrived this call, then decide completeness from the fresh, post-write
+      // row rather than an in-memory merge of the pre-write read: that's what lets two concurrent
+      // calls, each landing one of the last two missing papers, both see the full set.
+      const updated = await this.repository.update(tenantId, loadId, fields);
       if (!updated) throw new ConflictError('Confirming loading failed');
 
       await this.recordDocumentUpload(tenantId, loadId, actorId, input);
+      await this.notifyEwayBillGenerated(tenantId, loadId, fields, updated);
 
-      // A (re)generated e-way bill gets its own expiry alert; an older bill's alert drops itself.
-      if (fields.ewayBillGeneratedAt && updated.ewayBillGeneratedAt) {
-        const { expiresAt } = this.getEwayBillExpiry(updated);
-        if (expiresAt) {
-          await this.onLoadEvent?.({
-            kind: 'eway_bill_generated',
-            tenantId,
-            loadId,
-            generatedAt: updated.ewayBillGeneratedAt,
-            expiresAt: new Date(expiresAt),
-          });
-        }
-      }
-
-      const isComplete =
-        !!updated.invoiceNumber &&
-        !!updated.invoiceFileKey &&
-        !!updated.ewayBillNumber &&
-        !!updated.ewayBillFileKey &&
-        !!updated.elrFileKey; // elrNumber intentionally excluded — same asymmetry as before
-
-      if (isComplete && updated.status === 'at_plant') {
-        // Step 2 — conditional flip. WHERE status IN ('at_plant') is both the business guard and
-        // the race guard: if two concurrent calls each complete the set at the same instant, only
-        // one UPDATE matches, so only one call ever logs STATUS_CHANGED/the audit entry.
-        const confirmed = await this.repository.updateStatus(
-          tenantId,
-          loadId,
-          ['at_plant'],
-          'loading_confirmed',
-          { loadingConfirmedAt: now, loadingConfirmedBy: actorId, updatedBy: actorId },
-        );
-        if (confirmed) {
-          updated = confirmed;
-          await this.loadActivityService.record(
-            tenantId,
-            loadId,
-            actorId,
-            'STATUS_CHANGED',
-            'at_plant',
-            'loading_confirmed',
-          );
-          await this.auditService.log({
-            tenantId,
-            // A driver caller's id isn't in users, so audit_logs.user_id's FK would reject it —
-            // same convention as updateStatus: null the user and carry the driver in newData.
-            userId: driverOwnerId ? null : actorId,
-            action: 'LOAD_LOADING_CONFIRMED',
-            resourceType: 'load',
-            oldData: { id: loadId, status: 'at_plant' },
-            newData: driverOwnerId
-              ? { id: loadId, status: 'loading_confirmed', driverId: actorId }
-              : { id: loadId, status: 'loading_confirmed' },
-          });
-
-          // Confirming loading means the truck is leaving the plant — advance straight to
-          // in_transit, still passing through loading_confirmed above so the activity/audit trail
-          // and stepper keep every stage. Guarded on loading_confirmed so it can't double-fire.
-          const inTransit = await this.repository.updateStatus(
-            tenantId,
-            loadId,
-            ['loading_confirmed'],
-            'in_transit',
-            { inTransitAt: new Date(), updatedBy: actorId },
-          );
-          if (inTransit) {
-            updated = inTransit;
-            await this.loadActivityService.record(
-              tenantId,
-              loadId,
-              actorId,
-              'STATUS_CHANGED',
-              'loading_confirmed',
-              'in_transit',
-            );
-            await this.auditService.log({
-              tenantId,
-              userId: driverOwnerId ? null : actorId,
-              action: 'LOAD_STATUS_UPDATED',
-              resourceType: 'load',
-              oldData: { id: loadId, status: 'loading_confirmed' },
-              newData: driverOwnerId
-                ? { id: loadId, status: 'in_transit', driverId: actorId }
-                : { id: loadId, status: 'in_transit' },
-            });
-            await this.onLoadEvent?.({
-              kind: 'in_transit',
-              tenantId,
-              loadId,
-              at: inTransit.inTransitAt ?? new Date(),
-            });
-          }
-        } else {
-          // Lost the race — a concurrent call already completed the transition and logged
-          // STATUS_CHANGED/the audit entry. Reflect current state without duplicating those.
-          updated = await this.assertExists(tenantId, loadId);
-        }
-      }
-
-      return updated;
+      return await this.advanceIfPapersComplete(tenantId, actorId, updated, driverOwnerId);
     } catch (error) {
       rethrow(error, 'Failed to confirm loading');
+    }
+  }
+
+  /** A (re)generated e-way bill gets its own expiry alert; an older bill's alert drops itself. */
+  private async notifyEwayBillGenerated(
+    tenantId: string,
+    loadId: string,
+    fields: UpdateLoadData,
+    updated: LoadEntity,
+  ): Promise<void> {
+    if (!fields.ewayBillGeneratedAt || !updated.ewayBillGeneratedAt) return;
+    const { expiresAt } = this.getEwayBillExpiry(updated);
+    if (!expiresAt) return;
+    await this.onLoadEvent?.({
+      kind: 'eway_bill_generated',
+      tenantId,
+      loadId,
+      generatedAt: updated.ewayBillGeneratedAt,
+      expiresAt: new Date(expiresAt),
+    });
+  }
+
+  /** "3 papers move it to Loaded": a load at the loading point moves to Loaded once invoice,
+   *  e-way bill and signed LR are all on it. The stage service's conditional update is the race
+   *  guard — if a concurrent call already moved it, this one just returns the current row. */
+  private async advanceIfPapersComplete(
+    tenantId: string,
+    actorId: string,
+    load: LoadEntity,
+    driverOwnerId?: string,
+  ): Promise<LoadEntity> {
+    if (load.status !== 'reached_loading' || !hasLoadingPapers(load)) return load;
+    // On a Loadsmart load the truck waits for the papers to be approved
+    // (loadsmart-ops approvePapers) — complete papers alone don't move it.
+    if (load.sourceType === 'loadsmart') return load;
+    try {
+      return await this.stageService.transition({
+        tenantId,
+        loadId: load.id,
+        to: 'loaded',
+        actorId,
+        driverOwnerId,
+        load,
+        auditAction: 'LOAD_LOADING_CONFIRMED',
+        fields: { loadingConfirmedBy: actorId },
+      });
+    } catch (error) {
+      if (error instanceof ConflictError) return this.assertExists(tenantId, load.id);
+      throw error;
     }
   }
 
@@ -580,19 +520,17 @@ export class LoadService {
   getEwayBillExpiry(load: LoadEntity): EwayBillExpiry {
     if (!load.ewayBillGeneratedAt) return { expiresAt: null, expired: false };
     const expiresAt = new Date(load.ewayBillGeneratedAt.getTime() + EWAY_BILL_VALIDITY_MS);
-    const stillMoving = load.status !== 'delivered' && load.status !== 'closed';
+    const stillMoving = !UNLOADED_LOAD_STATUSES.includes(load.status) && load.status !== 'closed';
     return { expiresAt: expiresAt.toISOString(), expired: stillMoving && new Date() > expiresAt };
   }
 
-  /** Manual-only tracking advance. Rejects
-   *  skipping ahead or moving backward through MANUAL_TRACKING_STATUSES; the conditional
-   *  `WHERE status = <current>` update also guards a concurrent double-advance race.
+  /** Manual stage mark — Start trip, Reached loading point, left for the drop, Reached unloading
+   *  point. There is no live tracking yet, so these move the load through Execution; the stage
+   *  service rejects skipping ahead or moving backward.
    *
    *  `driverOwnerId` is set only by driver-portal's self-service call — when present, the caller
    *  must be this load's own assigned driver (masked as not-found otherwise, same "no IDOR
-   *  surface" convention driver-portal's getMyLoads already follows), and the audit entry is
-   *  written without the driver's id in `userId` (audit_logs.user_id has a real FK to auth.users,
-   *  which a masters.drivers id would violate) — see driver-portal.controller.ts. */
+   *  surface" convention driver-portal's getMyLoads already follows). */
   async updateStatus(
     tenantId: string,
     actorId: string,
@@ -606,54 +544,16 @@ export class LoadService {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
       await this.assertNotHalted(tenantId, loadId);
-      const manualTrackingStatuses: readonly string[] = MANUAL_TRACKING_STATUSES;
-      const currentIndex = LOAD_STATUSES.indexOf(load.status);
-      const nextStatus = LOAD_STATUSES[currentIndex + 1];
-      if (nextStatus !== toStatus || !manualTrackingStatuses.includes(toStatus)) {
-        throw new ConflictError(
-          `Cannot move load from ${humanizeStatus(load.status)} to ${humanizeStatus(toStatus)} — the only valid next status is ${humanizeStatus(nextStatus ?? 'none')}`,
-        );
-      }
-
-      const timestampField =
-        toStatus === 'at_plant'
-          ? 'atPlantAt'
-          : toStatus === 'in_transit'
-            ? 'inTransitAt'
-            : 'reachedDeliveryPointAt';
-
-      const updated = await this.repository.updateStatus(
+      const moved = await this.stageService.transition({
         tenantId,
         loadId,
-        [load.status],
-        toStatus,
-        { [timestampField]: new Date(), updatedBy: actorId },
-      );
-      if (!updated) throw new ConflictError('Load status update failed — it may have just changed');
-
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
+        to: toStatus,
         actorId,
-        'STATUS_CHANGED',
-        load.status,
-        toStatus,
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: driverOwnerId ? null : actorId,
-        action: driverOwnerId ? 'LOAD_STATUS_UPDATED_BY_DRIVER' : 'LOAD_STATUS_UPDATED',
-        resourceType: 'load',
-        oldData: { id: loadId, status: load.status },
-        newData: driverOwnerId
-          ? { id: loadId, status: toStatus, driverId: actorId }
-          : { id: loadId, status: toStatus },
+        driverOwnerId,
+        load,
       });
-      if (toStatus === 'in_transit' || toStatus === 'reached_delivery_point') {
-        await this.onLoadEvent?.({ kind: toStatus, tenantId, loadId, at: new Date() });
-      }
-
-      return updated;
+      // Papers attached on the way in move the load to Loaded as soon as it reaches the gate.
+      return await this.advanceIfPapersComplete(tenantId, actorId, moved, driverOwnerId);
     } catch (error) {
       rethrow(error, 'Failed to update load status');
     }
@@ -673,7 +573,9 @@ export class LoadService {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
       if (!this.canRecordPod(load)) {
-        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+        throw new ConflictError(
+          'E-POD can only be recorded once the truck has left for the unloading point',
+        );
       }
       // Static code for now — nothing to send; see POD_RECEIVER_STATIC_OTP. A fresh send always
       // gets a fresh guess budget and invalidates any earlier verification of this number.
@@ -700,7 +602,9 @@ export class LoadService {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
       if (!this.canRecordPod(load)) {
-        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+        throw new ConflictError(
+          'E-POD can only be recorded once the truck has left for the unloading point',
+        );
       }
       const attempts = await redisManager.incr(
         podReceiverAttemptsKey(loadId, mobile),
@@ -723,26 +627,22 @@ export class LoadService {
     }
   }
 
+  /** The E-POD is taken at the drop. A load still marked on its way to the drop is accepted too
+   *  — with no live tracking the driver may not have marked the arrival — and uploadPod marks it
+   *  reached first. A rejected E-POD can be resubmitted from either delivered stage. */
   private canRecordPod(load: LoadEntity): boolean {
-    const validPriorStatuses = [
-      'loading_confirmed',
-      'at_plant',
-      'in_transit',
-      'reached_delivery_point',
-    ];
-    // A rejected E-POD can be resubmitted from 'delivered' — the truck already arrived, only
-    // the paperwork is being redone. See LoadEntity's podStatus doc comment.
     return (
-      validPriorStatuses.includes(load.status) ||
-      (load.status === 'delivered' && load.podStatus === 'rejected')
+      load.status === 'in_transit_unloading' ||
+      load.status === 'reached_unloading' ||
+      (DELIVERED_LOAD_STATUSES.includes(load.status) && load.podStatus === 'rejected')
     );
   }
 
-  /** The delivery receipt — photo, receiver name/mobile, and quantity received are required;
-   *  receiver designation and sealStatus are optional (kept for staff-side/older callers, but the
-   *  driver-app ePOD screen doesn't collect either). Marks the load Delivered; own-fleet loads
-   *  close immediately (no payment gate), market loads wait for the balance payment (see
-   *  load-payment.service.ts's recordBalance).
+  /** The delivery receipt — POD front and back, receiver name/mobile, and quantity received are
+   *  required; receiver designation and sealStatus are optional. "The POD decides how it was
+   *  delivered": nothing noted moves the load to Delivered without issues; damage, shortage or
+   *  pilferage to Delivered with issues, until settleDeliveryIssue. Closing waits on staff's
+   *  E-POD review (reviewPod) and, for market loads, the payments.
    *
    *  shortageOrDamage is the driver-app screen's cargo-condition-on-arrival field — like
    *  sealStatus, never a hard block (no exceptions/escalations module exists yet to route it to);
@@ -766,9 +666,12 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const isResubmission = load.status === 'delivered' && load.podStatus === 'rejected';
+      const isResubmission =
+        DELIVERED_LOAD_STATUSES.includes(load.status) && load.podStatus === 'rejected';
       if (!this.canRecordPod(load)) {
-        throw new ConflictError('E-POD can only be recorded once loading is confirmed');
+        throw new ConflictError(
+          'E-POD can only be recorded once the truck has left for the unloading point',
+        );
       }
 
       // Driver-only receiver verification: a receiver mobile must have been verified via verifyPodReceiverCode;
@@ -811,16 +714,18 @@ export class LoadService {
       }
 
       await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
+      await this.assertLoadDocumentUpload(tenantId, actorRole, input.podBackFileKey, 'trips/pod');
       if (input.damagePhotoKey) {
         await this.assertLoadDocumentUpload(tenantId, actorRole, input.damagePhotoKey, 'trips/pod');
       }
 
-      const updated = await this.repository.update(tenantId, loadId, {
-        status: 'delivered',
+      const target = deliveredStageFor(shortageOrDamage);
+      const podFields: UpdateLoadData = {
         // Only stamp deliveredAt on the first upload — a resubmission after rejection doesn't
         // change when the truck physically arrived.
         ...(isResubmission ? {} : { deliveredAt: new Date() }),
         podFileKey: input.podFileKey,
+        podBackFileKey: input.podBackFileKey,
         podReceiverName: input.podReceiverName,
         podReceiverMobile: input.podReceiverMobile ?? null,
         podReceiverVerifiedAt,
@@ -834,9 +739,15 @@ export class LoadService {
         // Every upload (first or resubmission) restarts staff review from scratch.
         podStatus: 'pending',
         podRejectionReason: null,
-        updatedBy: actorId,
-      });
-      if (!updated) throw new ConflictError('Recording E-POD failed');
+        // A fresh issue on the POD needs a fresh settlement.
+        ...(target === 'delivered_with_issues'
+          ? {
+              deliveryIssueSettledAt: null,
+              deliveryIssueSettledBy: null,
+              deliveryIssueSettlementNote: null,
+            }
+          : {}),
+      };
 
       await this.loadActivityService.record(
         tenantId,
@@ -852,44 +763,44 @@ export class LoadService {
           receiverVerified: Boolean(podReceiverVerifiedAt),
         },
       );
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        actorId,
-        'STATUS_CHANGED',
-        load.status,
-        'delivered',
-      );
-      await this.auditService.log({
-        tenantId,
-        userId: driverOwnerId ? null : actorId,
-        action: driverOwnerId ? 'LOAD_POD_RECORDED_BY_DRIVER' : 'LOAD_POD_RECORDED',
-        resourceType: 'load',
-        oldData: { id: loadId, status: load.status },
-        newData: driverOwnerId
-          ? {
-              id: loadId,
-              status: 'delivered',
-              sealStatus: input.sealStatus,
-              shortageOrDamage,
-              receiverVerified: Boolean(podReceiverVerifiedAt),
-              driverId: actorId,
-            }
-          : {
-              id: loadId,
-              status: 'delivered',
-              sealStatus: input.sealStatus,
-              shortageOrDamage,
-            },
-      });
 
-      // TODO: notify Accounts for balance payment once real notification/queue
-      // infra exists — src/jobs/queue-registry.ts is currently a no-op placeholder.
+      let current = load;
+      if (current.status === 'in_transit_unloading') {
+        current = await this.stageService.transition({
+          tenantId,
+          loadId,
+          to: 'reached_unloading',
+          actorId,
+          driverOwnerId,
+          load: current,
+        });
+      }
+      let updated: LoadEntity;
+      if (current.status === target) {
+        // A resubmission that lands on the same delivered stage — only the POD changes.
+        const saved = await this.repository.update(tenantId, loadId, {
+          ...podFields,
+          updatedBy: actorId,
+        });
+        if (!saved) throw new ConflictError('Recording E-POD failed');
+        updated = saved;
+      } else {
+        updated = await this.stageService.transition({
+          tenantId,
+          loadId,
+          to: target,
+          actorId,
+          driverOwnerId,
+          load: current,
+          fields: podFields,
+          auditAction: driverOwnerId ? 'LOAD_POD_RECORDED_BY_DRIVER' : 'LOAD_POD_RECORDED',
+          metadata: { sealStatus: input.sealStatus, shortageOrDamage },
+        });
+      }
+
       await this.onLoadEvent?.({ kind: 'pod_uploaded', tenantId, loadId, at: new Date() });
 
-      // No auto-close here — podStatus is 'pending' until staff reviews it via reviewPod below,
-      // own-fleet included (own-fleet used to auto-close right here with no review at all; that
-      // gap is what reviewPod exists to close).
+      // No auto-close here — podStatus is 'pending' until staff reviews it via reviewPod.
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to upload E-POD');
@@ -901,8 +812,9 @@ export class LoadService {
    *  if both advance and balance are already paid, otherwise load-payment.service.ts's
    *  recordBalance closes it later once the second payment lands (see that method's own doc
    *  comment for why the two checks together never double-close or leave a closeable load
-   *  stuck). Rejecting leaves the load at 'delivered' — the driver resubmits via uploadPod above,
-   *  which resets podStatus back to 'pending'. */
+   *  stuck). A load still Delivered with issues closes only once the issue is settled
+   *  (settleDeliveryIssue). Rejecting leaves the load where it is — the driver resubmits via
+   *  uploadPod above, which resets podStatus back to 'pending'. */
   async reviewPod(
     tenantId: string,
     actorId: string,
@@ -951,12 +863,7 @@ export class LoadService {
       });
 
       if (decision === 'accepted') {
-        if (updated.sourceType === 'own_fleet') {
-          return await this.closeLoad(tenantId, actorId, loadId);
-        }
-        if (updated.advancePaidAt && updated.balancePaidAt) {
-          return await this.closeLoad(tenantId, actorId, loadId);
-        }
+        return await this.stageService.closeIfReady(tenantId, actorId, updated);
       }
       return updated;
     } catch (error) {
@@ -964,48 +871,67 @@ export class LoadService {
     }
   }
 
-  /** Internal — own-fleet loads close as soon as their E-POD is accepted (no payment gate);
-   *  market loads close once their E-POD is accepted AND both advance and balance are paid,
-   *  whichever of reviewPod/load-payment.service.ts's recordBalance happens to complete last. */
-  async closeLoad(tenantId: string, actorId: string, loadId: string): Promise<LoadEntity> {
-    try {
-      const updated = await this.repository.update(tenantId, loadId, {
-        status: 'closed',
-        closedAt: new Date(),
-        updatedBy: actorId,
-      });
-      if (!updated) throw new ConflictError('Closing load failed');
+  /** Loadsmart's Verification team approved the truck and driver — the memo can go out. */
+  async markLoadsmartVerified(tenantId: string, actorId: string, loadId: string): Promise<void> {
+    await this.repository.update(tenantId, loadId, {
+      lsVerificationApprovedAt: new Date(),
+      updatedBy: actorId,
+    });
+  }
 
+  /** Loadsmart's Tracking team approved the loading papers — the load can move to Loaded. */
+  async markLoadsmartPapersApproved(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+  ): Promise<void> {
+    await this.repository.update(tenantId, loadId, {
+      lsPapersApprovedAt: new Date(),
+      updatedBy: actorId,
+    });
+  }
+
+  /** Delivered with issues -> Delivered without issues: damage, shortage or pilferage noted on
+   *  the POD has been settled (own fleet: handled internally; market/indent: settled with the
+   *  transporter). Then closes the load if nothing else is pending. */
+  async settleDeliveryIssue(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    note: string,
+    viaClaim = false,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      assertNotLoadsmartClaim(load, viaClaim);
+      if (load.status !== 'delivered_with_issues') {
+        throw new ConflictError('This load has no delivery issue to settle');
+      }
+      const settled = await this.stageService.transition({
+        tenantId,
+        loadId,
+        to: 'delivered_ok',
+        actorId,
+        load,
+        auditAction: 'LOAD_DELIVERY_ISSUE_SETTLED',
+        fields: {
+          deliveryIssueSettledAt: new Date(),
+          deliveryIssueSettledBy: actorId,
+          deliveryIssueSettlementNote: note,
+        },
+      });
       await this.loadActivityService.record(
         tenantId,
         loadId,
         actorId,
-        'STATUS_CHANGED',
-        'delivered',
-        'closed',
+        'DELIVERY_ISSUE_SETTLED',
+        load.shortageOrDamage,
+        null,
+        { note },
       );
-      await this.auditService.log({
-        tenantId,
-        userId: actorId,
-        action: 'LOAD_CLOSED',
-        resourceType: 'load',
-        oldData: { id: loadId },
-        newData: { id: loadId, status: 'closed' },
-      });
-
-      // Own-fleet loads carry a vehicleId (market loads don't) — release it back to idle now
-      // that this was its one active load (dispatch-planning.service.ts's C-02 check guarantees
-      // a vehicle never has more than one active load at a time).
-      if (updated.vehicleId) {
-        await this.vehicleService.setOperationalStatus(tenantId, actorId, updated.vehicleId, {
-          operationalStatus: 'idle',
-          reason: `Load ${loadId} closed`,
-        });
-      }
-
-      return updated;
+      return await this.stageService.closeIfReady(tenantId, actorId, settled);
     } catch (error) {
-      rethrow(error, 'Failed to close load');
+      rethrow(error, 'Failed to settle delivery issue');
     }
   }
 
@@ -1128,7 +1054,7 @@ export class LoadService {
   }
 
   /** Load Detail / Trip Detail — status, documents (resolved to download URLs), payments, the
-   *  full chronological activity timeline (with actor names), the 8-step progress stepper, and
+   *  full chronological activity timeline (with actor names), the route's stage stepper, and
    *  the next-action panel (next stage, tracking/advance-due info). This is the single trip
    *  detail screen — see loads.openapi.ts.
    *
@@ -1165,6 +1091,7 @@ export class LoadService {
           ewayBillFileKey: load.ewayBillFileKey,
           elrFileKey: load.elrFileKey,
           podFileKey: load.podFileKey,
+          podBackFileKey: load.podBackFileKey,
           weighingSlipFileKey: load.weighingSlipFileKey,
           loadingPhotoFileKeys: load.loadingPhotoFileKeys,
         },

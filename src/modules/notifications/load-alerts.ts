@@ -1,6 +1,9 @@
+import { LoadStatus, UNLOADED_LOAD_STATUSES } from '../loads/utils/loads.types';
 import { NotificationTriggers } from './notification-triggers';
 import {
   AdvanceDueContext,
+  InvoiceDueContext,
+  LoadArrivalReminderContext,
   EwayBillExpiryContext,
   LoadStageContext,
   LoadSummary,
@@ -104,7 +107,11 @@ export function createLoadAlertResolvers(loadAlertRepository: LoadAlertRepositor
       context: EwayBillExpiryContext,
     ): Promise<EwayBillExpiryContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status === 'delivered' || snapshot.status === 'closed') {
+      if (
+        !snapshot ||
+        UNLOADED_LOAD_STATUSES.includes(snapshot.status as LoadStatus) ||
+        snapshot.status === 'closed'
+      ) {
         return null;
       }
       if (snapshot.ewayBillGeneratedAt?.toISOString() !== context.generatedAt) return null;
@@ -113,6 +120,40 @@ export function createLoadAlertResolvers(loadAlertRepository: LoadAlertRepositor
         ...summaryOf(context.loadId, snapshot),
         ewayBillNumber: snapshot.ewayBillNumber,
       };
+    },
+
+    /** Null once the truck is marked at the loading point (or the load moved on). */
+    pickupReminder: async (
+      tenantId: string,
+      context: LoadArrivalReminderContext,
+    ): Promise<LoadArrivalReminderContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !['truck_assigned', 'in_transit_loading'].includes(snapshot.status)) {
+        return null;
+      }
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
+    },
+
+    /** Null once the shipper has submitted the payment (or the load moved on). */
+    invoiceDueReminder: async (
+      tenantId: string,
+      context: InvoiceDueContext,
+    ): Promise<InvoiceDueContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'invoice_generated') return null;
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
+    },
+
+    /** Null once the truck is marked at the unloading point (or the load moved on). */
+    dropReminder: async (
+      tenantId: string,
+      context: LoadArrivalReminderContext,
+    ): Promise<LoadArrivalReminderContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !['loaded', 'in_transit_unloading'].includes(snapshot.status)) {
+        return null;
+      }
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
     },
 
     /** Null once the E-POD is no longer waiting for review. */

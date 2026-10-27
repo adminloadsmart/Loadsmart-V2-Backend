@@ -49,6 +49,11 @@ export interface UpdateLoadStatusInput {
 
 /** Staff's decision on a pending E-POD — see LoadService.reviewPod. `reason` is required when
  *  rejecting (see load.validators.ts's reviewPodBody), unused when accepting. */
+export interface SettleDeliveryIssueInput {
+  /** How the damage, shortage or pilferage was settled. */
+  note: string;
+}
+
 export interface ReviewPodInput {
   decision: PodReviewDecision;
   reason?: string;
@@ -58,6 +63,8 @@ export interface ReviewPodInput {
  *  and the seal check, all captured together in one submission. Only podRemarks is optional. */
 export interface UploadPodInput {
   podFileKey: string;
+  /** The POD's back side — the receiver's remarks on damage, shortage or pilferage. */
+  podBackFileKey: string;
   podReceiverName: string;
   /** Absent when the receiver has no phone — the POD photo alone is then the proof. A driver
    *  sending it must have verified it first via LoadService.verifyPodReceiverCode. */

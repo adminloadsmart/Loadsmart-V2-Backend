@@ -92,6 +92,7 @@ export function createDriverModule(
     driverImportController,
     idfyClient,
     dlVerificationClient: sarathiClient,
+    driverPushNotifier,
   };
 }
 

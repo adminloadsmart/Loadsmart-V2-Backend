@@ -133,8 +133,8 @@ export const ON_TIME_BY_LANE_LIMIT = 12;
 export const RENEW_THIS_WEEK_LIMIT = 10;
 export const REPLACEMENT_CANDIDATES_LIMIT = 10;
 
-/** Load stages for "Where the loads are" (§17). `running_to_loading` has no backing load status
- *  yet, so it always reads 0. */
+/** Load stages for "Where the loads are" (§17) — the chart's own buckets, mapped from the load
+ *  lifecycle in fleet-analytics.service.ts's stageOf. */
 export const LOAD_STAGES = [
   'created',
   'assigned',
@@ -150,11 +150,12 @@ export const LOAD_STAGES = [
 
 /** Loads still on the road: assigned to a truck, not yet unloaded (§17 "On the road now"). */
 export const ON_THE_ROAD_STATUSES = [
-  'assigned',
-  'at_plant',
-  'loading_confirmed',
-  'in_transit',
-  'reached_delivery_point',
+  'truck_assigned',
+  'in_transit_loading',
+  'reached_loading',
+  'loaded',
+  'in_transit_unloading',
+  'reached_unloading',
 ] as const;
 
 /** Replacement candidates (interim): trucks this young or younger set the "new truck" cost per

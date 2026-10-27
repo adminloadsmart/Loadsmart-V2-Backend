@@ -5,6 +5,7 @@ import { toDateString } from '../../shared/utils/date';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadRepository } from './load.repository';
 import { LoadActivityService } from './load-activity.service';
+import { LoadStageService } from './load-stage.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadPaymentEntity } from './entities/load-payment.entity';
 import { RecordAdvanceInput, RecordBalanceInput } from './utils/load-payment.interface';
@@ -17,13 +18,25 @@ export function computeShareAmount(load: LoadEntity, percentage: string): string
   return (base * pct).toFixed(2);
 }
 
+/** Loadsmart's invoice lookup — set by the Loadsmart ops module, which owns the invoices. */
+export interface LoadsmartBilling {
+  balanceDueOf(tenantId: string, loadId: string): Promise<string | null>;
+}
+
 export class LoadPaymentService {
+  private loadsmartBilling?: LoadsmartBilling;
+
+  setLoadsmartBilling(billing: LoadsmartBilling): void {
+    this.loadsmartBilling = billing;
+  }
+
   constructor(
     private readonly repository: LoadPaymentRepository,
     private readonly loadRepository: LoadRepository,
     private readonly transporterService: TransporterService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
+    private readonly stageService: LoadStageService,
   ) {}
 
   private async assertLoad(tenantId: string, loadId: string): Promise<LoadEntity> {
@@ -32,7 +45,7 @@ export class LoadPaymentService {
     return load;
   }
 
-  /** Market loads only, and only once loading is confirmed. */
+  /** Market loads only, and only once the load is Loaded. */
   async recordAdvance(
     tenantId: string,
     actorId: string,
@@ -45,7 +58,7 @@ export class LoadPaymentService {
         throw new ConflictError('Advance payment applies to market and indent loads only');
       }
       if (!load.loadingConfirmedAt) {
-        throw new ConflictError('Advance can only be recorded after loading is confirmed');
+        throw new ConflictError('Advance can only be recorded once the load is loaded');
       }
       if (load.advancePaidAt) {
         throw new ConflictError('Advance has already been recorded for this load');
@@ -59,7 +72,6 @@ export class LoadPaymentService {
         paymentType: 'advance',
         amount,
         utrReference: input.utrReference.trim(),
-        proofFileKey: input.proofFileKey ?? null,
         paymentDate: input.paymentDate,
         recordedBy: actorId,
       });
@@ -95,9 +107,9 @@ export class LoadPaymentService {
   }
 
   /** Market loads only, once E-POD is received; due date derives from the
-   *  transporter's credit terms. Recording balance closes the load once advance is also paid AND
-   *  staff has already accepted the E-POD (load.service.ts's reviewPod) — if the E-POD is
-   *  accepted afterwards instead, reviewPod's own close check finishes the job then. */
+   *  transporter's credit terms. Recording balance closes the load once advance is also paid,
+   *  staff has accepted the E-POD and any delivery issue is settled (LoadStageService.closeIfReady)
+   *  — whichever of those lands last closes it. */
   async recordBalance(
     tenantId: string,
     actorId: string,
@@ -108,6 +120,9 @@ export class LoadPaymentService {
       const load = await this.assertLoad(tenantId, loadId);
       if (load.sourceType === 'own_fleet') {
         throw new ConflictError('Balance payment applies to market and indent loads only');
+      }
+      if (load.sourceType === 'loadsmart') {
+        return await this.recordLoadsmartPayment(load, actorId, input);
       }
       if (!load.deliveredAt) {
         throw new ConflictError('Balance can only be recorded once the E-POD is received');
@@ -135,13 +150,13 @@ export class LoadPaymentService {
         paymentType: 'balance',
         amount,
         utrReference: input.utrReference.trim(),
-        proofFileKey: input.proofFileKey ?? null,
+        verificationStatus: null,
         paymentDate: input.paymentDate,
         dueDate,
         recordedBy: actorId,
       });
 
-      await this.loadRepository.update(tenantId, loadId, {
+      const updated = await this.loadRepository.update(tenantId, loadId, {
         balancePaidAt: new Date(),
         updatedBy: actorId,
       });
@@ -166,37 +181,81 @@ export class LoadPaymentService {
         newData: { id: payment.id, loadId, paymentType: 'balance', amount, dueDate },
       });
 
-      // Closed requires Delivered + E-POD accepted + (for market) both advance and balance paid.
-      if (load.advancePaidAt && load.podStatus === 'accepted') {
-        const closed = await this.loadRepository.update(tenantId, loadId, {
-          status: 'closed',
-          closedAt: new Date(),
-          updatedBy: actorId,
-        });
-        if (closed) {
-          await this.loadActivityService.record(
-            tenantId,
-            loadId,
-            actorId,
-            'STATUS_CHANGED',
-            'delivered',
-            'closed',
-          );
-          await this.auditService.log({
-            tenantId,
-            userId: actorId,
-            action: 'LOAD_CLOSED',
-            resourceType: 'load',
-            oldData: { id: loadId },
-            newData: { id: loadId, status: 'closed' },
-          });
-        }
-      }
+      // Closed requires Delivered without issues + E-POD accepted + both advance and balance paid.
+      if (updated) await this.stageService.closeIfReady(tenantId, actorId, updated);
 
       return payment;
     } catch (error) {
       rethrow(error, 'Failed to record balance payment');
     }
+  }
+
+  /** "No payment gateway yet": the shipper of a Loadsmart load pays the invoice's balance by UPI
+   *  QR or bank transfer and records the UTR. It counts as verified at once — the load moves to
+   *  Payment and closes once Loadsmart has paid the partner's balance too. */
+  private async recordLoadsmartPayment(
+    load: LoadEntity,
+    actorId: string,
+    input: RecordBalanceInput,
+  ): Promise<LoadPaymentEntity> {
+    if (load.status !== 'invoice_generated' && load.status !== 'payment') {
+      throw new ConflictError(
+        "The balance is paid against Loadsmart's invoice, once it's generated",
+      );
+    }
+    if (load.balancePaidAt) throw new ConflictError('The balance is already paid');
+    const amount = await this.loadsmartBilling?.balanceDueOf(load.tenantId, load.id);
+    if (!amount) throw new ConflictError("Loadsmart's invoice for this load isn't generated yet");
+
+    const now = new Date();
+    const payment = await this.repository.create({
+      tenantId: load.tenantId,
+      loadId: load.id,
+      transporterId: null,
+      paymentType: 'balance',
+      amount,
+      utrReference: input.utrReference.trim(),
+      paymentDate: input.paymentDate,
+      recordedBy: actorId,
+      verificationStatus: 'verified',
+      verifiedBy: actorId,
+      verifiedAt: now,
+    });
+    let updated = await this.loadRepository.update(load.tenantId, load.id, {
+      balancePaidAt: now,
+      updatedBy: actorId,
+    });
+    if (updated?.status === 'invoice_generated') {
+      updated = await this.stageService.transition({
+        tenantId: load.tenantId,
+        loadId: load.id,
+        to: 'payment',
+        actorId,
+        load: updated,
+        metadata: { paymentId: payment.id, amount },
+      });
+    }
+    await this.loadActivityService.record(
+      load.tenantId,
+      load.id,
+      actorId,
+      'PAYMENT_RECORDED',
+      null,
+      'balance',
+      {
+        amount,
+        verification: 'verified',
+      },
+    );
+    await this.auditService.log({
+      tenantId: load.tenantId,
+      userId: actorId,
+      action: 'LOAD_PAYMENT_RECORDED',
+      resourceType: 'load_payment',
+      newData: { id: payment.id, loadId: load.id, paymentType: 'balance', amount },
+    });
+    if (updated) await this.stageService.closeIfReady(load.tenantId, actorId, updated);
+    return payment;
   }
 
   async listByLoad(tenantId: string, loadId: string): Promise<LoadPaymentEntity[]> {
