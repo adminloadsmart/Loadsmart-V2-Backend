@@ -1,6 +1,5 @@
 import { Router, RequestHandler } from 'express';
 import { DataSource } from 'typeorm';
-import { Worker } from 'bullmq';
 import { TenancyGateway } from './shared/tenancy/tenancy.gateway';
 import { createAuth } from './shared/middleware/auth.middleware';
 import { createAudit } from './shared/middleware/audit.middleware';
@@ -28,6 +27,8 @@ import {
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createGeofencesModule } from './modules/geofences';
+import { GeofenceRepository } from './modules/geofences/geofence.repository';
+import { createHaltGeofences } from './modules/notifications/halt-exclusions';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
 import { env } from './config/env';
@@ -44,8 +45,9 @@ import {
   scheduleVehicleDocumentChecks,
 } from './modules/notifications/vehicle-document-alerts';
 import {
-  createBreakdownNotifier,
   createBreakdownResolver,
+  createDriverProblemResolver,
+  createIssueReportedNotifier,
 } from './modules/notifications/breakdown-alerts';
 import { createBackInServiceResolver } from './modules/notifications/back-in-service';
 import {
@@ -77,6 +79,17 @@ import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
 import { createPlacesModule } from './modules/places';
 import { createLoadsModule } from './modules/loads';
+import { AssignmentComplianceService } from './modules/loads/assignment-compliance.service';
+import { HttpTrackingClient } from './adapters/tracking.client';
+import {
+  createTrackingEventHandlers,
+  startTrackingEventsConsumer,
+} from './modules/notifications/tracking-events.consumer';
+import {
+  createTripTimingChecks,
+  scheduleTripTimingChecks,
+  TRIP_TIMING_JOB,
+} from './modules/notifications/trip-timing';
 import { createLoadsmartOpsModule } from './modules/loadsmart-ops';
 import { UlipClient } from './adapters/ulip.client';
 import { createAnalyticsModule } from './modules/analytics';
@@ -106,7 +119,8 @@ export interface Container {
   // In-process background workers (currently just notifications' BullMQ dispatch worker) —
   // server.ts closes each of these on SIGTERM/SIGINT before the HTTP server, so an in-flight job
   // finishes instead of being killed mid-dispatch on a pm2 restart.
-  backgroundWorkers: Worker[];
+  /** Closed on graceful shutdown (server.ts) — BullMQ workers and the tracking.events listener. */
+  backgroundWorkers: { close(): Promise<void> }[];
 }
 
 export function buildContainer(dataSource: DataSource): Container {
@@ -273,7 +287,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // built here, after admin, since notifyByType needs auth and the relevance checks / context
   // resolvers read other modules' state. See modules/notifications/notification-triggers.ts.
   const masterApprovalResolvers = createMasterApprovalResolvers({
-    dataSource,
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
     getUserFullName: async (userId) =>
       (await auth.authRepository.findUserById(userId))?.fullName ?? null,
     getUserRoleName: async (userId) =>
@@ -283,21 +297,36 @@ export function buildContainer(dataSource: DataSource): Container {
   // LS_N_0047/0048 — the daily 9:00 IST vehicle-document check and the Monday roll-up (see
   // modules/notifications/vehicle-document-alerts.ts). Registering the schedules is idempotent;
   // a failure here is logged, never fatal to boot.
-  const vehicleDocumentAlerts = createVehicleDocumentAlerts(
-    dataSource,
-    notifications.triggers,
-    notifications.loadAlertRepository,
-  );
+  const listUsersWithPermission = (tenantId: string, permission: string) =>
+    auth.authRepository.listUsersWithPermission(tenantId, permission);
+  const vehicleDocumentAlerts = createVehicleDocumentAlerts({
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
+    triggers: notifications.triggers,
+    loadAlertRepository: notifications.loadAlertRepository,
+    listUsersWithPermission,
+  });
   // LS_N_0056/0057 — service due soon / overdue, swept in the same daily 9:00 IST job.
-  const serviceAlerts = createServiceAlerts(dataSource, notifications.triggers);
+  const serviceAlerts = createServiceAlerts({
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
+    triggers: notifications.triggers,
+    listUsersWithPermission,
+  });
   // LS_N_0058 — tyres in the maintenance tyres queue, rolled up per vehicle, same daily tick.
   const tyreAlerts = createTyreAlerts({
-    dataSource,
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
     triggers: notifications.triggers,
     listTyreQueue: (tenantId) => maintenance.tyreService.listQueue(tenantId),
   });
   // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
-  const digests = createDigests(dataSource, notifications.triggers);
+  const digests = createDigests({
+    scheduledAlertRepository: notifications.scheduledAlertRepository,
+    triggers: notifications.triggers,
+  });
+  // LS_N_0021/0023 — the 5-minute trip-timing sweep (trip-timing.ts).
+  const tripTimingChecks = createTripTimingChecks(
+    notifications.loadAlertRepository,
+    notifications.triggers,
+  );
   const notificationScheduleWorker = createNotificationScheduleWorker(
     vehicleDocumentAlerts,
     {
@@ -308,6 +337,8 @@ export function buildContainer(dataSource: DataSource): Container {
     },
     {
       ...digestJobs(digests),
+      // LS_N_0021 not reported / LS_N_0023 detention at loading — every 5 minutes.
+      [TRIP_TIMING_JOB]: () => tripTimingChecks.run(),
       // Drivers whose "fit to drive again from" date has come go back to Available (00:05 IST).
       [DRIVER_AVAILABILITY_RETURN_JOB]: (today) =>
         driver.driverService.returnFitDriversToAvailable(today),
@@ -318,6 +349,9 @@ export function buildContainer(dataSource: DataSource): Container {
   );
   scheduleDigests(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register digest schedules', error),
+  );
+  scheduleTripTimingChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
+    console.error('Failed to register trip-timing schedule', error),
   );
   createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)
     .upsertSchedule(
@@ -330,7 +364,17 @@ export function buildContainer(dataSource: DataSource): Container {
       console.error('Failed to register driver availability return schedule', error),
     );
 
-  const loadAlertResolvers = createLoadAlertResolvers(notifications.loadAlertRepository);
+  // LS_N_0017 — the assignment-time compliance check. Shared by the loads module (which blocks on
+  // it) and the load-alert resolvers (which re-run it to see if the document was renewed).
+  const assignmentComplianceService = new AssignmentComplianceService(dataSource);
+  const loadAlertResolvers = createLoadAlertResolvers(
+    notifications.loadAlertRepository,
+    (tenantId, target) => assignmentComplianceService.check(tenantId, target),
+    // LS_N_0025/0026/0027 — the live ETA and position from the loadsmart-tracking service.
+    new HttpTrackingClient(),
+    // LS_N_0027 — the origin / destination / rest stop / toll plaza geofences a halt is expected in.
+    createHaltGeofences(new GeofenceRepository(dataSource)),
+  );
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,
     notifications.triggersQueue,
@@ -348,7 +392,9 @@ export function buildContainer(dataSource: DataSource): Container {
         'vehicle.compliance_expired',
       ),
       // LS_N_0012 only if the vehicle is still unverified when the 24h retry window ends.
-      'vehicle.vahan_unverified': createVahanStillUnverifiedCheck(dataSource),
+      'vehicle.vahan_unverified': createVahanStillUnverifiedCheck(
+        notifications.scheduledAlertRepository,
+      ),
       // LS_N_0056/0057 — each due-soon stage once per service cycle; overdue once per run day.
       'vehicle.service_due_soon': serviceAlerts.dueSoonNotAlreadySent,
       'vehicle.service_overdue': serviceAlerts.overdueNotAlreadySentToday,
@@ -377,20 +423,51 @@ export function buildContainer(dataSource: DataSource): Container {
           ),
       }),
       // LS_N_0054 — reads the breakdown report and its trip at send time.
-      'load.breakdown_reported': createBreakdownResolver(dataSource),
+      'load.breakdown_reported': createBreakdownResolver(notifications.loadAlertRepository),
+      // LS_N_0037 — accident, road block, police check, strike, weather or other from the driver.
+      'load.driver_problem_reported': createDriverProblemResolver(
+        notifications.loadAlertRepository,
+      ),
       // Load events (load-alerts.ts) — read the load at send time; null once no longer relevant.
-      'load.stage_handoff': loadAlertResolvers.stageHandoff,
       'load.eway_bill_expiry': loadAlertResolvers.ewayBillExpiry,
       'load.pod_uploaded': loadAlertResolvers.podUploaded,
+      // LS_N_0039 POD still pending (trip-timing sweep) / LS_N_0040 rejected / LS_N_0041 verified.
+      'load.pod_pending': loadAlertResolvers.podPending,
+      'load.pod_rejected': loadAlertResolvers.podRejected,
+      'load.pod_verified': loadAlertResolvers.podVerified,
+      // LS_N_0034 shortage or damage recorded (on the E-POD; reminder from the trip-timing sweep).
+      'load.shortage_recorded': loadAlertResolvers.shortageRecorded,
       'load.advance_due': loadAlertResolvers.advanceDue,
+      // LS_N_0016 truck assigned / LS_N_0017 assignment blocked on an expired document.
+      'load.vehicle_assigned': loadAlertResolvers.vehicleAssigned,
+      // LS_N_0050 — the assigned driver's licence doesn't cover the vehicle or cargo.
+      'load.licence_mismatch': loadAlertResolvers.licenceMismatch,
+      'load.assignment_compliance_failed': loadAlertResolvers.assignmentComplianceFailed,
+      // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
+      'load.vehicle_loaded': loadAlertResolvers.vehicleLoaded,
+      'load.vehicle_in_transit': loadAlertResolvers.vehicleInTransit,
+      // LS_N_0027 vehicle halted (from tracking's HALT-GPS alert; 2 h, and again at 6 h).
+      'load.vehicle_halted': loadAlertResolvers.vehicleHalted,
+      // LS_N_0028 off route / LS_N_0029 signal lost / LS_N_0030 delivery late (tracking notices).
+      'load.route_deviation': loadAlertResolvers.routeDeviation,
+      'load.tracking_signal_lost': loadAlertResolvers.trackingSignalLost,
+      'load.delivery_late': loadAlertResolvers.deliveryLate,
+      // LS_N_0021 not reported / LS_N_0022 reached loading point / LS_N_0023 detention at loading.
+      'load.vehicle_not_reported': loadAlertResolvers.vehicleNotReported,
+      'load.vehicle_reached_pickup': loadAlertResolvers.vehicleReachedPickup,
+      'load.detention_at_loading': loadAlertResolvers.detentionAtLoading,
+      // LS_N_0031 reached unloading point / LS_N_0032 detention at unloading / LS_N_0033 trip
+      // completed (E-POD + tracking's exit from the drop).
+      'load.vehicle_reached_drop': loadAlertResolvers.vehicleReachedDrop,
+      'load.detention_at_unloading': loadAlertResolvers.detentionAtUnloading,
+      'load.trip_completed': loadAlertResolvers.tripCompleted,
       'load.pickup_reminder': loadAlertResolvers.pickupReminder,
       'load.drop_reminder': loadAlertResolvers.dropReminder,
       'load.invoice_due_reminder': loadAlertResolvers.invoiceDueReminder,
       // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
       'vehicle.back_in_service': createBackInServiceResolver({
-        dataSource,
-        listUsersWithPermission: (tenantId, permission) =>
-          auth.authRepository.listUsersWithPermission(tenantId, permission),
+        scheduledAlertRepository: notifications.scheduledAlertRepository,
+        listUsersWithPermission,
       }),
     },
   );
@@ -424,9 +501,11 @@ export function buildContainer(dataSource: DataSource): Container {
     // Push-notification payoff for driver_sessions.fcm_token — see docs/driver-auth.md.
     driverAuthService: driverAuth.service,
     notificationsService: notifications.service,
+    assignmentComplianceService,
     // LS_N_0054 — a driver-reported breakdown alerts maintenance holders and org admins.
-    onBreakdownReported: createBreakdownNotifier(notifications.triggers),
-    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due (notifications/load-alerts.ts).
+    onIssueReported: createIssueReportedNotifier(notifications.triggers),
+    // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked
+    // (notifications/load-alerts.ts).
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
     // Load-time truck (VAHAN via ULIP) and driver (Sarathi) checks.
     vehicleRegistry: ulipClient,
@@ -556,6 +635,23 @@ export function buildContainer(dataSource: DataSource): Container {
       notificationTriggerWorker,
       notificationScheduleWorker,
       organization.documentVerificationWorker,
+      // tracking → backend events (tracking's outbox relay writes to this Redis): geofence
+      // arrival / departure (load status, LS_N_0022 / LS_N_0026), geofence alerts and LS_N_0027's
+      // HALT-GPS alert.opened.
+      startTrackingEventsConsumer(
+        env.redisUrl,
+        createTrackingEventHandlers(notifications.triggers, {
+          markArrivedAtPickup: (tenantId, loadId, at) =>
+            loads.loadService.markArrivedAtPickup(tenantId, loadId, at),
+          markDepartedPickup: (tenantId, loadId, at) =>
+            loads.loadService.markDepartedPickup(tenantId, loadId, at),
+          markDepartedDrop: (tenantId, loadId, at) =>
+            loads.loadService.markDepartedDrop(tenantId, loadId, at),
+          markReachedDeliveryPoint: (tenantId, loadId, at) =>
+            loads.loadService.markReachedDeliveryPoint(tenantId, loadId, at),
+          notifyGeofenceTransition: (notice) => geofences.service.notifyTransition(notice),
+        }),
+      ),
       // One worker for every background GSTIN check, so one limiter covers them all.
       createGstVerificationWorker([
         customers.gstBackgroundVerification,
