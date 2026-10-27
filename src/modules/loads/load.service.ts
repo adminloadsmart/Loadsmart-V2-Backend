@@ -544,7 +544,7 @@ export class LoadService {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
       await this.assertNotHalted(tenantId, loadId);
-      return await this.stageService.transition({
+      const moved = await this.stageService.transition({
         tenantId,
         loadId,
         to: toStatus,
@@ -552,6 +552,8 @@ export class LoadService {
         driverOwnerId,
         load,
       });
+      // Papers attached on the way in move the load to Loaded as soon as it reaches the gate.
+      return await this.advanceIfPapersComplete(tenantId, actorId, moved, driverOwnerId);
     } catch (error) {
       rethrow(error, 'Failed to update load status');
     }
