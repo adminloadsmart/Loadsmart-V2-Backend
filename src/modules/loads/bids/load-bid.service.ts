@@ -25,6 +25,7 @@ import {
   LoadsmartBidInput,
   RecordBidInput,
 } from '../utils/load-bid.interface';
+import { LoadEventNotifier } from '../../notifications/notifications.interface';
 
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
 
@@ -46,6 +47,9 @@ export class LoadBidService {
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
     private readonly verification: LoadVerificationService,
+    // LS_N_0016 — optional; only queues a notification and never throws (see
+    // notifications/load-alerts.ts).
+    private readonly onLoadEvent?: LoadEventNotifier,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -468,6 +472,17 @@ export class LoadBidService {
         bid.id,
         { transporterId: bid.transporterId, rate: bid.rate, vehicleNumber: bid.vehicleNumber },
       );
+      // LS_N_0016 — truck assigned through the accepted bid. The bid's truck is typed in by the
+      // transporter and its driver is named later (load memo), so neither was checked against
+      // the masters.
+      await this.onLoadEvent?.({
+        kind: 'assigned',
+        tenantId,
+        loadId,
+        at: now,
+        vehicleChecked: false,
+        driverChecked: false,
+      });
       return assigned;
     } catch (error) {
       rethrow(error, 'Failed to accept bid');

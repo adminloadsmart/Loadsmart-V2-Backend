@@ -214,6 +214,7 @@ export function createLoadsModule(
     loadActivityService,
     deps.auditService,
     loadVerificationService,
+    deps.onLoadEvent,
   );
   const loadMemoService = new LoadMemoService(
     new LoadMemoRepository(dataSource),

@@ -218,7 +218,7 @@ const ALL_SHEET_IDS: Partial<Record<NotificationTypeKey, string>> = {
  *  type a compile error here until it gets a sample, so /in-app-all never silently skips one.
  *  `callerId` stands in for every "this user" id so per-recipient copy (e.g. LS_N_0055's repair
  *  cost) renders the way the caller would really see it. */
-function allSampleContexts(
+export function allSampleContexts(
   today: string,
   callerId: string,
 ): { [K in NotificationTypeKey]: NotificationContextOf<K> } {

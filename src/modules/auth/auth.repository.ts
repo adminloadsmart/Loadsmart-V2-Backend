@@ -360,8 +360,8 @@ export class AuthRepository {
   }
 
   // A user's active push targets — one row per currently-active session that has registered an
-  // FCM token. Not called by anything yet; exposed via AuthService.getActiveDeviceTokensForUser
-  // for a future notification producer.
+  // FCM token, most recently used device first — notify-by-type.ts pushes to the first one, so a
+  // user who logged in on a new phone gets the push there, not on a device they've moved away from.
   findActiveByUserId(userId: string): Promise<RefreshTokenEntity[]> {
     return this.refreshTokens.find({
       where: {
@@ -370,6 +370,7 @@ export class AuthRepository {
         expiresAt: MoreThan(new Date()),
         fcmToken: Not(IsNull()),
       },
+      order: { lastSeen: { direction: 'DESC', nulls: 'LAST' }, createdAt: 'DESC' },
     });
   }
 

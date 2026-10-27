@@ -31,6 +31,7 @@ import {
   TruckPickInput,
   PostLoadInput,
   LoadPostingHooks,
+  OwnFleetAssignment,
 } from './utils/load-posting.interface';
 import {
   DEFAULT_ADVANCE_PERCENTAGE,
@@ -192,6 +193,9 @@ export class LoadPostingService {
           );
           throw assignmentBlockedError(vehicleNumber, compliance.failure, compliance.driverName);
         }
+        // After the compliance check, so an expired licence raises LS_N_0017 first; this one still
+        // catches the licence class (and the India-date expiry edge).
+        this.assertDriverLicenceCoversTruck(own.driverRelation, own.grossVehicleWeightKg);
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
@@ -625,7 +629,7 @@ export class LoadPostingService {
     tenantId: string,
     vehicleId: string,
     pickedDriverId?: string,
-  ): Promise<{ defaults: Partial<CreateLoadData>; driverName: string | null }> {
+  ): Promise<OwnFleetAssignment> {
     const vehicle = await this.vehicleService.getVehicle(tenantId, vehicleId);
     if (vehicle.status === 'under_maintenance') {
       throw new ConflictError('This truck is in the workshop and cannot be assigned');
@@ -666,7 +670,7 @@ export class LoadPostingService {
         { driverId, reason },
       );
     }
-    this.assertDriverLicenceCoversTruck(relation, vehicle.grossVehicleWeightKg);
+    // The licence itself (expiry and class) is checked by post() after the compliance check.
     return {
       defaults: {
         vehicleId: vehicle.id,
@@ -676,6 +680,8 @@ export class LoadPostingService {
         plannedCapacityTonnes: vehicle.capacityTons ?? '0',
       },
       driverName: relation.driver.fullName,
+      driverRelation: relation,
+      grossVehicleWeightKg: vehicle.grossVehicleWeightKg,
     };
   }
 
