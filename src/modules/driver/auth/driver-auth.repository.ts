@@ -1,6 +1,6 @@
 import { DataSource, EntityManager, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { DriverSessionEntity } from '../entities/driver-session.entity';
-import { DriverDevicePlatform } from './driver-auth.types';
+import { DriverDevicePlatform, RevokedDriverSessionToken } from './driver-auth.types';
 
 // The driver-identity counterpart to modules/auth/auth.repository.ts's refresh-token methods —
 // same shapes/race-closing patterns, operating on masters.driver_sessions instead of
@@ -52,9 +52,7 @@ export class DriverSessionRepository {
 
   /** Revokes every live session of the driver and returns each one's access token, so the caller
    *  can blocklist them (see DriverAuthService.issueLoginSession). */
-  async revokeAllForDriver(
-    driverId: string,
-  ): Promise<{ accessJti: string | null; accessExpiresAt: Date | null }[]> {
+  async revokeAllForDriver(driverId: string): Promise<RevokedDriverSessionToken[]> {
     const result = await this.sessions
       .createQueryBuilder()
       .update(DriverSessionEntity)

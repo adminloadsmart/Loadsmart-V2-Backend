@@ -14,6 +14,7 @@ import { DriverTenantRelationRepository } from '../driver-tenant-relation.reposi
 import { DriverSessionRepository } from './driver-auth.repository';
 import { OrganizationService } from '../../organization/organization.service';
 import { OtpService } from '../../../shared/services/otp.service';
+import { RevokedDriverSessionToken } from './driver-auth.types';
 
 const DRIVER = {
   id: 'driver-1',
@@ -27,7 +28,7 @@ const OLD_EXPIRY = new Date(Date.now() + 10 * 60 * 1000);
 
 function build(
   activeRelations: (typeof RELATION)[] = [RELATION],
-  revokedSessions: { accessJti: string | null; accessExpiresAt: Date | null }[] = [],
+  revokedSessions: RevokedDriverSessionToken[] = [],
 ) {
   const calls: string[] = [];
   const sessions = {

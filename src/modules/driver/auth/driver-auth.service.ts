@@ -321,6 +321,7 @@ export class DriverAuthService {
     // The row also records the token's jti/expiry, so a later login can blocklist it at once.
     const rawRefreshToken = randomBytes(40).toString('hex');
     const jti = randomUUID();
+    const accessTtlSeconds = env.driverAccessTokenTtlSeconds;
     const session = await this.driverSessionRepository.createSession({
       driverId,
       tenantId,
@@ -332,7 +333,7 @@ export class DriverAuthService {
       deviceInfo: device?.deviceInfo,
       ipAddress: device?.ipAddress,
       accessJti: jti,
-      accessExpiresAt: new Date(Date.now() + env.driverAccessTokenTtlSeconds * 1000),
+      accessExpiresAt: new Date(Date.now() + accessTtlSeconds * 1000),
     });
 
     // Deliberately no `role`/`permissions`/`permissionsVersion` claim — see docs/driver-auth.md.
@@ -347,7 +348,7 @@ export class DriverAuthService {
         sid: session.id,
         purpose: tenantId ? 'driver-access' : 'driver-identity-access',
       },
-      env.driverAccessTokenTtlSeconds,
+      accessTtlSeconds,
     );
 
     return { accessToken, refreshToken: rawRefreshToken };
