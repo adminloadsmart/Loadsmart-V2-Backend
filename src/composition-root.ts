@@ -176,7 +176,10 @@ export function buildContainer(dataSource: DataSource): Container {
   // `organization` above, since it needs auth.service (createOrganization etc. also mutate the
   // caller's own session on first-time org creation). Mounted at '/auth' below, same URLs as
   // before this was its own router — see modules/organization/organization.routes.ts.
-  const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service);
+  const organizationOnboarding = createOrganizationOnboardingRoutes(auth.service, {
+    organizationService: organization.organizationService,
+    auditService: audit.service,
+  });
 
   // The one dispatcher every notification trigger site below calls against a domain catalog (see
   // modules/notifications/catalog/*) — currently just vehicle compliance (WhatsApp/push); the

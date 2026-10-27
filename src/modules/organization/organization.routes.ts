@@ -93,5 +93,18 @@ export function createOrganizationOnboardingRoutes(controller: OrganizationContr
     asyncHandler(controller.listAssignableRoles),
   );
 
+  // Settings → Notifications: LS_N_0030's "late by more than" limit (org admin only).
+  router.get(
+    '/organization/settings/late-delivery',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    asyncHandler(controller.getLateDeliverySetting),
+  );
+  router.patch(
+    '/organization/settings/late-delivery',
+    requirePermission(ORGANIZATION_PROFILE_MANAGE),
+    validate(organizationValidators.updateLateDeliverySetting),
+    asyncHandler(controller.updateLateDeliverySetting),
+  );
+
   return router;
 }

@@ -6,6 +6,8 @@ import {
   OrganizationDocumentInput,
 } from './entities/organization-document.entity';
 import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
+import type { AuditService } from '../audit/audit.service';
+import type { OrganizationService } from './organization.service';
 
 export type OnboardingStatus = 'incomplete' | 'submitted' | 'completed';
 export type OnboardingStep =
@@ -89,3 +91,17 @@ export type OrganizationReviewData = {
     verificationStatus: DocumentVerificationStatus;
   }>;
 };
+
+export interface LateDeliverySetting {
+  /** The limit in force — the company's own, else the default. */
+  thresholdMinutes: number;
+  /** True when the company never set one (or reset it). */
+  isDefault: boolean;
+  defaultThresholdMinutes: number;
+}
+
+/** What the onboarding router needs besides authService (createOrganizationOnboardingRoutes). */
+export interface OrganizationOnboardingDeps {
+  organizationService: OrganizationService;
+  auditService: AuditService;
+}

@@ -8,6 +8,8 @@ import {
   ListOrganizationUsersInput,
 } from '../auth/auth.types';
 import { sendCsv } from '../../shared/utils/csv';
+import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
+import { OrganizationSettingsService } from './organization-settings.service';
 
 // The org onboarding endpoints — GET/POST /auth/organization, POST /auth/organization/business,
 // POST /auth/organization/submit. Kept mounted under /auth (see modules/organization/index.ts's
@@ -18,7 +20,23 @@ import { sendCsv } from '../../shared/utils/csv';
 // controller just calls it, the same "read another module's service directly, no gateway"
 // pattern modules/admin/ already uses for authService.getUserById/createStaffUser/listStaffUsers.
 export class OrganizationController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly settingsService: OrganizationSettingsService,
+  ) {}
+
+  getLateDeliverySetting = async (req: Request, res: Response) =>
+    respond(res, await this.settingsService.getLateDelivery(requireTenantId(req)));
+
+  updateLateDeliverySetting = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.settingsService.updateLateDelivery(
+        requireTenantId(req),
+        req.user!.id,
+        (req.body as { thresholdMinutes: number | null }).thresholdMinutes,
+      ),
+    );
 
   getOrganization = async (req: Request, res: Response) => {
     const organization = await this.authService.getOrganizationForUser(req.user!);
