@@ -4,7 +4,7 @@ import { AuditService } from '../../audit/audit.service';
 import { paginate } from '../../../shared/utils/pagination';
 import { LoadingPointRepository, LoadingPointWithCreator } from './loading-point.repository';
 import { LoadingPointEntity } from './entities/loading-point.entity';
-import { MasterApprovalNotifier } from '../../notifications/master-approvals';
+import { MasterApprovalNotifier } from '../../notifications/notifications.interface';
 import { MasterUsageRepository } from '../masters.usage';
 import { MasterRecordSource } from '../transporter/transporter.types';
 import {

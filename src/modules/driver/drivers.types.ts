@@ -276,3 +276,13 @@ export type DriverInsuranceAnswer = (typeof DRIVER_INSURANCE_ANSWERS)[number];
 
 /** Same codes as the vehicle import, so the frontend renders both reports the same way. */
 export type DriverImportErrorCode = VehicleImportErrorCode;
+
+/** Codes the frontend can tell these driver failures apart by (`error.code`). */
+export type DriverErrorCode =
+  | 'DRIVER_NOT_FOUND'
+  | 'REQUEST_NOT_FOUND'
+  | 'NOT_REJECTED'
+  | 'RESTORE_WINDOW_EXPIRED'
+  | 'DRIVER_UNAVAILABLE';
+
+export type DriverExportCell = string | number;

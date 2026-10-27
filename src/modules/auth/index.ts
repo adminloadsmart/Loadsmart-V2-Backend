@@ -10,11 +10,11 @@ import { OrganizationJourneyStageService } from '../organization/organization-jo
 import { ReferralCodeService } from '../organization/referral-code.service';
 import { StorageService } from '../storage/storage.service';
 import { OtpService } from '../../shared/services/otp.service';
-import { NotificationTriggers } from '../notifications/notification-triggers';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { createAuthPublicRoutes, createAuthProtectedRoutes } from './auth.routes';
+import { NotificationTriggers } from '../notifications/notifications.interface';
 
 export function createAuthModule(
   dataSource: DataSource,

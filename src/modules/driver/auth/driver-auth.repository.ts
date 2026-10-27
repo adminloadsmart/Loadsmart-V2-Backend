@@ -1,6 +1,10 @@
 import { DataSource, EntityManager, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { DriverSessionEntity } from '../entities/driver-session.entity';
-import { DriverDevicePlatform, RevokedDriverSessionToken } from './driver-auth.types';
+import {
+  DriverDevicePlatform,
+  DriverLastSeenRow,
+  RevokedDriverSessionToken,
+} from './driver-auth.types';
 
 // The driver-identity counterpart to modules/auth/auth.repository.ts's refresh-token methods —
 // same shapes/race-closing patterns, operating on masters.driver_sessions instead of
@@ -100,7 +104,7 @@ export class DriverSessionRepository {
       .addSelect('MAX(COALESCE(driver_session.last_seen, driver_session.created_at))', 'lastSeenAt')
       .where('driver_session.driver_id IN (:...driverIds)', { driverIds })
       .groupBy('driver_session.driver_id')
-      .getRawMany<{ driverId: string; lastSeenAt: Date }>();
+      .getRawMany<DriverLastSeenRow>();
     return new Map(rows.map((row) => [row.driverId, new Date(row.lastSeenAt)]));
   }
 

@@ -1,20 +1,7 @@
 import { AppError } from '../../shared/errors/AppError';
 import { DRIVER_JOIN_REQUEST_RESTORE_DAYS } from './driver.constants';
-
-/** Codes the frontend can tell these driver failures apart by (`error.code`). */
-export type DriverErrorCode =
-  | 'DRIVER_NOT_FOUND'
-  | 'REQUEST_NOT_FOUND'
-  | 'NOT_REJECTED'
-  | 'RESTORE_WINDOW_EXPIRED'
-  | 'DRIVER_UNAVAILABLE';
-
-/** How one code is sent: its HTTP status, and the message shown to the user as-is (Title Case to
- *  match the UI). */
-interface DriverErrorDefinition {
-  statusCode: 404 | 409;
-  message: string;
-}
+import { DriverErrorCode } from './drivers.types';
+import { DriverErrorDefinition } from './drivers.interface';
 
 const DRIVER_ERRORS: Record<DriverErrorCode, DriverErrorDefinition> = {
   // Invite by mobile number — only a number that already belongs to a driver can be invited.
