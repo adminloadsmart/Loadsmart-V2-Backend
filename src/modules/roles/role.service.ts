@@ -11,6 +11,7 @@ import { RoleEntity, RoleScope } from './entities/role.entity';
 import { PermissionEntity, PermissionScope } from './entities/permission.entity';
 import { UserEntity } from '../auth/entities/user.entity';
 import { RoleRepository } from './role.repository';
+import { CapabilitiesChange } from './role.interface';
 
 type Scope = RoleScope | PermissionScope;
 
@@ -19,15 +20,6 @@ export interface EffectiveUserPermissions {
   rolePermissions: string[];
   directPermissions: { id: string; key: string; grantedBy: string; createdAt: Date }[];
   effective: string[];
-}
-
-/** What changed, for the "your access changed" notification (LS_N_0006) — `before` is the target's
- *  effective permission keys just before the change; the listener reads "after" itself. */
-export interface CapabilitiesChange {
-  tenantId: string;
-  userId: string;
-  actorUserId: string;
-  before: string[];
 }
 
 export class RoleService {
@@ -79,7 +71,9 @@ export class RoleService {
    *  no description falls back to the key itself. */
   async describePermissions(keys: string[]): Promise<string[]> {
     const permissions = await this.roleRepository.findPermissionsByKeys(keys);
-    const byKey = new Map(permissions.map((p) => [p.key, p.description ?? p.key]));
+    const byKey = new Map(
+      permissions.map((permission) => [permission.key, permission.description ?? permission.key]),
+    );
     return keys.map((key) => byKey.get(key) ?? key);
   }
 

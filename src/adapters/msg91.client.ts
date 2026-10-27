@@ -1,5 +1,5 @@
 import { env } from '../config/env';
-import { toIndianMsisdn } from '../shared/utils/phone-number';
+import { isMsg91SkippedNumber, toIndianMsisdn } from '../shared/utils/phone-number';
 
 interface Msg91Response {
   type?: string; // 'success' | 'error'
@@ -12,6 +12,9 @@ interface Msg91Response {
  *
  * Login/signup OTPs don't use MSG91's OTP API: OtpService sends them as a normal Flow SMS via
  * sendTransactional (MSG91_SMS_TEMPLATE_OTP) and verifies the code itself.
+ *
+ * sendTransactional/sendWhatsapp never reach a test number (isMsg91SkippedNumber) — they resolve
+ * without calling MSG91. That includes the login/signup OTP SMS above.
  *
  * This class assumes real credentials are present and always calls MSG91 — the dev-only bypass
  * that skips MSG91 entirely (see auth.constants.ts's DEV_BYPASS_OTP / useDevOtpBypass) is handled
@@ -31,6 +34,10 @@ export class Msg91Client {
     variables: Record<string, string>,
     templateId: string | undefined = env.msg91NotificationTemplateId,
   ): Promise<string | undefined> {
+    if (isMsg91SkippedNumber(phoneNumber)) {
+      console.info(`MSG91 SMS skipped for test number ${phoneNumber}`);
+      return undefined;
+    }
     if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
@@ -59,8 +66,8 @@ export class Msg91Client {
    * module's WhatsappChannel. Unlike sendTransactional above, the message copy itself is never
    * composed here: WhatsApp Business requires every template pre-approved by Meta, so the actual
    * text lives on the MSG91/WhatsApp Business dashboard (env.msg91WhatsappTemplateName); this
-   * method only forwards the caller's variables, in template placeholder order ({{1}}, {{2}}, ...),
-   * as that template's body components.
+   * method only forwards the caller's variables, in template placeholder order ({{var_1}},
+   * {{var_2}}, ...), as that template's body components.
    *
    * Unlike sendTransactional above, this hits `env.msg91WhatsappBaseUrl`
    * (`api.msg91.com` by default), not `env.msg91BaseUrl` (`control.msg91.com`) — MSG91's WhatsApp
@@ -72,14 +79,23 @@ export class Msg91Client {
     variables: string[],
     templateName: string | undefined = env.msg91WhatsappTemplateName,
   ): Promise<void> {
+    if (isMsg91SkippedNumber(phoneNumber)) {
+      console.info(`MSG91 WhatsApp skipped for test number ${phoneNumber}`);
+      return;
+    }
     if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',
       );
     }
 
+    // Our templates use named variables ({{var_1}}, {{var_2}}...), which MSG91 expects as
+    // `body_var_N` with a matching `parameter_name` — per the dashboard's Code (JSON) sample.
     const components = Object.fromEntries(
-      variables.map((value, index) => [`body_${index + 1}`, { type: 'text', value }]),
+      variables.map((value, index) => [
+        `body_var_${index + 1}`,
+        { type: 'text', value, parameter_name: `var_${index + 1}` },
+      ]),
     );
 
     const response = await fetch(

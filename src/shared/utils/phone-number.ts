@@ -1,3 +1,6 @@
+import { env } from '../../config/env';
+import { MSG91_SKIPPED_PHONE_PREFIX } from '../constants/msg91';
+
 export function normalizePhoneNumber(phoneNumber: string): string {
   return phoneNumber.replace(/\D+/g, '');
 }
@@ -22,4 +25,13 @@ export function toIndianMsisdn(phoneNumber: string): string {
   const digits = normalizePhoneNumber(phoneNumber);
   if (digits.length === 10) return `91${digits}`;
   return digits;
+}
+
+/** A test number (MSG91_SKIPPED_PHONE_PREFIX) while MSG91_SKIP_TEST_NUMBERS is on — no MSG91
+ *  notification SMS/WhatsApp is sent to it. */
+export function isMsg91SkippedNumber(phoneNumber: string): boolean {
+  return (
+    env.msg91SkipTestNumbers &&
+    toIndianMsisdn(phoneNumber).startsWith(`91${MSG91_SKIPPED_PHONE_PREFIX}`)
+  );
 }

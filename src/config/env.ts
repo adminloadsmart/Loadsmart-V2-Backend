@@ -157,6 +157,9 @@ export const env = {
   // auth.constants.ts's useDevOtpBypass).
   msg91AuthKey: process.env.MSG91_AUTH_KEY || undefined,
   msg91BaseUrl: process.env.MSG91_BASE_URL || 'https://control.msg91.com',
+  // 'true' = skip MSG91 notification SMS/WhatsApp to test numbers (MSG91_SKIPPED_PHONE_PREFIX,
+  // 88888…). Off unless set: every number gets everything. The login/signup OTP is sent either way.
+  msg91SkipTestNumbers: process.env.MSG91_SKIP_TEST_NUMBERS === 'true',
   // MSG91's Flow API template id for transactional/notification SMS (SmsChannel) — a separate
   // DLT-approved template from msg91SmsTemplateOtp (the login/signup OTP SMS).
   // Optional: SmsChannel throws a clear per-delivery error when unset instead of crashing the
@@ -184,6 +187,13 @@ export const env = {
   msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
   msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
   msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
+  // LS_N_0029 "tracking signal lost" (WhatsApp: first_name, vehicle_no, hours_since,
+  // last_location + an "Open load" button) and LS_N_0030 "delivery will be late" (WhatsApp:
+  // first_name, load_code, consignee, delay, revised_eta; DLT SMS: load code, revised ETA).
+  msg91WhatsappTemplateTrackingSignalLost:
+    process.env.MSG91_WHATSAPP_TEMPLATE_TRACKING_SIGNAL_LOST || undefined,
+  msg91WhatsappTemplateDeliveryLate: process.env.MSG91_WHATSAPP_TEMPLATE_DELIVERY_LATE || undefined,
+  msg91SmsTemplateDeliveryLate: process.env.MSG91_SMS_TEMPLATE_DELIVERY_LATE || undefined,
   // LS_N_0008 login OTP — optional WhatsApp copy of the same code (Meta-approved template whose
   // {{1}} is the OTP). Unset = SMS only, exactly as before.
   // TEMPORARY: mounts POST /v1/notifications/test/trigger-all (modules/notifications/test-trigger.ts)
@@ -224,6 +234,41 @@ export const env = {
   msg91EmailTemplateDailyBrief: process.env.MSG91_EMAIL_TEMPLATE_DAILY_BRIEF || undefined,
   // LS_N_0058 tyre needs attention (SMS).
   msg91SmsTemplateTyreAttention: process.env.MSG91_SMS_TEMPLATE_TYRE_ATTENTION || undefined,
+  // LS_N_0016 truck and driver assigned (SMS).
+  msg91SmsTemplateVehicleAssigned: process.env.MSG91_SMS_TEMPLATE_VEHICLE_ASSIGNED || undefined,
+  // LS_N_0017 assignment blocked on an expired vehicle document / driver licence (SMS + WhatsApp).
+  msg91SmsTemplateAssignmentCompliance:
+    process.env.MSG91_SMS_TEMPLATE_ASSIGNMENT_COMPLIANCE || undefined,
+  msg91WhatsappTemplateAssignmentCompliance:
+    process.env.MSG91_WHATSAPP_TEMPLATE_ASSIGNMENT_COMPLIANCE || undefined,
+  // LS_N_0025 e-way bill expires before delivery (SMS + WhatsApp).
+  msg91SmsTemplateEwayBillExpiry: process.env.MSG91_SMS_TEMPLATE_EWAY_BILL_EXPIRY || undefined,
+  msg91WhatsappTemplateEwayBillExpiry:
+    process.env.MSG91_WHATSAPP_TEMPLATE_EWAY_BILL_EXPIRY || undefined,
+  // LS_N_0021 vehicle not reported for loading (SMS + WhatsApp) / LS_N_0023 detention at loading
+  // (WhatsApp).
+  msg91SmsTemplateNotReported: process.env.MSG91_SMS_TEMPLATE_NOT_REPORTED || undefined,
+  msg91WhatsappTemplateNotReported: process.env.MSG91_WHATSAPP_TEMPLATE_NOT_REPORTED || undefined,
+  msg91WhatsappTemplateDetentionLoading:
+    process.env.MSG91_WHATSAPP_TEMPLATE_DETENTION_LOADING || undefined,
+  // LS_N_0031 vehicle reached unloading point (SMS) / LS_N_0032 detention at unloading (WhatsApp).
+  msg91SmsTemplateReachedDrop: process.env.MSG91_SMS_TEMPLATE_REACHED_DROP || undefined,
+  msg91WhatsappTemplateDetentionUnloading:
+    process.env.MSG91_WHATSAPP_TEMPLATE_DETENTION_UNLOADING || undefined,
+  // LS_N_0034 shortage or damage recorded (email) / LS_N_0037 driver reported a problem (SMS +
+  // WhatsApp) / LS_N_0038 POD uploaded (SMS + email).
+  msg91EmailTemplateShortageRecorded:
+    process.env.MSG91_EMAIL_TEMPLATE_SHORTAGE_RECORDED || undefined,
+  msg91SmsTemplateDriverProblem: process.env.MSG91_SMS_TEMPLATE_DRIVER_PROBLEM || undefined,
+  msg91WhatsappTemplateDriverProblem:
+    process.env.MSG91_WHATSAPP_TEMPLATE_DRIVER_PROBLEM || undefined,
+  msg91SmsTemplatePodUploaded: process.env.MSG91_SMS_TEMPLATE_POD_UPLOADED || undefined,
+  msg91EmailTemplatePodUploaded: process.env.MSG91_EMAIL_TEMPLATE_POD_UPLOADED || undefined,
+  // LS_N_0039 POD still pending (WhatsApp).
+  msg91WhatsappTemplatePodPending: process.env.MSG91_WHATSAPP_TEMPLATE_POD_PENDING || undefined,
+  // The loadsmart-tracking service's REST API (e.g. http://localhost:4100) — LS_N_0025/0026 read a
+  // load's ETA from it. Optional: unset means no ETA (the notifications still go out without it).
+  trackingApiUrl: process.env.TRACKING_API_URL || undefined,
   // Firebase Cloud Messaging — push notifications (PushChannel). Optional: the app boots fine
   // without these; PushChannel throws a clear per-delivery error instead of crashing the server
   // or silently no-op-ing.
