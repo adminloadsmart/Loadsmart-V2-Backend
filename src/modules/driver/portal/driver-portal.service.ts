@@ -387,7 +387,11 @@ export class DriverPortalService {
     const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
       this.getMyProfile(driverId, tenantIds) as Promise<DriverProfileView>,
       this.loadService.getMyTripsDone(tenantIds, driverId, { page: 1, limit: 1 }, locale),
-      this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'active' }, locale),
+      this.loadService.list(
+        tenantIds,
+        { page: 1, limit: 1, driverId, group: 'in_progress' },
+        locale,
+      ),
       this.loadService.list(
         tenantIds,
         { page: 1, limit: 5, driverId, status: 'truck_assigned' },

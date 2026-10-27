@@ -196,13 +196,25 @@ export const ON_ROAD_LOAD_STATUSES: readonly LoadStatus[] = [
   'in_transit_unloading',
   'reached_unloading',
 ];
-export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
+/** Driver-app Home "current trip" — a load already moving (past assignment, not yet closed). Kept
+ *  disjoint from UPCOMING_LOAD_STATUSES so one load never shows as both current and next. */
+export const IN_PROGRESS_LOAD_STATUSES: readonly LoadStatus[] = ACTIVE_LOAD_STATUSES.filter(
+  (status) => !UPCOMING_LOAD_STATUSES.includes(status),
+);
+export const LOAD_STATUS_GROUPS = [
+  'active',
+  'completed',
+  'open',
+  'upcoming',
+  'in_progress',
+] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
   active: ACTIVE_LOAD_STATUSES,
   completed: COMPLETED_LOAD_STATUSES,
   open: OPEN_LOAD_STATUSES,
   upcoming: UPCOMING_LOAD_STATUSES,
+  in_progress: IN_PROGRESS_LOAD_STATUSES,
 };
 
 /** Stages set by hand through PATCH /loads/:id/status (staff) or the driver app — there is no
