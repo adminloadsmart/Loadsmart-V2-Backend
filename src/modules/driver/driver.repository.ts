@@ -1,11 +1,23 @@
-import { DataSource, EntityManager, FindOptionsWhere, ILike, IsNull, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  ILike,
+  In,
+  IsNull,
+  LessThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverDocumentEntity } from './entities/driver-document.entity';
 import { DriverVerificationEntity } from './entities/driver-verification.entity';
 import { DriverBankDetailsEntity } from './entities/driver-bank-details.entity';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
-import { DriverBankVerificationStatus } from './drivers.types';
+import {
+  DRIVER_RETURNING_OPERATIONAL_STATUSES,
+  DriverBankVerificationStatus,
+} from './drivers.types';
 import {
   CreateDriverBankDetailsData,
   CreateDriverDocumentData,
@@ -222,6 +234,26 @@ export class DriverRepository {
   ): Promise<DriverOperationalStatusEntity | null> {
     await this.operationalStatuses.update({ driverTenantRelationId, deletedAt: IsNull() }, data);
     return this.findOperationalStatus(driverTenantRelationId);
+  }
+
+  /** Sets every On leave / Medically unfit status whose "fit to drive again from" date is on or
+   *  before `today` back to `active`, clearing the date and note. Returns how many changed. */
+  async returnFitDriversToActive(today: string): Promise<number> {
+    const result = await this.operationalStatuses.update(
+      {
+        operationalStatus: In([...DRIVER_RETURNING_OPERATIONAL_STATUSES]),
+        availableFrom: LessThanOrEqual(today),
+        deletedAt: IsNull(),
+      },
+      {
+        operationalStatus: 'active',
+        availableFrom: null,
+        reason: null,
+        effectiveAt: new Date(),
+        updatedBy: null,
+      },
+    );
+    return result.affected ?? 0;
   }
 
   findTripMetricsByPeriod(

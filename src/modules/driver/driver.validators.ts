@@ -23,6 +23,7 @@ import {
   DRIVER_LICENSE_ENDORSEMENTS,
   DRIVER_LIST_STATUS_FILTERS,
   DRIVER_OPERATIONAL_STATUSES,
+  DRIVER_RETURNING_OPERATIONAL_STATUSES,
   DRIVER_ROSTER_SEGMENTS,
   DRIVER_SALARY_TYPES,
   DRIVER_TENANT_RELATION_INITIATORS,
@@ -189,11 +190,23 @@ const driverDocumentBody = z.object({
   verificationSource: z.enum(DRIVER_DOCUMENT_VERIFICATION_SOURCES).optional(),
 });
 
-const driverOperationalStatusBody = z.object({
-  operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES),
-  reason: z.string().min(1).max(500).optional(),
-  effectiveAt: isoDateTime.optional(),
-});
+const driverOperationalStatusBody = z
+  .object({
+    operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES),
+    reason: z.string().min(1).max(500).optional(),
+    effectiveAt: isoDateTime.optional(),
+    // "Fit to drive again from" — the driver goes back to Available on this date (India).
+    availableFrom: isoDate.optional(),
+  })
+  .refine(
+    (data) =>
+      data.availableFrom === undefined ||
+      DRIVER_RETURNING_OPERATIONAL_STATUSES.includes(data.operationalStatus),
+    {
+      message: `availableFrom is only allowed with ${DRIVER_RETURNING_OPERATIONAL_STATUSES.join(' / ')}`,
+      path: ['availableFrom'],
+    },
+  );
 
 /** A fleet's own free-text note about the driver — kept on its relation, not the shared profile. */
 const driverNote = z.string().trim().min(1).max(DRIVER_NOTE_MAX_LENGTH);
@@ -265,7 +278,7 @@ export const driverValidators = {
     body: z
       .object({
         fullName: z.string().min(1).max(150).optional(),
-        phoneNumber: driverCoreFields.phoneNumber.optional(),
+        // No phoneNumber: it's the driver's app login, not editable from the Edit driver screen.
         licenseNumber: licenseNumber.optional(),
         licenseExpiry: isoDate.optional(),
         dateOfJoining: isoDate.optional(),
@@ -367,11 +380,7 @@ export const driverValidators = {
   getDriverOperationalStatus: z.object({ params: driverParams }),
   setDriverOperationalStatus: z.object({
     params: driverParams,
-    body: z.object({
-      operationalStatus: z.enum(DRIVER_OPERATIONAL_STATUSES),
-      reason: z.string().min(1).max(500).optional(),
-      effectiveAt: isoDateTime.optional(),
-    }),
+    body: driverOperationalStatusBody,
   }),
 
   recordDriverTripMetrics: z.object({

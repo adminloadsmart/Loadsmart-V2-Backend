@@ -154,15 +154,12 @@ export const env = {
   // back to a fixed dev-only OTP outside production when these aren't set (see
   // auth.constants.ts's useDevOtpBypass).
   msg91AuthKey: process.env.MSG91_AUTH_KEY || undefined,
-  // DLT-approved SMS template id, provisioned on the MSG91 dashboard — required by Indian
-  // carriers for delivery, independent of whether the code itself is correct.
-  msg91TemplateId: process.env.MSG91_TEMPLATE_ID || undefined,
   msg91BaseUrl: process.env.MSG91_BASE_URL || 'https://control.msg91.com',
   // 'true' = skip MSG91 notification SMS/WhatsApp to test numbers (MSG91_SKIPPED_PHONE_PREFIX,
   // 88888…). Off unless set: every number gets everything. The login/signup OTP is sent either way.
   msg91SkipTestNumbers: process.env.MSG91_SKIP_TEST_NUMBERS === 'true',
   // MSG91's Flow API template id for transactional/notification SMS (SmsChannel) — a separate
-  // DLT-approved template from msg91TemplateId above (that one's OTP-only, a different API).
+  // DLT-approved template from msg91SmsTemplateOtp (the login/signup OTP SMS).
   // Optional: SmsChannel throws a clear per-delivery error when unset instead of crashing the
   // server, same "fails loudly but doesn't crash boot" contract as msg91AuthKey/idfyApiKey.
   msg91NotificationTemplateId: process.env.MSG91_NOTIFICATION_TEMPLATE_ID || undefined,
@@ -202,8 +199,8 @@ export const env = {
   notificationsTestEndpoint:
     nodeEnv !== 'production' && process.env.NOTIFICATIONS_TEST_ENDPOINT === 'true',
   msg91WhatsappTemplateOtp: process.env.MSG91_WHATSAPP_TEMPLATE_OTP || undefined,
-  // LS_N_0008's own DLT-approved OTP SMS template (must carry MSG91's ##OTP## variable). Unset =
-  // falls back to msg91TemplateId, exactly as before (see Msg91Client.sendOtp).
+  // LS_N_0008's DLT-approved OTP SMS template — a Flow (SMS) template with the code in ##var1##,
+  // sent via Msg91Client.sendTransactional for staff signup/login (see OtpService). No fallback.
   msg91SmsTemplateOtp: process.env.MSG91_SMS_TEMPLATE_OTP || undefined,
   // LS_N_0002 "signup received, under review" (SMS + email only).
   msg91SmsTemplateSignupReceived: process.env.MSG91_SMS_TEMPLATE_SIGNUP_RECEIVED || undefined,

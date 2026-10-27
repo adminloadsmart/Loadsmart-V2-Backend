@@ -19,6 +19,11 @@ import {
   createDriverIdentityModule,
   createDriverPortalModule,
 } from './modules/driver';
+import {
+  DRIVER_AVAILABILITY_RETURN_CRON,
+  DRIVER_AVAILABILITY_RETURN_JOB,
+  DRIVER_AVAILABILITY_RETURN_TIME_ZONE,
+} from './modules/driver/driver.constants';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createGeofencesModule } from './modules/geofences';
@@ -322,6 +327,9 @@ export function buildContainer(dataSource: DataSource): Container {
       ...digestJobs(digests),
       // LS_N_0021 not reported / LS_N_0023 detention at loading — every 5 minutes.
       [TRIP_TIMING_JOB]: () => tripTimingChecks.run(),
+      // Drivers whose "fit to drive again from" date has come go back to Available (00:05 IST).
+      [DRIVER_AVAILABILITY_RETURN_JOB]: (today) =>
+        driver.driverService.returnFitDriversToAvailable(today),
     },
   );
   scheduleVehicleDocumentChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
@@ -333,6 +341,16 @@ export function buildContainer(dataSource: DataSource): Container {
   scheduleTripTimingChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register trip-timing schedule', error),
   );
+  createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)
+    .upsertSchedule(
+      DRIVER_AVAILABILITY_RETURN_JOB,
+      DRIVER_AVAILABILITY_RETURN_CRON,
+      DRIVER_AVAILABILITY_RETURN_TIME_ZONE,
+      DRIVER_AVAILABILITY_RETURN_JOB,
+    )
+    .catch((error) =>
+      console.error('Failed to register driver availability return schedule', error),
+    );
 
   // LS_N_0017 — the assignment-time compliance check. Shared by the loads module (which blocks on
   // it) and the load-alert resolvers (which re-run it to see if the document was renewed).

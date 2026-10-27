@@ -29,12 +29,14 @@ import {
  * One entry of an invite's permanent log (invite_timeline), oldest first. Entries are only ever
  * appended — a Resend or a fresh invite on the same row adds to the log and never clears it. `at`
  * is an ISO timestamp; `by` is the staff user's id. `expired` is written when an expired invite is
- * resent; until then the drawer derives it from invite_expires_at. `notificationId` on a send is
- * the in-app notification that send created (set right after it is delivered); on `viewed` it is
- * the notification the driver opened.
+ * resent; until then the drawer derives it from invite_expires_at. `whatsapp_read` is the driver
+ * reading a send's WhatsApp message — logged once per send. `viewed` (an in-app notification
+ * opened) is no longer written; it stays here only so older rows still type-check, and the
+ * invitation detail drops it.
  */
 export type DriverInviteEvent =
-  | { step: DriverInviteSendStep; at: string; by: string | null; notificationId?: string }
+  | { step: DriverInviteSendStep; at: string; by: string | null }
+  | { step: 'whatsapp_read'; at: string }
   | { step: 'viewed'; at: string; device: string | null; notificationId?: string }
   | { step: 'expired'; at: string }
   | { step: 'declined'; at: string; reason: string | null }
@@ -178,6 +180,14 @@ export class DriverTenantRelationEntity {
   // This fleet's own free-text note about the driver — per relation, so other fleets never see it.
   @Column({ name: 'note', type: 'varchar', length: 500, nullable: true })
   note!: string | null;
+
+  // Who last wrote `note` and when — the note card's "Mohit, 1 Aug 2020". Null for notes saved
+  // before this was recorded.
+  @Column({ name: 'note_updated_by', type: 'uuid', nullable: true })
+  noteUpdatedBy!: string | null;
+
+  @Column({ name: 'note_updated_at', type: 'timestamptz', nullable: true })
+  noteUpdatedAt!: Date | null;
 
   // Set by reject, cleared by approve — mirrors the old DriverEntity.rejectionReason.
   @Column({ name: 'rejection_reason', type: 'varchar', nullable: true })

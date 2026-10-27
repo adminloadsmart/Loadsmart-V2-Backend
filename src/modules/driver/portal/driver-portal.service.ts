@@ -40,20 +40,15 @@ function invitationIdOf(notification: NotificationEntity): string | null {
     : null;
 }
 
-/**
- * Whether this card is the invite's newest send — the one a Resend just created. Each send records
- * its notification on the timeline; a send from before that was recorded falls back to time (the
- * newest send's card is created after that send).
- */
+/** Whether this card is the invite's newest send — the one a Resend just created. That send's
+ *  card is created right after the send is logged, so it's the one at or after its time. */
 function isNewestSendCard(
   notification: NotificationEntity,
   relation: DriverTenantRelationEntity,
 ): boolean {
   const newestSend = relation.inviteTimeline.filter(isInviteSendEvent).at(-1);
   if (!newestSend) return false;
-  return newestSend.notificationId
-    ? newestSend.notificationId === notification.id
-    : notification.createdAt.getTime() >= Date.parse(newestSend.at);
+  return notification.createdAt.getTime() >= Date.parse(newestSend.at);
 }
 
 /** Where the invite behind a card stands now. A missing relation was deleted with its fleet link
@@ -465,27 +460,10 @@ export class DriverPortalService {
     };
   }
 
-  /**
-   * Opening a "You've been invited" notification (push tap or in-app list) logs it as viewed on
-   * that invitation's timeline, against the send that created it — see
-   * DriverPushNotifier.notifyInvited, which stores the invitationId on the notification. Device
-   * comes from the calling session.
-   */
-  async markMyNotificationRead(driverId: string, notificationId: string, sessionId?: string) {
-    const notification = await this.notificationsService.markReadForDriver(
-      driverId,
-      notificationId,
-    );
-    const invitationId = invitationIdOf(notification);
-    if (invitationId) {
-      await this.driverTenantRelationRepository.markInviteViewed(
-        invitationId,
-        driverId,
-        notification,
-        sessionId,
-      );
-    }
-    return notification;
+  /** Marks one of the driver's notifications read. An invite counts as opened only when its
+   *  WhatsApp message is read (DriverService.recordInviteWhatsAppStatus), not from this. */
+  markMyNotificationRead(driverId: string, notificationId: string) {
+    return this.notificationsService.markReadForDriver(driverId, notificationId);
   }
 
   async markAllMyNotificationsRead(driverId: string): Promise<{ markedCount: number }> {

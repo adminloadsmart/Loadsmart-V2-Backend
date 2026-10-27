@@ -50,6 +50,11 @@ export class DriverOperationalStatusEntity {
   @Column({ name: 'effective_at', type: 'timestamptz', default: () => 'now()' })
   effectiveAt!: Date;
 
+  // "Fit to drive again from" (On leave / Medically unfit only) — the daily
+  // driver-availability-return job sets the driver back to `active` on this date (India).
+  @Column({ name: 'available_from', type: 'date', nullable: true })
+  availableFrom!: string | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 
