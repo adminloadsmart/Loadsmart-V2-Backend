@@ -47,6 +47,7 @@ import {
   MAINTENANCE_MANAGE,
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
+  TRIP_TRACK,
   LS_APPROVAL,
   LS_PLACEMENT,
   LS_VERIFICATION,
@@ -225,6 +226,14 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Get alerts when a vehicle registration cannot be verified on Vahan',
     },
+    // Notification audience only — trip alerts (LS_N_0016/0017). In org_admin, dispatch and
+    // documents_ops's default bundles below; an org admin can grant it to anyone else.
+    {
+      key: TRIP_TRACK,
+      module: 'dispatch',
+      scope: 'organization',
+      description: 'Get trip alerts: truck assigned, or an assignment blocked by expired documents',
+    },
     // Loadsmart ops console — one per ops team (loadsmart-ops/).
     ...[
       [LS_APPROVAL, 'Check Loadsmart loads and post them on the load board'],
@@ -321,6 +330,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       PAYMENTS_MANAGE,
       MAINTENANCE_MANAGE,
       MAINTENANCE_COSTS_VIEW,
+      TRIP_TRACK,
       GEOFENCES_MANAGE,
     ],
   },
@@ -347,6 +357,7 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
       MASTERS_WRITE,
       // Books the workshop jobs (a breakdown is a dispatch event) but doesn't see what they cost.
       MAINTENANCE_MANAGE,
+      TRIP_TRACK,
       GEOFENCES_MANAGE,
       FILES_READ,
       FILES_UPLOAD,
@@ -355,7 +366,13 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: DOCUMENTS_OPS_ROLE,
     scope: 'organization',
-    permissionKeys: [LOADS_DOCUMENTS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [
+      LOADS_DOCUMENTS_MANAGE,
+      TRIP_TRACK,
+      CUSTOMERS_CREATE,
+      FILES_READ,
+      FILES_UPLOAD,
+    ],
   },
   {
     name: FINANCE_ACCOUNTS_ROLE,
