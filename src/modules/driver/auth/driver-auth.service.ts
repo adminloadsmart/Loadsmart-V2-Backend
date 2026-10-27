@@ -101,7 +101,7 @@ export class DriverAuthService {
     const activeRelations = await this.driverTenantRelationRepository.listActiveByDriver(driverId);
 
     if (activeRelations.length === 0) {
-      const tokens = await this.issueDriverTokenPair(driver.id, null, null, input);
+      const tokens = await this.issueLoginSession(driver.id, null, null, input);
       return { ...tokens, driver: this.toDriverSummary(driver) };
     }
 
@@ -233,7 +233,37 @@ export class DriverAuthService {
   /** Issues an identity-scoped session (no tenant context) right after self-registration — see
    * driver-identity.service.ts's registerSelf. */
   async issueIdentitySession(driverId: string, device?: DriverDeviceCaptureInput) {
-    return this.issueDriverTokenPair(driverId, null, null, device);
+    return this.issueLoginSession(driverId, null, null, device);
+  }
+
+  /**
+   * One login per driver: every fresh login (OTP, tenant pick, tenant switch, self-registration)
+   * closes the driver's other sessions first and blocklists their access tokens (same blockToken
+   * as logout), so an older login — or another phone — is logged out on its very next request and
+   * stops receiving pushes. Without this, sessions piled up and per-session notifications
+   * (load.assigned) reached the driver once per login. Refresh rotation doesn't come through here
+   * — it replaces its own session only.
+   */
+  private async issueLoginSession(
+    driverId: string,
+    tenantId: string | null,
+    driverTenantRelationId: string | null,
+    device?: DriverDeviceCaptureInput,
+  ) {
+    const revoked = await this.driverSessionRepository.revokeAllForDriver(driverId);
+    // Rows from before access_jti existed carry nulls — blockToken skips them, and their tokens
+    // simply run out their remaining lifetime.
+    await Promise.all(
+      revoked.map((session) =>
+        blockToken(
+          session.accessJti ?? undefined,
+          session.accessExpiresAt
+            ? Math.ceil(new Date(session.accessExpiresAt).getTime() / 1000)
+            : undefined,
+        ),
+      ),
+    );
+    return this.issueDriverTokenPair(driverId, tenantId, driverTenantRelationId, device);
   }
 
   private async issueSessionForRelation(
@@ -242,12 +272,7 @@ export class DriverAuthService {
     device?: DriverDeviceCaptureInput,
   ) {
     await this.assertOrganizationActiveForLogin(relation.tenantId);
-    const tokens = await this.issueDriverTokenPair(
-      driver.id,
-      relation.tenantId,
-      relation.id,
-      device,
-    );
+    const tokens = await this.issueLoginSession(driver.id, relation.tenantId, relation.id, device);
     return { ...tokens, driver: this.toDriverSummary(driver) };
   }
 
@@ -293,7 +318,10 @@ export class DriverAuthService {
   ) {
     // Created before the access token is signed, deliberately — issuing it needs this row's own
     // id for the access token's `sid` claim. Same convention as auth.service.ts's issueTokenPair.
+    // The row also records the token's jti/expiry, so a later login can blocklist it at once.
     const rawRefreshToken = randomBytes(40).toString('hex');
+    const jti = randomUUID();
+    const accessTtlSeconds = env.driverAccessTokenTtlSeconds;
     const session = await this.driverSessionRepository.createSession({
       driverId,
       tenantId,
@@ -304,9 +332,10 @@ export class DriverAuthService {
       deviceType: device?.deviceType,
       deviceInfo: device?.deviceInfo,
       ipAddress: device?.ipAddress,
+      accessJti: jti,
+      accessExpiresAt: new Date(Date.now() + accessTtlSeconds * 1000),
     });
 
-    const jti = randomUUID();
     // Deliberately no `role`/`permissions`/`permissionsVersion` claim — see docs/driver-auth.md.
     // A driver token can never satisfy requirePermission(...) or be mistaken for a staff
     // AuthenticatedUser by construction, not by convention.
@@ -319,7 +348,7 @@ export class DriverAuthService {
         sid: session.id,
         purpose: tenantId ? 'driver-access' : 'driver-identity-access',
       },
-      env.driverAccessTokenTtlSeconds,
+      accessTtlSeconds,
     );
 
     return { accessToken, refreshToken: rawRefreshToken };
