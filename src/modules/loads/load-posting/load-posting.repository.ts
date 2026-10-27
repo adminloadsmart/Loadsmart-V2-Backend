@@ -205,7 +205,7 @@ export class LoadPostingRepository {
       .createQueryBuilder('driver_session')
       .select('DISTINCT driver_session.driver_id', 'driverId')
       .where('driver_session.driver_id IN (:...driverIds)', { driverIds })
-      .getRawMany<{ driverId: string }>();
+      .getRawMany<Pick<DriverSessionEntity, 'driverId'>>();
     return new Set(rows.map((row) => row.driverId));
   }
 

@@ -87,6 +87,16 @@ export class RequisitionEntity {
   @Column({ name: 'expected_delivery_date', type: 'date' })
   expectedDeliveryDate!: string;
 
+  /** Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034). */
+  @Column({
+    name: 'cargo_value_per_tonne',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  cargoValuePerTonne!: string | null;
+
   /** The customer's own PO/SO reference. Tax invoice numbers are captured per load, not here. */
   @Column({ name: 'customer_po_number', type: 'varchar', length: 100 })
   customerPoNumber!: string;

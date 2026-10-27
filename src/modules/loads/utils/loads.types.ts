@@ -201,6 +201,18 @@ export const ON_ROAD_LOAD_STATUSES: readonly LoadStatus[] = [
 export const IN_PROGRESS_LOAD_STATUSES: readonly LoadStatus[] = ACTIVE_LOAD_STATUSES.filter(
   (status) => !UPCOMING_LOAD_STATUSES.includes(status),
 );
+/** The truck is at or past the delivery point — trip-execution alerts (LS_N_0025/0026) no longer
+ *  apply. */
+export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
+  'reached_unloading',
+  ...UNLOADED_LOAD_STATUSES,
+  'closed',
+];
+
+/** Upper bound on the optional cargo value per MT a requisition / posting can carry (LS_N_0034). */
+export const MAX_CARGO_VALUE_PER_TONNE = 10_000_000;
+/** Upper bound on a driver issue report's expected delay — 7 days, in minutes (LS_N_0037). */
+export const MAX_ISSUE_ETA_IMPACT_MINUTES = 7 * 24 * 60;
 export const LOAD_STATUS_GROUPS = [
   'active',
   'completed',
@@ -259,6 +271,8 @@ export const LOAD_ISSUE_CATEGORIES = [
   'accident',
   'road_blocked',
   'police_rto_check',
+  'strike',
+  'weather',
   'other',
 ] as const;
 export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];
@@ -267,6 +281,15 @@ export type LoadIssueCategory = (typeof LOAD_ISSUE_CATEGORIES)[number];
  *  load forward and the trip-detail view shows it as halted. Every other category is shown as
  *  incident info only. */
 export const HALTING_ISSUE_CATEGORIES: readonly LoadIssueCategory[] = ['accident', 'breakdown'];
+
+/** What an assignment-time compliance check (LS_N_0017) found expired: the vehicle's papers or the
+ *  driver's licence. */
+export const ASSIGNMENT_COMPLIANCE_SUBJECTS = ['vehicle', 'driver'] as const;
+export type AssignmentComplianceSubject = (typeof ASSIGNMENT_COMPLIANCE_SUBJECTS)[number];
+
+/** The `docType` an expired driver licence is reported as (vehicle papers use the masters'
+ *  DOCUMENT_TYPE_LABELS). */
+export const DRIVING_LICENCE_DOC_LABEL = 'Driving licence';
 
 /** A transporter's quote on one load (loads/bids/). `received` is the only live state; one bid is
  *  `accepted`, the rest of that load's live bids are `rejected` at that moment, and a live bid
@@ -301,3 +324,6 @@ export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
  *  update; see utils/tracking-source.ts for the starting value. */
 export const TRACKING_SOURCES = ['gps', 'driver_app', 'sim', 'fastag'] as const;
 export type TrackingSource = (typeof TRACKING_SOURCES)[number];
+
+export type CodeSequenceEntityKind =
+  'requisition' | 'load' | 'customer' | 'transporter' | 'lr' | 'ls_invoice';

@@ -5,18 +5,11 @@ import { StorageService } from '../../storage/storage.service';
 import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadRepository } from '../load.repository';
-import { LoadEntity } from '../entities/load.entity';
 import { formatLrNumber } from '../utils/code.util';
 import { istDateOf } from '../verification/verification-rules';
-import { buildElrContent, ElrInput } from './elr-content';
+import { buildElrContent } from './elr-content';
 import { renderElrPdf } from './elr-pdf';
-
-export interface GeneratedElr {
-  load: LoadEntity;
-  elrNumber: string;
-  /** Short-lived download URL of the generated PDF. */
-  downloadUrl: string | null;
-}
+import { ElrInput, GeneratedElr } from '../utils/elr.interface';
 
 /**
  * Makes the e-LR at the loading point. "e-LR needs the invoice": the invoice must be on the load

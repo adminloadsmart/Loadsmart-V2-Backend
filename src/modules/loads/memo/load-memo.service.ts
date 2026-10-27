@@ -8,33 +8,15 @@ import { MEMO_TTL_MS } from '../bids/bid-rules';
 import { MemoStatus } from '../utils/loads.types';
 import { LoadMemoEntity } from './load-memo.entity';
 import { LoadMemoRepository } from './load-memo.repository';
-import { LoadChecksView, LoadVerificationService } from '../verification/load-verification.service';
-
-export interface NameDriverInput {
-  driverName: string;
-  driverMobile: string;
-  /** Checked on Sarathi with the date of birth. */
-  licenceNumber: string;
-  /** YYYY-MM-DD. */
-  dateOfBirth: string;
-}
-
-/** What naming the driver produced: the memo, or — when a truck or driver check failed — no memo
- *  and the failures to fix ("A failed check sits next to the truck number or driver name"). */
-export interface NameDriverResult {
-  memo: MemoView | null;
-  checks: LoadChecksView;
-}
-
-export interface AcceptMemoInput {
-  loadingContactName?: string;
-  loadingContactPhone?: string;
-  loadingPointNote?: string;
-}
-
-export interface MemoView extends Omit<LoadMemoEntity, 'load' | 'status'> {
-  status: MemoStatus;
-}
+import { LoadVerificationService } from '../verification/load-verification.service';
+import {
+  AcceptMemoInput,
+  LoadingContact,
+  MemoView,
+  NameDriverInput,
+  NameDriverResult,
+} from '../utils/load-memo.interface';
+import { LoadChecksView } from '../utils/load-verification.interface';
 
 /** A sent memo past its hour is expired, whatever the row still says. */
 export function effectiveMemoStatus(memo: LoadMemoEntity, now: Date): MemoStatus {
@@ -152,7 +134,7 @@ export class LoadMemoService {
     tenantId: string,
     actorId: string,
     loadId: string,
-    loadingContact?: { name?: string; phone?: string },
+    loadingContact?: LoadingContact,
   ): Promise<MemoView> {
     try {
       const load = await this.assertMemoLoad(tenantId, loadId);
@@ -177,7 +159,7 @@ export class LoadMemoService {
   private async send(
     load: LoadEntity,
     actorId: string,
-    loadingContact?: { name?: string; phone?: string },
+    loadingContact?: LoadingContact,
   ): Promise<MemoView> {
     if (!load.vehicleNumber) throw new ConflictError('The load has no truck number yet');
     if (!load.driverName || !load.driverNumber) {

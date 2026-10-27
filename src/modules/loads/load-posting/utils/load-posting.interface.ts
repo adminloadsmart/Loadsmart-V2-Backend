@@ -6,6 +6,9 @@ import {
   PriceBasis,
   PriceMode,
 } from './load-posting.types';
+import type { LoadEntity } from '../../entities/load.entity';
+import type { CreateLoadData } from '../../load.repository';
+import type { DriverTenantRelationEntity } from '../../../driver/entities/driver-tenant-relation.entity';
 
 /** A new (not yet in any master) address, picked from Google Maps or the pincode lookup. Saved to
  *  the right master only when the load is posted. */
@@ -65,6 +68,8 @@ export interface PostLoadInput {
   commodity: CommodityInput;
   packaging: string;
   weightTonnes?: number;
+  /** Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034). */
+  cargoValuePerTonne?: number;
   truckCount: number;
   /** Main truck. Required for Market fleet and Indent; optional for Own fleet. */
   truck?: TruckPickInput;
@@ -148,4 +153,18 @@ export interface DraftBody {
 
 export interface DraftParams {
   draftId: string;
+}
+
+/** Set by the Loadsmart ops module once built — every market posting opens a sourcing too. */
+export interface LoadPostingHooks {
+  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
+}
+
+/** An own-fleet truck and driver that can take the trip (LoadPostingService's availability
+ *  check) — the licence is checked afterwards, once the compliance check has run. */
+export interface OwnFleetAssignment {
+  defaults: Partial<CreateLoadData>;
+  driverName: string | null;
+  driverRelation: DriverTenantRelationEntity;
+  grossVehicleWeightKg: number | null;
 }

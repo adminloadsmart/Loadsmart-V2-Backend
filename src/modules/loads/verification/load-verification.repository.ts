@@ -2,8 +2,7 @@ import { DataSource, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { VerificationSubject } from '../utils/loads.types';
 import { LoadVerificationEntity } from './load-verification.entity';
-
-export type CreateLoadVerificationData = Omit<LoadVerificationEntity, 'id' | 'load' | 'createdAt'>;
+import { CreateLoadVerificationData } from '../utils/load-verification.interface';
 
 export class LoadVerificationRepository {
   private readonly checks: Repository<LoadVerificationEntity>;

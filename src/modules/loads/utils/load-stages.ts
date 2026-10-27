@@ -1,5 +1,6 @@
 import { humanizeStatus } from '../../../shared/utils/humanize';
 import { LOAD_STAGE_TRANSITIONS, LoadSourceType, LoadStatus, ROUTE_STAGES } from './loads.types';
+import { StageGateLoad, StagePathLoad } from './load.interface';
 
 /**
  * Pure rules of the 13-stage lifecycle — no DB/IO, so they're unit-tested on their own
@@ -53,11 +54,7 @@ export function hasLoadingPapers(load: LoadingPapers): boolean {
 /** The stages this load's stepper shows, in the order it goes through them. Only one delivered
  *  stage is shown unless the load took the issues branch, in which case Delivered with issues
  *  comes first and Delivered without issues (the settlement) after it. */
-export function stagePathFor(load: {
-  sourceType: LoadSourceType;
-  status: LoadStatus;
-  deliveryIssueSettledAt: Date | null;
-}): LoadStatus[] {
+export function stagePathFor(load: StagePathLoad): LoadStatus[] {
   const tookIssuesBranch =
     load.status === 'delivered_with_issues' || load.deliveryIssueSettledAt !== null;
   const path: LoadStatus[] = [];
@@ -71,15 +68,7 @@ export function stagePathFor(load: {
 
 /** A business precondition a move needs beyond the route order, or null. Market and indent loads
  *  start the trip only once the shipper has accepted the load memo; own fleet has no memo. */
-export function stageGateError(
-  load: {
-    sourceType: LoadSourceType;
-    memoAcceptedAt: Date | null;
-    lsPapersApprovedAt?: Date | null;
-    podStatus?: string | null;
-  },
-  to: LoadStatus,
-): string | null {
+export function stageGateError(load: StageGateLoad, to: LoadStatus): string | null {
   if (to === 'in_transit_loading' && load.sourceType !== 'own_fleet' && !load.memoAcceptedAt) {
     return 'The shipper has to accept the load memo before the trip starts';
   }
