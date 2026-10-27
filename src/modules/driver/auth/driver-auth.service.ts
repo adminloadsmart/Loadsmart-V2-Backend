@@ -40,8 +40,8 @@ import {
 //
 // A driver profile is global (masters.drivers has no tenantId), so login resolves in two steps:
 // find the one driver profile by phone, then resolve which of their `active`
-// driver_tenant_relations to sign into (0 -> identity-scoped session, 1 -> straight to a
-// tenant-scoped session, >1 -> tenant-selection token, same UX as before).
+// driver_tenant_relations to sign into (every login is an identity-scoped session; the live
+// active relations are resolved per request by createDriverAuth).
 export class DriverAuthService {
   constructor(
     private readonly driverRepository: DriverRepository,
@@ -100,31 +100,24 @@ export class DriverAuthService {
 
     const activeRelations = await this.driverTenantRelationRepository.listActiveByDriver(driverId);
 
-    if (activeRelations.length === 0) {
-      const tokens = await this.issueLoginSession(driver.id, null, null, input);
-      return { ...tokens, driver: this.toDriverSummary(driver) };
-    }
-
-    if (activeRelations.length === 1) {
-      return this.issueSessionForRelation(driver, activeRelations[0], input);
-    }
-
-    // >1 tenant relation is active — the OTP is now proven, but which one logs in still needs a
-    // choice. One more short-lived token instead of a second OTP round-trip (MSG91 OTPs are
-    // per-phone, not per-tenant — re-sending wouldn't disambiguate anything). See docs/driver-auth.md.
+    // One session shape for every driver — 0, 1 or many active relations. The token is always
+    // identity-scoped: createDriverAuth resolves the live active tenants on every request, so a
+    // fleet joined after login (invite accepted, join request approved) is picked up on the very
+    // next request with the same token, no re-login or token swap. `tenants` is just the list the
+    // app shows; POST /select-relation remains for an app that wants a tenant-pinned session.
+    const tokens = await this.issueLoginSession(driver.id, null, null, input);
     const candidates: DriverLoginCandidate[] = activeRelations.map((relation) => ({
       tenantId: relation.tenantId,
       driverTenantRelationId: relation.id,
     }));
-    const tenantSelectionToken = signToken(
-      { purpose: 'driver-tenant-select', driverId, candidates },
-      env.driverTenantSelectTtlSeconds,
-    );
+    const described = await this.describeCandidates(candidates);
     return {
-      requiresTenantSelection: true as const,
-      candidates: await this.describeCandidates(candidates),
-      tenantSelectionToken,
-      expiresIn: env.driverTenantSelectTtlSeconds,
+      ...tokens,
+      driver: this.toDriverSummary(driver),
+      tenants: described.map((tenant, index) => ({
+        ...tenant,
+        relationId: candidates[index].driverTenantRelationId,
+      })),
     };
   }
 
