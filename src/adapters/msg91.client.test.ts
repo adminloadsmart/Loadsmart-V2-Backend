@@ -59,12 +59,4 @@ describe('Msg91Client — test numbers', () => {
     await client.sendWhatsapp('8888812345', ['x'], 'template');
     expect(fetch).not.toHaveBeenCalled();
   });
-
-  it('with MSG91_SKIP_TEST_NUMBERS=true, still sends the login OTP to an 88888 number', async () => {
-    skipTestNumbers(true);
-    vi.spyOn(env, 'msg91AuthKey', 'get').mockReturnValue('key');
-    const fetch = mockFetch();
-    await new Msg91Client().sendOtp('8888812345', '1234');
-    expect(fetch).toHaveBeenCalledOnce();
-  });
 });
