@@ -9,7 +9,9 @@ export interface CreateLoadPaymentData {
   paymentType: LoadPaymentType;
   amount: string;
   utrReference: string;
-  proofFileKey?: string | null;
+  verificationStatus?: 'verified' | null;
+  verifiedBy?: string | null;
+  verifiedAt?: Date | null;
   paymentDate: string;
   dueDate?: string | null;
   recordedBy: string | null;
@@ -26,7 +28,6 @@ export class LoadPaymentRepository {
     const repo = manager?.getRepository(LoadPaymentEntity) ?? this.payments;
     const payment = repo.create({
       ...data,
-      proofFileKey: data.proofFileKey ?? null,
       dueDate: data.dueDate ?? null,
     });
     return repo.save(payment);
@@ -38,6 +39,10 @@ export class LoadPaymentRepository {
     paymentType: LoadPaymentType,
   ): Promise<LoadPaymentEntity | null> {
     return this.payments.findOneBy({ tenantId, loadId, paymentType });
+  }
+
+  findById(tenantId: string, loadId: string, id: string): Promise<LoadPaymentEntity | null> {
+    return this.payments.findOneBy({ tenantId, loadId, id });
   }
 
   listByLoad(tenantId: string, loadId: string): Promise<LoadPaymentEntity[]> {

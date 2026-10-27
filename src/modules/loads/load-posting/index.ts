@@ -9,7 +9,7 @@ import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadPostingRepository } from './load-posting.repository';
-import { LoadPostingService } from './load-posting.service';
+import { LoadPostingService, LoadPostingHooks } from './load-posting.service';
 import { LoadPostingLookupService } from './load-posting-lookup.service';
 import { CustomerContractService } from './customer-contract.service';
 import { LoadDraftService } from './load-draft.service';
@@ -18,6 +18,8 @@ import { createLoadPostingRoutes } from './load-posting.routes';
 import { LoadDispatchNotifier, LoggingLoadDispatchNotifier } from './load-dispatch-notifier';
 import { AssignmentComplianceService } from '../assignment-compliance.service';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
+import { LoadEntity } from '../entities/load.entity';
+import { LoadStatus } from '../utils/loads.types';
 
 export function createLoadPostingModule(
   dataSource: DataSource,
@@ -36,6 +38,8 @@ export function createLoadPostingModule(
     onLoadEvent?: LoadEventNotifier;
     /** Swap in the real WhatsApp sender here once it exists. */
     notifier?: LoadDispatchNotifier;
+    onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>;
+    hooks?: LoadPostingHooks;
   },
 ) {
   const repository = new LoadPostingRepository(dataSource);
@@ -55,6 +59,8 @@ export function createLoadPostingModule(
     deps.truckTypeService,
     deps.assignmentComplianceService,
     deps.onLoadEvent,
+    deps.onStageEntered,
+    deps.hooks,
   );
   const lookupService = new LoadPostingLookupService(
     dataSource,

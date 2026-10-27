@@ -67,6 +67,7 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<ReturnType<typeof toProductView>>[] = [
   { header: 'volumeCbm', value: (p) => p.volumeCbm },
   { header: 'volumetricWeightKg', value: (p) => p.volumetricWeightKg },
   { header: 'invoiceValue', value: (p) => p.invoiceValue },
+  { header: 'standardRate', value: (p) => p.standardRate },
   {
     header: 'subItems',
     value: (p) => (p.subItems ?? []).map((item) => item.name).join(' | '),
@@ -102,6 +103,7 @@ export class ProductService {
           hsnCode: input.hsnCode?.trim() ?? null,
           packaging: input.packaging ?? null,
           invoiceValue: input.invoiceValue == null ? null : String(input.invoiceValue),
+          standardRate: input.standardRate == null ? null : String(input.standardRate),
           billingUnit: input.billingUnit?.trim() ?? null,
           dimensions: input.dimensions?.trim() ?? null,
           weight: input.weight == null ? null : String(input.weight),
@@ -223,6 +225,8 @@ export class ProductService {
         if (typeof data[key] === 'string') data[key] = data[key].trim();
       if ('invoiceValue' in data)
         data.invoiceValue = data.invoiceValue == null ? null : String(data.invoiceValue);
+      if ('standardRate' in data)
+        data.standardRate = data.standardRate == null ? null : String(data.standardRate);
       if ('weight' in data) data.weight = data.weight == null ? null : String(data.weight);
       const dimensionKeys = ['length', 'width', 'height', 'dimensionUnit', 'conversionModel'];
       if (dimensionKeys.some((key) => key in data)) {

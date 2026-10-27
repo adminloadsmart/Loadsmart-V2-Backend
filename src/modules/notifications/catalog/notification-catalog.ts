@@ -9,7 +9,7 @@ import {
   PAYMENTS_MANAGE,
   TRIP_TRACK,
 } from '../../../shared/constants/permissions';
-import { ORG_ADMIN_ROLE, DISPATCH_ROLE } from '../../../shared/constants/roles';
+import { ORG_ADMIN_ROLE, DISPATCH_ROLE, DOCUMENTS_OPS_ROLE } from '../../../shared/constants/roles';
 import { env } from '../../../config/env';
 import { toInternationalIndianNumber } from '../../../shared/utils/phone-number';
 import { NotificationTemplates, NotificationTypeDefinition } from './notification-catalog.types';
@@ -731,6 +731,24 @@ export interface DriverProblemReportedContext extends LoadSummary {
   driverNote?: string | null;
   /** The report's expected delay; null until something estimates it. */
   etaImpactMinutes?: number | null;
+}
+
+/** "No tracking means alerts": 2 h and 1 h before the pickup or the drop ETA, while the truck
+ *  hasn't been marked there yet. */
+export interface LoadArrivalReminderContext extends LoadSummary {
+  /** 120 or 60. */
+  leadMinutes: number;
+  /** The pickup time or drop ETA the reminder counts down to (ISO). */
+  dueAt: string;
+}
+
+/** Loadsmart's invoice falling due — the shipper's finance team is reminded before the date. */
+export interface InvoiceDueContext extends LoadSummary {
+  invoiceNumber: string;
+  /** "₹1,23,456.00" */
+  balanceDue: string;
+  /** YYYY-MM-DD */
+  dueDate: string;
 }
 
 export interface AdvanceDueContext extends LoadSummary {
@@ -2016,11 +2034,97 @@ export const NOTIFICATION_CATALOG = {
     },
   },
 
+  // 2 h and 1 h before pickup with no tracking — queued when a truck is assigned (load-alerts.ts
+  // resolver drops it once the truck is marked at the loading point). Asks the shipper whether the
+  // truck has started and reached, and to mark it reached.
+  'load.pickup_reminder': {
+    label: 'Pickup reminder',
+    category: 'trip_execution',
+    description: 'Truck not yet marked at the loading point 2 hours and 1 hour before pickup.',
+    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: LoadArrivalReminderContext) =>
+      `${context.loadId}-${context.leadMinutes}-${context.dueAt}`,
+    buildContent: (context: LoadArrivalReminderContext) => {
+      const vehicleLabel = context.vehicleNo ?? context.loadCode ?? 'The truck';
+      const hours = context.leadMinutes >= 120 ? '2 hours' : '1 hour';
+      return {
+        title: `Pickup in ${hours}: has ${vehicleLabel} reached?`,
+        body: `Load ${context.loadCode} is due for loading at ${formatIndiaTime(context.dueAt)}. Call the driver, then mark the truck started or reached the loading point.`,
+        highlights: [vehicleLabel],
+        metadata: {
+          ...loadMetadataOf(context),
+          due_at: context.dueAt,
+          cta_label: 'Mark reached',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // 2 h and 1 h before the drop ETA with no tracking — queued when the load is Loaded.
+  'load.drop_reminder': {
+    label: 'Drop reminder',
+    category: 'trip_execution',
+    description: 'Truck not yet marked at the unloading point 2 hours and 1 hour before the ETA.',
+    recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: LoadArrivalReminderContext) =>
+      `${context.loadId}-${context.leadMinutes}-${context.dueAt}`,
+    buildContent: (context: LoadArrivalReminderContext) => {
+      const vehicleLabel = context.vehicleNo ?? context.loadCode ?? 'The truck';
+      const hours = context.leadMinutes >= 120 ? '2 hours' : '1 hour';
+      return {
+        title: `Drop ETA in ${hours}: is ${vehicleLabel} close?`,
+        body: `Load ${context.loadCode} is due at the unloading point at ${formatIndiaTime(context.dueAt)}${
+          context.consignee ? ` for ${context.consignee}` : ''
+        }. Call the driver, then mark the truck reached the unloading point.`,
+        highlights: [vehicleLabel],
+        metadata: {
+          ...loadMetadataOf(context),
+          due_at: context.dueAt,
+          cta_label: 'Mark reached',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // Loadsmart invoice due in 2 days — queued when Receivables raises it; dropped once the shipper
+  // has submitted the payment.
+  'load.invoice_due_reminder': {
+    label: 'Loadsmart invoice due',
+    category: 'money',
+    description: "A Loadsmart invoice falls due in 2 days and isn't paid yet.",
+    recipientRoles: [ORG_ADMIN_ROLE],
+    recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
+    channels: [...ALL_CHANNELS],
+    defaultChannels: ['push', 'email'],
+    severity: 'p2_action',
+    dedupeKey: (context: InvoiceDueContext) => `${context.loadId}-${context.invoiceNumber}`,
+    buildContent: (context: InvoiceDueContext) => ({
+      title: `Invoice ${context.invoiceNumber} is due on ${context.dueDate}`,
+      body: `${context.balanceDue} is due to Loadsmart for load ${context.loadCode ?? ''}. Pay by UPI QR or bank transfer and add the UTR on the load.`,
+      highlights: [context.balanceDue],
+      metadata: {
+        ...loadMetadataOf(context),
+        invoice_number: context.invoiceNumber,
+        due_date: context.dueDate,
+        cta_label: 'Pay invoice',
+        cta_path: `/loads/${context.loadId}`,
+      },
+    }),
+  },
+
   // LS_N_0021 — the trip-timing sweep (every 5 min, trip-timing.ts) sends this when a load is
-  // still "assigned" 60 min after its reporting time, then at 3 h and 5 h (3 alerts at most);
+  // not at the loading point 60 min after its reporting time, then at 3 h and 5 h (3 alerts at most);
   // org admins are added from the 3 h one. The reporting time is the posting's pickup time, or the
   // pickup date at DEFAULT_REPORTING_TIME_IST. Stops as soon as the vehicle reaches the plant
-  // (manual "At plant" or tracking's geofence entry). "Last seen" comes from tracking's last
+  // (manual "Reached loading point" or tracking's geofence entry). "Last seen" comes from tracking's last
   // position, left out when it has none. P1 (pings through quiet hours): in-app + push + WhatsApp
   // + SMS to trip.track holders plus the user who created the load.
   'load.vehicle_not_reported': {
@@ -2099,9 +2203,9 @@ export const NOTIFICATION_CATALOG = {
     },
   },
 
-  // LS_N_0022 — the vehicle reached the loading point: fired by the manual "At plant" step
+  // LS_N_0022 — the vehicle reached the loading point: fired by the manual "Reached loading" step
   // (LoadService.updateStatus) or tracking's `trip.arrived_at_pickup` geofence entry (which also
-  // moves the load to "At plant"), whichever comes first — once per trip. Early/late is against
+  // moves the load to "Reached loading point"), whichever comes first — once per trip. Early/late is against
   // the reporting time (see DEFAULT_REPORTING_TIME_IST); free time is the company's loading free
   // hours from arrival (auth.organizations, 4 h by default). In-app + push, P3, to trip.track
   // holders.
@@ -2153,7 +2257,7 @@ export const NOTIFICATION_CATALOG = {
   // LS_N_0023 — the trip-timing sweep sends this once the vehicle has been at the loading point
   // for the company's loading free hours, then every DETENTION_REPEAT_HOURS while it stays. The clock runs from
   // "At plant" (the geofence entry, or the manual tap) until the vehicle leaves: its geofence exit
-  // (tracking's departure moves the load to "In transit") when the geofence saw it arrive, else
+  // (tracking's departure moves the load to "In transit to unloading") when the geofence saw it arrive, else
   // loading confirmed. Free hours and the rate are the company's (auth.organizations — 4 h and
   // ₹500/h by default). No reason-recording feature exists, so
   // the button opens the load. In-app + push + WhatsApp, P2, to trip.track and payments holders

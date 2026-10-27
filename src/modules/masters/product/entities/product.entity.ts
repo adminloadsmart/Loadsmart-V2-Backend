@@ -34,6 +34,8 @@ export class ProductEntity {
   @Column({ type: 'varchar', length: 30, nullable: true }) packaging!: string | null;
   @Column({ name: 'invoice_value', type: 'numeric', precision: 15, scale: 2, nullable: true })
   invoiceValue!: string | null;
+  @Column({ name: 'standard_rate', type: 'numeric', precision: 15, scale: 2, nullable: true })
+  standardRate!: string | null;
   @Column({ name: 'billing_unit', type: 'varchar', length: 30, nullable: true }) billingUnit!:
     string | null;
   @Column({ type: 'varchar', length: 100, nullable: true }) dimensions!: string | null;

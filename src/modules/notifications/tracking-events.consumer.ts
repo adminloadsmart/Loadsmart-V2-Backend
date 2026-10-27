@@ -32,9 +32,9 @@ export const TRACKING_EVENTS_STREAM = 'tracking.events';
 export const TRACKING_EVENTS_CONSUMER_GROUP = 'loadsmart-backend';
 
 /** What each event type does here. `markArrivedAtPickup` / `markDepartedPickup` /
- *  `markReachedDeliveryPoint` are LoadService's — tracking's arrival moves the load to "At plant"
- *  (raises LS_N_0022, stops LS_N_0021), its departure to "In transit", its drop arrival to
- *  "Reached delivery point". `notifyGeofenceTransition` is GeofenceService's — the geofence's own
+ *  `markReachedDeliveryPoint` are LoadService's — tracking's arrival moves the load to "Reached
+ *  loading point" (raises LS_N_0022, stops LS_N_0021), its departure to "In transit to
+ *  unloading", its drop arrival to "Reached unloading point". `notifyGeofenceTransition` is GeofenceService's — the geofence's own
  *  "Send alerts to". */
 export function createTrackingEventHandlers(
   triggers: NotificationTriggers,
@@ -81,7 +81,7 @@ export function createTrackingEventHandlers(
       await deps.markArrivedAtPickup(event.tenantId, loadId, occurredAtOf(event));
     },
     // LS_N_0026 — the loaded vehicle left the loading point's geofence (tracking sends this only
-    // once loading is confirmed). A "loading confirmed" load moves to "In transit" at that time;
+    // once loading is confirmed). A "Loaded" load moves to "In transit to unloading" at that time;
     // one already marked in transit by hand stays as it is. The card goes out either way.
     'trip.departed_pickup': async (event) => {
       const loadId = stringOf(event.payload.loadId);

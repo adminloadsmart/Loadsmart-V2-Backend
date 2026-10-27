@@ -15,6 +15,19 @@ export const OFFLINE_KYC_DESK_ROLE = 'offline_kyc_desk';
 export const SALES_ROLE = 'sales';
 export const LOAD_CONSOLE = 'load_console';
 
+// The Loadsmart ops teams — one platform role per team (loadsmart-ops/). Each holds its own
+// loadsmart.* permission; load_console holds every one of them.
+export const LOADSMART_TEAM_ROLES = [
+  'ls_approval',
+  'ls_placement',
+  'ls_verification',
+  'ls_tracking',
+  'ls_pod',
+  'ls_cs',
+  'ls_receivables',
+  'ls_payables',
+] as const;
+
 // Roles a platform admin may hand a newly-created staff account (POST /admin/staff) — deliberately
 // excludes platform_admin (no minting new platform admins through a bulk staff form) and org_admin
 // (provisioned exclusively through self-signup).
@@ -23,6 +36,7 @@ export const STAFF_ASSIGNABLE_ROLES = [
   ONLINE_KYC_DESK_ROLE,
   OFFLINE_KYC_DESK_ROLE,
   LOAD_CONSOLE,
+  ...LOADSMART_TEAM_ROLES,
 ];
 
 // Every role with scope: 'platform' in auth.roles — i.e. never tied to a tenant (tenantId is

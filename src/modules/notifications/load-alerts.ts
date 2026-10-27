@@ -1,7 +1,12 @@
 import { NotificationTriggers } from './notification-triggers';
 import type { TrackingClient } from '../../adapters/tracking.client';
 import type { AssignmentCompliance, AssignmentTarget } from '../loads/utils/load.interface';
-import { ARRIVED_AT_DELIVERY_STATUSES, LoadStatus } from '../loads/utils/loads.types';
+import {
+  ARRIVED_AT_DELIVERY_STATUSES,
+  DELIVERED_LOAD_STATUSES,
+  LoadStatus,
+  UNLOADED_LOAD_STATUSES,
+} from '../loads/utils/loads.types';
 import {
   AdvanceDueContext,
   AssignmentComplianceFailedContext,
@@ -9,6 +14,8 @@ import {
   DeliveryLateContext,
   RouteDeviationContext,
   TrackingSignalLostContext,
+  InvoiceDueContext,
+  LoadArrivalReminderContext,
   EwayBillExpiryContext,
   LoadSummary,
   PodPendingContext,
@@ -173,14 +180,17 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
   };
 }
 
-/** LS_N_0029's "running trip": At plant through to the delivery point (tracking watches the same
- *  statuses). */
+/** LS_N_0029's "running trip": at the loading point through to the unloading point (tracking
+ *  watches the same statuses). */
 const SIGNAL_WATCHED_STATUSES: readonly string[] = [
-  'at_plant',
-  'loading_confirmed',
-  'in_transit',
-  'reached_delivery_point',
+  'reached_loading',
+  'loaded',
+  'in_transit_unloading',
+  'reached_unloading',
 ];
+
+/** LS_N_0021 — the truck is assigned but not yet at the loading point (started or not). */
+const NOT_AT_PLANT_STATUSES: readonly LoadStatus[] = ['truck_assigned', 'in_transit_loading'];
 
 const formatRupees = (amount: number) => `₹${Math.round(amount).toLocaleString('en-IN')}`;
 
@@ -311,14 +321,15 @@ export function createLoadAlertResolvers(
       };
     },
 
-    /** LS_N_0021 — null once the vehicle has reached the plant (the load left "assigned") or this
-     *  step already went out. "Last seen" is tracking's last position, when it has one. */
+    /** LS_N_0021 — null once the vehicle has reached the plant (the load is past "Truck
+     *  assigned" / "In transit to loading") or this step already went out. "Last seen" is
+     *  tracking's last position, when it has one. */
     vehicleNotReported: async (
       tenantId: string,
       context: VehicleNotReportedContext,
     ): Promise<VehicleNotReportedContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status !== 'assigned') return null;
+      if (!snapshot || !NOT_AT_PLANT_STATUSES.includes(snapshot.status as LoadStatus)) return null;
       if (
         await loadAlertRepository.hasSentNotification(tenantId, 'load.vehicle_not_reported', {
           load_id: context.loadId,
@@ -367,7 +378,7 @@ export function createLoadAlertResolvers(
     },
 
     /** LS_N_0023 — null once the vehicle has left the loading point or this step already went
-     *  out. Left means: out of the geofence (tracking moved the load to "In transit") when the
+     *  out. Left means: out of the geofence (tracking moved the load to "In transit to unloading") when the
      *  geofence saw it arrive; loading confirmed when its arrival was tapped by hand (no exit to
      *  wait for). The amount is the hours beyond the free time × the rate. */
     detentionAtLoading: async (
@@ -377,9 +388,13 @@ export function createLoadAlertResolvers(
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot?.atPlantAt) return null;
       const stillAtOrigin =
-        snapshot.status === 'at_plant' ||
-        (snapshot.status === 'loading_confirmed' &&
-          (await loadAlertRepository.arrivedByTracking(tenantId, context.loadId, 'at_plant')));
+        snapshot.status === 'reached_loading' ||
+        (snapshot.status === 'loaded' &&
+          (await loadAlertRepository.arrivedByTracking(
+            tenantId,
+            context.loadId,
+            'reached_loading',
+          )));
       if (!stillAtOrigin) return null;
       if (
         await loadAlertRepository.hasSentNotification(tenantId, 'load.detention_at_loading', {
@@ -437,14 +452,15 @@ export function createLoadAlertResolvers(
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot?.reachedDeliveryPointAt || snapshot.departedDropAt) return null;
       const stillAtDestination =
-        snapshot.status === 'reached_delivery_point' ||
-        ((snapshot.status === 'delivered' || snapshot.status === 'closed') &&
+        snapshot.status === 'reached_unloading' ||
+        ((UNLOADED_LOAD_STATUSES.includes(snapshot.status as LoadStatus) ||
+          snapshot.status === 'closed') &&
           !!snapshot.deliveredAt &&
           Date.now() - snapshot.deliveredAt.getTime() < TRIP_COMPLETED_FALLBACK_MS &&
           (await loadAlertRepository.arrivedByTracking(
             tenantId,
             context.loadId,
-            'reached_delivery_point',
+            'reached_unloading',
           )));
       if (!stillAtDestination) return null;
       if (
@@ -478,17 +494,19 @@ export function createLoadAlertResolvers(
       context: TripCompletedContext,
     ): Promise<TripCompletedContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || (snapshot.status !== 'delivered' && snapshot.status !== 'closed')) {
+      if (
+        !snapshot ||
+        !(
+          UNLOADED_LOAD_STATUSES.includes(snapshot.status as LoadStatus) ||
+          snapshot.status === 'closed'
+        )
+      ) {
         return null;
       }
       if (
         !snapshot.departedDropAt &&
         !context.fallback &&
-        (await loadAlertRepository.arrivedByTracking(
-          tenantId,
-          context.loadId,
-          'reached_delivery_point',
-        ))
+        (await loadAlertRepository.arrivedByTracking(tenantId, context.loadId, 'reached_unloading'))
       ) {
         return null; // tracking's exit from the delivery point completes it
       }
@@ -538,7 +556,9 @@ export function createLoadAlertResolvers(
         return null;
       };
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status !== 'in_transit') return skip('load not in transit');
+      if (!snapshot || snapshot.status !== 'in_transit_unloading') {
+        return skip('load not in transit');
+      }
       if (
         await loadAlertRepository.hasSentNotification(tenantId, 'load.vehicle_halted', {
           load_id: context.loadId,
@@ -615,7 +635,7 @@ export function createLoadAlertResolvers(
       context: RouteDeviationContext,
     ): Promise<RouteDeviationContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status !== 'in_transit') return null;
+      if (!snapshot || snapshot.status !== 'in_transit_unloading') return null;
       const { eta, position } = await tracking.getTrip(tenantId, context.loadId);
       return {
         ...context,
@@ -662,7 +682,7 @@ export function createLoadAlertResolvers(
       context: DeliveryLateContext,
     ): Promise<DeliveryLateContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
-      if (!snapshot || snapshot.status !== 'in_transit') return null;
+      if (!snapshot || snapshot.status !== 'in_transit_unloading') return null;
       const eta = await tracking.getTripEta(tenantId, context.loadId);
       const fresh = eta && !eta.stale && eta.projectedDelayMin != null;
       return {
@@ -673,6 +693,40 @@ export function createLoadAlertResolvers(
         destination: snapshot.destinationCity,
         createdBy: snapshot.createdBy,
       };
+    },
+
+    /** Null once the truck is marked at the loading point (or the load moved on). */
+    pickupReminder: async (
+      tenantId: string,
+      context: LoadArrivalReminderContext,
+    ): Promise<LoadArrivalReminderContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !['truck_assigned', 'in_transit_loading'].includes(snapshot.status)) {
+        return null;
+      }
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
+    },
+
+    /** Null once the shipper has submitted the payment (or the load moved on). */
+    invoiceDueReminder: async (
+      tenantId: string,
+      context: InvoiceDueContext,
+    ): Promise<InvoiceDueContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'invoice_generated') return null;
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
+    },
+
+    /** Null once the truck is marked at the unloading point (or the load moved on). */
+    dropReminder: async (
+      tenantId: string,
+      context: LoadArrivalReminderContext,
+    ): Promise<LoadArrivalReminderContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !['loaded', 'in_transit_unloading'].includes(snapshot.status)) {
+        return null;
+      }
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
     },
 
     /** Null once the E-POD is no longer waiting for review. */
@@ -706,9 +760,11 @@ export function createLoadAlertResolvers(
     ): Promise<PodPendingContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot) return null;
-      const rejected = snapshot.status === 'delivered' && snapshot.podStatus === 'rejected';
+      const rejected =
+        DELIVERED_LOAD_STATUSES.includes(snapshot.status as LoadStatus) &&
+        snapshot.podStatus === 'rejected';
       const since =
-        snapshot.status === 'reached_delivery_point'
+        snapshot.status === 'reached_unloading'
           ? snapshot.reachedDeliveryPointAt
           : rejected
             ? snapshot.podReviewedAt

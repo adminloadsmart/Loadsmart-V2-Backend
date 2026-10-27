@@ -18,7 +18,7 @@ const recipient = { userId: 'user-1', fullName: 'Asha Verma' };
 
 const snapshot = {
   code: 'LD-1001',
-  status: 'reached_delivery_point',
+  status: 'reached_unloading',
   vehicleNumber: 'MH12AB1234',
   route: 'Ludhiana to Bhiwandi',
   transporterName: null,
@@ -113,7 +113,7 @@ describe('LS_N_0032 detention at unloading', () => {
 
   it('after the E-POD, keeps running only when the geofence saw it arrive', async () => {
     const delivered = {
-      status: 'delivered',
+      status: 'delivered_ok',
       reachedDeliveryPointAt: fiveHoursAgo(),
       deliveredAt: new Date(Date.now() - HOUR),
     };
@@ -133,7 +133,7 @@ describe('LS_N_0032 detention at unloading', () => {
 });
 
 describe('LS_N_0033 trip completed', () => {
-  const delivered = { status: 'delivered', deliveredAt: new Date() };
+  const delivered = { status: 'delivered_ok', deliveredAt: new Date() };
 
   it('waits for the E-POD', async () => {
     const { resolvers } = setup();

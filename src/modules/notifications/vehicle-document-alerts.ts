@@ -84,7 +84,7 @@ export function createVehicleDocumentAlerts(
     const [row] = await dataSource.query(
       `SELECT count(*)::int AS n FROM loads.loads l
          JOIN loads.requisitions r ON r.id = l.requisition_id
-        WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'assigned')
+        WHERE l.tenant_id = $1 AND l.vehicle_id = $2 AND l.status IN ('created', 'bids_received', 'truck_assigned')
           AND r.pickup_date ${strictlyAfter ? '>' : '>='} $3::date`,
       [tenantId, vehicleId, fromDate],
     );
@@ -123,7 +123,7 @@ export function createVehicleDocumentAlerts(
       `SELECT count(*)::int AS n,
               count(*) FILTER (WHERE r.pickup_date = $3::date)::int AS today
          FROM loads.loads l JOIN loads.requisitions r ON r.id = l.requisition_id
-        WHERE l.tenant_id = $1 AND l.driver_id = $2 AND l.status IN ('created', 'assigned')
+        WHERE l.tenant_id = $1 AND l.driver_id = $2 AND l.status IN ('created', 'bids_received', 'truck_assigned')
           AND r.pickup_date >= $3::date`,
       [tenantId, driverId, today],
     );

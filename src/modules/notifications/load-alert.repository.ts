@@ -12,6 +12,7 @@ import { ProductEntity } from '../masters/product/entities/product.entity';
 import { LoadIssueReportEntity } from '../loads/entities/load-issue-report.entity';
 import {
   DELIVERED_LOAD_STATUSES,
+  UNLOADED_LOAD_STATUSES,
   LoadStatus,
   PodStatus,
   UPCOMING_LOAD_STATUSES,
@@ -57,8 +58,16 @@ function routeOf(originCity: string | null, destinationCity: string | null): str
   return originCity && destinationCity ? `${originCity} to ${destinationCity}` : null;
 }
 
-/** A tracking-driven arrival: at the loading point ("At plant") or the delivery point. */
-export type TrackedArrival = 'at_plant' | 'reached_delivery_point';
+/** A tracking-driven arrival: at the loading point or the unloading (delivery) point. */
+export type TrackedArrival = 'reached_loading' | 'reached_unloading';
+
+/** The same arrival under the status names before the 13-stage lifecycle — the
+ *  LoadLifecycleStages migration renames loads.status but not the activity history, so a trip
+ *  that was under way then still carries these. */
+const PRE_LIFECYCLE_ARRIVAL: Record<TrackedArrival, string> = {
+  reached_loading: 'at_plant',
+  reached_unloading: 'reached_delivery_point',
+};
 
 /** The load (aliased `load`) reached `arrival` through tracking's geofence — LoadService's
  *  advanceFromTracking records that step with `source: 'tracking'`; a manual tap has none. */
@@ -67,7 +76,7 @@ const arrivedByTrackingSql = (arrival: TrackedArrival) => `EXISTS (
   WHERE activity.tenant_id = load.tenant_id
     AND activity.load_id = load.id
     AND activity.action = 'STATUS_CHANGED'
-    AND activity.to_value = '${arrival}'
+    AND activity.to_value IN ('${arrival}', '${PRE_LIFECYCLE_ARRIVAL[arrival]}')
     AND activity.metadata->>'source' = 'tracking'
 )`;
 
@@ -360,7 +369,8 @@ export class LoadAlertRepository {
       .select('load.id', 'loadId')
       .addSelect('load.tenant_id', 'tenantId')
       .where('load.status IN (:...deliveredStatuses)', {
-        deliveredStatuses: [...DELIVERED_LOAD_STATUSES],
+        // The E-POD is in — delivered (either stage), a money stage after it, or closed.
+        deliveredStatuses: [...UNLOADED_LOAD_STATUSES, 'closed'],
       })
       .andWhere(
         '(load.number_of_tonnes_short > 0 OR load.shortage_or_damage IN (:...claimableStatuses))',
@@ -450,13 +460,15 @@ export class LoadAlertRepository {
     return query.getExists();
   }
 
-  /** LS_N_0021 — loads still "assigned" whose reporting time is after `from` and on or before
+  /** LS_N_0021 — loads not yet at the loading point ("Truck assigned" / "In transit to loading")
+   *  whose reporting time is after `from` and on or before
    *  `to`. The reporting time is the posting's pickup time, else the requisition's pickup date at
    *  DEFAULT_REPORTING_TIME_IST — the same rule as reportingAtOf (utils/trip-time.ts). */
   async findAssignedLoadsDueBetween(
     from: Date,
     to: Date,
   ): Promise<{ loadId: string; tenantId: string; reportingAt: Date }[]> {
+    const notAtPlant: LoadStatus[] = ['truck_assigned', 'in_transit_loading'];
     const reportingAt =
       'COALESCE(posting.pickup_at, ' +
       '(requisition.pickup_date + CAST(:defaultReportingTime AS time)) AT TIME ZONE :timeZone)';
@@ -468,7 +480,7 @@ export class LoadAlertRepository {
         .select('load.id', 'loadId')
         .addSelect('load.tenant_id', 'tenantId')
         .addSelect(reportingAt, 'reportingAt')
-        .where('load.status = :status', { status: 'assigned' })
+        .where('load.status IN (:...statuses)', { statuses: notAtPlant })
         .andWhere(`${reportingAt} > :from`, { from })
         .andWhere(`${reportingAt} <= :to`, { to })
         .setParameters({
@@ -480,8 +492,8 @@ export class LoadAlertRepository {
   }
 
   /** LS_N_0023 — loads whose vehicle is still at the loading point past the company's free
-   *  hours: "At plant", or "Loading confirmed" when tracking's geofence saw it arrive (so its
-   *  gate exit — which moves the load to "In transit" — is what ends detention). A load whose
+   *  hours: "Reached loading point", or "Loaded" when tracking's geofence saw it arrive (so its
+   *  gate exit — which moves the load to "In transit to unloading" — is what ends detention). A load whose
    *  arrival was tapped by hand has no exit to wait for, so its detention ends at loading
    *  confirmed. */
   async findLoadingDetentionCandidates(now: Date): Promise<DetentionCandidate[]> {
@@ -494,14 +506,14 @@ export class LoadAlertRepository {
       .addSelect('org.loading_free_hours', 'freeHours')
       .where('load.at_plant_at + make_interval(hours => org.loading_free_hours) <= :now', { now })
       .andWhere(
-        `(load.status = 'at_plant' OR (load.status = 'loading_confirmed' AND ${arrivedByTrackingSql('at_plant')}))`,
+        `(load.status = 'reached_loading' OR (load.status = 'loaded' AND ${arrivedByTrackingSql('reached_loading')}))`,
       )
       .getRawMany();
     return rows.map(detentionCandidateOf);
   }
 
   /** LS_N_0032 — loads whose vehicle is still at the delivery point past its free hours (the
-   *  customer's own, else the company's): "Reached delivery point" until it leaves; once the
+   *  customer's own, else the company's): "Reached unloading point" until it leaves; once the
    *  E-POD is in, only when tracking's geofence saw it arrive — then it's at the drop until
    *  tracking sees it leave (departed_drop_at), for as long as tracking follows a delivered load
    *  (`followSince`). A load whose arrival was tapped by hand ends detention at the E-POD. */
@@ -527,8 +539,8 @@ export class LoadAlertRepository {
       })
       .andWhere('load.departed_drop_at IS NULL')
       .andWhere(
-        `(load.status = 'reached_delivery_point' OR (load.status IN ('delivered', 'closed') AND load.delivered_at > :followSince AND ${arrivedByTrackingSql('reached_delivery_point')}))`,
-        { followSince },
+        `(load.status = 'reached_unloading' OR (load.status IN (:...unloadedStatuses) AND load.delivered_at > :followSince AND ${arrivedByTrackingSql('reached_unloading')}))`,
+        { followSince, unloadedStatuses: [...UNLOADED_LOAD_STATUSES, 'closed'] },
       )
       .getRawMany();
     return rows.map(detentionCandidateOf);
@@ -541,8 +553,7 @@ export class LoadAlertRepository {
     from: Date,
     to: Date,
   ): Promise<{ loadId: string; tenantId: string; since: Date }[]> {
-    const atDrop: LoadStatus = 'reached_delivery_point';
-    const delivered: LoadStatus = 'delivered';
+    const atDrop: LoadStatus = 'reached_unloading';
     const rejected: PodStatus = 'rejected';
     const since =
       'CASE WHEN load.status = :atDrop THEN load.reached_delivery_point_at ELSE load.pod_reviewed_at END';
@@ -552,8 +563,8 @@ export class LoadAlertRepository {
       .addSelect('load.tenant_id', 'tenantId')
       .addSelect(since, 'since')
       .where(
-        '(load.status = :atDrop OR (load.status = :delivered AND load.pod_status = :rejected))',
-        { atDrop, delivered, rejected },
+        '(load.status = :atDrop OR (load.status IN (:...delivered) AND load.pod_status = :rejected))',
+        { atDrop, delivered: [...DELIVERED_LOAD_STATUSES], rejected },
       )
       .andWhere(`${since} > :from`, { from })
       .andWhere(`${since} <= :to`, { to })

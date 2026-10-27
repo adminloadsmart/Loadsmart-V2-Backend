@@ -14,7 +14,7 @@ const reviewedAt = new Date('2026-10-21T08:50:00.000Z');
 
 const snapshot = {
   code: 'LD-1001',
-  status: 'reached_delivery_point',
+  status: 'reached_unloading',
   sourceType: 'market',
   vehicleNumber: 'MH12AB1234',
   route: 'Ludhiana to Bhiwandi',
@@ -76,7 +76,7 @@ describe('LS_N_0039 POD still pending', () => {
   it('chases a rejected POD from the rejection, and leaves the amount out on own fleet', async () => {
     const rejectedAt = new Date(Date.now() - 48 * HOUR);
     const resolved = (await setup({
-      status: 'delivered',
+      status: 'delivered_ok',
       podStatus: 'rejected',
       podReviewedAt: rejectedAt,
       sourceType: 'own_fleet',
@@ -89,7 +89,7 @@ describe('LS_N_0039 POD still pending', () => {
 
   it('sends nothing once the POD is in, or for an older wait', async () => {
     expect(
-      await setup({ status: 'delivered', podStatus: 'pending' }).podPending('tenant-1', context),
+      await setup({ status: 'delivered_ok', podStatus: 'pending' }).podPending('tenant-1', context),
     ).toBeNull();
     expect(
       await setup({ reachedDeliveryPointAt: new Date() }).podPending('tenant-1', context),
@@ -100,7 +100,7 @@ describe('LS_N_0039 POD still pending', () => {
 describe('LS_N_0040 POD rejected', () => {
   const definition = NOTIFICATION_CATALOG['load.pod_rejected'];
   const rejected = {
-    status: 'delivered',
+    status: 'delivered_ok',
     podStatus: 'rejected',
     podReviewedAt: reviewedAt,
     podReviewedBy: 'verifier-1',
@@ -134,7 +134,7 @@ describe('LS_N_0040 POD rejected', () => {
 describe('LS_N_0041 POD verified, clear to bill', () => {
   const definition = NOTIFICATION_CATALOG['load.pod_verified'];
   const accepted = {
-    status: 'delivered',
+    status: 'delivered_ok',
     podStatus: 'accepted',
     podReviewedAt: reviewedAt,
     podReviewedBy: 'verifier-1',

@@ -4,6 +4,7 @@ import { MaintenanceJobEntity } from '../../../maintenance/entities/maintenance-
 import { TyreEntity } from '../../../maintenance/entities/tyre.entity';
 import { money } from '../../../maintenance/calculations/downtime';
 import { LoadEntity } from '../../../loads/entities/load.entity';
+import { UNLOADED_LOAD_STATUSES } from '../../../loads/utils/loads.types';
 import { RequisitionEntity } from '../../../loads/entities/requisition.entity';
 import { addDays, daysBetween, msToDays, round } from '../../../maintenance/calculations/dates';
 import { endOfIstDate, startOfIstDate, toIstDateString } from '../../../../shared/utils/ist-time';
@@ -260,7 +261,7 @@ export function onLoadInterval(load: LoadEntity, now: Date): TimeWindow | null {
 
 /** Delivered: the load has reached Unloaded. */
 export function isDelivered(load: LoadEntity): boolean {
-  return load.status === 'delivered' || load.status === 'closed';
+  return UNLOADED_LOAD_STATUSES.includes(load.status) || load.status === 'closed';
 }
 
 /** Due time: the promised delivery. Only a date is recorded, so the end of that IST day. */

@@ -17,7 +17,7 @@ const recipient = { userId: 'user-1', fullName: 'Asha Verma' };
 
 const snapshot = {
   code: 'LD-1001',
-  status: 'delivered',
+  status: 'delivered_ok',
   sourceType: 'market',
   vehicleNumber: 'MH12AB1234',
   route: 'Ludhiana to Bhiwandi',

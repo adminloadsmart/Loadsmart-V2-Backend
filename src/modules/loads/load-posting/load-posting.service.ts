@@ -18,6 +18,7 @@ import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository, CreateLoadData } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadEntity } from '../entities/load.entity';
+import { LoadStatus } from '../utils/loads.types';
 import { formatLoadCode } from '../utils/code.util';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
@@ -43,6 +44,12 @@ import {
   assignmentBlockedError,
   assignmentBlockedEvent,
 } from '../assignment-compliance.service';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import {
+  istDateOf,
+  licenceClassVerdict,
+  licenceExpiryFailure,
+} from '../verification/verification-rules';
 
 const HOUR_MS = 60 * 60 * 1000;
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -84,6 +91,10 @@ export interface PostLoadResult {
  *
  * Sending the message to transporters is behind LoadDispatchNotifier and happens after commit.
  */
+export interface LoadPostingHooks {
+  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
+}
+
 export class LoadPostingService {
   constructor(
     private readonly dataSource: DataSource,
@@ -103,6 +114,11 @@ export class LoadPostingService {
     // LS_N_0016/0017 — optional; only queues a notification and never throws (see
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
+    /** Queues the no-tracking alerts for own-fleet loads, which are born at Truck assigned. */
+    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
+    /** Set by the Loadsmart ops module once built: every market posting goes to Loadsmart too
+     *  ("Loadsmart is always ticked") and opens a sourcing for its Approval team. */
+    private readonly hooks: LoadPostingHooks = {},
   ) {}
 
   async post(
@@ -281,7 +297,8 @@ export class LoadPostingService {
               : input.mode === 'indent'
                 ? 'indent'
                 : 'own_fleet',
-          status: input.mode === 'own_fleet' ? 'assigned' : 'created',
+          status: input.mode === 'own_fleet' ? 'truck_assigned' : 'created',
+          truckAssignedAt: input.mode === 'own_fleet' ? new Date() : null,
           plannedCapacityTonnes: plannedCapacity,
           truckTypeId: trucks.main?.id ?? null,
           feetWheels: input.truck?.bodyLengthFt ?? null,
@@ -388,10 +405,22 @@ export class LoadPostingService {
         result.recipients,
         transporters,
       );
+      if (input.mode === 'market_fleet') {
+        try {
+          await this.hooks.onMarketLoadsPosted?.(result.loads, actorId);
+        } catch (error) {
+          // After commit — the load is posted either way; the console can be caught up by hand.
+          console.warn(
+            `[load-posting] Loadsmart sourcing for posting ${result.posting.id} failed`,
+            error,
+          );
+        }
+      }
       if (input.mode === 'own_fleet') {
         await this.notifyDriver(tenantId, result.loads);
-        // LS_N_0016 — the truck and driver passed the compliance check above.
         for (const load of result.loads) {
+          await this.onStageEntered?.(load, 'truck_assigned');
+          // LS_N_0016 — the truck and driver passed the compliance check above.
           await this.onLoadEvent?.({
             kind: 'assigned',
             tenantId,
@@ -640,6 +669,7 @@ export class LoadPostingService {
         { driverId, reason },
       );
     }
+    this.assertDriverLicenceCoversTruck(relation, vehicle.grossVehicleWeightKg);
     return {
       defaults: {
         vehicleId: vehicle.id,
@@ -650,6 +680,32 @@ export class LoadPostingService {
       },
       driverName: relation.driver.fullName,
     };
+  }
+
+  /** Own fleet is checked at posting: the driver's licence must be in date and its class must
+   *  cover the truck — above 7.5 t GVW a transport licence, up to 7.5 t an LMV licence. Uses the
+   *  driver's latest Sarathi check; a truck or licence class that isn't on record isn't held
+   *  against the trip. */
+  private assertDriverLicenceCoversTruck(
+    relation: DriverTenantRelationEntity,
+    grossVehicleWeightKg: number | null,
+  ): void {
+    const driver = relation.driver;
+    const name = driver?.fullName ?? 'This driver';
+    const expiry = licenceExpiryFailure(driver?.licenseExpiry, istDateOf(new Date()));
+    if (expiry) {
+      throw new ConflictError(`${name} can't drive this trip: ${expiry}. Choose another driver.`);
+    }
+    const latest = (driver?.verifications ?? [])
+      .filter((verification) => verification.licenseClass)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    const verdict = licenceClassVerdict(grossVehicleWeightKg, latest?.licenseClass, null);
+    if (verdict.ok === false) {
+      throw new ConflictError(`${name} can't drive this truck: ${verdict.reason}.`, {
+        driverId: relation.driverId,
+        reason: 'licence_class',
+      });
+    }
   }
 
   /** Compliance papers of a truck: `expired` ones make it ineligible for a load, `expiringSoon`

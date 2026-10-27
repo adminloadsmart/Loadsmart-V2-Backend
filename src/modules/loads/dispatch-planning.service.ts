@@ -14,6 +14,7 @@ import { CodeSequenceRepository } from './code-sequence.repository';
 import { LoadActivityService } from './load-activity.service';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { LoadEntity } from './entities/load.entity';
+import { LoadStatus } from './utils/loads.types';
 import { computeFitVerdict, FitResult } from './utils/fit-engine';
 import { formatLoadCode } from './utils/code.util';
 import {
@@ -75,6 +76,9 @@ export class DispatchPlanningService {
     // LS_N_0016/0017 — optional; only queues a notification and never throws (see
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
+    /** Own-fleet loads are born at Truck assigned — the stage hooks (tracking source, alerts)
+     *  run for them after commit. */
+    private readonly onStageEntered?: (load: LoadEntity, to: LoadStatus) => Promise<void>,
   ) {}
 
   /**
@@ -242,12 +246,15 @@ export class DispatchPlanningService {
       // Outside the transaction, deliberately: a push failure must never roll back or fail an
       // otherwise-successful dispatch. Best-effort, errors are swallowed (logged) inside it.
       await this.notifyAssignedDrivers(tenantId, result.loads);
+      for (const load of result.loads) {
+        if (load.status === 'truck_assigned') await this.onStageEntered?.(load, 'truck_assigned');
+      }
 
-      // LS_N_0016 — own-fleet loads land directly in `assigned`; their vehicle and driver passed
-      // the compliance check above.
+      // LS_N_0016 — own-fleet loads land directly in `truck_assigned`; their vehicle and driver
+      // passed the compliance check above.
       const assignedAt = new Date();
       for (const load of result.loads) {
-        if (load.status !== 'assigned') continue;
+        if (load.status !== 'truck_assigned') continue;
         await this.onLoadEvent?.({
           kind: 'assigned',
           tenantId,
@@ -476,7 +483,7 @@ export class DispatchPlanningService {
       }
       capacities.push(Number(vehicle.capacityTons));
 
-      // Vehicle+driver already known — the load lands directly in `assigned` (R-35), skipping the
+      // Vehicle+driver already known — the load lands directly in `truck_assigned` (R-35), skipping the
       // Load Assignment step entirely for own-fleet.
       const primaryLink = (vehicle.driverLinks ?? []).find(
         (link) => link.isPrimary && link.status === 'active',
@@ -500,7 +507,8 @@ export class DispatchPlanningService {
         tenantId,
         requisitionId,
         sourceType: 'own_fleet',
-        status: 'assigned',
+        status: 'truck_assigned',
+        truckAssignedAt: new Date(),
         plannedCapacityTonnes: vehicle.capacityTons,
         vehicleId: vehicle.id,
         vehicleNumber: vehicle.registrationNumber,

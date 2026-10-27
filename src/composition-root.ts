@@ -90,6 +90,8 @@ import {
   scheduleTripTimingChecks,
   TRIP_TIMING_JOB,
 } from './modules/notifications/trip-timing';
+import { createLoadsmartOpsModule } from './modules/loadsmart-ops';
+import { UlipClient } from './adapters/ulip.client';
 import { createAnalyticsModule } from './modules/analytics';
 import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
 import { createDriverAnalyticsModule } from './modules/analytics/driver-analytics';
@@ -447,6 +449,9 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.vehicle_reached_drop': loadAlertResolvers.vehicleReachedDrop,
       'load.detention_at_unloading': loadAlertResolvers.detentionAtUnloading,
       'load.trip_completed': loadAlertResolvers.tripCompleted,
+      'load.pickup_reminder': loadAlertResolvers.pickupReminder,
+      'load.drop_reminder': loadAlertResolvers.dropReminder,
+      'load.invoice_due_reminder': loadAlertResolvers.invoiceDueReminder,
       // LS_N_0055 — reads the closed workshop visit; cost shown only to cost viewers.
       'vehicle.back_in_service': createBackInServiceResolver({
         dataSource,
@@ -471,6 +476,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // product services (capacity matching + master-record validation) and storage.service
   // (invoice/e-way-bill/E-LR/E-POD uploads) directly, no gateway — same "consumer takes producer
   // services as direct constructor args" pattern dashboards uses below.
+  const ulipClient = new UlipClient();
   const loads = createLoadsModule(dataSource, {
     auditService: audit.service,
     authService: auth.service,
@@ -490,7 +496,31 @@ export function buildContainer(dataSource: DataSource): Container {
     // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked
     // (notifications/load-alerts.ts).
     onLoadEvent: createLoadEventNotifier(notifications.triggers),
+    // Load-time truck (VAHAN via ULIP) and driver (Sarathi) checks.
+    vehicleRegistry: ulipClient,
+    dlVerificationClient: driver.dlVerificationClient,
+    notificationTriggers: notifications.triggers,
+    driverTripNotifier: driver.driverPushNotifier,
   });
+
+  // Loadsmart loads — the ops console (/loadsmart-ops) and the shipper's side of a Loadsmart load
+  // (on /loads). Hooks itself into posting, bids, stage moves and the balance payment.
+  const loadsmart = createLoadsmartOpsModule(dataSource, {
+    auditService: audit.service,
+    storageService: storage.service,
+    notificationTriggers: notifications.triggers,
+    loadActivityService: loads.loadActivityService,
+    loadRepository: loads.loadRepository,
+    loadService: loads.loadService,
+    loadStageService: loads.loadStageService,
+    loadBidService: loads.loadBidService,
+    loadMemoService: loads.loadMemoService,
+    loadVerificationService: loads.loadVerificationService,
+    loadPaymentService: loads.loadPaymentService,
+    postingHooks: loads.postingHooks,
+    stageHooks: loads.stageHooks,
+  });
+  loads.protectedRouter.use(loadsmart.shipperRouter);
 
   // Geofences — CRUD here; the inside/outside check runs in the tracking service, which reports
   // enter/exit on its tracking.events stream.
@@ -580,6 +610,7 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/driver-analytics', router: driverAnalytics.router },
       { path: '/customers', router: customers.router },
       { path: '/loads', router: loads.protectedRouter },
+      { path: '/loadsmart-ops', router: loadsmart.opsRouter },
       { path: '/files', router: storage.router },
     ],
     driverRouters: [
@@ -615,6 +646,7 @@ export function buildContainer(dataSource: DataSource): Container {
         masters.transporterGstVerification,
       ] as GstBackgroundVerification<GstTargetRecord>[]),
       createVehicleVahanVerificationWorker(masters.vehicleVahanVerification),
+      loads.loadRemindersWorker,
     ],
   };
 }

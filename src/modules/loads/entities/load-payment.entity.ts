@@ -54,17 +54,31 @@ export class LoadPaymentEntity {
   @Column({ name: 'utr_reference', type: 'varchar', length: 100 })
   utrReference!: string;
 
-  /** Optional screenshot of the payment proof — storage `key`, same convention as LoadEntity's
-   *  document columns. */
-  @Column({ name: 'proof_file_key', type: 'text', nullable: true })
-  proofFileKey!: string | null;
-
   @Column({ name: 'payment_date', type: 'date' })
   paymentDate!: string;
 
   /** Balance only — E-POD date + transporter.creditDays. */
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate!: string | null;
+
+  /** Loadsmart loads only — Receivables matches the shipper's balance payment against the bank
+   *  statement. Null on every other payment, which counts the moment it is recorded. */
+  @Column({
+    name: 'verification_status',
+    type: 'enum',
+    enum: ['pending', 'verified', 'rejected'],
+    nullable: true,
+  })
+  verificationStatus!: 'pending' | 'verified' | 'rejected' | null;
+
+  @Column({ name: 'verified_by', type: 'uuid', nullable: true })
+  verifiedBy!: string | null;
+
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt!: Date | null;
+
+  @Column({ name: 'rejection_reason', type: 'varchar', length: 500, nullable: true })
+  rejectionReason!: string | null;
 
   @Column({ name: 'recorded_by', type: 'uuid', nullable: true })
   recordedBy!: string | null;

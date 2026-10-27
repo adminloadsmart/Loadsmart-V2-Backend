@@ -24,7 +24,7 @@ export async function scheduleTripTimingChecks(queue: JobQueue): Promise<void> {
 
 /**
  * Time-driven trip alerts, swept on the 'notification-schedules' queue: LS_N_0021 (vehicle not
- * reported — still "assigned" after its reporting time), LS_N_0023 (detention — still at the
+ * reported — not at the loading point yet after its reporting time), LS_N_0023 (detention — still at the
  * loading point past the company's free hours) and LS_N_0032 (detention — still at the delivery
  * point past the customer's or company's free hours); see LoadAlertRepository's
  * find*DetentionCandidates for when a vehicle counts as still there — plus LS_N_0034's reminder

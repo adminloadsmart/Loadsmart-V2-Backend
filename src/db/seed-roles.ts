@@ -48,6 +48,14 @@ import {
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
   TRIP_TRACK,
+  LS_APPROVAL,
+  LS_PLACEMENT,
+  LS_VERIFICATION,
+  LS_TRACKING,
+  LS_POD,
+  LS_CS,
+  LS_RECEIVABLES,
+  LS_PAYABLES,
   GEOFENCES_MANAGE,
 } from '../shared/constants/permissions';
 import {
@@ -226,7 +234,34 @@ const PERMISSIONS: { key: string; module: string; scope: PermissionScope; descri
       scope: 'organization',
       description: 'Get trip alerts: truck assigned, or an assignment blocked by expired documents',
     },
+    // Loadsmart ops console — one per ops team (loadsmart-ops/).
+    ...[
+      [LS_APPROVAL, 'Check Loadsmart loads and post them on the load board'],
+      [LS_PLACEMENT, "Record partner bids, send Loadsmart's bid and name the partner's driver"],
+      [LS_VERIFICATION, 'Approve the truck and driver on a Loadsmart load'],
+      [LS_TRACKING, 'See Loadsmart loads on the road (the shipper runs the trip)'],
+      [LS_POD, 'Rate shipper and partner and receive the original POD'],
+      [LS_CS, 'See claims on Loadsmart loads delivered with issues (the shipper settles them)'],
+      [LS_RECEIVABLES, "See Loadsmart's invoices and the shipper's payments"],
+      [LS_PAYABLES, "Pay the partner's advance and balance"],
+    ].map(([key, description]) => ({
+      key,
+      module: 'loadsmart',
+      scope: 'platform' as PermissionScope,
+      description,
+    })),
   ];
+
+const LOADSMART_PERMISSIONS = [
+  LS_APPROVAL,
+  LS_PLACEMENT,
+  LS_VERIFICATION,
+  LS_TRACKING,
+  LS_POD,
+  LS_CS,
+  LS_RECEIVABLES,
+  LS_PAYABLES,
+];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
 // (require-permission.middleware.ts), not data, so this list never needs updating when a new
@@ -251,8 +286,25 @@ const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   {
     name: 'load_console',
     scope: 'platform',
-    permissionKeys: [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD, ...LOADSMART_PERMISSIONS],
   },
+  // One role per Loadsmart ops team — its own key plus console access and files.
+  ...(
+    [
+      ['ls_approval', LS_APPROVAL],
+      ['ls_placement', LS_PLACEMENT],
+      ['ls_verification', LS_VERIFICATION],
+      ['ls_tracking', LS_TRACKING],
+      ['ls_pod', LS_POD],
+      ['ls_cs', LS_CS],
+      ['ls_receivables', LS_RECEIVABLES],
+      ['ls_payables', LS_PAYABLES],
+    ] as const
+  ).map(([name, key]) => ({
+    name,
+    scope: 'platform' as RoleScope,
+    permissionKeys: [key, LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD],
+  })),
   {
     name: ORG_ADMIN_ROLE,
     scope: 'organization',

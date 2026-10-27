@@ -1,4 +1,4 @@
-import { DataSource, In, IsNull } from 'typeorm';
+import { DataSource, In, IsNull, Not } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
 import { msg } from '../../../shared/i18n/translate';
 import { toDateString } from '../../../shared/utils/date';
@@ -19,12 +19,13 @@ import { DeleteDriverAccountInput } from './driver-auth.types';
 export const DRIVER_ACCOUNT_RETENTION_DAYS = 90;
 
 // A load in one of these statuses has the driver physically on a trip — deletion is refused
-// until it finishes. Loads still `created`/`assigned` are released instead (see deleteAccount).
+// until it finishes. Loads still `created`/`truck_assigned` are released instead (see deleteAccount).
 const IN_MOTION_LOAD_STATUSES: LoadStatus[] = [
-  'at_plant',
-  'loading_confirmed',
-  'in_transit',
-  'reached_delivery_point',
+  'in_transit_loading',
+  'reached_loading',
+  'loaded',
+  'in_transit_unloading',
+  'reached_unloading',
 ];
 
 /**
@@ -71,10 +72,15 @@ export class DriverAccountService {
         }
 
         // Not started yet — release the driver rather than leaving a load pointed at a deleted
-        // profile. An `assigned` load goes back to `created` since it no longer has a driver.
+        // profile. A market/indent `truck_assigned` load goes back to `created` since it no longer
+        // has a driver; an own-fleet load keeps its truck (own fleet never sits in `created`) and
+        // just loses the driver until another is linked.
         const released = { driverId: null, driverNumber: null, driverName: null };
-        await loads.update({ driverId, status: 'assigned' }, { ...released, status: 'created' });
-        await loads.update({ driverId, status: 'created' }, released);
+        await loads.update(
+          { driverId, status: 'truck_assigned', sourceType: Not('own_fleet') },
+          { ...released, status: 'created', truckAssignedAt: null },
+        );
+        await loads.update({ driverId, status: In(['created', 'truck_assigned']) }, released);
 
         const relations = await this.driverTenantRelationRepository.listByDriver(driverId);
         for (const relation of relations) {

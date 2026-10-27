@@ -13,7 +13,7 @@ const ANCHOR = { lat: 22.7196, lng: 75.8577 };
 
 const snapshot = {
   code: 'LD-1001',
-  status: 'in_transit',
+  status: 'in_transit_unloading',
   vehicleNumber: 'MH12AB1234',
   route: 'Ludhiana to Bhiwandi',
   transporterName: null,
@@ -133,7 +133,7 @@ describe('vehicleHalted resolver (LS_N_0027)', () => {
   });
 
   it('skips once the load is no longer in transit, or this step already went out', async () => {
-    expect(await setup({ snapshot: { status: 'reached_delivery_point' } })()).toBeNull();
+    expect(await setup({ snapshot: { status: 'reached_unloading' } })()).toBeNull();
     expect(await setup({ alreadySent: true })()).toBeNull();
   });
 });
