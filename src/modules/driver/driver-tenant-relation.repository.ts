@@ -25,7 +25,6 @@ import {
   DriverInviteSendEvent,
   DriverTenantRelationEntity,
 } from './entities/driver-tenant-relation.entity';
-import { NotificationEntity } from '../notifications/notifications.entity';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverSessionEntity } from './entities/driver-session.entity';
@@ -50,6 +49,7 @@ import {
   DriverRosterEmploymentFilter,
   DRIVER_INVITE_SEND_STEPS,
   DriverInviteSendStep,
+  DriverInviteWhatsAppReportStatus,
   DriverRosterSegment,
 } from './drivers.types';
 
@@ -388,6 +388,13 @@ export class DriverTenantRelationRepository {
     return relations.findOneBy({ id, tenantId, deletedAt: IsNull() });
   }
 
+  /** The driver's own relations with these ids, any tenant — the invites behind their
+   *  notification cards (see DriverPortalService.getMyNotifications). */
+  findByIdsForDriver(driverId: string, ids: string[]): Promise<DriverTenantRelationEntity[]> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.relations.find({ where: { id: In(ids), driverId, deletedAt: IsNull() } });
+  }
+
   // Used only where the caller doesn't yet know the tenant — e.g. an already-authenticated driver
   // switching context to a relation by id (driver-auth.service.ts's selectRelation).
   findByIdForDriver(driverId: string, id: string): Promise<DriverTenantRelationEntity | null> {
@@ -399,24 +406,27 @@ export class DriverTenantRelationRepository {
     driverId: string,
     manager?: EntityManager,
   ): Promise<DriverTenantRelationEntity | null> {
+    // Newest first: a driver can hold several rows here (a declined invite, then their own join
+    // request), and the live one is always the newest — callers checking the driver's standing
+    // (session refresh, assertDriverExists) must see it, not an older declined one.
     const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
-    return relations.findOneBy({ tenantId, driverId, deletedAt: IsNull() });
+    return relations.findOne({
+      where: { tenantId, driverId, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   /**
    * This tenant's newest row for the driver. A driver can hold several (older declined or
-   * cancelled ones plus the current one); findByTenantAndDriver above returns any of them.
+   * cancelled ones plus the current one) — same lookup as findByTenantAndDriver, named for the
+   * callers that choose between them.
    */
   findLatestByTenantAndDriver(
     tenantId: string,
     driverId: string,
     manager?: EntityManager,
   ): Promise<DriverTenantRelationEntity | null> {
-    const relations = manager ? manager.getRepository(DriverTenantRelationEntity) : this.relations;
-    return relations.findOne({
-      where: { tenantId, driverId, deletedAt: IsNull() },
-      order: { createdAt: 'DESC' },
-    });
+    return this.findByTenantAndDriver(tenantId, driverId, manager);
   }
 
   /**
@@ -472,6 +482,8 @@ export class DriverTenantRelationRepository {
   ): Promise<DriverTenantRelationEntity | null> {
     return this.relations.findOne({
       where: { tenantId, driverId, deletedAt: IsNull() },
+      // Newest first, like findByTenantAndDriver — the live row, not an older declined one.
+      order: { createdAt: 'DESC' },
       relations: {
         driver: { documents: true, verifications: true, bankDetails: true },
         operationalStatus: true,
@@ -489,6 +501,7 @@ export class DriverTenantRelationRepository {
   ): Promise<DriverTenantRelationEntity | null> {
     return this.relations.findOne({
       where: { tenantId, driverId, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
       relations: {
         driver: { documents: true, verifications: true, bankDetails: true },
         tripMetrics: true,
@@ -959,63 +972,43 @@ export class DriverTenantRelationRepository {
   }
 
   /**
-   * Stamps the in-app notification a send just created onto that send's timeline entry (the newest
-   * sent/resent one), so the drawer can show whether the driver read that exact message. Only adds
-   * the link — the entry is otherwise left as logged.
+   * WhatsApp's delivery report for the latest send. `read` is the driver reading the invite
+   * message: logged as `whatsapp_read` once per send (the first read after it), and it sets
+   * invite_viewed_at while the invite is still waiting — a Resend clears that again
+   * (inviteSendColumns). `failed` is also logged. Reports older than the latest send are ignored.
    */
-  async linkLatestSendNotification(id: string, notificationId: string): Promise<void> {
-    await this.updateLocked({ id }, (relation) => {
-      const timeline = [...relation.inviteTimeline];
-      for (let index = timeline.length - 1; index >= 0; index -= 1) {
-        const event = timeline[index];
-        if (isInviteSendEvent(event)) {
-          timeline[index] = { ...event, notificationId };
-          return { inviteTimeline: timeline };
-        }
-      }
-      return null; // no send logged — nothing to link
-    });
-  }
-
-  /**
-   * Driver opened one of this invite's notifications on their device. Each notification is logged
-   * as `viewed` once (with its id), whichever send it came from and whatever the invite's status
-   * now. invite_viewed_at/_device keep meaning "the latest send was opened": only set by the first
-   * open of a notification from that send while the invite is still pending. The device label
-   * comes from the driver's session row ("device type · device info").
-   */
-  async markInviteViewed(
+  async setWhatsAppDeliveryStatus(
     id: string,
-    driverId: string,
-    notification: Pick<NotificationEntity, 'id' | 'createdAt'>,
-    sessionId: string | undefined,
+    status: DriverInviteWhatsAppReportStatus,
+    at: Date,
   ): Promise<void> {
-    const session = sessionId
-      ? await this.sessions.findOne({
-          select: { deviceType: true, deviceInfo: true },
-          where: { id: sessionId },
-        })
-      : null;
-    const device = [session?.deviceType, session?.deviceInfo].filter(Boolean).join(' · ') || null;
-
-    await this.updateLocked({ id, driverId, deletedAt: IsNull() }, (relation) => {
-      const alreadyLogged = relation.inviteTimeline.some(
-        (event) => event.step === 'viewed' && event.notificationId === notification.id,
+    await this.updateLocked({ id, deletedAt: IsNull() }, (relation) => {
+      if (!relation.inviteSentAt || at < relation.inviteSentAt) return null;
+      const latestSend = relation.inviteTimeline.filter(isInviteSendEvent).at(-1);
+      const readSinceLatestSend = relation.inviteTimeline.some(
+        (event) =>
+          event.step === 'whatsapp_read' &&
+          (!latestSend || Date.parse(event.at) >= Date.parse(latestSend.at)),
       );
-      if (alreadyLogged) return null; // re-opening the same notification changes nothing
-      const now = new Date();
-      const opensLatestSend =
-        relation.inviteViewedAt === null &&
-        relation.status === 'pending_driver_review' &&
-        relation.inviteSentAt !== null &&
-        relation.inviteSentAt <= notification.createdAt;
+      const columns = { whatsappDeliveryStatus: status, whatsappDeliveryStatusAt: at };
+      if (status === 'failed') {
+        return {
+          ...columns,
+          inviteTimeline: withTimelineEvents(relation, {
+            step: 'delivery_failed',
+            at: at.toISOString(),
+            channel: 'whatsapp',
+          }),
+        };
+      }
+      if (status !== 'read' || readSinceLatestSend) return columns;
       return {
-        ...(opensLatestSend && { inviteViewedAt: now, inviteViewedDevice: device }),
+        ...columns,
+        ...(relation.status === 'pending_driver_review' &&
+          relation.inviteViewedAt === null && { inviteViewedAt: at }),
         inviteTimeline: withTimelineEvents(relation, {
-          step: 'viewed',
-          at: now.toISOString(),
-          device,
-          notificationId: notification.id,
+          step: 'whatsapp_read',
+          at: at.toISOString(),
         }),
       };
     });

@@ -17,6 +17,8 @@ import {
   DriverInvitationStatus,
   DriverInviteDeliveryStatus,
   DriverLicenseEndorsement,
+  DriverNotDispatchableReason,
+  DriverJoiningDateSource,
   DriverRosterSegment,
   DriverRosterEmploymentFilter,
   DriverLicenceValidityFilter,
@@ -72,7 +74,6 @@ export interface CreateDriverInput {
 
 export interface UpdateDriverInput {
   fullName?: string;
-  phoneNumber?: string;
   licenseNumber?: string;
   licenseExpiry?: string;
   dateOfJoining?: string;
@@ -169,11 +170,25 @@ export interface DriverInvitationView {
   /** Whether the driver has ever logged into the driver app — false for a number invited before
    *  its owner installed it. */
   appInstalled: boolean;
+  /** First time the driver opened the latest send's invite notification in the app; null until
+   *  then. Cleared by every Resend, so it describes the invite currently waiting. */
+  openedAt: Date | null;
   /** Whether POST …/resend would go through now — drives the Resend button. */
   canResend: boolean;
-  /** Sends left since the driver first declined (DRIVER_INVITE_SENDS_AFTER_DECLINE); null when
-   *  they never declined, so no cap applies. */
+  /** Sends left since the driver first declined (DRIVER_INVITE_SENDS_AFTER_DECLINE, then one per
+   *  DRIVER_INVITE_COOL_OFF_DAYS); null when they never declined, so no cap applies. */
   sendsLeftAfterDecline: number | null;
+  /** While no send is left: when the next one opens up ("You can send it again on 31 Oct").
+   *  Null otherwise. */
+  canSendAgainAt: Date | null;
+}
+
+/** Where an invite stands against the decline cap (see driver.service.ts's sendsAfterDeclineOf). */
+export interface DriverInviteSendsAfterDecline {
+  /** Sends allowed right now. */
+  left: number;
+  /** While none is left: when the next send opens up. Null otherwise. */
+  sendAgainAt: Date | null;
 }
 
 /** Invitation detail drawer — the list row plus credentials, timeline and delivery channels. */
@@ -198,27 +213,17 @@ export interface DriverStaffActor extends DriverInvitationActor {
   id: string;
 }
 
-/** The in-app notification one send created — `readAt` is when the driver marked it read (opened
- *  it, or "Mark all read"); null while unread. */
-export interface DriverInvitationNotification {
-  id: string;
-  readAt: Date | null;
-}
-
 /**
- * The invite's whole history, oldest first — every stored DriverInviteEvent with `by` resolved to
- * the staff user, then, while the invite is still pending, one derived last step: `expired` (at
- * expiresAt) once it has run out, otherwise `awaiting_response`.
+ * The invite's whole history in one thread sorted by time (buildInvitationTimeline): every stored
+ * DriverInviteEvent with `by` resolved to the staff user, `opened` when the driver read a send's
+ * WhatsApp message (once per send), `installed` at the driver's first app login, then, while the
+ * invite is still pending, one derived last step: `expired` (at expiresAt) once it has run out,
+ * otherwise `awaiting_response`.
  */
 export type DriverInvitationTimelineStep =
-  | {
-      step: DriverInviteSendStep;
-      at: Date;
-      by: DriverInvitationActor | null;
-      /** Null when the send's notification couldn't be saved, or predates this link. */
-      notification: DriverInvitationNotification | null;
-    }
-  | { step: 'viewed'; at: Date; device: string | null; notificationId: string | null }
+  | { step: DriverInviteSendStep; at: Date; by: DriverInvitationActor | null }
+  | { step: 'opened'; at: Date }
+  | { step: 'installed'; at: Date }
   | { step: 'accepted'; at: Date | null }
   | { step: 'declined'; at: Date | null; reason: string | null }
   | { step: 'expired'; at: Date | null }
@@ -245,6 +250,22 @@ export interface DriverLicenceSection {
   registry: DriverRegistryCheck | null;
   /** Active link to this tenant, licence verified and not expired. */
   eligibleToDrive: boolean;
+  /** The transport classes on the licence (DRIVER_TRANSPORT_LICENCE_CLASSES), e.g.
+   *  [{ code: 'HTV', label: 'Heavy Transport Vehicle' }]; [] for a non-transport licence or none
+   *  on file. */
+  transportClasses: DriverLicenceClass[];
+  dateOfBirth: string | null;
+  /** Whole years from dateOfBirth; null when it isn't on file. */
+  age: number | null;
+  /** State + RTO code from the licence number, e.g. "HR55"; null when the number doesn't start
+   *  with one. The RTO's name isn't available. */
+  issuingRtoCode: string | null;
+}
+
+export interface DriverLicenceClass {
+  code: string;
+  /** DRIVER_LICENCE_CLASS_LABELS name; the code itself when unknown. */
+  label: string;
 }
 
 export interface DriverEmergencyContact {
@@ -268,7 +289,10 @@ export interface DriverContactSection {
   emergencyContact: DriverEmergencyContact | null;
   /** On-roll salaried / per trip / vendor's driver — null until set on the driver. */
   engagementType: DriverEngagementType | null;
+  /** Staff-entered date of joining, else the date this fleet approved the driver; null if neither. */
   dateOfJoining: string | null;
+  /** 'entered' = typed in by staff; 'approved' = fallback to the fleet's approval date. */
+  dateOfJoiningSource: DriverJoiningDateSource | null;
   tenureYears: number | null;
   /** Hand-entered balance of advances not yet recovered; null until set. */
   advanceOutstanding: string | null;
@@ -300,13 +324,20 @@ export interface DriverActiveLoadSummary {
   status: string;
 }
 
-/** Driver detail → "Availability" card (also a roster row's Availability column). */
-/** The stored operational status isn't repeated here — read the top-level
- *  `operationalStatus.operationalStatus` (with its `reason` / `effectiveAt`). */
+/** Driver detail → "Availability & dispatch status" card (also a roster row's Availability
+ *  column). The full stored row is also on the top-level `operationalStatus`. */
 export interface DriverAvailabilitySection {
   /** Live check — the driver's newest non-closed load. */
   activeLoad: DriverActiveLoadSummary | null;
   dispatchable: boolean;
+  /** Why not dispatchable ("Already on a load"); null when dispatchable. */
+  notDispatchableReason: DriverNotDispatchableReason | null;
+  /** The company status buttons' selection; null when never set. */
+  companyStatus: DriverOperationalStatus | null;
+  /** "Fit to drive again from" (On leave / Medically unfit); null when not set. */
+  availableFrom: string | null;
+  /** The dispatch note saved with the status; null when none. */
+  statusNote: string | null;
 }
 
 /** Driver detail → "Performance" card (also a roster row's Trips · On time / Score columns). */
@@ -378,8 +409,38 @@ export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'
   vehicleLinks?: DriverTenantRelationEntity['vehicleLinks'];
 }
 
+/** The phone the driver last used the app on — "Android · …" under "Driver app". */
+export interface DriverAppDevice {
+  /** 'android' | 'ios', as the app registered it; null when not reported. */
+  deviceType: string | null;
+  /** Free text the app sends at login (model / OS / app version); null when not sent. */
+  deviceInfo: string | null;
+}
+
+/** The staff user who last wrote the fleet's note. */
+export interface DriverTeamNoteAuthor {
+  id: string;
+  name: string | null;
+}
+
+/** The fleet's own note card — "Note · team only · Mohit, 1 Aug 2020". */
+export interface DriverTeamNote {
+  text: string;
+  /** Null for a note saved before the author was recorded. */
+  updatedAt: Date | null;
+  updatedBy: DriverTeamNoteAuthor | null;
+}
+
+/** Sections only GET /drivers/{id} returns (each needs its own query, so not on roster rows). */
+export interface DriverDetailOnlySections {
+  /** Null when the driver never logged into the app. */
+  appDevice: DriverAppDevice | null;
+  /** Null when the fleet has no note on the driver. */
+  teamNote: DriverTeamNote | null;
+}
+
 /** GET /drivers/{id} — the flattened driver plus every section of the driver detail screen. */
-export type DriverDetailView = DriverWithRelation & DriverDetailSections;
+export type DriverDetailView = DriverWithRelation & DriverDetailSections & DriverDetailOnlySections;
 
 /** One My Drivers roster row — the list's driver plus the detail sections its columns read. */
 export type DriverRosterRow = DriverWithRelation &
@@ -545,6 +606,8 @@ export interface CreateDriverTenantRelationData extends Partial<InviteSendColumn
   approvedBy: string | null;
   approvedAt: Date | null;
   note?: string | null;
+  noteUpdatedBy?: string | null;
+  noteUpdatedAt?: Date | null;
   createdBy: string | null;
 }
 
@@ -574,6 +637,8 @@ export interface UpdateDriverTenantRelationData {
   approvedAt?: Date | null;
   rejectionReason?: string | null;
   note?: string | null;
+  noteUpdatedBy?: string | null;
+  noteUpdatedAt?: Date | null;
   updatedBy?: string | null;
 }
 
@@ -592,17 +657,41 @@ export interface DriverExportColumn {
 export type DriverExportColumnKey =
   | 'fullName'
   | 'mobileNumber'
+  | 'dateOfBirth'
+  | 'address'
+  | 'city'
+  | 'pinCode'
   | 'licenceNumber'
   | 'licenceClass'
+  | 'licenceEndorsements'
   | 'licenceValidTo'
+  | 'licenceDaysLeft'
+  | 'sarathiVerification'
+  | 'sarathiCheckedOn'
+  | 'eligibleToDrive'
+  | 'bloodGroup'
+  | 'emergencyContactName'
+  | 'emergencyContactPhone'
+  | 'emergencyContactRelation'
   | 'engagementType'
+  | 'dateOfJoining'
+  | 'tenureYears'
   | 'payType'
   | 'payAmount'
+  | 'bhattaPerDay'
+  | 'advanceOutstanding'
+  | 'assignedVehicle'
+  | 'truckType'
+  | 'homeBase'
+  | 'availability'
+  | 'availabilityReason'
+  | 'currentLoad'
   | 'trips'
   | 'onTimePercentage'
   | 'driverScore'
-  | 'availability'
-  | 'driverAppInstalled';
+  | 'driverAppInstalled'
+  | 'appLastSeen'
+  | 'note';
 
 export interface ListDriversFilters {
   status?: DriverListStatusFilter;
@@ -673,6 +762,8 @@ export interface SetDriverOperationalStatusInput {
   operationalStatus: DriverOperationalStatus;
   reason?: string;
   effectiveAt?: string;
+  /** YYYY-MM-DD; only with DRIVER_RETURNING_OPERATIONAL_STATUSES. */
+  availableFrom?: string;
 }
 
 export interface CreateDriverOperationalStatusData {
@@ -681,6 +772,7 @@ export interface CreateDriverOperationalStatusData {
   operationalStatus: DriverOperationalStatus;
   reason: string | null;
   effectiveAt: Date;
+  availableFrom: string | null;
   createdBy: string | null;
 }
 
@@ -688,6 +780,7 @@ export interface UpdateDriverOperationalStatusData {
   operationalStatus?: DriverOperationalStatus;
   reason?: string | null;
   effectiveAt?: Date;
+  availableFrom?: string | null;
   updatedBy?: string | null;
 }
 

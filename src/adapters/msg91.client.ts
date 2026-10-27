@@ -1,8 +1,6 @@
 import { env } from '../config/env';
 import { toIndianMsisdn } from '../shared/utils/phone-number';
 
-const OTP_EXPIRY_MINUTES = 10;
-
 interface Msg91Response {
   type?: string; // 'success' | 'error'
   message?: string;
@@ -12,64 +10,18 @@ interface Msg91Response {
  * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
  * numbers, and they're stored without the country code.
  *
- * Wraps MSG91's OTP API (`/api/v5/otp` + `/api/v5/otp/verify`) — unlike a generic SMS gateway,
- * MSG91 both generates the OTP and verifies it: we never see or store the code ourselves.
- * `sendOtp` requires a DLT-approved `template_id` to be configured on the MSG91 dashboard first;
- * without one, delivery fails regardless of code correctness.
+ * Login/signup OTPs don't use MSG91's OTP API: OtpService sends them as a normal Flow SMS via
+ * sendTransactional (MSG91_SMS_TEMPLATE_OTP) and verifies the code itself.
  *
  * This class assumes real credentials are present and always calls MSG91 — the dev-only bypass
  * that skips MSG91 entirely (see auth.constants.ts's DEV_BYPASS_OTP / useDevOtpBypass) is handled
- * by the callers in auth.service.ts, keeping this a pure MSG91 wrapper.
+ * by OtpService, keeping this a pure MSG91 wrapper.
  */
 export class Msg91Client {
-  /** `otp`: our own generated code (LS_N_0008) — MSG91 sends and later verifies exactly this code
-   *  instead of generating one, so the same code can also go out over WhatsApp. Omitted = MSG91
-   *  generates it, as before. */
-  async sendOtp(phoneNumber: string, otp?: string): Promise<void> {
-    const url = new URL(`${env.msg91BaseUrl}/api/v5/otp`);
-    url.searchParams.set('template_id', (env.msg91SmsTemplateOtp ?? env.msg91TemplateId)!);
-    url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
-    url.searchParams.set('authkey', env.msg91AuthKey!);
-    if (otp) {
-      url.searchParams.set('otp', otp);
-      // Minutes — matches the LS_OTP text ("valid for 10 minutes") and the signup/login tokens.
-      url.searchParams.set('otp_expiry', String(OTP_EXPIRY_MINUTES));
-    }
-
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    const body = (await response.json().catch(() => null)) as Msg91Response | null;
-
-    if (body?.type !== 'success') {
-      throw new Error(`MSG91 send OTP failed: ${body?.message ?? response.status}`);
-    }
-  }
-
-  /** Returns false for a genuine "wrong/expired code" response — MSG91's normal way of saying
-   *  no match, not a failure. Throws only on transport/unexpected-shape failures, so callers can
-   *  tell "wrong code" apart from "MSG91 is down". */
-  async verifyOtp(phoneNumber: string, otp: string): Promise<boolean> {
-    const url = new URL(`${env.msg91BaseUrl}/api/v5/otp/verify`);
-    url.searchParams.set('otp', otp);
-    url.searchParams.set('mobile', toIndianMsisdn(phoneNumber));
-
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: { authkey: env.msg91AuthKey! },
-    });
-    const body = (await response.json().catch(() => null)) as Msg91Response | null;
-
-    if (body?.type === 'success') return true;
-    if (body?.type === 'error') return false;
-    throw new Error(`MSG91 verify OTP failed: ${response.status}`);
-  }
-
   /**
    * Generic transactional/notification SMS via MSG91's Flow API — used by the notifications
-   * module's SmsChannel, distinct from sendOtp above (which hits MSG91's dedicated,
-   * auto-generating OTP API instead). Requires a separate DLT-approved Flow template
+   * module's SmsChannel and OtpService (login/signup OTP, with MSG91_SMS_TEMPLATE_OTP). Requires
+   * a DLT-approved Flow template
    * (env.msg91NotificationTemplateId) to be provisioned on the MSG91 dashboard first; the exact
    * variable names it expects are template-defined, so `variables`' keys here (currently `title`/
    * `body`) are provisional until a real template exists to verify against.
@@ -78,7 +30,7 @@ export class Msg91Client {
     phoneNumber: string,
     variables: Record<string, string>,
     templateId: string | undefined = env.msg91NotificationTemplateId,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
@@ -98,6 +50,8 @@ export class Msg91Client {
     if (body?.type !== 'success') {
       throw new Error(`MSG91 send SMS failed: ${body?.message ?? response.status}`);
     }
+    // On success the Flow API's `message` is the request id (searchable in MSG91's SMS reports).
+    return body.message;
   }
 
   /**
@@ -108,7 +62,7 @@ export class Msg91Client {
    * method only forwards the caller's variables, in template placeholder order ({{1}}, {{2}}, ...),
    * as that template's body components.
    *
-   * Unlike sendOtp/verifyOtp/sendTransactional above, this hits `env.msg91WhatsappBaseUrl`
+   * Unlike sendTransactional above, this hits `env.msg91WhatsappBaseUrl`
    * (`api.msg91.com` by default), not `env.msg91BaseUrl` (`control.msg91.com`) — MSG91's WhatsApp
    * send API lives on a different host from the rest of their v5 API, confirmed against
    * https://msg91.com/help/whatsapp/send-whatsapp.

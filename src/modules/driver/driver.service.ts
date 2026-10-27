@@ -3,7 +3,6 @@ import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../sh
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { AuditService } from '../audit/audit.service';
 import { UserEntity } from '../auth/entities/user.entity';
-import { NotificationEntity } from '../notifications/notifications.entity';
 import { DriverEntity } from './entities/driver.entity';
 import { DriverDocumentEntity } from './entities/driver-document.entity';
 import { DriverVerificationEntity } from './entities/driver-verification.entity';
@@ -15,13 +14,21 @@ import {
   DriverTenantRelationEntity,
 } from './entities/driver-tenant-relation.entity';
 import { LoadEntity } from '../loads/entities/load.entity';
-import { DriverBankVerificationStatus, DriverScoreStatus } from './drivers.types';
+import {
+  DRIVER_TRANSPORT_LICENCE_CLASSES,
+  DriverBankVerificationStatus,
+  DriverInviteWhatsAppReportStatus,
+  DriverNotDispatchableReason,
+  DriverOperationalStatus,
+  DriverScoreStatus,
+} from './drivers.types';
 import { DriverRepository } from './driver.repository';
 import {
   DriverTenantRelationRepository,
   inviteSendColumns,
   isInviteSendEvent,
 } from './driver-tenant-relation.repository';
+import { buildInvitationTimeline } from './invitation-timeline';
 import { Paginated, paginate } from '../../shared/utils/pagination';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
@@ -33,10 +40,15 @@ import { DriverAnalyticsRepository } from '../analytics/driver-analytics/driver-
 import { DriverSessionRepository } from './auth/driver-auth.repository';
 import {
   DRIVER_EXPORT_MAX_ROWS,
+  DRIVER_INVITE_COOL_OFF_DAYS,
   DRIVER_INVITE_SENDS_AFTER_DECLINE,
   DRIVER_JOIN_REQUEST_RESTORE_DAYS,
+  DRIVER_LICENCE_CLASS_LABELS,
   MIN_SCORED_TRIPS,
 } from './driver.constants';
+import { formatDate } from '../../shared/i18n/format';
+import { toIstDateString } from '../../shared/utils/ist-time';
+import { DEFAULT_LOCALE } from '../../shared/i18n/locales';
 import { buildDriverWorkbook } from './driver-export.mapper';
 import { DriverError } from './driver.errors';
 import { getCachedLicenceLookup, setCachedLicenceLookup } from './driver-licence-lookup-cache';
@@ -46,6 +58,7 @@ import {
   toBankVerificationColumns,
 } from '../../adapters/idfy.client';
 import {
+  DriverLicenceClass,
   AddBankDetailsInput,
   AddDriverDocumentInput,
   CreateDriverInput,
@@ -60,11 +73,11 @@ import {
   ListInvitationsInput,
   DriverInvitationView,
   DriverInvitationDetailView,
+  DriverInviteSendsAfterDecline,
   DriverInvitationActor,
   DriverRejectedJoinRequestView,
   ExportDriversFilters,
   RejectDriverInput,
-  DriverInvitationTimelineStep,
   OnboardDriverInput,
   RecordDriverTripMetricsInput,
   RecordVerificationInput,
@@ -139,22 +152,38 @@ export function isDriverOffPlatform(driver: Pick<DriverEntity, 'deletedAt'>): bo
 // so anything that isn't pending/active is a driver decline. A still-pending invite to a driver
 // who has left the platform reads `expired` — nobody is left to accept it.
 /**
- * Sends still allowed since the driver first declined (see DRIVER_INVITE_SENDS_AFTER_DECLINE),
- * counted from the invite's timeline — null when they never declined, so no cap applies.
+ * Sends still allowed since the driver first declined, counted from the invite's timeline:
+ * DRIVER_INVITE_SENDS_AFTER_DECLINE, then — once those are used — one more each time
+ * DRIVER_INVITE_COOL_OFF_DAYS pass after the latest decline or send, whichever is later.
+ * `sendAgainAt` is when that next send opens up, while none is left (null otherwise). Null when
+ * they never declined, so no cap applies.
  */
-function sendsLeftAfterDecline(relation: DriverTenantRelationEntity): number | null {
+function sendsAfterDeclineOf(
+  relation: DriverTenantRelationEntity,
+): DriverInviteSendsAfterDecline | null {
   const timeline = relation.inviteTimeline;
   const firstDecline = timeline.findIndex((event) => event.step === 'declined');
   if (firstDecline === -1) return null;
-  const sendsSince = timeline.slice(firstDecline + 1).filter(isInviteSendEvent).length;
-  return Math.max(0, DRIVER_INVITE_SENDS_AFTER_DECLINE - sendsSince);
+  const sinceDecline = timeline.slice(firstDecline);
+  const sendsSince = sinceDecline.filter(isInviteSendEvent).length;
+  const left = DRIVER_INVITE_SENDS_AFTER_DECLINE - sendsSince;
+  if (left > 0) return { left, sendAgainAt: null };
+
+  const lastDeclineOrSendAt = Math.max(
+    ...sinceDecline
+      .filter((event) => event.step === 'declined' || isInviteSendEvent(event))
+      .map((event) => Date.parse(event.at)),
+  );
+  const sendAgainAt = new Date(lastDeclineOrSendAt + DRIVER_INVITE_COOL_OFF_DAYS * MS_PER_DAY);
+  return sendAgainAt <= new Date() ? { left: 1, sendAgainAt: null } : { left: 0, sendAgainAt };
 }
 
 /** Shared by Resend and invite-by-mobile, so neither route gets around the cap. */
 function assertSendAllowedAfterDecline(relation: DriverTenantRelationEntity): void {
-  if (sendsLeftAfterDecline(relation) === 0) {
+  const sendsAfterDecline = sendsAfterDeclineOf(relation);
+  if (sendsAfterDecline?.sendAgainAt) {
     throw new ConflictError(
-      'This driver declined your invitation and it has already been sent once more — it cannot be sent again',
+      `This driver declined your invitation and it has already been sent again — you can send it once more from ${formatDate(sendsAfterDecline.sendAgainAt, DEFAULT_LOCALE)}`,
     );
   }
 }
@@ -176,7 +205,7 @@ function toInvitationView(
     expiredReason = 'invite_timeout';
   } else status = 'pending';
 
-  const sendsLeft = sendsLeftAfterDecline(relation);
+  const sendsAfterDecline = sendsAfterDeclineOf(relation);
   // Same rules as assertCanResend, so the Resend button and the endpoint never disagree.
   const resendable =
     status === 'pending' ||
@@ -213,8 +242,10 @@ function toInvitationView(
       },
     ],
     appInstalled,
-    canResend: resendable && sendsLeft !== 0,
-    sendsLeftAfterDecline: sendsLeft,
+    openedAt: relation.inviteViewedAt,
+    canResend: resendable && sendsAfterDecline?.left !== 0,
+    sendsLeftAfterDecline: sendsAfterDecline?.left ?? null,
+    canSendAgainAt: sendsAfterDecline?.sendAgainAt ?? null,
   };
 }
 
@@ -305,10 +336,9 @@ function formatInviteRequestId(inviteNumber: string): string {
 function toInvitationDetailView(
   relation: DriverTenantRelationEntity,
   actorsById: Map<string, UserEntity>,
-  notificationsById: Map<string, NotificationEntity>,
-  appInstalled: boolean,
+  firstAppLoginAt: Date | null,
 ): DriverInvitationDetailView {
-  const view = toInvitationView(relation, appInstalled);
+  const view = toInvitationView(relation, firstAppLoginAt !== null);
   const { driver } = relation;
   const toInvitationActor = (userId: string | null): DriverInvitationActor | null => {
     const actor = userId ? actorsById.get(userId) : undefined;
@@ -320,46 +350,13 @@ function toInvitationDetailView(
   const events: DriverInviteEvent[] = relation.inviteTimeline.length
     ? relation.inviteTimeline
     : [{ step: 'sent', at: view.sentAt.toISOString(), by: relation.inviteSentBy }];
-  const timeline: DriverInvitationTimelineStep[] = events.map((event) => {
-    const at = new Date(event.at);
-    switch (event.step) {
-      case 'sent':
-      case 'resent': {
-        const notification = event.notificationId
-          ? notificationsById.get(event.notificationId)
-          : undefined;
-        return {
-          step: event.step,
-          at,
-          by: toInvitationActor(event.by),
-          notification: notification ? { id: notification.id, readAt: notification.readAt } : null,
-        };
-      }
-      case 'cancelled':
-        return { step: 'cancelled', at, by: toInvitationActor(event.by) };
-      case 'viewed':
-        return {
-          step: 'viewed',
-          at,
-          device: event.device,
-          notificationId: event.notificationId ?? null,
-        };
-      case 'declined':
-        return { step: 'declined', at, reason: event.reason };
-      case 'delivery_failed':
-        return { step: 'delivery_failed', at, channel: event.channel };
-      case 'expired':
-      case 'accepted':
-        return { step: event.step, at };
-    }
+  const timeline = buildInvitationTimeline({
+    events,
+    toActor: toInvitationActor,
+    firstAppLoginAt,
+    status: view.status,
+    expiresAt: relation.inviteExpiresAt,
   });
-  // A pending invite hasn't ended, so its last step is derived, not stored: `expired` once it ran
-  // out (logged for good if it's later resent), otherwise still waiting on the driver.
-  if (view.status === 'expired') {
-    timeline.push({ step: 'expired', at: relation.inviteExpiresAt });
-  } else if (view.status === 'pending') {
-    timeline.push({ step: 'awaiting_response', at: null });
-  }
 
   return {
     ...view,
@@ -411,6 +408,43 @@ function daysUntil(date: string | null): number | null {
   return Math.round((new Date(`${date}T00:00:00.000Z`).getTime() - today.getTime()) / MS_PER_DAY);
 }
 
+/** Whole years from a `YYYY-MM-DD` date of birth to today (UTC); null when not on file. */
+function ageFromDateOfBirth(dateOfBirth: string | null): number | null {
+  if (!dateOfBirth) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const years = Number(today.slice(0, 4)) - Number(dateOfBirth.slice(0, 4));
+  return today.slice(5) < dateOfBirth.slice(5) ? years - 1 : years;
+}
+
+/** The transport classes in a class-of-vehicle list ("LMV, HTV" → [HTV · Heavy Transport …]). */
+function transportClassesOf(licenseClass: string | null): DriverLicenceClass[] {
+  if (!licenseClass) return [];
+  const codes = licenseClass.toUpperCase().split(/[^A-Z0-9]+/);
+  return [...new Set(codes)]
+    .filter((code) => DRIVER_TRANSPORT_LICENCE_CLASSES.includes(code))
+    .map((code) => ({ code, label: DRIVER_LICENCE_CLASS_LABELS[code] ?? code }));
+}
+
+/** State + RTO code a DL number starts with ("HR5520142079641" → "HR55"). */
+function issuingRtoCodeOf(licenseNumber: string | null): string | null {
+  const match = licenseNumber?.toUpperCase().match(/^([A-Z]{2})[\s-]?(\d{2})/);
+  return match ? `${match[1]}${match[2]}` : null;
+}
+
+/** Same checks as `dispatchable`, as the reason the card shows ("Already on a load"). */
+function notDispatchableReasonOf(
+  isActive: boolean,
+  activeLoad: LoadEntity | null,
+  operationalStatus: DriverOperationalStatus | null,
+): DriverNotDispatchableReason | null {
+  if (!isActive) return 'not_active';
+  if (activeLoad) return 'on_load';
+  if (operationalStatus === 'on_leave') return 'on_leave';
+  if (operationalStatus === 'medically_unfit') return 'medically_unfit';
+  if (operationalStatus === 'inactive') return 'no_longer_with_us';
+  return null;
+}
+
 /** Badge for the score column — neutral `new` until there are enough trips and a real score. */
 function toScoreStatus(totalTrips: number, driverScore: number | null): DriverScoreStatus {
   if (driverScore === null || totalTrips < MIN_SCORED_TRIPS) return 'new';
@@ -430,16 +464,26 @@ function toDriverDetailSections(
     (link) => link.isPrimary && link.status === 'active' && !link.deletedAt,
   );
   const isActive = relation.status === 'active';
+  const licenseClass = latestLicenseClass(driver.verifications);
+  const notDispatchableReason = notDispatchableReasonOf(isActive, activeLoad, operationalStatus);
+  // Staff-entered date first; otherwise the day this fleet approved the driver (India date) — app
+  // sign-ups never enter one.
+  const dateOfJoining =
+    driver.dateOfJoining ?? (relation.approvedAt ? toIstDateString(relation.approvedAt) : null);
 
   return {
     licence: {
       number: driver.licenseNumber,
-      classOfVehicle: latestLicenseClass(driver.verifications),
+      classOfVehicle: licenseClass,
       endorsements: driver.licenseEndorsements ?? [],
       validTo: driver.licenseExpiry,
       daysLeft,
       registry: latestSarathiCheck(driver.verifications),
       eligibleToDrive: isActive && driver.licenseVerified && daysLeft !== null && daysLeft > 0,
+      transportClasses: transportClassesOf(licenseClass),
+      dateOfBirth: driver.dateOfBirth,
+      age: ageFromDateOfBirth(driver.dateOfBirth),
+      issuingRtoCode: issuingRtoCodeOf(driver.licenseNumber),
     },
     contact: {
       primaryMobile: driver.phoneNumber,
@@ -452,9 +496,10 @@ function toDriverDetailSections(
           }
         : null,
       engagementType: driver.engagementType,
-      dateOfJoining: driver.dateOfJoining,
-      tenureYears: driver.dateOfJoining
-        ? Math.floor((Date.now() - new Date(driver.dateOfJoining).getTime()) / MS_PER_YEAR)
+      dateOfJoining,
+      dateOfJoiningSource: driver.dateOfJoining ? 'entered' : dateOfJoining ? 'approved' : null,
+      tenureYears: dateOfJoining
+        ? Math.floor((Date.now() - new Date(dateOfJoining).getTime()) / MS_PER_YEAR)
         : null,
       advanceOutstanding: driver.advanceOutstanding,
       compensation: {
@@ -479,12 +524,11 @@ function toDriverDetailSections(
       activeLoad: activeLoad
         ? { id: activeLoad.id, code: activeLoad.code, status: activeLoad.status }
         : null,
-      dispatchable:
-        isActive &&
-        !activeLoad &&
-        operationalStatus !== 'on_leave' &&
-        operationalStatus !== 'medically_unfit' &&
-        operationalStatus !== 'inactive',
+      dispatchable: notDispatchableReason === null,
+      notDispatchableReason,
+      companyStatus: operationalStatus,
+      availableFrom: relation.operationalStatus?.availableFrom ?? null,
+      statusNote: relation.operationalStatus?.reason ?? null,
     },
     performance: {
       totalTrips: tripStats.total,
@@ -710,6 +754,7 @@ export class DriverService {
             driverId: driver.id,
             ...newRelationColumns(actorId, actorRole),
             note: input.note ?? null,
+            ...(input.note ? { noteUpdatedBy: actorId, noteUpdatedAt: new Date() } : {}),
             createdBy: actorId,
           },
           txManager,
@@ -844,14 +889,32 @@ export class DriverService {
   async getDriver(tenantId: string, driverId: string): Promise<DriverDetailView> {
     try {
       const relation = await this.findRelationWithFullRelations(tenantId, driverId);
-      const [{ stats }, activeLoad, appActivity] = await Promise.all([
+      const noteAuthorId = relation.note ? relation.noteUpdatedBy : null;
+      const [{ stats }, activeLoad, appActivity, latestSession, noteAuthor] = await Promise.all([
         this.driverAnalyticsRepository.getTripStatsAndTrend(tenantId, driverId, {}),
         this.driverAnalyticsRepository.findActiveLoadForDriver(tenantId, driverId),
         this.driverSessionRepository.findLastAppActivityByDriverIds([driverId]),
+        this.driverSessionRepository.findLatestSession(driverId),
+        noteAuthorId
+          ? this.dataSource.getRepository(UserEntity).findOne({
+              where: { id: noteAuthorId },
+              select: { id: true, fullName: true },
+            })
+          : null,
       ]);
       return {
         ...flattenRelation(relation),
         ...toDriverDetailSections(relation, stats, activeLoad, appActivity.get(driverId) ?? null),
+        appDevice: latestSession
+          ? { deviceType: latestSession.deviceType, deviceInfo: latestSession.deviceInfo }
+          : null,
+        teamNote: relation.note
+          ? {
+              text: relation.note,
+              updatedAt: relation.noteUpdatedAt,
+              updatedBy: noteAuthor ? { id: noteAuthor.id, name: noteAuthor.fullName } : null,
+            }
+          : null,
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch driver');
@@ -891,13 +954,6 @@ export class DriverService {
       const licenseChanged =
         licenseNumber !== undefined && licenseNumber !== relation.driver.licenseNumber;
 
-      if (input.phoneNumber !== undefined && input.phoneNumber !== relation.driver.phoneNumber) {
-        const phoneOwner = await this.driverRepository.findByPhoneNumber(input.phoneNumber);
-        if (phoneOwner) {
-          throw new ConflictError('A driver with this phone number already exists');
-        }
-      }
-
       if (licenseChanged && licenseNumber) {
         const licenseOwner = await this.driverRepository.findByLicenseNumber(licenseNumber);
         if (licenseOwner) {
@@ -910,7 +966,6 @@ export class DriverService {
         salaryType,
         salaryAmount,
         fullName,
-        phoneNumber,
         licenseExpiry,
         dateOfBirth,
         bloodGroup,
@@ -933,13 +988,14 @@ export class DriverService {
       if (note !== undefined) {
         await this.driverTenantRelationRepository.update(tenantId, relation.id, {
           note,
+          noteUpdatedBy: note === null ? null : actorId,
+          noteUpdatedAt: note === null ? null : new Date(),
           updatedBy: actorId,
         });
       }
 
       await this.driverRepository.update(driverId, {
         fullName,
-        phoneNumber,
         licenseNumber,
         licenseVerified: licenseChanged ? false : undefined,
         licenseExpiry,
@@ -1262,6 +1318,12 @@ export class DriverService {
     }
   }
 
+  /** Daily DRIVER_AVAILABILITY_RETURN_JOB — drivers whose "fit to drive again from" date
+   *  (`today`, India, or earlier) has come are set back to Available. */
+  async returnFitDriversToAvailable(today: string): Promise<{ returnedToAvailable: number }> {
+    return { returnedToAvailable: await this.driverRepository.returnFitDriversToActive(today) };
+  }
+
   /** One row per driver-tenant relation, so the first call inserts and later calls overwrite it. */
   private async writeOperationalStatus(
     tenantId: string,
@@ -1281,6 +1343,7 @@ export class DriverService {
           operationalStatus: input.operationalStatus,
           reason: input.reason ?? null,
           effectiveAt,
+          availableFrom: input.availableFrom ?? null,
           createdBy: actorId,
         },
         manager,
@@ -1291,6 +1354,7 @@ export class DriverService {
       operationalStatus: input.operationalStatus,
       reason: input.reason ?? null,
       effectiveAt,
+      availableFrom: input.availableFrom ?? null,
       updatedBy: actorId,
     });
     if (!status)
@@ -1637,8 +1701,7 @@ export class DriverService {
   async getInvitation(tenantId: string, invitationId: string): Promise<DriverInvitationDetailView> {
     try {
       const relation = await this.findInvitationOrThrow(tenantId, invitationId);
-      // Staff behind each send or cancel, and each send's own in-app notification (its readAt is
-      // the driver's "read" for that send).
+      // Staff behind each send or cancel, and when the driver first logged into the app.
       const actorIds = [
         ...new Set(
           [
@@ -1647,27 +1710,18 @@ export class DriverService {
           ].filter((id): id is string => id !== null),
         ),
       ];
-      const notificationIds = relation.inviteTimeline
-        .filter(isInviteSendEvent)
-        .flatMap((event) => (event.notificationId ? [event.notificationId] : []));
-      const [actors, notifications] = await Promise.all([
+      const [actors, firstAppLoginAt] = await Promise.all([
         actorIds.length
           ? this.dataSource
               .getRepository(UserEntity)
               .find({ where: { id: In(actorIds) }, relations: { role: true } })
           : [],
-        notificationIds.length
-          ? this.dataSource.getRepository(NotificationEntity).find({
-              select: { id: true, readAt: true },
-              where: { id: In(notificationIds), recipientUserId: relation.driverId },
-            })
-          : [],
+        this.driverSessionRepository.findFirstAppLoginAt(relation.driverId),
       ]);
       return toInvitationDetailView(
         relation,
         new Map(actors.map((user) => [user.id, user])),
-        new Map(notifications.map((notification) => [notification.id, notification])),
-        await this.hasAppInstalled(relation.driverId),
+        firstAppLoginAt,
       );
     } catch (error) {
       rethrow(error, 'Failed to get driver invitation');
@@ -1881,7 +1935,7 @@ export class DriverService {
   ): Promise<void> {
     const name =
       tenantName ?? (await this.organizationService.getOrganizationStatus(tenantId)).name;
-    const { pushed, notificationId } = await this.driverPushNotifier.notifyInvited(
+    const { pushed } = await this.driverPushNotifier.notifyInvited(
       tenantId,
       driverId,
       name ?? 'A fleet owner',
@@ -1891,13 +1945,19 @@ export class DriverService {
       invitationId,
       pushed ? 'sent' : 'failed',
     );
-    // Ties this send's timeline entry to the in-app notification the driver will open.
-    if (notificationId) {
-      await this.driverTenantRelationRepository.linkLatestSendNotification(
-        invitationId,
-        notificationId,
-      );
-    }
+  }
+
+  /**
+   * WhatsApp's delivery report for an invite's latest send — `read` is the driver reading the
+   * invite message, which the drawer shows as "Opened" (once per send). Not called yet: the
+   * WhatsApp provider's status webhook calls this once WhatsApp sending is wired into deliverInvite.
+   */
+  async recordInviteWhatsAppStatus(
+    invitationId: string,
+    status: DriverInviteWhatsAppReportStatus,
+    at: Date = new Date(),
+  ): Promise<void> {
+    await this.driverTenantRelationRepository.setWhatsAppDeliveryStatus(invitationId, status, at);
   }
 
   /**

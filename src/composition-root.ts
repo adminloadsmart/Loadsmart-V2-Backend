@@ -20,6 +20,11 @@ import {
   createDriverIdentityModule,
   createDriverPortalModule,
 } from './modules/driver';
+import {
+  DRIVER_AVAILABILITY_RETURN_CRON,
+  DRIVER_AVAILABILITY_RETURN_JOB,
+  DRIVER_AVAILABILITY_RETURN_TIME_ZONE,
+} from './modules/driver/driver.constants';
 import { createMastersModule } from './modules/masters';
 import { createTrackingModule } from './modules/tracking';
 import { createGeofencesModule } from './modules/geofences';
@@ -298,7 +303,12 @@ export function buildContainer(dataSource: DataSource): Container {
         ...(await tyreAlerts.runDaily(today)),
       }),
     },
-    digestJobs(digests),
+    {
+      ...digestJobs(digests),
+      // Drivers whose "fit to drive again from" date has come go back to Available (00:05 IST).
+      [DRIVER_AVAILABILITY_RETURN_JOB]: (today) =>
+        driver.driverService.returnFitDriversToAvailable(today),
+    },
   );
   scheduleVehicleDocumentChecks(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register vehicle document check schedules', error),
@@ -306,6 +316,16 @@ export function buildContainer(dataSource: DataSource): Container {
   scheduleDigests(createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)).catch((error) =>
     console.error('Failed to register digest schedules', error),
   );
+  createJobQueue(NOTIFICATION_SCHEDULES_QUEUE)
+    .upsertSchedule(
+      DRIVER_AVAILABILITY_RETURN_JOB,
+      DRIVER_AVAILABILITY_RETURN_CRON,
+      DRIVER_AVAILABILITY_RETURN_TIME_ZONE,
+      DRIVER_AVAILABILITY_RETURN_JOB,
+    )
+    .catch((error) =>
+      console.error('Failed to register driver availability return schedule', error),
+    );
 
   const loadAlertResolvers = createLoadAlertResolvers(notifications.loadAlertRepository);
   const notificationTriggerWorker = createNotificationTriggerWorker(
