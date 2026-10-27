@@ -50,6 +50,14 @@ export class DriverSessionEntity {
   @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
   revokedAt!: Date | null;
 
+  // The access token issued with this session (one per row — refresh creates a new row), so a
+  // new login can blocklist it the moment it revokes this session. Null on pre-existing rows.
+  @Column({ name: 'access_jti', type: 'varchar', nullable: true })
+  accessJti!: string | null;
+
+  @Column({ name: 'access_expires_at', type: 'timestamptz', nullable: true })
+  accessExpiresAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

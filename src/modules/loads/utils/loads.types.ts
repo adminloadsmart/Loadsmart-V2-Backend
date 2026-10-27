@@ -110,6 +110,11 @@ export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
 );
 /** Driver-app "Upcoming" tab — assigned to the driver but not yet moving. */
 export const UPCOMING_LOAD_STATUSES: readonly LoadStatus[] = ['created', 'assigned'];
+/** Driver-app Home "current trip" — a load already moving (past assignment, not yet closed). Kept
+ *  disjoint from UPCOMING_LOAD_STATUSES so one load never shows as both current and next. */
+export const IN_PROGRESS_LOAD_STATUSES: readonly LoadStatus[] = ACTIVE_LOAD_STATUSES.filter(
+  (status) => !UPCOMING_LOAD_STATUSES.includes(status),
+);
 /** The truck is at or past the delivery point — trip-execution alerts (LS_N_0025/0026) no longer
  *  apply. */
 export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
@@ -124,13 +129,20 @@ export const DELIVERED_LOAD_STATUSES: readonly LoadStatus[] = ['delivered', 'clo
 export const MAX_CARGO_VALUE_PER_TONNE = 10_000_000;
 /** Upper bound on a driver issue report's expected delay — 7 days, in minutes (LS_N_0037). */
 export const MAX_ISSUE_ETA_IMPACT_MINUTES = 7 * 24 * 60;
-export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
+export const LOAD_STATUS_GROUPS = [
+  'active',
+  'completed',
+  'open',
+  'upcoming',
+  'in_progress',
+] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
   active: ACTIVE_LOAD_STATUSES,
   completed: COMPLETED_LOAD_STATUSES,
   open: OPEN_LOAD_STATUSES,
   upcoming: UPCOMING_LOAD_STATUSES,
+  in_progress: IN_PROGRESS_LOAD_STATUSES,
 };
 
 /**

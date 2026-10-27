@@ -64,6 +64,14 @@ export interface SelectDriverRelationInput {
   device?: DriverDeviceCaptureInput;
 }
 
+/** The access token of a session closed by a new login — DriverSessionRepository.revokeAllForDriver
+ *  returns these so DriverAuthService can blocklist them. Nulls on rows from before access_jti
+ *  existed. */
+export interface RevokedDriverSessionToken {
+  accessJti: string | null;
+  accessExpiresAt: Date | null;
+}
+
 /** What DriverPushNotifier.notifyInvited sent: whether the push reached a device, and the in-app
  *  notification it saved (null if saving failed) — the invite's timeline links to it. */
 export interface DriverInviteNotifyResult {
