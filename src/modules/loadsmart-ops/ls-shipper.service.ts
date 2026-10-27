@@ -3,7 +3,6 @@ import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { LoadActivityService } from '../loads/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
-import { LoadStatus } from '../loads/utils/loads.types';
 import { LoadPaymentRepository } from '../loads/load-payment.repository';
 import { LoadRepository } from '../loads/load.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
@@ -12,10 +11,19 @@ import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { ChargeType } from './loadsmart.types';
 import { LsServiceBase } from './ls-base';
+import {
+  AddChargeInput,
+  BundleDocument,
+  ChargeDecisionInput,
+  ChargeStageRule,
+  ClaimValueInput,
+  LoadDocumentKey,
+  UnloadingContactInput,
+} from './loadsmart.interface';
 
 /** When each charge can be added: loading at the gate, unloading at the drop, detention any time
  *  the truck is held on the trip. */
-const CHARGE_STAGES: Record<ChargeType, { statuses: readonly LoadStatus[]; message: string }> = {
+const CHARGE_STAGES: Record<ChargeType, ChargeStageRule> = {
   loading: {
     statuses: ['reached_loading', 'loaded'],
     message: 'The loading charge is added at the loading point',
@@ -37,13 +45,6 @@ const CHARGE_STAGES: Record<ChargeType, { statuses: readonly LoadStatus[]; messa
     message: 'Detention is added while the truck is on the trip',
   },
 };
-
-export interface BundleDocument {
-  type: string;
-  label: string;
-  fileKey: string;
-  downloadUrl: string | null;
-}
 
 /**
  * The shipper's side of a Loadsmart load, on the shipper's own loads router: add the loading,
@@ -88,7 +89,7 @@ export class LsShipperService extends LsServiceBase {
     actorId: string,
     loadId: string,
     chargeId: string,
-    input: { decision: 'approved' | 'rejected'; reason?: string },
+    input: ChargeDecisionInput,
   ): Promise<LoadChargeEntity> {
     try {
       await this.assertLoadsmartLoad(tenantId, loadId);
@@ -140,7 +141,7 @@ export class LsShipperService extends LsServiceBase {
     tenantId: string,
     actorId: string,
     loadId: string,
-    input: { chargeType: ChargeType; amount: number; note?: string },
+    input: AddChargeInput,
   ): Promise<LoadChargeEntity> {
     try {
       const load = await this.assertLoadsmartLoad(tenantId, loadId);
@@ -183,7 +184,7 @@ export class LsShipperService extends LsServiceBase {
     tenantId: string,
     actorId: string,
     loadId: string,
-    input: { name: string; phone: string },
+    input: UnloadingContactInput,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
@@ -215,7 +216,7 @@ export class LsShipperService extends LsServiceBase {
     tenantId: string,
     actorId: string,
     loadId: string,
-    input: { claimValue: number; note?: string },
+    input: ClaimValueInput,
   ): Promise<LoadClaimEntity> {
     try {
       await this.assertLoadsmartLoad(tenantId, loadId);
@@ -261,7 +262,7 @@ export class LsShipperService extends LsServiceBase {
   async documentsBundle(tenantId: string, role: string, loadId: string) {
     try {
       const load = await this.assertLoad(tenantId, loadId);
-      const keyed: { type: string; label: string; key: string | null }[] = [
+      const documentKeys: LoadDocumentKey[] = [
         { type: 'elr', label: 'e-LR', key: load.elrDocumentFileKey },
         { type: 'signed_lr', label: 'Signed LR', key: load.elrFileKey },
         { type: 'invoice', label: 'Goods invoice', key: load.invoiceFileKey },
@@ -272,7 +273,7 @@ export class LsShipperService extends LsServiceBase {
       ];
       const invoice = await this.repository.findInvoice(tenantId, loadId);
       if (invoice?.fileKey) {
-        keyed.push({
+        documentKeys.push({
           type: 'loadsmart_invoice',
           label: `Loadsmart invoice ${invoice.invoiceNumber}`,
           key: invoice.fileKey,
@@ -281,10 +282,18 @@ export class LsShipperService extends LsServiceBase {
       const payments = await this.loadPaymentRepository.listByLoad(tenantId, loadId);
 
       const documents: BundleDocument[] = [];
-      for (const doc of keyed) {
-        if (!doc.key) continue;
-        const { downloadUrl } = await this.storageService.getByKey({ tenantId, role }, doc.key);
-        documents.push({ type: doc.type, label: doc.label, fileKey: doc.key, downloadUrl });
+      for (const documentKey of documentKeys) {
+        if (!documentKey.key) continue;
+        const { downloadUrl } = await this.storageService.getByKey(
+          { tenantId, role },
+          documentKey.key,
+        );
+        documents.push({
+          type: documentKey.type,
+          label: documentKey.label,
+          fileKey: documentKey.key,
+          downloadUrl,
+        });
       }
       return {
         loadId,
