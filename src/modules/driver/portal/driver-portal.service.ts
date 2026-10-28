@@ -15,6 +15,8 @@ import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity'
 import { LoadService, TripsDoneResult } from '../../loads/load.service';
 import { ListLoadsInput } from '../../loads/utils/load.interface';
 import { TripListRow } from '../../loads/utils/trip-view';
+import { UPCOMING_LOAD_STATUSES } from '../../loads/utils/loads.types';
+import { MAX_PAGE_SIZE } from '../../../shared/constants/pagination';
 import { TrackingEtaReader, TripEta } from './tracking-eta.reader';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ListNotificationsInput } from '../../notifications/notifications.interface';
@@ -390,22 +392,29 @@ export class DriverPortalService {
       };
     }
 
-    const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
+    const [profile, tripsDone, openTrips] = await Promise.all([
       this.getMyProfile(driverId, tenantIds) as Promise<DriverProfileView>,
       this.loadService.getMyTripsDone(tenantIds, driverId, { page: 1, limit: 1 }, locale),
       this.loadService.list(
         tenantIds,
-        { page: 1, limit: 1, driverId, group: 'in_progress' },
+        { page: 1, limit: MAX_PAGE_SIZE, driverId, group: 'open' },
         locale,
       ),
-      this.loadService.list(
-        tenantIds,
-        { page: 1, limit: 5, driverId, status: 'truck_assigned' },
-        locale,
-      ),
-      this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
-    const currentJob = activeJobs.items[0] ?? null;
+    // One open-loads fetch split in code, so a load is never both current and next: a trip already
+    // moving wins; otherwise the driver's earliest-pickup assigned load becomes the current trip
+    // (a driver whose first trip was just assigned sees it as current, not "upcoming"), and the
+    // remaining assigned loads are what's next.
+    const moving = openTrips.items.filter((job) => !UPCOMING_LOAD_STATUSES.includes(job.status));
+    const assigned = openTrips.items
+      .filter((job) => UPCOMING_LOAD_STATUSES.includes(job.status))
+      .sort(
+        (a, b) =>
+          (a.pickupDate ?? '9999-12-31').localeCompare(b.pickupDate ?? '9999-12-31') ||
+          a.createdAt.localeCompare(b.createdAt),
+      );
+    const currentJob = moving[0] ?? assigned[0] ?? null;
+    const upcomingJobs = assigned.filter((job) => job.id !== currentJob?.id).slice(0, 5);
     const currentEta = currentJob
       ? ((await this.trackingEtaReader?.getTripEta(currentJob.id)) ?? null)
       : null;
@@ -424,13 +433,13 @@ export class DriverPortalService {
         onTimePercentage: profile.performance.onTimeDeliveryPercentage,
         openTrips: openTrips.total,
       },
-      currentJob: activeJobs.items[0] ?? null,
-      upcomingJobs: upcomingJobs.items,
+      currentJob,
+      upcomingJobs,
       currentTrip: currentJob
         ? toHomeCurrentTrip(currentJob, organizationOf(currentJob), currentEta)
         : null,
-      nextTrip: upcomingJobs.items[0]
-        ? toHomeNextTrip(upcomingJobs.items[0], organizationOf(upcomingJobs.items[0]))
+      nextTrip: upcomingJobs[0]
+        ? toHomeNextTrip(upcomingJobs[0], organizationOf(upcomingJobs[0]))
         : null,
       money: { cashHeld: null, organizationName: profile.organizationName },
       unreadNotificationCount,
