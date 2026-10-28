@@ -20,6 +20,8 @@ import {
   ListLoadsInput,
   LoadParams,
   ReviewPodInput,
+  SetLoadingContactInput,
+  SetLoadingPointInput,
   SettleDeliveryIssueInput,
   UpdateLoadStatusInput,
   UploadPodInput,
@@ -189,6 +191,26 @@ export class LoadsController {
       req.params.loadId,
       decision,
       reason,
+    );
+    respond(res, load);
+  };
+
+  setLoadingContact = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.setLoadingContact(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      req.body as SetLoadingContactInput,
+    );
+    respond(res, load);
+  };
+
+  setLoadingPoint = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.setLoadingPoint(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      req.body as SetLoadingPointInput,
     );
     respond(res, load);
   };

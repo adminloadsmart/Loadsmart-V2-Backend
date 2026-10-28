@@ -16,6 +16,7 @@ import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.en
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { DriverEntity } from '../../driver/entities/driver.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
+import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
 import {
   FREIGHT_MODES,
   FREIGHT_TYPES,
@@ -420,6 +421,23 @@ export class LoadEntity {
 
   @Column({ name: 'partner_balance_paid_at', type: 'timestamptz', nullable: true })
   partnerBalancePaidAt!: Date | null;
+
+  /** This load's own loading point, when the shipper changed it on the load page — null means the
+   *  requisition's or posting's applies. See utils/load-origin.ts. */
+  @Column({ name: 'loading_point_id', type: 'uuid', nullable: true })
+  loadingPointId!: string | null;
+
+  @ManyToOne(() => LoadingPointEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'loading_point_id' })
+  loadingPoint!: LoadingPointEntity | null;
+
+  /** Who meets the truck at the loading point, when changed for this load — null means the
+   *  loading point's own contact person. */
+  @Column({ name: 'loading_contact_name', type: 'varchar', length: 150, nullable: true })
+  loadingContactName!: string | null;
+
+  @Column({ name: 'loading_contact_phone', type: 'varchar', length: 20, nullable: true })
+  loadingContactPhone!: string | null;
 
   /** Who receives the truck — the shipper adds it, often a day before. */
   @Column({ name: 'unloading_contact_name', type: 'varchar', length: 150, nullable: true })

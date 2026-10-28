@@ -467,6 +467,49 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/loading-contact`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.setLoadingContact',
+    ...manageDispatch(
+      'Who meets the truck at the loading point, for this load only — shared with the driver and ' +
+        'used by the next load memo. Allowed until the truck reaches the loading point.',
+    ),
+    request: {
+      params: loadValidators.setLoadingContact.shape.params,
+      body: json(loadValidators.setLoadingContact.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      409: { description: 'The truck is already at the loading point', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/loads/{loadId}/loading-point`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.setLoadingPoint',
+    ...manageDispatch(
+      'Switch this load to another saved, active loading point (the requisition/posting keep ' +
+        "theirs). Clears a changed loading contact so the new point's own contact applies. " +
+        'Allowed until the truck reaches the loading point.',
+    ),
+    request: {
+      params: loadValidators.setLoadingPoint.shape.params,
+      body: json(loadValidators.setLoadingPoint.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      404: { description: 'Loading point not found', ...errorContent },
+      409: {
+        description: 'The truck is already at the loading point, or the point is not active',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/loads/{loadId}/elr`,
     tags: [TAGS.LOADS],

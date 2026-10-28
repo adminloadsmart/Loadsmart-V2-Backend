@@ -179,9 +179,15 @@ export class LoadMemoService {
       driverName: load.driverName,
       driverMobile: load.driverNumber,
       loadingContactName:
-        loadingContact?.name ?? posting?.pickupLoadingPoint?.contactPersonName ?? null,
+        loadingContact?.name ??
+        load.loadingContactName ??
+        (load.loadingPoint ?? posting?.pickupLoadingPoint)?.contactPersonName ??
+        null,
       loadingContactPhone:
-        loadingContact?.phone ?? posting?.pickupLoadingPoint?.contactPersonNumber ?? null,
+        loadingContact?.phone ??
+        load.loadingContactPhone ??
+        (load.loadingPoint ?? posting?.pickupLoadingPoint)?.contactPersonNumber ??
+        null,
       sentAt,
       sentBy: actorId,
       expiresAt: new Date(sentAt.getTime() + MEMO_TTL_MS),

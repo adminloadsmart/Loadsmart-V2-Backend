@@ -62,8 +62,14 @@ function dropFromAddress(address: PostAddress | null): LoadDropPlace | null {
   };
 }
 
-/** Needs `requisition` and/or `posting` (with its customer and point relations) loaded. */
+/** Needs `requisition` and/or `posting` (with its customer and point relations) loaded. A loading
+ *  point changed on the load itself (`loadingPoint`, when loaded) replaces the pickup. */
 export function resolveLoadOrigin(load: LoadEntity): LoadOrigin {
+  const origin = resolvePlannedOrigin(load);
+  return load.loadingPoint ? { ...origin, pickup: load.loadingPoint } : origin;
+}
+
+function resolvePlannedOrigin(load: LoadEntity): LoadOrigin {
   const req = load.requisition;
   if (req) {
     return {

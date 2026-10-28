@@ -62,6 +62,16 @@ export interface SettleDeliveryIssueInput {
   note: string;
 }
 
+/** Who meets the truck at the loading point, for this load only. */
+export interface SetLoadingContactInput {
+  name: string;
+  phone: string;
+}
+
+export interface SetLoadingPointInput {
+  loadingPointId: string;
+}
+
 export interface ReviewPodInput {
   decision: PodReviewDecision;
   reason?: string;
