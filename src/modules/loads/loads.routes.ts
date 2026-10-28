@@ -125,6 +125,20 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadValidators.reviewPod),
     asyncHandler(controller.reviewPod),
   );
+  // The load page's "Change contact" / "Change loading point" — this load only, until the truck
+  // reaches the loading point.
+  router.patch(
+    '/loads/:loadId/loading-contact',
+    canManageDispatch,
+    validate(loadValidators.setLoadingContact),
+    asyncHandler(controller.setLoadingContact),
+  );
+  router.patch(
+    '/loads/:loadId/loading-point',
+    canManageDispatch,
+    validate(loadValidators.setLoadingPoint),
+    asyncHandler(controller.setLoadingPoint),
+  );
   // The e-LR at the loading point — invoice required, freight hidden unless ticked.
   router.post(
     '/loads/:loadId/elr',

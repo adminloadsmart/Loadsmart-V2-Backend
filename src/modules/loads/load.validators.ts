@@ -223,6 +223,25 @@ export const loadValidators = {
     body: reviewPodBody,
   }),
 
+  // The load page's "Change contact" / "Change loading point" — this load only, until the truck
+  // reaches the loading point. See LoadService.setLoadingContact / setLoadingPoint.
+  setLoadingContact: z.object({
+    params,
+    body: z
+      .object({
+        name: z.string().trim().min(1).max(150),
+        phone: z
+          .string()
+          .trim()
+          .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+      })
+      .strict(),
+  }),
+  setLoadingPoint: z.object({
+    params,
+    body: z.object({ loadingPointId: uuid }).strict(),
+  }),
+
   // The e-LR at the loading point — see elr/elr.service.ts.
   generateElr: z.object({
     params,

@@ -29,6 +29,7 @@ import {
   UNLOADED_LOAD_STATUSES,
   ManualTrackingStatus,
   PodReviewDecision,
+  LoadStatus,
 } from './utils/loads.types';
 import { hasLoadingPapers } from './utils/load-stages';
 import { LoadActivityWithActor } from './utils/load-activity.interface';
@@ -38,6 +39,8 @@ import {
   ConfirmLoadingInput,
   EwayBillExpiry,
   ListLoadsInput,
+  SetLoadingContactInput,
+  SetLoadingPointInput,
   UploadPodInput,
 } from './utils/load.interface';
 import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
@@ -990,6 +993,113 @@ export class LoadService {
    *  stuck). A load still Delivered with issues closes only once the issue is settled
    *  (settleDeliveryIssue). Rejecting leaves the load where it is — the driver resubmits via
    *  uploadPod above, which resets podStatus back to 'pending'. */
+  /** "Change contact" on the load page — who meets the truck at the loading point, this load only.
+   *  Shared with the driver and used by the next load memo. */
+  async setLoadingContact(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: SetLoadingContactInput,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      LoadService.assertBeforeLoadingPoint(load);
+      const updated = await this.repository.update(tenantId, loadId, {
+        loadingContactName: input.name,
+        loadingContactPhone: input.phone,
+        updatedBy: actorId,
+      });
+      if (!updated) throw new ConflictError('Changing the loading contact failed');
+
+      const before = load.loadingContactName ?? load.loadingPoint?.contactPersonName ?? null;
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'LOADING_CONTACT_CHANGED',
+        before?.slice(0, 100) ?? null,
+        input.name.slice(0, 100),
+        { name: input.name, phone: input.phone },
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_LOADING_CONTACT_CHANGED',
+        resourceType: 'load',
+        oldData: {
+          id: loadId,
+          loadingContactName: load.loadingContactName,
+          loadingContactPhone: load.loadingContactPhone,
+        },
+        newData: { id: loadId, loadingContactName: input.name, loadingContactPhone: input.phone },
+      });
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to change the loading contact');
+    }
+  }
+
+  /** "Change loading point" on the load page — another saved, active loading point, this load
+   *  only (the requisition/posting keep theirs). Clears a changed contact so the new point's own
+   *  contact person applies. */
+  async setLoadingPoint(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: SetLoadingPointInput,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      LoadService.assertBeforeLoadingPoint(load);
+      const point = await this.repository.findLoadingPoint(tenantId, input.loadingPointId);
+      if (!point) throw new NotFoundError('Loading point not found');
+      if (point.status !== 'active') {
+        throw new ConflictError('Only an active loading point can be used');
+      }
+      const updated = await this.repository.update(tenantId, loadId, {
+        loadingPointId: point.id,
+        loadingContactName: null,
+        loadingContactPhone: null,
+        updatedBy: actorId,
+      });
+      if (!updated) throw new ConflictError('Changing the loading point failed');
+
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'LOADING_POINT_CHANGED',
+        load.loadingPoint?.title.slice(0, 100) ?? null,
+        point.title.slice(0, 100),
+        { loadingPointId: point.id, title: point.title, city: point.city },
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_LOADING_POINT_CHANGED',
+        resourceType: 'load',
+        oldData: { id: loadId, loadingPointId: load.loadingPointId },
+        newData: { id: loadId, loadingPointId: point.id },
+      });
+      return (await this.repository.findById(tenantId, loadId)) ?? updated;
+    } catch (error) {
+      rethrow(error, 'Failed to change the loading point');
+    }
+  }
+
+  /** The loading point and its contact can change only until the truck gets there. */
+  private static assertBeforeLoadingPoint(load: LoadEntity): void {
+    const open: readonly LoadStatus[] = [
+      'created',
+      'bids_received',
+      'truck_assigned',
+      'in_transit_loading',
+    ];
+    if (!open.includes(load.status)) {
+      throw new ConflictError('The truck is already at the loading point');
+    }
+  }
+
   async reviewPod(
     tenantId: string,
     actorId: string,

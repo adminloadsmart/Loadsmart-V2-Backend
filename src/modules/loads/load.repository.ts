@@ -14,6 +14,7 @@ import {
 } from 'typeorm';
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
+import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
 import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { ListLoadsInput } from './utils/load.interface';
@@ -88,6 +89,7 @@ export type UpdateLoadData = Partial<
     | 'vehicle'
     | 'coversVehicle'
     | 'driver'
+    | 'loadingPoint'
     | 'transporter'
     | 'cargoItems'
     | 'createdAt'
@@ -106,15 +108,24 @@ export interface ProductTonnage {
 export class LoadRepository {
   private readonly loads: Repository<LoadEntity>;
   private readonly cargoItems: Repository<LoadCargoItemEntity>;
+  private readonly loadingPoints: Repository<LoadingPointEntity>;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
     this.cargoItems = dataSource.getRepository(LoadCargoItemEntity);
+    this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
+  }
+
+  findLoadingPoint(tenantId: string, id: string): Promise<LoadingPointEntity | null> {
+    return this.loadingPoints.findOne({ where: { id, tenantId } });
   }
 
   findById(tenantId: string, id: string, manager?: EntityManager): Promise<LoadEntity | null> {
     const repo = manager?.getRepository(LoadEntity) ?? this.loads;
-    return repo.findOne({ where: { id, tenantId }, relations: { cargoItems: { product: true } } });
+    return repo.findOne({
+      where: { id, tenantId },
+      relations: { cargoItems: { product: true }, loadingPoint: true },
+    });
   }
 
   /** Read-only, wide-relation counterpart to findById — the Trip Detail screen's source. Kept
@@ -133,6 +144,7 @@ export class LoadRepository {
         cargoItems: { product: true },
         vehicle: { truckType: true },
         driver: true,
+        loadingPoint: true,
         transporter: true,
         truckType: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
@@ -307,6 +319,7 @@ export class LoadRepository {
         vehicle: { driverLinks: { driver: true }, truckType: true },
         truckType: true,
         driver: true,
+        loadingPoint: true,
         transporter: true,
         requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
         posting: ORIGIN_POSTING_RELATIONS,

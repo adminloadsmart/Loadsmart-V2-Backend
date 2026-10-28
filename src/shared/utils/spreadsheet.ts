@@ -1,5 +1,7 @@
+import { posix } from 'node:path';
 import { Workbook, CellValue } from 'exceljs';
 import { parse } from 'csv-parse/sync';
+import JSZip from 'jszip';
 
 function cellText(value: CellValue): string {
   if (value === null || value === undefined) return '';
@@ -32,14 +34,71 @@ export async function parseSpreadsheetRows(buffer: Buffer): Promise<Record<strin
   return (await parseNumberedSpreadsheetRows(buffer)).map(({ record }) => record);
 }
 
+async function loadXlsx(buffer: Buffer): Promise<Workbook> {
+  const workbook = new Workbook();
+  // exceljs's typings augment the global `Buffer` interface to also extend `ArrayBuffer`,
+  // which newer @types/node's `Buffer` no longer satisfies structurally — cast around it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await workbook.xlsx.load(buffer as any);
+  return workbook;
+}
+
+const SPREADSHEETML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const PREFIXED_NS = new RegExp(
+  `xmlns:([A-Za-z_][\\w.-]*)="${SPREADSHEETML_NS.replace(/[./]/g, '\\$&')}"`,
+);
+
+/**
+ * Rewrites a valid .xlsx that exceljs can't read into the shape Excel itself saves. Files from
+ * the .NET Open XML SDK (and tools built on it) differ in three ways exceljs trips over:
+ *  - SpreadsheetML tags carry a namespace prefix (`<x:workbook>`) instead of a default namespace;
+ *  - relationship targets are absolute (`/xl/comments1.xml`) rather than relative to the part;
+ *  - the comments drawing isn't named `vmlDrawing<n>.vml`.
+ */
+async function normalizeXlsx(buffer: Buffer): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(buffer);
+  const renamed = new Map<string, string>();
+  let next = 1;
+  for (const entry of zip.file(/^xl\/drawings\/[^/]+\.vml$/)) {
+    if (/\/vmlDrawing\d+\.vml$/.test(entry.name)) continue;
+    while (zip.file(`xl/drawings/vmlDrawing${next}.vml`)) next += 1;
+    renamed.set(entry.name, `xl/drawings/vmlDrawing${next++}.vml`);
+  }
+
+  for (const entry of zip.file(/\.(xml|rels|vml)$/)) {
+    let xml = (await entry.async('string')).replace(/^\uFEFF/, '');
+    const prefix = PREFIXED_NS.exec(xml)?.[1];
+    if (prefix) {
+      xml = xml
+        .replace(new RegExp(`<(/?)${prefix}:`, 'g'), '<$1')
+        .replace(`xmlns:${prefix}=`, 'xmlns=');
+    }
+    if (entry.name.endsWith('.rels')) {
+      // A part's rels live in <dir>/_rels/<part>.rels; targets are relative to <dir>.
+      const dir = posix.dirname(posix.dirname(entry.name));
+      xml = xml.replace(/Target="\/([^"]+)"/g, (_, target: string) => {
+        const path = renamed.get(target) ?? target;
+        return `Target="${posix.relative(dir === '.' ? '' : dir, path)}"`;
+      });
+    }
+    zip.remove(entry.name);
+    zip.file(renamed.get(entry.name) ?? entry.name, xml);
+  }
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
 /** parseSpreadsheetRows, keeping each row's sheet row number. */
 export async function parseNumberedSpreadsheetRows(buffer: Buffer): Promise<NumberedRow[]> {
-  const workbook = new Workbook();
+  let workbook: Workbook;
   try {
-    // exceljs's typings augment the global `Buffer` interface to also extend `ArrayBuffer`,
-    // which newer @types/node's `Buffer` no longer satisfies structurally — cast around it.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await workbook.xlsx.load(buffer as any);
+    try {
+      workbook = await loadXlsx(buffer);
+    } catch (error) {
+      // Retry once in Excel's own shape; report the original error if that fails too.
+      workbook = await loadXlsx(await normalizeXlsx(buffer)).catch(() => {
+        throw error;
+      });
+    }
   } catch (error) {
     throw new Error(
       `Invalid Excel file: ${error instanceof Error ? error.message : 'unable to parse file'}`,

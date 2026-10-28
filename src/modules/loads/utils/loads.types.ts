@@ -254,6 +254,8 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'MEMO_SENT',
   'MEMO_ACCEPTED',
   'LOADSMART_STEP',
+  'LOADING_CONTACT_CHANGED',
+  'LOADING_POINT_CHANGED',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
 
