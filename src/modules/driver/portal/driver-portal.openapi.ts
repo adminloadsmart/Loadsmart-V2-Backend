@@ -183,8 +183,9 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         'tenant relation required) — driver name and unreadNotificationCount still populate in ' +
         'that case, but stats/currentJob/upcomingJobs/currentTrip/nextTrip come back zeroed/empty. ' +
         'currentTrip/nextTrip/money are display-ready projections for the card layout; ' +
-        "currentTrip.distanceLeftKm/etaAt come from the tracking service's ETA (null until the " +
-        'trip has a planned route; etaSource live|planned, etaStale = last fix is old); money.cashHeld ' +
+        'currentTrip.distanceLeftKm/etaAt: loading → unloading point before the truck heads for ' +
+        "the drop (etaSource planned), then the truck's latest position → unloading point (etaSource " +
+        'live, etaStale = last fix is old); null without a route or coordinates; money.cashHeld ' +
         'is null until driver expense data exists. Settlement Due, ' +
         'per-trip Distance, and a driver Score/Rating are deliberately not included — no backing ' +
         'data exists for any of them yet.',
