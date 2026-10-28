@@ -99,16 +99,16 @@ export interface DriverHomeCurrentTrip {
   organizationName: string | null;
   origin: { title: string; city: string } | null;
   destination: { location: string; city: string | null } | null;
-  /** Backs "142 km left · arriving by 3:10 PM", from the tracking service's ETA. Null while the
-   *  trip has none (not in transit yet, no route/coordinates, tracking off) — hide the line. */
-  /** Total planned route length (tracking.trip_routes), whatever the truck's progress. */
+  /** Backs "142 km left · arriving by 3:10 PM" (tracking-eta.reader.ts). Null while the trip
+   *  has none (no route/coordinates) — hide the line. */
+  /** Total route length, loading → unloading point, whatever the truck's progress. */
   distanceKm: number | null;
   distanceLeftKm: number | null;
   etaAt: string | null;
   /** True when the last location fix is old, so distanceLeftKm/etaAt are the last known values. */
   etaStale: boolean;
-  /** 'live' = tracking's running ETA; 'planned' = whole-route distance/time from now, shown
-   *  before the truck has a live ETA (approximate). Null when there is no ETA. */
+  /** 'live' = truck's latest position → unloading point (Google) once it is in transit to the
+   *  drop; 'planned' = loading → unloading distance/time from now, before that. Null when none. */
   etaSource: 'live' | 'planned' | null;
   /** "Open directions" — destination address for a maps deep link until coordinates exist. */
   directionsQuery: string | null;
