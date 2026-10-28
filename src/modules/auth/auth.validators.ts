@@ -84,8 +84,8 @@ export const authValidators = {
     body: z
       .object({
         otp: z.string().length(4, 'OTP must be 4 digits long'),
-        // WhatsApp notification consent captured at signup. Omitted = not captured (null): the
-        // user gets SMS only until they answer the opt-in prompt at first login.
+        // WhatsApp notification consent captured at signup. Omitted = on (true); send false to
+        // opt out.
         whatsappOptIn: z.boolean().optional(),
         ...deviceTokenFields,
       })

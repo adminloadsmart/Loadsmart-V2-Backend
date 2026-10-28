@@ -1,6 +1,7 @@
 import { redisManager } from '../../db/redis';
 import { joinCapabilities } from './capability-wording';
 import { AccessChangedContext } from './catalog/notification-catalog';
+import { traceNotification } from './utils/notification-trace';
 import {
   NotificationTriggers,
   CapabilitiesChangeEvent,
@@ -21,6 +22,7 @@ const baselineKey = (userId: string) => `notifications:access-baseline:${userId}
 export function createAccessChangeRecorder(triggers: NotificationTriggers) {
   return async ({ tenantId, userId, actorUserId, before }: CapabilitiesChangeEvent) => {
     let baseline = await redisManager.get(baselineKey(userId));
+    const isNewBurst = !baseline;
     if (!baseline) {
       baseline = JSON.stringify(before);
       await redisManager.set(baselineKey(userId), baseline, BASELINE_TTL_SECONDS);
@@ -30,6 +32,10 @@ export function createAccessChangeRecorder(triggers: NotificationTriggers) {
       adminUserId: actorUserId,
       baselinePermissions: JSON.parse(baseline) as string[],
     });
+    traceNotification(
+      'user.access_changed',
+      `queued for user ${userId} (tenant ${tenantId}) — ${isNewBurst ? 'new burst' : 'joins the current burst'}; sends ~2 min after the last change`,
+    );
   };
 }
 
@@ -49,6 +55,7 @@ export function createAccessChangeResolver(deps: AccessChangeResolverDeps) {
     try {
       after = await deps.getEffectivePermissions(context.userId);
     } catch {
+      traceNotification('user.access_changed', `dropped: user ${context.userId} no longer exists`);
       return null; // user gone — nothing to tell them
     }
     const before = new Set(context.baselinePermissions);
@@ -56,7 +63,17 @@ export function createAccessChangeResolver(deps: AccessChangeResolverDeps) {
     // Sorted so the same change always reads the same way.
     const added = after.filter((key) => !before.has(key)).sort();
     const removed = context.baselinePermissions.filter((key) => !now.has(key)).sort();
-    if (!added.length && !removed.length) return null;
+    if (!added.length && !removed.length) {
+      traceNotification(
+        'user.access_changed',
+        `dropped: no net change for user ${context.userId} (same permissions as before the burst)`,
+      );
+      return null;
+    }
+    traceNotification(
+      'user.access_changed',
+      `user ${context.userId}: added [${added.join(', ')}], removed [${removed.join(', ')}]`,
+    );
 
     const [addedDescriptions, removedDescriptions, adminName, orgName] = await Promise.all([
       deps.describePermissions(added),

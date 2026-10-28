@@ -22,6 +22,7 @@ import {
   POD_PENDING_ALERT_HOURS,
   MS_PER_MINUTE,
   VehicleHaltStep,
+  FRONTEND_PATHS,
 } from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
 import { formatIndiaDateTime } from '../utils/trip-time';
@@ -281,6 +282,20 @@ export interface AccessChangedContext {
   addedCapabilities?: string;
   removedCapabilities?: string;
   removedCount?: number;
+}
+
+export interface AccessRemovedContext {
+  /** The removed user — LS_N_0007's main recipient (already soft-deleted when this sends). */
+  userId: string;
+  /** Their name, for the admin's confirmation. */
+  userName: string;
+  /** The org admin who removed them — the confirmation's recipient. */
+  adminUserId: string;
+  adminName: string;
+  orgName: string;
+  /** Where their open work went. Org users hold no loads of their own yet, so this is the
+   *  removing admin's name. */
+  reassignedTo: string;
 }
 
 /** LS_N_0006's two optional sentences — also sent whole to the email template as access_summary,
@@ -918,7 +933,7 @@ function firstNameOf(fullName: string | null): string {
 export const NOTIFICATION_CATALOG = {
   // LS_N_0001 — fired once by admin.service.ts's approveOrganization. The WhatsApp/SMS/email
   // copy itself lives in MSG91 templates (DLT/Meta-approved); this app only sends the variables.
-  // SMS always goes out; WhatsApp only when whatsappOptIn is true — not captured (null) or
+  // SMS always goes out; WhatsApp only when whatsappOptIn is true (the default) — null or
   // declined means SMS only (see notify-by-type.ts).
   'organization.account_approved': {
     label: 'Account approved',
@@ -928,6 +943,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['whatsapp', 'sms', 'email'],
     defaultChannels: ['whatsapp', 'sms', 'email'],
     severity: 'p2_action',
+    emailCtaPath: () => FRONTEND_PATHS.home,
     frequency: 'once_per_tenant',
     requiresWhatsappOptIn: true,
     // LS_N_0001's channels are WhatsApp, SMS and Email only — stored (once_per_tenant needs the
@@ -970,6 +986,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['sms', 'email'],
     defaultChannels: ['sms', 'email'],
     severity: 'p3_info',
+    emailCtaPath: () => FRONTEND_PATHS.root,
     frequency: 'once_per_tenant',
     // Spec: in-app "Not applicable, no app access yet" — stored for tracking, hidden in the app.
     inApp: false,
@@ -1002,6 +1019,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['sms', 'email'],
     defaultChannels: ['sms', 'email'],
     severity: 'p2_action',
+    emailCtaPath: () => FRONTEND_PATHS.root,
     inApp: false,
     dedupeKey: (context: OrganizationDocumentPendingContext) => context.documentId,
     reminderAfterMs: 48 * 60 * 60 * 1000,
@@ -1042,6 +1060,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['email'],
     defaultChannels: ['email'],
     severity: 'p3_info',
+    emailCtaPath: () => FRONTEND_PATHS.root,
     frequency: 'once_per_tenant',
     inApp: false,
     templates: {
@@ -1073,6 +1092,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['sms', 'email'],
     defaultChannels: ['sms', 'email'],
     severity: 'p2_action',
+    emailCtaPath: () => FRONTEND_PATHS.login,
     inApp: false,
     dedupeKey: (context: TeamMemberInvitedContext) => context.userId,
     reminderAfterMs: 24 * 60 * 60 * 1000,
@@ -1121,6 +1141,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['email'],
     defaultChannels: ['email'],
     severity: 'p3_info',
+    emailCtaPath: () => FRONTEND_PATHS.home,
     dedupeKey: (context: AccessChangedContext) => context.userId,
     debounceMs: 2 * 60 * 1000,
     templates: {
@@ -1153,6 +1174,77 @@ export const NOTIFICATION_CATALOG = {
           access_summary: summary,
           cta_label: 'See what I can do',
           cta_path: '/',
+        },
+      };
+    },
+  },
+
+  // LS_N_0007 — fired by auth.service.ts's removeOrganizationUser, to the removed user. Email
+  // only: their session has already ended, so nothing in-app. Their user row is soft-deleted by
+  // the time this sends, hence recipientMayBeRemoved.
+  'user.access_removed': {
+    label: 'Access removed',
+    category: 'account',
+    description: 'Your access to an organisation on Loadsmart was removed.',
+    recipientRoles: [],
+    recipientUserId: (context: AccessRemovedContext) => context.userId,
+    recipientMayBeRemoved: true,
+    channels: ['email'],
+    defaultChannels: ['email'],
+    severity: 'p3_info',
+    emailCtaPath: () => null,
+    inApp: false,
+    dedupeKey: (context: AccessRemovedContext) => context.userId,
+    templates: {
+      email: {
+        templateId: env.msg91EmailTemplateAccessRemoved,
+        variables: {
+          first_name: 'first_name',
+          org_name: 'org_name',
+          admin_name: 'admin_name',
+          reassigned_to: 'reassigned_to',
+        },
+      },
+    },
+    buildContent: (context: AccessRemovedContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `Your access to ${context.orgName} has been removed`,
+        body: `${firstName}, your access to ${context.orgName} on Loadsmart has been removed by ${context.adminName}. Any trips assigned to you have moved to ${context.reassignedTo}.`,
+        metadata: {
+          first_name: firstName,
+          org_name: context.orgName,
+          admin_name: context.adminName,
+          reassigned_to: context.reassignedTo,
+        },
+      };
+    },
+  },
+
+  // LS_N_0007's confirmation to the org admin who removed the user — in-app, since there's no
+  // admin email template (ls_n_0007's copy is addressed to the removed user).
+  'user.access_removed_confirmation': {
+    label: 'Teammate access removed',
+    category: 'account',
+    description: 'Confirms a teammate you removed no longer has access.',
+    recipientRoles: [],
+    recipientUserId: (context: AccessRemovedContext) => context.adminUserId,
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: AccessRemovedContext) => context.userId,
+    buildContent: (context: AccessRemovedContext, recipient) => {
+      const firstName = firstNameOf(recipient.fullName);
+      return {
+        title: `${context.userName}'s access to ${context.orgName} has been removed`,
+        body: `${firstName}, ${context.userName} no longer has access to ${context.orgName}. Any trips assigned to them have moved to ${context.reassignedTo}.`,
+        metadata: {
+          first_name: firstName,
+          user_name: context.userName,
+          org_name: context.orgName,
+          reassigned_to: context.reassignedTo,
+          cta_label: 'View team',
+          cta_path: '/settings',
         },
       };
     },
@@ -1381,6 +1473,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['email'],
     defaultChannels: ['email'],
     severity: 'p2_action',
+    emailCtaPath: () => FRONTEND_PATHS.fleet,
     inApp: false,
     dedupeKey: (context: VehicleDocumentsRollupContext) => context.runDate,
     templates: {
@@ -1418,6 +1511,8 @@ export const NOTIFICATION_CATALOG = {
     channels: ['push', 'email', 'sms'],
     defaultChannels: ['push', 'email', 'sms'],
     severity: 'p1_critical',
+    emailCtaPath: (context: VehicleDocumentExpiredContext) =>
+      FRONTEND_PATHS.vehicle(context.vehicleId),
     dedupeKey: (context: VehicleDocumentExpiredContext) =>
       `${context.vehicleId}-${context.runDate}`,
     templates: {
@@ -1784,6 +1879,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['whatsapp', 'email'],
     defaultChannels: ['whatsapp', 'email'],
     severity: 'p4_digest',
+    emailCtaPath: () => FRONTEND_PATHS.home,
     requiresWhatsappOptIn: true,
     inAppLatestOnly: true,
     dedupeKey: (context: DailyBriefContext) => `${context.userId}-${context.runDate}`,
@@ -2741,6 +2837,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['push', 'sms', 'email'],
     defaultChannels: ['push', 'sms', 'email'],
     severity: 'p2_action',
+    emailCtaPath: (context: PodUploadedContext) => FRONTEND_PATHS.load(context.loadId),
     dedupeKey: (context: PodUploadedContext) => `${context.loadId}-${context.uploadedAt}`,
     templates: {
       sms: {
@@ -2947,6 +3044,7 @@ export const NOTIFICATION_CATALOG = {
     channels: ['push', 'email'],
     defaultChannels: ['push', 'email'],
     severity: 'p1_critical',
+    emailCtaPath: (context: ShortageRecordedContext) => FRONTEND_PATHS.load(context.loadId),
     dedupeKey: (context: ShortageRecordedContext) =>
       `${context.loadId}-${context.reminder ? 'reminder' : 'recorded'}`,
     templates: {
@@ -3215,7 +3313,6 @@ export const NOTIFICATION_CATALOG = {
       const reporting = context.reportingTime
         ? ` Reporting at ${context.origin ?? 'the loading point'} by ${context.reportingTime}.`
         : '';
-      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
       return {
         title: `${vehicleNo} assigned to ${context.loadCode}`,
         body: `${givenBy}${reporting} ${assignmentComplianceSentenceOf(context)}`,
@@ -3229,7 +3326,6 @@ export const NOTIFICATION_CATALOG = {
           vehicle_checked: String(context.vehicleChecked),
           driver_checked: String(context.driverChecked),
           assigned_at: context.assignedAt,
-          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
           cta_label: 'View load',
           cta_path: `/loads/${context.loadId}`,
         },

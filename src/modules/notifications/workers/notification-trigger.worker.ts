@@ -3,6 +3,7 @@ import { getQueueConnection } from '../../../jobs/queue-connection';
 import { JobQueue } from '../../../jobs/queue-registry';
 import { NOTIFICATION_CATALOG } from '../catalog/notification-catalog';
 import { NotifyByType } from '../notify-by-type';
+import { traceNotification } from '../utils/notification-trace';
 import {
   NOTIFICATION_TRIGGERS_QUEUE,
   occurrenceKey,
@@ -57,15 +58,23 @@ export function createNotificationTriggerWorker(
         ? { ...(job.data.context as object), isReminder: true }
         : job.data.context;
 
+      traceNotification(type, `trigger job ${job.id} started (tenant ${tenantId})`);
+
       const isRelevant = relevanceChecks[type] as
         ((tenantId: string, context: unknown) => Promise<boolean>) | undefined;
-      if (isRelevant && !(await isRelevant(tenantId, context))) return;
+      if (isRelevant && !(await isRelevant(tenantId, context))) {
+        traceNotification(type, `trigger job ${job.id} skipped: no longer relevant`);
+        return;
+      }
 
       const resolve = contextResolvers[type] as
         ((tenantId: string, context: unknown) => Promise<unknown>) | undefined;
       if (resolve) {
         const resolved = await resolve(tenantId, context);
-        if (resolved === null) return; // nothing worth sending
+        if (resolved === null) {
+          traceNotification(type, `trigger job ${job.id} skipped: nothing worth sending`);
+          return; // nothing worth sending
+        }
         context = resolved;
       }
 

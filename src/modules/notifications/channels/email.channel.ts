@@ -2,6 +2,7 @@ import { Msg91Client } from '../../../adapters/msg91.client';
 import { NotificationEntity } from '../notifications.entity';
 import { NotificationChannel } from './notification-channel.interface';
 import { getNotificationTemplates, mapTemplateVariables } from '../catalog/notification-catalog';
+import { EMAIL_CTA_URL_KEY } from '../notifications.constants';
 
 /**
  * MSG91 Email API — the subject/body live in an MSG91 dashboard template, so only types with a
@@ -26,7 +27,11 @@ export class EmailChannel implements NotificationChannel {
     }
     await this.msg91Client.sendEmail(
       { email: destination },
-      mapTemplateVariables(template.variables, notification.metadata),
+      {
+        ...mapTemplateVariables(template.variables, notification.metadata),
+        // Every email gets its button link; '' for a type with no link (see emailCtaPath).
+        [EMAIL_CTA_URL_KEY]: String(notification.metadata?.[EMAIL_CTA_URL_KEY] ?? ''),
+      },
       template.templateId,
     );
   }

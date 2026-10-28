@@ -237,7 +237,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.AUTH],
     operationId: 'auth.updateWhatsappOptIn',
     ...authenticated(
-      'Record the caller’s WhatsApp notification consent — the first-login prompt when `whatsappOptIn` is null (not captured at signup), and the settings opt-in/opt-out toggle. Only `true` enables WhatsApp; SMS, email, and in-app notifications are unaffected.',
+      'Record the caller’s WhatsApp notification consent — the settings opt-in/opt-out toggle (WhatsApp is on by default). Only `true` enables WhatsApp; SMS, email, and in-app notifications are unaffected.',
     ),
     request: { body: json(authValidators.updateWhatsappOptIn.shape.body) },
     responses: {

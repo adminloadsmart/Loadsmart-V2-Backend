@@ -13,9 +13,11 @@ import { NotificationPreferencesRepository } from './notification-preferences.re
 import { rethrow } from '../../shared/errors';
 import { redisManager } from '../../db/redis';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
-import { QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
+import { EMAIL_CTA_URL_KEY, QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
 import { getQuietHoursDelayMs } from './utils/quiet-hours';
 import { resolveChannelPreferences } from './utils/channel-preferences';
+import { traceNotification } from './utils/notification-trace';
+import { appUrl } from './utils/app-url';
 
 export interface NotifyByTypeDeps {
   notificationsService: NotificationsService;
@@ -98,7 +100,12 @@ async function notifyByTypeImpl(
     ];
     const audience = (
       targetUserId
-        ? await findTenantUser(deps.authRepository, tenantId, targetUserId)
+        ? await findTenantUser(
+            deps.authRepository,
+            tenantId,
+            targetUserId,
+            definition.recipientMayBeRemoved,
+          )
         : byPermission
           ? // Holders of ANY of the listed permissions, plus anyone in recipientRoles (e.g.
             // LS_N_0048: compliance.manage + dispatch.planning.manage holders + org admins).
@@ -126,6 +133,12 @@ async function notifyByTypeImpl(
       (recipient, index) =>
         recipient.id !== excludedUserId &&
         audience.findIndex((other) => other.id === recipient.id) === index,
+    );
+    traceNotification(
+      type,
+      recipients.length
+        ? `recipients: ${recipients.map((recipient) => recipient.id).join(', ')}`
+        : `no recipient found in tenant ${tenantId}${targetUserId ? ` for user ${targetUserId}` : ''} — nothing sent`,
     );
 
     // Each recipient's own mediums for this type (Settings → Notifications): their saved row, else
@@ -174,6 +187,10 @@ async function notifyByTypeImpl(
     // When this occurrence's one reminder/escalation is due (if the type schedules one) — lets
     // the card show "escalates in 1h 40m". Mirrors the trigger worker's scheduling rule.
     const isReminder = (context as { isReminder?: boolean } | null)?.isReminder === true;
+    // The email button's full link (EMAIL_CTA_URL_KEY) — the same for every recipient of this dispatch.
+    const emailCtaUrl = definition.emailCtaPath
+      ? appUrl(definition.emailCtaPath(context))
+      : undefined;
     const followUpAt =
       definition.reminderAfterMs && !isReminder && (definition.shouldRemind?.(context) ?? true)
         ? new Date(Date.now() + definition.reminderAfterMs).toISOString()
@@ -245,7 +262,14 @@ async function notifyByTypeImpl(
         // all for this type ("turning an alert off stops it on every channel"). Types never shown
         // in the app (inApp: false) keep their row as before: it carries delivery tracking and
         // once_per_tenant.
-        if (isShownInApp && !enabled.inApp && channels.length === 0) return;
+        traceNotification(
+          type,
+          `user ${recipient.id}: preferences ${JSON.stringify(enabled)}; sending in-app ${isShownInApp && enabled.inApp ? 'yes' : 'no'}, other mediums [${channels.join(', ')}]${definition.channels.includes('email') && !recipient.email ? ' — no email on file' : ''}`,
+        );
+        if (isShownInApp && !enabled.inApp && channels.length === 0) {
+          traceNotification(type, `user ${recipient.id}: every medium is off — nothing sent`);
+          return;
+        }
 
         // Otherwise no early-return when channels is empty — a recipient with in-app on but no
         // other enabled channel (e.g. no contact info on file) still gets the notification row
@@ -260,11 +284,12 @@ async function notifyByTypeImpl(
           destinations,
           // Unchanged when there's nothing to add — a type without metadata still stores null.
           metadata:
-            highlights?.length || followUpAt
+            highlights?.length || followUpAt || emailCtaUrl !== undefined
               ? {
                   ...metadata,
                   ...(highlights?.length ? { highlights } : {}),
                   ...(followUpAt ? { follow_up_at: followUpAt } : {}),
+                  ...(emailCtaUrl !== undefined ? { [EMAIL_CTA_URL_KEY]: emailCtaUrl } : {}),
                 }
               : metadata,
           severity: definition.severity,
@@ -272,6 +297,7 @@ async function notifyByTypeImpl(
           // In-app off → the row exists only to carry the other mediums; hidden from the inbox.
           showInApp: isShownInApp ? enabled.inApp : true,
         });
+        traceNotification(type, `user ${recipient.id}: notification saved`);
       }),
     );
   } catch (error) {
@@ -299,8 +325,11 @@ async function findTenantUser(
   authRepository: AuthRepository,
   tenantId: string,
   userId: string,
+  includeRemoved = false,
 ): Promise<UserEntity[]> {
-  const user = await authRepository.findUserById(userId);
+  const user = includeRemoved
+    ? await authRepository.findUserByIdIncludingRemoved(userId)
+    : await authRepository.findUserById(userId);
   return user && user.tenantId === tenantId ? [user] : [];
 }
 

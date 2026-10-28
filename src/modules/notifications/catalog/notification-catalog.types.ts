@@ -49,6 +49,9 @@ export interface NotificationTypeDefinition<TContext> {
    *  recipientRoles fan-out — only that user (in this tenant, not deleted) is notified. Method
    *  syntax for the same bivariance reason as dedupeKey. */
   recipientUserId?(context: TContext): string;
+  /** With recipientUserId: also find that user when they've just been removed (soft-deleted) —
+   *  e.g. LS_N_0007, which tells the removed user. Default false: removed users get nothing. */
+  recipientMayBeRemoved?: boolean;
   /** Recipients = this tenant's users who hold `permission` (via role or a direct grant) and, if
    *  given, have `role` — e.g. whoever can approve a master record. Replaces the recipientRoles
    *  fan-out (recipientUserId wins if both are set). Method syntax, like dedupeKey. */
@@ -131,6 +134,10 @@ export interface NotificationTypeDefinition<TContext> {
    *  maps its template's variables from the notification's `metadata` by key; a type with no
    *  entry here keeps each channel's original behavior (see channels/*.channel.ts). */
   templates?: NotificationTemplates;
+  /** The web-app path the email's button opens — sent as the `cta_url` email variable (full URL,
+   *  see utils/app-url.ts). null → no link (`cta_url` empty). Only for types with an email
+   *  template. Method syntax, like dedupeKey. Paths are the frontend's own routes. */
+  emailCtaPath?(context: TContext): string | null;
   /** `recipient` is the user this copy is for — lets a type personalize per recipient (e.g. a
    *  first name) without the trigger site having to look users up itself. */
   buildContent(

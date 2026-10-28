@@ -45,6 +45,12 @@ export class AuthRepository {
     return this.users.findOne({ where: { id, deletedAt: IsNull() }, relations: { role: true } });
   }
 
+  /** findUserById, but a removed (soft-deleted) user is found too — only for telling that user
+   *  they were removed (LS_N_0007). */
+  findUserByIdIncludingRemoved(id: string): Promise<UserEntity | null> {
+    return this.users.findOne({ where: { id }, relations: { role: true } });
+  }
+
   /** This tenant's active users holding `permissionKey` — through their role's permissions or a
    *  direct grant — optionally limited to one role. Backs notifications addressed to "whoever can
    *  do X" (e.g. approve a master record, LS_N_0009). */
@@ -117,7 +123,7 @@ export class AuthRepository {
       passwordHash: data.passwordHash ?? null,
       fullName: data.fullName ?? null,
       coverage: data.coverage ?? null,
-      whatsappOptIn: data.whatsappOptIn ?? null,
+      whatsappOptIn: data.whatsappOptIn ?? true,
       deletedAt: null,
     });
     const saved = await users.save(user);
