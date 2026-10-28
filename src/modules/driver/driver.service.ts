@@ -1436,7 +1436,7 @@ export class DriverService {
       // The licence lookup runs here, server-side, rather than trusting a result the client sends —
       // same as the bank check below and DriverIdentityService.completeRegistration. A result the
       // bulk-import preview fetched (and cached) a moment ago is reused instead of paying for a
-      // second lookup. Outside the transaction, since the IDfy poll can take ~15s and shouldn't
+      // second lookup. Outside the transaction, since the licence lookup can be slow and shouldn't
       // hold it open.
       const licenceLookup =
         (await getCachedLicenceLookup(
