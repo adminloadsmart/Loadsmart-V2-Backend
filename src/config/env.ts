@@ -216,6 +216,11 @@ export const env = {
   msg91SmsTemplateTeamInvite: process.env.MSG91_SMS_TEMPLATE_TEAM_INVITE || undefined,
   msg91EmailTemplateTeamInvite: process.env.MSG91_EMAIL_TEMPLATE_TEAM_INVITE || undefined,
   msg91EmailTemplateAccessChanged: process.env.MSG91_EMAIL_TEMPLATE_ACCESS_CHANGED || undefined,
+  // LS_N_0007 "access removed" (email, to the removed user).
+  msg91EmailTemplateAccessRemoved: process.env.MSG91_EMAIL_TEMPLATE_ACCESS_REMOVED || undefined,
+  // The web app's address, e.g. https://app.loadsmart.in (no trailing slash needed) — emails send
+  // `cta_url` = this + the type's emailCtaPath. Unset → `cta_url` goes out empty.
+  frontendBaseUrl: process.env.FRONTEND_BASE_URL?.trim().replace(/\/+$/, '') || undefined,
   // LS_N_0047 vehicle document expiring (SMS + weekly roll-up email) / LS_N_0048 expired (SMS + email).
   msg91SmsTemplateDocExpiring: process.env.MSG91_SMS_TEMPLATE_DOC_EXPIRING || undefined,
   msg91EmailTemplateDocRollup: process.env.MSG91_EMAIL_TEMPLATE_DOC_ROLLUP || undefined,

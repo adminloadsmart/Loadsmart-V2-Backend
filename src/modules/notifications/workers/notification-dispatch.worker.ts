@@ -3,6 +3,7 @@ import { getQueueConnection } from '../../../jobs/queue-connection';
 import { NotificationsService } from '../notifications.service';
 import { NotificationChannel } from '../channels/notification-channel.interface';
 import { NotificationChannelName } from '../notifications.types';
+import { traceNotification } from '../utils/notification-trace';
 
 interface DispatchJobPayload {
   notificationId: string;
@@ -36,7 +37,15 @@ export function createNotificationDispatchWorker(
         await notificationsService.recordDeliveryResult(notification.id, channelName, {
           status: 'sent',
         });
+        traceNotification(
+          notification.type,
+          `${channelName} sent for notification ${notification.id}`,
+        );
       } catch (error) {
+        traceNotification(
+          notification.type,
+          `${channelName} failed for notification ${notification.id} (attempt ${job.attemptsMade + 1}): ${error instanceof Error ? error.message : String(error)}`,
+        );
         await notificationsService.recordDeliveryResult(notification.id, channelName, {
           status: 'failed',
           error: error instanceof Error ? error.message : String(error),

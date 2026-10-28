@@ -12,6 +12,7 @@ import { PermissionEntity, PermissionScope } from './entities/permission.entity'
 import { UserEntity } from '../auth/entities/user.entity';
 import { RoleRepository } from './role.repository';
 import { CapabilitiesChange } from './role.interface';
+import { traceNotification, warnNotification } from '../notifications/utils/notification-trace';
 
 type Scope = RoleScope | PermissionScope;
 
@@ -43,8 +44,24 @@ export class RoleService {
     actingUser: AuthenticatedUser,
     targetUser: UserEntity,
   ): Promise<string[] | null> {
-    if (!this.onCapabilitiesChanged) return null;
-    if (actingUser.role !== ORG_ADMIN_ROLE || !targetUser.tenantId) return null;
+    const trace = (message: string) =>
+      traceNotification(
+        'user.access_changed',
+        `${message} (target ${targetUser.id}, by ${actingUser.id} as ${actingUser.role})`,
+      );
+    if (!this.onCapabilitiesChanged) {
+      trace('skipped: the access-change hook is not wired');
+      return null;
+    }
+    if (actingUser.role !== ORG_ADMIN_ROLE) {
+      trace(`skipped: only an org admin's change notifies, not ${actingUser.role}`);
+      return null;
+    }
+    if (!targetUser.tenantId) {
+      trace('skipped: the target user belongs to no organisation');
+      return null;
+    }
+    trace('access change by an org admin — will queue the notification');
     return this.getEffectivePermissions(targetUser.id);
   }
 
@@ -62,7 +79,11 @@ export class RoleService {
         before,
       });
     } catch (error) {
-      console.warn(`Failed to queue access-changed notification for user ${targetUser.id}`, error);
+      warnNotification(
+        'user.access_changed',
+        `Failed to queue access-changed notification for user ${targetUser.id}`,
+        error,
+      );
     }
   }
 

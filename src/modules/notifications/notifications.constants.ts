@@ -4,7 +4,7 @@ import {
   NotificationCtaStyle,
   NotificationSeverity,
 } from './notifications.types';
-import { QuietHoursSetting } from './notifications.interface';
+import { NotificationTypeKey, QuietHoursSetting } from './notifications.interface';
 import {
   UNLOADED_LOAD_STATUSES,
   type LoadIssueCategory,
@@ -209,3 +209,25 @@ export const TYRE_ACTION_LABELS: Record<string, string> = {
   new_tyre: 'replacement',
   scrap: 'scrapping',
 };
+
+/** Notification types whose path is logged step by step (utils/notification-trace.ts) → the sheet
+ *  code every log line starts with, so `grep LS_N_0006` on a server finds the whole trail. */
+export const TRACED_NOTIFICATION_TYPES: Partial<Record<NotificationTypeKey, string>> = {
+  'user.access_changed': 'LS_N_0006',
+  'user.access_removed': 'LS_N_0007',
+  'user.access_removed_confirmation': 'LS_N_0007',
+};
+
+/** Web-app routes an email's button can open — the frontend's own pages (its app/ folder). Built
+ *  into the full `cta_url` link by utils/app-url.ts. */
+export const FRONTEND_PATHS = {
+  root: '/',
+  home: '/home',
+  login: '/auth/login',
+  fleet: '/fleet',
+  vehicle: (vehicleId: string) => `/fleet/${vehicleId}`,
+  load: (loadId: string) => `/loads/${loadId}`,
+} as const;
+
+/** Metadata key — and email template variable — carrying the email button's full link. */
+export const EMAIL_CTA_URL_KEY = 'cta_url';

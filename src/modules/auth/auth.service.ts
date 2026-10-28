@@ -80,6 +80,8 @@ import {
 import { buildCsv, CSV_EXPORT_MAX_ROWS } from '../../shared/utils/csv';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { joinCapabilities } from '../notifications/capability-wording';
+import type { AccessRemovedContext } from '../notifications/catalog/notification-catalog';
+import { traceNotification, warnNotification } from '../notifications/utils/notification-trace';
 import { NotificationTriggers } from '../notifications/notifications.interface';
 
 // Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
@@ -169,7 +171,7 @@ export class AuthService {
         phoneNumber,
         tenantId: null,
         roleId,
-        whatsappOptIn: input.whatsappOptIn ?? null,
+        whatsappOptIn: input.whatsappOptIn ?? true,
       });
     }
 
@@ -728,6 +730,47 @@ export class AuthService {
         role: target.role.name,
       },
     });
+    await this.notifyAccessRemoved(actingUser, tenantId, target);
+  }
+
+  /** Best-effort LS_N_0007 "access removed": an email to the removed user and an in-app
+   *  confirmation to the admin. Only the enqueue happens here; even that failing must never fail
+   *  the removal, so it's logged, not rethrown. Org users hold no loads of their own yet, so
+   *  "where the open work went" is the removing admin. */
+  private async notifyAccessRemoved(
+    actingUser: AuthenticatedUser,
+    tenantId: string,
+    target: UserEntity,
+  ): Promise<void> {
+    try {
+      const [admin, organization] = await Promise.all([
+        this.authRepository.findUserById(actingUser.id),
+        this.organizationService.getOrganizationStatus(tenantId),
+      ]);
+      const adminName = admin?.fullName || 'Your admin';
+      const context: AccessRemovedContext = {
+        userId: target.id,
+        userName: target.fullName || target.phoneNumber,
+        adminUserId: actingUser.id,
+        adminName,
+        orgName: organizationDisplayName(organization),
+        reassignedTo: adminName,
+      };
+      await Promise.all([
+        this.notificationTriggers.enqueue('user.access_removed', tenantId, context),
+        this.notificationTriggers.enqueue('user.access_removed_confirmation', tenantId, context),
+      ]);
+      traceNotification(
+        'user.access_removed',
+        `queued for removed user ${target.id} (email${target.email ? '' : ' — no email on file, nothing will go out'}) and admin ${actingUser.id} (in-app)`,
+      );
+    } catch (error) {
+      warnNotification(
+        'user.access_removed',
+        `Failed to queue access-removed notification for user ${target.id}`,
+        error,
+      );
+    }
   }
 
   /** Users table "Export CSV". */
