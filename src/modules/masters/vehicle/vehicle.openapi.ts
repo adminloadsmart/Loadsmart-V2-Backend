@@ -38,7 +38,8 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
       200: {
         description:
           'Paginated vehicles — { data: { items, page, limit, total, totalPages } }. ' +
-          'Each vehicle carries `tyres` — the tyres currently fitted (position, brand, serial, size, fitted date, retreads, casing, current/original tread mm, usableTreadLeftPct, nearLimit/atLegalLimit, treadEstimated); empty for attached trucks or when none are on record.',
+          'Each vehicle carries `tyres` — the tyres currently fitted (position, brand, serial, size, fitted date, retreads, casing, current/original tread mm, usableTreadLeftPct, nearLimit/atLegalLimit, treadEstimated); empty for attached trucks or when none are on record. ' +
+          'Each vehicle also carries `documents` — the same per-truck document records (type, number, issue/expiry date, provider, file URL, status) returned by GET /vehicles/{vehicleId}, so the fleet list can show document/compliance state without a per-row follow-up call.',
       },
     },
   });
