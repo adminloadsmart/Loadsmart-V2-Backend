@@ -300,7 +300,6 @@ export class LoadPostingService {
                 : 'own_fleet',
           status: input.mode === 'own_fleet' ? 'truck_assigned' : 'created',
           truckAssignedAt: input.mode === 'own_fleet' ? new Date() : null,
-          plannedCapacityTonnes: plannedCapacity,
           truckTypeId: trucks.main?.id ?? null,
           feetWheels: input.truck?.bodyLengthFt ?? null,
           freightType:
@@ -325,6 +324,8 @@ export class LoadPostingService {
           balancePercentage: balance,
           createdBy: actorId,
           ...(input.mode === 'own_fleet' ? vehicleLoadDefaults : {}),
+          // The entered cargo wins over the truck's capacity (the truck's is only the fallback).
+          plannedCapacityTonnes: plannedCapacity,
         }));
         const loads = await this.loadRepository.createMany(rows, manager);
 
