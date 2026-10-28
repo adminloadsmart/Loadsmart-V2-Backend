@@ -76,11 +76,11 @@ export class UserEntity {
   @Column({ name: 'permissions_version', type: 'integer', default: 1 })
   permissionsVersion!: number;
 
-  // Consent for WhatsApp Business notifications (see notify-by-type.ts). Captured at signup
-  // (POST /auth/verify-otp); null = never captured → no WhatsApp (SMS only) and the client asks
-  // at first login, saving the answer via PATCH /auth/me/whatsapp-opt-in. Only `true` sends
-  // WhatsApp. SMS/email/in-app aren't gated by this.
-  @Column({ name: 'whatsapp_opt_in', type: 'boolean', nullable: true })
+  // Consent for WhatsApp Business notifications (see notify-by-type.ts). On by default — new
+  // users start at true unless signup (POST /auth/verify-otp) sends false; users can opt out via
+  // PATCH /auth/me/whatsapp-opt-in. Only `true` sends WhatsApp. SMS/email/in-app aren't gated
+  // by this.
+  @Column({ name: 'whatsapp_opt_in', type: 'boolean', nullable: true, default: true })
   whatsappOptIn!: boolean | null;
 
   // Settings → Users & Roles "Based at" — the loading point/site an org teammate works from.

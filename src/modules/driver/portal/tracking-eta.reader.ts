@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import Redis from 'ioredis';
 import { DataSource } from 'typeorm';
 import { DrivingRoute, GoogleRoutesClient, LatLng } from '../../../adapters/google-routes.client';
@@ -252,7 +253,7 @@ export class RedisTrackingEtaReader implements TrackingEtaReader {
           : dropMaster;
       return {
         status: load.status,
-        vehicleId: load.vehicleId ?? null,
+        vehicleId: trackingVehicleId(load.tenantId, load.vehicleId, load.vehicleNumber),
         origin: pointOfPlace(pickup),
         destination: pointOfPlace(drop),
         destinationRadiusM: dropMaster?.geofenceRadiusM ?? DEFAULT_GEOFENCE_M,
@@ -292,6 +293,34 @@ export class RedisTrackingEtaReader implements TrackingEtaReader {
       return null;
     }
   }
+}
+
+/** Must match the tracking service's marketVehicleId (trips/trip-state.ts) — the namespace and
+ *  the tenant:plate name — or a market truck's positions are filed under another id. */
+const MARKET_VEHICLE_NAMESPACE = '6f1c2a3e-8d4b-5f7a-9c1e-2b3d4f5a6b7c';
+
+export function marketVehicleId(tenantId: string, plate: string): string {
+  const name = `${tenantId.toLowerCase()}:${plate.replace(/[\s-]/g, '').toUpperCase()}`;
+  const bytes = createHash('sha1')
+    .update(Buffer.from(MARKET_VEHICLE_NAMESPACE.replace(/-/g, ''), 'hex'))
+    .update(name)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** The id the tracking service files this truck's positions under: the fleet vehicle, or one
+ *  derived from a market truck's plate. */
+function trackingVehicleId(
+  tenantId: string,
+  vehicleId: string | null,
+  vehicleNumber: string | null,
+): string | null {
+  if (vehicleId) return vehicleId;
+  return vehicleNumber?.trim() ? marketVehicleId(tenantId, vehicleNumber) : null;
 }
 
 const km = (metres: number) => Math.round(metres / 100) / 10;
