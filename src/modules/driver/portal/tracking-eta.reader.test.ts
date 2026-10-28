@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataSource } from 'typeorm';
 import type { DrivingRoute, LatLng } from '../../../adapters/google-routes.client';
+import { LoadEntity } from '../../loads/entities/load.entity';
 import { RedisTrackingEtaReader } from './tracking-eta.reader';
 
 const latest = vi.hoisted(() => ({ value: {} as Record<string, string> }));
@@ -18,7 +19,11 @@ const NOW = Date.parse('2026-10-28T10:00:00.000Z');
 const ORIGIN = { lat: 30.7687, lng: 76.5754 };
 const DROP = { lat: 30.7046, lng: 76.7179 };
 
-function dataSource(load: object | null, storedRoute: object | null = null): DataSource {
+function dataSource(
+  load: object | null | (() => never),
+  storedRoute: object | null = null,
+  masters: Record<string, object> = {},
+): DataSource {
   const query = {
     select: () => query,
     addSelect: () => query,
@@ -29,7 +34,10 @@ function dataSource(load: object | null, storedRoute: object | null = null): Dat
     getRawOne: async () => storedRoute,
   };
   return {
-    getRepository: () => ({ findOne: async () => load }),
+    getRepository: (entity: unknown) =>
+      entity === LoadEntity
+        ? { findOne: async () => (typeof load === 'function' ? load() : load) }
+        : { findOneBy: async ({ id }: { id: string }) => masters[id] ?? null },
     createQueryBuilder: () => query,
   } as unknown as DataSource;
 }
@@ -63,7 +71,9 @@ describe('RedisTrackingEtaReader', () => {
   beforeEach(() => {
     nowMs = NOW;
     latest.value = {};
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it('before the truck heads for the drop: loading → unloading distance, ETA = now + drive time', async () => {
     const { client, calls } = google(() => ({ distanceM: 25_000, durationS: 45 * 60 }));
@@ -151,7 +161,7 @@ describe('RedisTrackingEtaReader', () => {
     });
   });
 
-  it('in transit without any position falls back to the planned route', async () => {
+  it('in transit without any position falls back to the planned route, marked stale', async () => {
     const { client } = google(() => ({ distanceM: 25_000, durationS: 2700 }));
     const reader = new RedisTrackingEtaReader(
       dataSource(loadAt('in_transit_unloading')),
@@ -159,7 +169,103 @@ describe('RedisTrackingEtaReader', () => {
       client,
       clock,
     );
+    expect(await reader.getTripEta(TRIP)).toMatchObject({
+      remainingKm: 25,
+      source: 'planned',
+      stale: true,
+    });
+  });
+
+  it('marked reached_unloading but the truck is far from the drop: measured from the truck', async () => {
+    // Pasighat → Bhiwani, truck still in Ludhiana (~240 km away).
+    const pasighat = { lat: 28.0663, lng: 95.3268 };
+    const bhiwani = { lat: 28.795876, lng: 76.149466 };
+    latest.value = {
+      lat: '30.9546513',
+      lng: '75.8306984',
+      recordedAt: new Date(NOW - 60_000).toISOString(),
+      tripId: TRIP,
+    };
+    const { client } = google((origin) =>
+      origin.lat === pasighat.lat
+        ? { distanceM: 2_494_300, durationS: 45 * 3600 }
+        : { distanceM: 301_000, durationS: 6 * 3600 },
+    );
+    const load = {
+      ...loadAt('reached_unloading'),
+      requisition: {
+        loadingPoint: { latitude: String(pasighat.lat), longitude: String(pasighat.lng) },
+        customerDeliveryPoint: {
+          latitude: String(bhiwani.lat),
+          longitude: String(bhiwani.lng),
+          geofenceRadiusM: 300,
+        },
+      },
+    };
+    const reader = new RedisTrackingEtaReader(dataSource(load), 'redis://x', client, clock);
+    expect(await reader.getTripEta(TRIP)).toEqual({
+      distanceKm: 2494.3,
+      remainingKm: 301,
+      etaAt: new Date(NOW + 6 * 3_600_000).toISOString(),
+      source: 'live',
+      stale: false,
+    });
+  });
+
+  it('marked reached_unloading with the truck at the drop: nothing left', async () => {
+    latest.value = {
+      lat: String(DROP.lat + 0.001), // ~110 m away
+      lng: String(DROP.lng),
+      recordedAt: new Date(NOW - 60_000).toISOString(),
+      tripId: TRIP,
+    };
+    const { client } = google(() => ({ distanceM: 25_000, durationS: 2700 }));
+    const reader = new RedisTrackingEtaReader(
+      dataSource(loadAt('reached_unloading')),
+      'redis://x',
+      client,
+      clock,
+    );
+    expect(await reader.getTripEta(TRIP)).toMatchObject({ remainingKm: 0, etaAt: null });
+  });
+
+  it('a posting without coordinates uses the masters it was picked from', async () => {
+    const posting = {
+      pickupAddress: { latitude: null, longitude: null },
+      dropAddress: { latitude: null, longitude: null },
+      pickupLoadingPointId: 'lp-1',
+      dropCustomerDeliveryPointId: 'dp-1',
+      dropLoadingPointId: null,
+    };
+    const { client, calls } = google(() => ({ distanceM: 25_000, durationS: 2700 }));
+    const reader = new RedisTrackingEtaReader(
+      dataSource({ status: 'loaded', vehicleId: 'veh-1', requisition: null, posting }, null, {
+        'lp-1': { latitude: String(ORIGIN.lat), longitude: String(ORIGIN.lng) },
+        'dp-1': { latitude: String(DROP.lat), longitude: String(DROP.lng), geofenceRadiusM: 300 },
+      }),
+      'redis://x',
+      client,
+      clock,
+    );
     expect(await reader.getTripEta(TRIP)).toMatchObject({ remainingKm: 25, source: 'planned' });
+    expect(calls).toEqual([ORIGIN]);
+  });
+
+  it('a failing load read is logged, and no ETA is shown', async () => {
+    const { client } = google(() => null);
+    const reader = new RedisTrackingEtaReader(
+      dataSource(() => {
+        throw new Error('db down');
+      }),
+      'redis://x',
+      client,
+      clock,
+    );
+    expect(await reader.getTripEta(TRIP)).toBeNull();
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('reading the load failed'),
+      expect.any(Error),
+    );
   });
 
   it('at the drop: nothing left', async () => {

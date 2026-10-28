@@ -106,12 +106,15 @@ export class VehicleRepository {
       // with the driver relation so the fleet table can show the linked driver's name, not just
       // their id. Callers pick out the active/primary link themselves, same shape as GET /vehicles/:id.
       // telemetryMeta carries EMI + GPS fields (section 4 of the vehicle form) for the same reason.
+      // documents lets the fleet table surface each truck's document/compliance state without a
+      // second call per row, same shape as GET /vehicles/:id.
       relations: {
         operationalStatus: true,
         truckType: true,
         driverLinks: { driver: true },
         telemetryMeta: true,
         serviceUsage: true,
+        documents: true,
       },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,

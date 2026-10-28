@@ -14,16 +14,22 @@ export interface DrivingRoute {
 
 const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 const TIMEOUT_MS = 10_000;
+let warnedNoKey = false;
 
 /**
  * Wraps Google's Routes API (computeRoutes) for road distance and driving time between two
  * points. Only distance and duration are requested (field mask), which keeps the call on the
  * cheapest SKU. Fail-soft: null when the key is missing, Google finds no route, or the call fails —
- * callers fall back to what they already have.
+ * callers fall back to what they already have. Failures are logged (e.g. the Routes API not being
+ * enabled for GOOGLE_MAPS_API_KEY).
  */
 export class GoogleRoutesClient {
   async drivingRoute(origin: LatLng, destination: LatLng): Promise<DrivingRoute | null> {
-    if (!env.googleMapsApiKey) return null;
+    if (!env.googleMapsApiKey) {
+      if (!warnedNoKey) console.warn('[google-routes] GOOGLE_MAPS_API_KEY not configured');
+      warnedNoKey = true;
+      return null;
+    }
     try {
       const response = await fetch(ROUTES_URL, {
         method: 'POST',
@@ -44,19 +50,27 @@ export class GoogleRoutesClient {
           units: 'METRIC',
         }),
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        console.warn(`[google-routes] computeRoutes ${response.status}: ${text.slice(0, 300)}`);
+        return null;
+      }
       const body = (await response.json()) as {
         routes?: Array<{ distanceMeters?: number; duration?: string }>;
       };
       const route = body.routes?.[0];
-      if (!route?.distanceMeters) return null;
+      if (!route?.distanceMeters) {
+        console.warn('[google-routes] computeRoutes returned no route', { origin, destination });
+        return null;
+      }
       // Duration comes as e.g. "2700s".
       const durationS = route.duration ? Number.parseFloat(route.duration) : NaN;
       return {
         distanceM: route.distanceMeters,
         durationS: Number.isFinite(durationS) ? durationS : null,
       };
-    } catch {
+    } catch (err) {
+      console.warn('[google-routes] computeRoutes request failed', err);
       return null;
     }
   }
