@@ -1,8 +1,11 @@
+import { Msg91Client } from '../../../adapters/msg91.client';
+import { whatsappRequestIdOf } from '../../../adapters/msg91-whatsapp-report';
+import { env } from '../../../config/env';
 import { NotificationEntity } from '../../notifications/notifications.entity';
 import { PushChannel } from '../../notifications/channels/push.channel';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { DriverSessionRepository } from './driver-auth.repository';
-import { DriverInviteNotifyResult } from './driver-auth.types';
+import { DriverInviteNotifyResult, DriverInviteWhatsAppResult } from './driver-auth.types';
 import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
 
 /**
@@ -25,7 +28,47 @@ export class DriverPushNotifier {
     private readonly driverSessionRepository: DriverSessionRepository,
     private readonly notificationsService: NotificationsService,
     private readonly pushChannel: PushChannel = new PushChannel(),
+    private readonly msg91Client: Msg91Client = new Msg91Client(),
   ) {}
+
+  /**
+   * The invite's WhatsApp, from the business number via MSG91 — sent once, straight from the
+   * request (not the notifications queue), so a Resend is the retry. `skipped` = the template or
+   * app link isn't configured; the invite still goes out on push. Best-effort like push(): a
+   * failure is returned, never thrown. `trackedLink` (when API_PUBLIC_URL is set) replaces the
+   * plain app link so the tap is recorded; `requestId` lets MSG91's delivery reports find the invite.
+   */
+  async notifyInvitedOnWhatsApp(
+    phoneNumber: string,
+    tenantName: string,
+    trackedLink: string | null,
+  ): Promise<DriverInviteWhatsAppResult> {
+    const templateName = env.msg91WhatsappTemplateDriverInvite;
+    if (!templateName || !env.driverAppUrl) {
+      console.info(
+        `Driver invite WhatsApp to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_DRIVER_INVITE / DRIVER_APP_URL not configured`,
+      );
+      return { status: 'skipped', requestId: null };
+    }
+    try {
+      const response = await this.msg91Client.sendWhatsapp(
+        phoneNumber,
+        [tenantName, trackedLink ?? env.driverAppUrl],
+        templateName,
+      );
+      const requestId = whatsappRequestIdOf(response);
+      // Accepted is not delivered — Meta's rejection reason only shows in MSG91's WhatsApp reports.
+      console.info(
+        `Driver invite WhatsApp to ${phoneNumber} accepted by MSG91 — template=${templateName}, requestId=${requestId ?? 'none found'}, response=${JSON.stringify(response ?? null)}`,
+      );
+      return { status: 'sent', requestId };
+    } catch (error) {
+      console.warn(
+        `Driver invite WhatsApp to ${phoneNumber} failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return { status: 'failed', requestId: null };
+    }
+  }
 
   /**
    * Returns whether at least one of the driver's devices accepted the push — false when they have

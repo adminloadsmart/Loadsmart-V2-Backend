@@ -51,6 +51,7 @@ import {
   DriverRosterEmploymentFilter,
   DRIVER_INVITE_SEND_STEPS,
   DriverInviteSendStep,
+  DriverInviteSendStatus,
   DriverInviteWhatsAppReportStatus,
   DriverRosterSegment,
 } from './drivers.types';
@@ -62,9 +63,9 @@ export function inviteExpiryFrom(sentAt: Date): Date {
 
 /**
  * Everything a fresh send (first invite or Resend) stamps on the relation: the clock restarts,
- * the previous send's "viewed" is cleared, and every channel goes back to `pending`. SMS and
- * WhatsApp stay `pending` — recorded, not sent — until the notification-branch sending is wired in
- * here; push is overwritten with the real FCM result via setPushDeliveryStatus right after.
+ * the previous send's "viewed" is cleared, and every channel goes back to `pending`. SMS stays
+ * `pending` — recorded, not sent; push and WhatsApp are overwritten with the real send result by
+ * DriverService.deliverInvite right after.
  */
 export function inviteSendColumns(actorId: string | null, now: Date): InviteSendColumns {
   return {
@@ -969,6 +970,31 @@ export class DriverTenantRelationRepository {
     });
   }
 
+  /** MSG91's answer to the invite's WhatsApp send — the provider's later delivery reports go
+   *  through setWhatsAppDeliveryStatus below, matched by `requestId` (replaced on every send, so a
+   *  report for an earlier send no longer finds this invite). */
+  async setWhatsAppSendStatus(
+    id: string,
+    status: DriverInviteSendStatus,
+    requestId: string | null,
+  ): Promise<void> {
+    await this.updateLocked({ id }, (relation) => {
+      const now = new Date();
+      return {
+        whatsappDeliveryStatus: status,
+        whatsappDeliveryStatusAt: now,
+        whatsappRequestId: requestId,
+        ...(status === 'failed' && {
+          inviteTimeline: withTimelineEvents(relation, {
+            step: 'delivery_failed',
+            at: now.toISOString(),
+            channel: 'whatsapp',
+          }),
+        }),
+      };
+    });
+  }
+
   /**
    * WhatsApp's delivery report for the latest send. `read` is the driver reading the invite
    * message: logged as `whatsapp_read` once per send (the first read after it), and it sets
@@ -988,6 +1014,8 @@ export class DriverTenantRelationRepository {
           event.step === 'whatsapp_read' &&
           (!latestSend || Date.parse(event.at) >= Date.parse(latestSend.at)),
       );
+      // Reports can arrive out of order — a late `delivered` mustn't undo `read`.
+      if (status === 'delivered' && relation.whatsappDeliveryStatus === 'read') return null;
       const columns = { whatsappDeliveryStatus: status, whatsappDeliveryStatusAt: at };
       if (status === 'failed') {
         return {
@@ -1007,6 +1035,32 @@ export class DriverTenantRelationRepository {
         inviteTimeline: withTimelineEvents(relation, {
           step: 'whatsapp_read',
           at: at.toISOString(),
+        }),
+      };
+    });
+  }
+
+  /** The invite whose latest WhatsApp send MSG91 gave this request id, if any. */
+  async findIdByWhatsAppRequestId(requestId: string): Promise<string | null> {
+    const relation = await this.relations.findOne({
+      where: { whatsappRequestId: requestId, deletedAt: IsNull() },
+      select: { id: true },
+    });
+    return relation?.id ?? null;
+  }
+
+  /**
+   * The driver tapped the invite WhatsApp's tracked app link — logged as `link_opened` with the
+   * device on every tap, while the invite has been sent. Not for a deleted row.
+   */
+  async recordInviteLinkOpened(id: string, device: string | null, at: Date): Promise<void> {
+    await this.updateLocked({ id, deletedAt: IsNull() }, (relation) => {
+      if (!relation.inviteSentAt) return null;
+      return {
+        inviteTimeline: withTimelineEvents(relation, {
+          step: 'link_opened',
+          at: at.toISOString(),
+          device,
         }),
       };
     });

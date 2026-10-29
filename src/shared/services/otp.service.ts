@@ -164,9 +164,23 @@ export class OtpService {
    *  by the request, and a failure never affects login (SMS is the primary channel). The code is
    *  never included in logs. */
   private sendWhatsappCopy(phoneNumber: string, otp: string): void {
-    if (!env.msg91WhatsappTemplateOtp) return;
+    if (!env.msg91WhatsappTemplateOtp) {
+      console.info(
+        `WhatsApp OTP copy to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_OTP not configured`,
+      );
+      return;
+    }
+    const templateName = env.msg91WhatsappTemplateOtp;
+    console.info(`WhatsApp OTP copy to ${phoneNumber} sending — template=${templateName}`);
     this.msg91Client
-      .sendWhatsapp(phoneNumber, [otp], env.msg91WhatsappTemplateOtp)
+      .sendWhatsapp(phoneNumber, [otp], templateName)
+      .then((response) =>
+        // Accepted is not delivered — if it never arrives, search the MSG91 dashboard's WhatsApp
+        // reports for this number; Meta's rejection reason only shows there.
+        console.info(
+          `WhatsApp OTP copy to ${phoneNumber} accepted by MSG91 — template=${templateName}, response=${JSON.stringify(response ?? null).replace(otp, '****')}`,
+        ),
+      )
       .catch((error: unknown) =>
         console.warn(
           `WhatsApp OTP copy to ${phoneNumber} failed: ${error instanceof Error ? error.message.replace(otp, '****') : 'unknown error'}`,
