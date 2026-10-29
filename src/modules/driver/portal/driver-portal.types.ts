@@ -26,6 +26,8 @@ export interface DriverProfileView extends DriverWithRelation {
   /** One entry per active fleet the driver is linked to. The top-level organizationName/vehicle/
    *  performance below mirror the first (oldest) link, kept for older app builds. */
   fleets: DriverFleetView[];
+  /** Signed download URL for the driver's profile photo; null when none is set. */
+  profilePhotoUrl?: string | null;
   organizationName: string | null;
   experienceYears: number | null;
   vehicle: {

@@ -83,7 +83,7 @@ export const licenseNumber = z
  * fullName is optional: the server takes it from the Sarathi lookup and only needs this one when
  * the lookup returns no name (see DriverService.onboardDriver).
  */
-const driverCoreFields = {
+export const driverCoreFields = {
   fullName: z.string().trim().min(1).max(150).optional(),
   phoneNumber: z
     .string()

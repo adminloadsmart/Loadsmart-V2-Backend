@@ -593,6 +593,7 @@ export interface UpdateDriverProfileData {
   hasHealthInsurance?: DriverInsuranceAnswer;
   onboardingStep?: DriverOnboardingStep | null;
   registrationSource?: DriverRegistrationSource;
+  profilePhotoKey?: string | null;
   updatedBy?: string | null;
 }
 

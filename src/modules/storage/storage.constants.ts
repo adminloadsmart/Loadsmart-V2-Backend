@@ -8,6 +8,7 @@ export const UPLOAD_PURPOSES = [
   'masters/driver',
   'organizations/shopboard-premises',
   'profile',
+  'driver/profile',
   'loads/invoice',
   'loads/eway-bill',
   'loads/payment-proof',
@@ -64,6 +65,13 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 2 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png'],
     keyPrefix: 'profile',
+  },
+  // Driver-app profile photo — see driver-portal.service.ts's updateMyProfile. Uploaded tenant-less
+  // via driver-portal's own POST /files.
+  'driver/profile': {
+    maxSizeBytes: 2 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png'],
+    keyPrefix: 'driver/profile',
   },
   // `trips/pod`/`trips/lr` above for E-POD/E-LR, already at the same 5MB limit.
   'loads/invoice': {

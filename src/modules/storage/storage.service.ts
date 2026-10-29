@@ -107,6 +107,18 @@ export class StorageService {
     throw new NotFoundError(`File ${fileId} not found`);
   }
 
+  // Driver-app confirm: a tenant-less file is confirmed only for the driver who requested it
+  // (profile photo); anything else falls back to the driver's own tenants.
+  async confirmUploadForDriver(
+    driverId: string,
+    tenantIds: string[],
+    fileId: string,
+  ): Promise<FileEntity> {
+    const tenantless = await this.repository.findByNullTenant(fileId);
+    if (tenantless?.uploadedBy === driverId) return this.confirmUpload(null, fileId);
+    return this.confirmUploadForTenants(tenantIds, fileId);
+  }
+
   // Server-side upload counterpart to generateUploadUrl/confirmUpload. Use this when the client
   // submits the binary to our API rather than uploading directly through a presigned S3 POST.
   async uploadTenantFile(

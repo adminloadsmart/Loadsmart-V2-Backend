@@ -105,6 +105,10 @@ export class DriverEntity {
   @Column({ name: 'date_of_birth', type: 'date', nullable: true })
   dateOfBirth!: string | null;
 
+  // S3 key of the driver's own profile photo (storage purpose 'driver/profile', uploaded tenant-less).
+  @Column({ name: 'profile_photo_key', type: 'varchar', length: 500, nullable: true })
+  profilePhotoKey!: string | null;
+
   @Column({ name: 'blood_group', type: 'enum', enum: [...DRIVER_BLOOD_GROUPS], nullable: true })
   bloodGroup!: DriverBloodGroup | null;
 

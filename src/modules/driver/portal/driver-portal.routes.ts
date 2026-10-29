@@ -32,6 +32,12 @@ export function createDriverPortalRoutes(
   const router = Router();
 
   router.get('/me', driverIdentityAuth, asyncHandler(controller.getMe));
+  router.patch(
+    '/me',
+    driverIdentityAuth,
+    validate(driverPortalValidators.updateMyProfile),
+    asyncHandler(controller.updateMyProfile),
+  );
   router.get('/me/status', driverIdentityAuth, asyncHandler(controller.getMyStatus));
   // Rate-limited like the other IDfy-backed preflights (verify-dl) — it fans out to a paid check.
   router.post(

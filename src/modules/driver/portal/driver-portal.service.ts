@@ -1,4 +1,4 @@
-import { NotFoundError, rethrow } from '../../../shared/errors';
+import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { msg } from '../../../shared/i18n/translate';
 import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagination';
@@ -8,7 +8,12 @@ import {
   DriverTenantRelationRepository,
   isInviteSendEvent,
 } from '../driver-tenant-relation.repository';
-import { AddBankDetailsInput, SetDriverOperationalStatusInput } from '../drivers.interface';
+import {
+  AddBankDetailsInput,
+  SetDriverOperationalStatusInput,
+  UpdateDriverProfileData,
+} from '../drivers.interface';
+import { StorageService } from '../../storage/storage.service';
 import { DriverEntity } from '../entities/driver.entity';
 import { DriverOperationalStatusEntity } from '../entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity';
@@ -138,6 +143,7 @@ export class DriverPortalService {
     private readonly loadService: LoadService,
     private readonly notificationsService: NotificationsService,
     private readonly trackingEtaReader?: TrackingEtaReader,
+    private readonly storageService?: StorageService,
   ) {}
 
   /**
@@ -259,11 +265,61 @@ export class DriverPortalService {
     driverId: string,
     tenantIds: string[],
   ): Promise<DriverProfileView | DriverEntity> {
-    if (tenantIds.length === 0) return this.fetchGlobalProfile(driverId);
+    if (tenantIds.length === 0) {
+      const driver = await this.fetchGlobalProfile(driverId);
+      return Object.assign(driver, {
+        profilePhotoUrl: await this.profilePhotoUrlOf(driver.profilePhotoKey),
+      });
+    }
     const views = await Promise.all(
       tenantIds.map((tenantId) => this.fetchTenantProfile(tenantId, driverId)),
     );
-    return { ...views[0], fleets: views.flatMap((view) => view.fleets) };
+    return {
+      ...views[0],
+      fleets: views.flatMap((view) => view.fleets),
+      profilePhotoUrl: await this.profilePhotoUrlOf(views[0].profilePhotoKey),
+    };
+  }
+
+  /** Self-service profile edit. `input` is already whitelisted by the validator — phone number,
+   *  licence details and date of birth never reach here. A new photo must be the driver's own
+   *  confirmed 'driver/profile' upload. Returns the refreshed profile. */
+  async updateMyProfile(
+    driverId: string,
+    tenantIds: string[],
+    input: Omit<UpdateDriverProfileData, 'updatedBy'>,
+  ): Promise<DriverProfileView | DriverEntity> {
+    try {
+      if (input.profilePhotoKey) await this.assertOwnProfilePhoto(driverId, input.profilePhotoKey);
+      const updated = await this.driverRepository.update(driverId, {
+        ...input,
+        updatedBy: driverId,
+      });
+      if (!updated) throw new NotFoundError(msg('errors.driver.notFoundById', { id: driverId }));
+      return await this.getMyProfile(driverId, tenantIds);
+    } catch (error) {
+      rethrow(error, 'Failed to update driver profile');
+    }
+  }
+
+  private async assertOwnProfilePhoto(driverId: string, key: string): Promise<void> {
+    const { file } = await this.storageService!.getByKeyNullTenant(key);
+    if (file.purpose !== 'driver/profile' || file.uploadedBy !== driverId) {
+      throw new ConflictError(`File ${key} was not uploaded as your profile photo`);
+    }
+    if (file.status !== 'confirmed') {
+      throw new ConflictError(`File ${key} must be confirmed before it can be attached`);
+    }
+  }
+
+  /** Signed download URL for the driver's profile photo, or null when none is set. */
+  private async profilePhotoUrlOf(key: string | null | undefined): Promise<string | null> {
+    if (!key || !this.storageService) return null;
+    try {
+      return (await this.storageService.getByKeyNullTenant(key)).downloadUrl;
+    } catch {
+      return null; // a missing/expired file must not break the whole profile screen
+    }
   }
 
   /** The driver's availability in every fleet they're linked to — an empty list with no active

@@ -36,6 +36,30 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'patch',
+    path: `${BASE}/me`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.updateMyProfile',
+    ...authenticated(
+      'Edit the driver’s own profile. Only fullName, bloodGroup, address, emergency contact, ' +
+        'insurance answers and profilePhotoKey are editable. The mobile number, driving licence ' +
+        '(number/expiry/verification) and date of birth are locked — sending any of them is a 400. ' +
+        'For a photo: POST /driver-portal/files with purpose "driver/profile" (works with no fleet ' +
+        'linked), upload to S3, confirm, then send the returned key as profilePhotoKey. Works with ' +
+        'an identity-access token. Returns the refreshed profile, same shape as GET /me.',
+    ),
+    request: { body: json(driverPortalValidators.updateMyProfile.shape.body) },
+    responses: {
+      200: { description: 'Refreshed profile — same shape as GET /me' },
+      400: {
+        description: 'Empty body, invalid value, or a locked field was sent',
+        ...errorContent,
+      },
+      409: { description: 'profilePhotoKey is not your confirmed profile upload', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'get',
     path: `${BASE}/me/status`,
     tags: [TAGS.DRIVER_PORTAL],
