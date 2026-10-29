@@ -68,10 +68,12 @@ export class GooglePlacesClient {
     query: string;
     sessionToken?: string;
     country?: string;
+    citiesOnly?: boolean;
   }): Promise<GoogleAutocompletePrediction[]> {
     const search = new URLSearchParams({ input: params.query });
     if (params.sessionToken) search.set('sessiontoken', params.sessionToken);
     if (params.country) search.set('components', `country:${params.country}`);
+    if (params.citiesOnly) search.set('types', '(cities)');
 
     const body = await this.get<AutocompleteResponse>('/maps/api/place/autocomplete/json', search);
     return body.predictions ?? [];

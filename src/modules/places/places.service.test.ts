@@ -52,6 +52,13 @@ describe('PlacesService', () => {
     ]);
   });
 
+  it('asks Google for cities only when type is city', async () => {
+    const client = new GooglePlacesClient();
+    const autocomplete = vi.spyOn(client, 'autocomplete').mockResolvedValue([]);
+    await new PlacesService(client).search({ q: 'morad', country: 'in', type: 'city' });
+    expect(autocomplete).toHaveBeenCalledWith(expect.objectContaining({ citiesOnly: true }));
+  });
+
   it('maps Google NOT_FOUND to NotFoundError', async () => {
     const client = new GooglePlacesClient();
     vi.spyOn(client, 'details').mockRejectedValue(new GooglePlacesError('NOT_FOUND', 'nope'));
