@@ -542,14 +542,23 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'spaces and hyphens are stripped first. `validUntil` is the transport validity when the ' +
         'licence has one, else the non-transport validity. `transportClass` lists only the ' +
         'transport classes. `age` is computed from `dateOfBirth`, so it is present even when the ' +
-        'registry returned nothing.',
+        'registry returned nothing. ' +
+        'If the licence number already belongs to a driver in our DB (matched on number alone, ' +
+        'dateOfBirth is not compared) the registry is not called; the stored profile is returned ' +
+        'instead as `existingDriver`, with `invitation` saying whether this tenant can invite them ' +
+        '— the form then offers only "Send invitation" (POST /drivers/invitations with the ' +
+        'returned phoneNumber).',
     ),
     request: { body: json(driverValidators.verifyDriverDl.shape.body) },
     responses: {
       200: {
         description:
-          '{ status, holderName?, licenseClass?, transportClass?, validUntil?, licenseStatus?, ' +
-          'age, addressLine1?, city?, rawResponse? } — registry fields only when available',
+          'Either { status, holderName?, licenseClass?, transportClass?, validUntil?, ' +
+          'licenseStatus?, age, addressLine1?, city?, rawResponse? } — registry fields only when ' +
+          'available — or, for a licence already in the DB, { existingDriver: { driverId, ' +
+          'fullName, phoneNumber, licenseNumber, licenseVerified, licenseExpiry, dateOfBirth, ' +
+          'bloodGroup, addressLine1, addressLine2, city, pinCode, emergencyContactName, ' +
+          'emergencyContactPhone }, invitation: { canInvite, reason, invitationId } }',
       },
       400: { description: 'Validation failed', ...errorContent },
     },

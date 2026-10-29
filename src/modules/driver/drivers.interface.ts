@@ -147,6 +147,39 @@ export interface InviteDriverByPhoneResult {
   invitation: DriverInvitationView | null;
 }
 
+/**
+ * What POST /drivers/verify-dl returns when the licence number already belongs to a driver in the
+ * DB: the stored profile (no bank details) and whether this tenant can invite them. The form then
+ * offers only "Send invitation" (via POST /drivers/invitations with `phoneNumber`) — no Sarathi call.
+ */
+export interface ExistingDriverLookup {
+  existingDriver: {
+    driverId: string;
+    fullName: string;
+    phoneNumber: string;
+    licenseNumber: string | null;
+    licenseVerified: boolean;
+    licenseExpiry: string | null;
+    dateOfBirth: string | null;
+    bloodGroup: DriverEntity['bloodGroup'];
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    pinCode: string | null;
+    emergencyContactName: string | null;
+    emergencyContactPhone: string | null;
+  };
+  invitation: {
+    canInvite: boolean;
+    /** Why not, shown as-is; null while canInvite. */
+    reason: string | null;
+    /** This tenant's existing invitation (for Resend), if it has one. */
+    invitationId: string | null;
+  };
+}
+
+export type VerifyDriverDlResult = SarathiDrivingLicenceResult | ExistingDriverLookup;
+
 export interface DriverInvitationDeliveryChannel {
   channel: DriverInviteChannel;
   status: DriverInviteDeliveryStatus | null;

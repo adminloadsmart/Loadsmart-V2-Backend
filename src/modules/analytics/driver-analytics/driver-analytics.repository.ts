@@ -9,7 +9,7 @@ import {
   Not,
 } from 'typeorm';
 import { LoadEntity } from '../../loads/entities/load.entity';
-import { ACTIVE_LOAD_STATUSES } from '../../loads/utils/loads.types';
+import { ON_ROAD_LOAD_STATUSES } from '../../loads/utils/loads.types';
 import { DriverEntity } from '../../driver/entities/driver.entity';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { FleetDriverLinkEntity } from '../../masters/fleet-driver-link/entities/fleet-driver-link.entity';
@@ -157,21 +157,21 @@ export class DriverAnalyticsRepository {
     return new Map([...byDriver].map(([driverId, rows]) => [driverId, toTripStats(rows)]));
   }
 
-  /** Every non-closed own-fleet load in the tenant, newest first — the roster's live
+  /** Every on-road own-fleet load (assigned, not yet unloaded) in the tenant, newest first — the roster's live
    *  on-trip/available split. Bounded by fleet size, so one fetch serves every row and tab count. */
   findActiveDriverLoads(tenantId: string): Promise<LoadEntity[]> {
     return this.loads.find({
-      where: { tenantId, driverId: Not(IsNull()), status: In([...ACTIVE_LOAD_STATUSES]) },
+      where: { tenantId, driverId: Not(IsNull()), status: In([...ON_ROAD_LOAD_STATUSES]) },
       select: { id: true, code: true, status: true, driverId: true, createdAt: true },
       order: { createdAt: 'DESC' },
     });
   }
 
-  /** The driver's newest non-closed load — the live "is this driver on a load right now" check.
+  /** The driver's newest on-road load (a delivered load no longer holds the driver) — the live "is this driver on a load right now" check.
    *  Load assignment never touches driver_operational_status, so that row alone can't answer it. */
   findActiveLoadForDriver(tenantId: string, driverId: string): Promise<LoadEntity | null> {
     return this.loads.findOne({
-      where: { tenantId, driverId, status: In([...ACTIVE_LOAD_STATUSES]) },
+      where: { tenantId, driverId, status: In([...ON_ROAD_LOAD_STATUSES]) },
       order: { createdAt: 'DESC' },
     });
   }

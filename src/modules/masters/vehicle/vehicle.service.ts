@@ -625,13 +625,26 @@ export class VehicleService {
       const leaseRentMonthly = money(input.leaseRentMonthly);
       const existing = await this.vehicleRepository.findTelemetryMeta(tenantId, vehicleId, manager);
 
+      // `gps_enabled` follows the device: on once a GPS is fitted and has an IMEI, off otherwise —
+      // unless the caller states it outright. Without this, onboarding with GPS = yes + IMEI left
+      // it false, so tracking-source.hook.ts never picked `gps` for the vehicle's loads.
+      const gpsChanged = input.hasGps !== undefined || input.gpsDeviceImei !== undefined;
+      const gpsEnabled =
+        input.gpsEnabled ??
+        (gpsChanged
+          ? Boolean(
+              (input.hasGps ?? existing?.hasGps) &&
+              (input.gpsDeviceImei ?? existing?.gpsDeviceImei),
+            )
+          : undefined);
+
       if (!existing) {
         return await this.vehicleRepository.createTelemetryMeta(
           {
             tenantId,
             vehicleId,
             gpsProvider: input.gpsProvider ?? null,
-            gpsEnabled: input.gpsEnabled ?? false,
+            gpsEnabled: gpsEnabled ?? false,
             hasGps: input.hasGps ?? null,
             gpsDeviceImei: input.gpsDeviceImei ?? null,
             emiAmount: emiAmount ?? null,
@@ -653,6 +666,7 @@ export class VehicleService {
         vehicleId,
         {
           ...input,
+          gpsEnabled,
           emiAmount,
           fixedCostMonthly,
           insurancePremiumYearly,
