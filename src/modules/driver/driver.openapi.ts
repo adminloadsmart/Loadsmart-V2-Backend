@@ -271,8 +271,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'spaces/hyphens/+ ignored. Items: { invitationId, requestId (INV-00042), driverId, ' +
         'fullName, phoneNumber, status, sentAt, expiresAt, respondedAt, rejectionReason, ' +
         'deliveryChannels [{ channel: sms | whatsapp | push, status, statusAt }], appInstalled, ' +
-        "openedAt (when the driver read the latest send's WhatsApp message; null until then, " +
-        'cleared by Resend), canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
+        "openedAt (when the driver first tapped the app link in the latest send's WhatsApp " +
+        'message; null until then, cleared by Resend), canResend (whether Resend would go through now), sendsLeftAfterDecline (sends left since ' +
         'the driver first declined — once declined, the invite can be sent one more time, then ' +
         'once more every 30 days after the latest decline or send; null when never declined), ' +
         'canSendAgainAt (while no send is left, when the next one opens up; else null) }.',

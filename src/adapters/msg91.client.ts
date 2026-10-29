@@ -6,6 +6,14 @@ interface Msg91Response {
   message?: string;
 }
 
+/** The WhatsApp API's answer — `status`/`hasError` like the Email API, not the SMS APIs' `type`.
+ *  The rest (request id, `errors`) is passed back to the caller as-is. */
+interface Msg91WhatsappResponse {
+  status?: string; // 'success' | 'fail'
+  hasError?: boolean;
+  [key: string]: unknown;
+}
+
 /**
  * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
  * numbers, and they're stored without the country code.
@@ -78,10 +86,10 @@ export class Msg91Client {
     phoneNumber: string,
     variables: string[],
     templateName: string | undefined = env.msg91WhatsappTemplateName,
-  ): Promise<void> {
+  ): Promise<Msg91WhatsappResponse | undefined> {
     if (isMsg91SkippedNumber(phoneNumber)) {
       console.info(`MSG91 WhatsApp skipped for test number ${phoneNumber}`);
-      return;
+      return undefined;
     }
     if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
       throw new Error(
@@ -119,11 +127,21 @@ export class Msg91Client {
         }),
       },
     );
-    const body = (await response.json().catch(() => null)) as Msg91Response | null;
+    // Like the Email API below, this endpoint answers with `status`/`hasError`, not the `type`
+    // field the SMS/OTP APIs use. Checking `type` here rejected every accepted message, so BullMQ
+    // retried it and the recipient got the same WhatsApp three times.
+    const body = (await response.json().catch(() => null)) as Msg91WhatsappResponse | null;
 
-    if (body?.type !== 'success') {
-      throw new Error(`MSG91 send WhatsApp message failed: ${body?.message ?? response.status}`);
+    if (!response.ok || body?.hasError || body?.status !== 'success') {
+      // The whole body, not just `message` — MSG91 often puts the actual reason under `errors`.
+      throw new Error(
+        `MSG91 send WhatsApp message failed (HTTP ${response.status}): ${body ? JSON.stringify(body) : 'no JSON body'}`,
+      );
     }
+    // Accepted is not delivered — Meta can still reject it afterwards (e.g. a template parameter
+    // mismatch), which only shows in the MSG91 dashboard's WhatsApp reports. Returned so callers
+    // can log MSG91's request id to search there.
+    return body;
   }
 
   /**

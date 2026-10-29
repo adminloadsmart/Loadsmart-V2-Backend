@@ -239,6 +239,10 @@ export type DriverInviteWhatsAppReportStatus = Extract<
   'delivered' | 'read' | 'failed'
 >;
 
+/** The result of sending an invite on one channel — what the provider answered, before any
+ *  delivery report. */
+export type DriverInviteSendStatus = Extract<DriverInviteDeliveryStatus, 'sent' | 'failed'>;
+
 /** Channels an invite goes out on — one deliveryChannels entry each. */
 export const DRIVER_INVITE_CHANNELS = ['sms', 'whatsapp', 'push'] as const;
 export type DriverInviteChannel = (typeof DRIVER_INVITE_CHANNELS)[number];
