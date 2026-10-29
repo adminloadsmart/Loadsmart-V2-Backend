@@ -225,6 +225,7 @@ export function createDriverPortalModule(deps: {
     deps.loadService,
     deps.notificationsService,
     new RedisTrackingEtaReader(deps.dataSource),
+    deps.storageService,
   );
   const controller = new DriverPortalController(
     driverPortalService,

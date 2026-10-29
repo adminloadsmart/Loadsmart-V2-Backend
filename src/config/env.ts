@@ -125,8 +125,8 @@ export const env = {
     'LOCATION_LOOKUP_RATE_LIMIT_WINDOW_SECONDS',
     300,
   ),
-  // IDfy's `verify_with_source` DL check (Sarathi registry). SarathiClient falls back to
-  // manual_review whenever any of these is missing, so the app runs fine without them.
+  // IDfy `verify_with_source` credentials (bank-account verification; the licence check no longer
+  // uses IDfy). Optional — the app runs fine without them.
   idfyApiKey: process.env.IDFY_API_KEY || undefined,
   idfyAccountId: process.env.IDFY_ACCOUNT_ID || undefined,
   idfyBaseUrl: process.env.IDFY_BASE_URL || 'https://eve.idfy.com',

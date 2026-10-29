@@ -1,4 +1,4 @@
-import { NotFoundError, rethrow } from '../../../shared/errors';
+import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { msg } from '../../../shared/i18n/translate';
 import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagination';
@@ -8,13 +8,20 @@ import {
   DriverTenantRelationRepository,
   isInviteSendEvent,
 } from '../driver-tenant-relation.repository';
-import { AddBankDetailsInput, SetDriverOperationalStatusInput } from '../drivers.interface';
+import {
+  AddBankDetailsInput,
+  SetDriverOperationalStatusInput,
+  UpdateDriverProfileData,
+} from '../drivers.interface';
+import { StorageService } from '../../storage/storage.service';
 import { DriverEntity } from '../entities/driver.entity';
 import { DriverOperationalStatusEntity } from '../entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity';
 import { LoadService, TripsDoneResult } from '../../loads/load.service';
 import { ListLoadsInput } from '../../loads/utils/load.interface';
 import { TripListRow } from '../../loads/utils/trip-view';
+import { UPCOMING_LOAD_STATUSES } from '../../loads/utils/loads.types';
+import { MAX_PAGE_SIZE } from '../../../shared/constants/pagination';
 import { TrackingEtaReader, TripEta } from './tracking-eta.reader';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ListNotificationsInput } from '../../notifications/notifications.interface';
@@ -136,6 +143,7 @@ export class DriverPortalService {
     private readonly loadService: LoadService,
     private readonly notificationsService: NotificationsService,
     private readonly trackingEtaReader?: TrackingEtaReader,
+    private readonly storageService?: StorageService,
   ) {}
 
   /**
@@ -257,11 +265,61 @@ export class DriverPortalService {
     driverId: string,
     tenantIds: string[],
   ): Promise<DriverProfileView | DriverEntity> {
-    if (tenantIds.length === 0) return this.fetchGlobalProfile(driverId);
+    if (tenantIds.length === 0) {
+      const driver = await this.fetchGlobalProfile(driverId);
+      return Object.assign(driver, {
+        profilePhotoUrl: await this.profilePhotoUrlOf(driver.profilePhotoKey),
+      });
+    }
     const views = await Promise.all(
       tenantIds.map((tenantId) => this.fetchTenantProfile(tenantId, driverId)),
     );
-    return { ...views[0], fleets: views.flatMap((view) => view.fleets) };
+    return {
+      ...views[0],
+      fleets: views.flatMap((view) => view.fleets),
+      profilePhotoUrl: await this.profilePhotoUrlOf(views[0].profilePhotoKey),
+    };
+  }
+
+  /** Self-service profile edit. `input` is already whitelisted by the validator — phone number,
+   *  licence details and date of birth never reach here. A new photo must be the driver's own
+   *  confirmed 'driver/profile' upload. Returns the refreshed profile. */
+  async updateMyProfile(
+    driverId: string,
+    tenantIds: string[],
+    input: Omit<UpdateDriverProfileData, 'updatedBy'>,
+  ): Promise<DriverProfileView | DriverEntity> {
+    try {
+      if (input.profilePhotoKey) await this.assertOwnProfilePhoto(driverId, input.profilePhotoKey);
+      const updated = await this.driverRepository.update(driverId, {
+        ...input,
+        updatedBy: driverId,
+      });
+      if (!updated) throw new NotFoundError(msg('errors.driver.notFoundById', { id: driverId }));
+      return await this.getMyProfile(driverId, tenantIds);
+    } catch (error) {
+      rethrow(error, 'Failed to update driver profile');
+    }
+  }
+
+  private async assertOwnProfilePhoto(driverId: string, key: string): Promise<void> {
+    const { file } = await this.storageService!.getByKeyNullTenant(key);
+    if (file.purpose !== 'driver/profile' || file.uploadedBy !== driverId) {
+      throw new ConflictError(`File ${key} was not uploaded as your profile photo`);
+    }
+    if (file.status !== 'confirmed') {
+      throw new ConflictError(`File ${key} must be confirmed before it can be attached`);
+    }
+  }
+
+  /** Signed download URL for the driver's profile photo, or null when none is set. */
+  private async profilePhotoUrlOf(key: string | null | undefined): Promise<string | null> {
+    if (!key || !this.storageService) return null;
+    try {
+      return (await this.storageService.getByKeyNullTenant(key)).downloadUrl;
+    } catch {
+      return null; // a missing/expired file must not break the whole profile screen
+    }
   }
 
   /** The driver's availability in every fleet they're linked to — an empty list with no active
@@ -390,22 +448,29 @@ export class DriverPortalService {
       };
     }
 
-    const [profile, tripsDone, activeJobs, upcomingJobs, openTrips] = await Promise.all([
+    const [profile, tripsDone, openTrips] = await Promise.all([
       this.getMyProfile(driverId, tenantIds) as Promise<DriverProfileView>,
       this.loadService.getMyTripsDone(tenantIds, driverId, { page: 1, limit: 1 }, locale),
       this.loadService.list(
         tenantIds,
-        { page: 1, limit: 1, driverId, group: 'in_progress' },
+        { page: 1, limit: MAX_PAGE_SIZE, driverId, group: 'open' },
         locale,
       ),
-      this.loadService.list(
-        tenantIds,
-        { page: 1, limit: 5, driverId, status: 'truck_assigned' },
-        locale,
-      ),
-      this.loadService.list(tenantIds, { page: 1, limit: 1, driverId, group: 'open' }, locale),
     ]);
-    const currentJob = activeJobs.items[0] ?? null;
+    // One open-loads fetch split in code, so a load is never both current and next: a trip already
+    // moving wins; otherwise the driver's earliest-pickup assigned load becomes the current trip
+    // (a driver whose first trip was just assigned sees it as current, not "upcoming"), and the
+    // remaining assigned loads are what's next.
+    const moving = openTrips.items.filter((job) => !UPCOMING_LOAD_STATUSES.includes(job.status));
+    const assigned = openTrips.items
+      .filter((job) => UPCOMING_LOAD_STATUSES.includes(job.status))
+      .sort(
+        (a, b) =>
+          (a.pickupDate ?? '9999-12-31').localeCompare(b.pickupDate ?? '9999-12-31') ||
+          a.createdAt.localeCompare(b.createdAt),
+      );
+    const currentJob = moving[0] ?? assigned[0] ?? null;
+    const upcomingJobs = assigned.filter((job) => job.id !== currentJob?.id).slice(0, 5);
     const currentEta = currentJob
       ? ((await this.trackingEtaReader?.getTripEta(currentJob.id)) ?? null)
       : null;
@@ -424,13 +489,13 @@ export class DriverPortalService {
         onTimePercentage: profile.performance.onTimeDeliveryPercentage,
         openTrips: openTrips.total,
       },
-      currentJob: activeJobs.items[0] ?? null,
-      upcomingJobs: upcomingJobs.items,
+      currentJob,
+      upcomingJobs,
       currentTrip: currentJob
         ? toHomeCurrentTrip(currentJob, organizationOf(currentJob), currentEta)
         : null,
-      nextTrip: upcomingJobs.items[0]
-        ? toHomeNextTrip(upcomingJobs.items[0], organizationOf(upcomingJobs.items[0]))
+      nextTrip: upcomingJobs[0]
+        ? toHomeNextTrip(upcomingJobs[0], organizationOf(upcomingJobs[0]))
         : null,
       money: { cashHeld: null, organizationName: profile.organizationName },
       unreadNotificationCount,

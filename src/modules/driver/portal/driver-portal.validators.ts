@@ -16,7 +16,11 @@ import {
   LOAD_STATUSES,
 } from '../../loads/utils/loads.types';
 import { DRIVER_OPERATIONAL_STATUSES } from '../drivers.types';
-import { bankAccountCheckBody, driverBankDetailsBody } from '../driver.validators';
+import {
+  bankAccountCheckBody,
+  driverBankDetailsBody,
+  driverCoreFields,
+} from '../driver.validators';
 
 // The storage purposes reachable through driver-portal's own upload handshake — kept as an
 // explicit allow-list (not the full UPLOAD_PURPOSES enum) so a driver can never request an
@@ -32,6 +36,7 @@ const driverUploadPurpose = z.enum([
   'trips/lr',
   'loads/loading-photo',
   'loads/weighing-slip',
+  'driver/profile',
 ]);
 
 const uuid = z.string().uuid();
@@ -50,6 +55,29 @@ export const driverPortalValidators = {
   // Mirrors loads/load.validators.ts's `list` query filters — status/group/sourceType only
   // (no requisitionId/transporterId/vehicleId/driverId here, unlike the staff-facing schema:
   // this list is always implicitly scoped to req.driver!.id, never another scope).
+  // The only fields a driver may change on their own profile. Deliberately .strict(): the mobile
+  // number (the login), licence number/expiry/verification and date of birth (all tied to the
+  // Sarathi DL check) and every staff-managed employment field are rejected with a 400 rather
+  // than silently ignored. `profilePhotoKey` is the key of a confirmed 'driver/profile' upload.
+  updateMyProfile: z.object({
+    body: z
+      .object({
+        fullName: driverCoreFields.fullName,
+        bloodGroup: driverCoreFields.bloodGroup,
+        addressLine1: driverCoreFields.addressLine1,
+        addressLine2: driverCoreFields.addressLine2,
+        city: driverCoreFields.city,
+        pinCode: driverCoreFields.pinCode,
+        emergencyContactName: driverCoreFields.emergencyContactName,
+        emergencyContactPhone: driverCoreFields.emergencyContactPhone,
+        emergencyContactRelation: driverCoreFields.emergencyContactRelation,
+        hasHealthInsurance: driverCoreFields.hasHealthInsurance,
+        hasLifeInsurance: driverCoreFields.hasLifeInsurance,
+        profilePhotoKey: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, 'Provide at least one field to update'),
+  }),
   verifyMyBankAccount: z.object({ body: bankAccountCheckBody }),
   addMyBankDetails: z.object({ body: driverBankDetailsBody }),
   listMyLoads: z.object({

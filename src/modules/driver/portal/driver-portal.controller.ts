@@ -66,10 +66,28 @@ export class DriverPortalController {
     return tenantIds[0];
   }
 
+  // Profile photos are tenant-less; drops the optional `loadId` so only the upload fields remain.
+  private stripLoadId(req: Request): null {
+    const { loadId: _loadId, ...input } = req.body as GenerateUploadUrlInput & { loadId?: string };
+    req.body = input;
+    return null;
+  }
+
   getMe = async (req: Request, res: Response) => {
     const profile = await this.driverPortalService.getMyProfile(
       req.driver!.id,
       req.driver!.tenantIds ?? [],
+    );
+    respond(res, profile);
+  };
+
+  // Self-service profile edit — the validator whitelists the editable fields; the mobile number,
+  // licence details and date of birth can never reach the service.
+  updateMyProfile = async (req: Request, res: Response) => {
+    const profile = await this.driverPortalService.updateMyProfile(
+      req.driver!.id,
+      req.driver!.tenantIds ?? [],
+      req.body,
     );
     respond(res, profile);
   };
@@ -279,8 +297,12 @@ export class DriverPortalController {
   // trips/pod (E-POD photos) or loads/issue (issue-report photos) — the only two a driver may
   // request through this route.
   requestUploadUrl = async (req: Request, res: Response) => {
+    // A profile photo belongs to the driver, not a fleet, so it is stored tenant-less — which also
+    // lets a driver with no fleet yet set one.
+    const tenantId =
+      req.body?.purpose === 'driver/profile' ? this.stripLoadId(req) : await this.uploadTenant(req);
     const file = await this.storageService.generateUploadUrl(
-      await this.uploadTenant(req),
+      tenantId,
       req.driver!.id,
       req.body as GenerateUploadUrlInput,
     );
@@ -290,7 +312,8 @@ export class DriverPortalController {
   // Step 2 — confirms the direct-to-S3 upload from step 1. The resulting key is what gets passed
   // as podFileKey to uploadMyPod, or as one of photoFileKeys to reportMyIssue, above.
   confirmUpload = async (req: Request, res: Response) => {
-    const file = await this.storageService.confirmUploadForTenants(
+    const file = await this.storageService.confirmUploadForDriver(
+      req.driver!.id,
       req.driver!.tenantIds ?? [],
       (req.params as unknown as FileParams).fileId,
     );

@@ -232,7 +232,7 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'driverAuth.verifyDl',
     ...authenticated(
       'Step-1 preflight, mirroring POST /masters/drivers/verify-dl — checks a licence + date of ' +
-        'birth against the Sarathi registry via IDfy before the driver submits the rest of the ' +
+        'birth against the Sarathi registry via ULIP before the driver submits the rest of the ' +
         'registration form. Read-only: does not persist anything, and does not require ' +
         'licenseNumber/dateOfBirth to match what the driver eventually submits to /register, ' +
         'which runs this same lookup again (and is the one whose result actually gets saved as a ' +

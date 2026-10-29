@@ -535,12 +535,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.verifyDriverDl',
     ...write(
-      'Check a driving licence + date of birth against the Sarathi registry via IDfy, before the ' +
-        'driver record exists — step 2 of the "Add a driver" form. Submits an async IDfy task and ' +
-        'polls for the result before responding. As of 2026-08 (IDfy credits exhausted), always ' +
-        'falls back to verified (without registry fields) — whether IDFY_API_KEY/IDFY_ACCOUNT_ID/' +
-        'IDFY_TASK_ID/IDFY_GROUP_ID are unset, the call fails, or IDfy completes the task but ' +
-        'reports no match. Revert to manual_review on those paths once IDfy credits are restored. ' +
+      'Check a driving licence + date of birth against the Sarathi registry via ULIP, before the ' +
+        'driver record exists — step 2 of the "Add a driver" form. IDfy is not used for licence ' +
+        'verification. ' +
         '`licenseNumber` must be the standard 15-character DL format (e.g. MH1220190012345); ' +
         'spaces and hyphens are stripped first. `validUntil` is the transport validity when the ' +
         'licence has one, else the non-transport validity. `transportClass` lists only the ' +
