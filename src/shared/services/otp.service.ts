@@ -43,13 +43,9 @@ export class OtpService {
     await this.enforceRequestLimit(phoneNumber, ipAddress);
     await redisManager.set(cooldownKey, '1', cooldownSeconds);
 
-    if (useDevOtpBypass()) {
-      // Dev-only: no MSG91 call, no real SMS — DEV_BYPASS_OTP is the only code verifyOtpCode
-      // will accept while the bypass is active.
-      console.info(
-        `OTP dev bypass: MSG91 not called for ${phoneNumber} (${purpose}) — NODE_ENV=${env.nodeEnv}, MSG91_AUTH_KEY unset; use ${DEV_BYPASS_OTP}`,
-      );
-    } else {
+    // Dev bypass: no MSG91 call, no real SMS — DEV_BYPASS_OTP is the only code verifyOtpCode
+    // will accept while the bypass is active.
+    if (!useDevOtpBypass()) {
       // LS_N_0008: we generate the code and send it as a normal SMS through MSG91's Flow API
       // (MSG91_SMS_TEMPLATE_OTP, code in ##var1##) — not MSG91's OTP API, so MSG91 doesn't
       // verify it: only its hash is kept in Redis and verifyOtpCode checks against that. The
