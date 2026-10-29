@@ -155,7 +155,8 @@ export class DriverController {
   };
 
   verifyDriverDl = async (req: Request, res: Response) => {
-    const result = await this.driverService.checkDrivingLicence(
+    const result = await this.driverService.verifyDrivingLicence(
+      requireTenantId(req),
       req.body.licenseNumber,
       req.body.dateOfBirth,
     );

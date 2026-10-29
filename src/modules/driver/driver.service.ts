@@ -88,6 +88,7 @@ import {
   DriverTripStats,
   InviteDriverByPhoneInput,
   InviteDriverByPhoneResult,
+  VerifyDriverDlResult,
 } from './drivers.interface';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -616,6 +617,57 @@ export class DriverService {
       return await this.dlVerificationClient.lookupDrivingLicence(licenseNumber, dateOfBirth);
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
+    }
+  }
+
+  /**
+   * The Add-a-driver form's licence step. A licence already in the DB (matched on number alone) is
+   * answered from our own record — no paid Sarathi call — with the stored profile and this tenant's
+   * invite state, so the form offers only "Send invitation". Anything else is a normal checkDrivingLicence.
+   */
+  async verifyDrivingLicence(
+    tenantId: string,
+    licenseNumber: string,
+    dateOfBirth: string,
+  ): Promise<VerifyDriverDlResult> {
+    try {
+      const driver = await this.driverRepository.findByLicenseNumber(licenseNumber.toUpperCase());
+      if (!driver) return await this.checkDrivingLicence(licenseNumber, dateOfBirth);
+
+      const relation = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
+        tenantId,
+        driver.id,
+      );
+      let reason: string | null = null;
+      if (relation) {
+        try {
+          assertCanReinvite(relation);
+        } catch (error) {
+          if (!(error instanceof ConflictError)) throw error;
+          reason = error.message;
+        }
+      }
+      return {
+        existingDriver: {
+          driverId: driver.id,
+          fullName: driver.fullName,
+          phoneNumber: driver.phoneNumber,
+          licenseNumber: driver.licenseNumber,
+          licenseVerified: driver.licenseVerified,
+          licenseExpiry: driver.licenseExpiry,
+          dateOfBirth: driver.dateOfBirth,
+          bloodGroup: driver.bloodGroup,
+          addressLine1: driver.addressLine1,
+          addressLine2: driver.addressLine2,
+          city: driver.city,
+          pinCode: driver.pinCode,
+          emergencyContactName: driver.emergencyContactName,
+          emergencyContactPhone: driver.emergencyContactPhone,
+        },
+        invitation: { canInvite: reason === null, reason, invitationId: relation?.id ?? null },
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to look up driving licence');
     }
   }
 

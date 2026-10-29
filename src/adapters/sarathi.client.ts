@@ -14,7 +14,7 @@ export interface DlVerificationClient {
 
 /**
  * Result of a driving-licence lookup against the Sarathi registry. No registry is currently
- * queried (see SarathiClient), so every lookup is `verified` without registry fields.
+ * queried (see SarathiClient), so every lookup is `manual_review` without registry fields.
  */
 export interface SarathiDrivingLicenceResult {
   status: 'verified' | 'manual_review';
@@ -36,15 +36,16 @@ export interface SarathiDrivingLicenceResult {
 }
 
 /**
- * Placeholder licence verifier: no external registry is called. Every lookup resolves `verified`
- * with only the age derived from the date of birth, so onboarding doesn't stall. Replace the body
- * with a real provider (e.g. ULIP SARATHI) when one is available — the contract above is unchanged.
+ * Placeholder licence verifier: no external registry is called, so nothing is confirmed. Every
+ * lookup resolves `manual_review` with only the age derived from the date of birth — the licence
+ * is never marked `verified` without a registry answer. Replace the body with a real provider
+ * (e.g. ULIP SARATHI) when one is available — the contract above is unchanged.
  */
 export class SarathiClient implements DlVerificationClient {
   async lookupDrivingLicence(
     _licenseNumber: string,
     dateOfBirth: string,
   ): Promise<SarathiDrivingLicenceResult> {
-    return { status: 'verified', age: ageFromDateOfBirth(dateOfBirth) };
+    return { status: 'manual_review', age: ageFromDateOfBirth(dateOfBirth) };
   }
 }
