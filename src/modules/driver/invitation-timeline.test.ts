@@ -17,6 +17,20 @@ const build = (
   }).map((step) => step.step);
 
 describe('buildInvitationTimeline', () => {
+  it('shows the first tap on the app link per send as opened, and drops WhatsApp reads', () => {
+    expect(
+      build(
+        [
+          { step: 'sent', at: '2026-10-23T10:00:00Z', by: 'u1' },
+          { step: 'whatsapp_read', at: '2026-10-23T10:05:00Z' },
+          { step: 'link_opened', at: '2026-10-23T10:06:00Z', device: 'Android' },
+          { step: 'link_opened', at: '2026-10-23T10:07:00Z', device: 'Android' },
+        ],
+        null,
+      ),
+    ).toEqual(['sent', 'opened', 'awaiting_response']);
+  });
+
   it('puts an install from before the invite first', () => {
     expect(
       build(
@@ -31,7 +45,7 @@ describe('buildInvitationTimeline', () => {
       build(
         [
           { step: 'sent', at: '2026-10-23T10:00:00Z', by: 'u1' },
-          { step: 'whatsapp_read', at: '2026-10-23T10:05:00Z' },
+          { step: 'link_opened', at: '2026-10-23T10:05:00Z', device: null },
           { step: 'accepted', at: '2026-10-23T11:00:00Z' },
         ],
         new Date('2026-10-23T10:30:00Z'),
@@ -40,14 +54,14 @@ describe('buildInvitationTimeline', () => {
     ).toEqual(['sent', 'opened', 'installed', 'accepted']);
   });
 
-  it('keeps each Resend and its read as their own entries', () => {
+  it('keeps each Resend and its link open as their own entries', () => {
     expect(
       build(
         [
           { step: 'sent', at: '2026-10-23T10:00:00Z', by: 'u1' },
-          { step: 'whatsapp_read', at: '2026-10-23T10:05:00Z' },
+          { step: 'link_opened', at: '2026-10-23T10:05:00Z', device: null },
           { step: 'resent', at: '2026-10-24T10:00:00Z', by: 'u1' },
-          { step: 'whatsapp_read', at: '2026-10-24T10:02:00Z' },
+          { step: 'link_opened', at: '2026-10-24T10:02:00Z', device: null },
         ],
         null,
       ),

@@ -40,6 +40,16 @@ export const DRIVER_INVITE_COOL_OFF_DAYS = 30;
  *  the invitationId in its metadata. */
 export const DRIVER_INVITED_NOTIFICATION_TYPE = 'driver.account.invited';
 
+/** HMAC purpose of the invite WhatsApp's tracked-link token (utils/invite-link-token.ts) — keeps
+ *  its signatures from matching any other use of the same secret. */
+export const DRIVER_INVITE_LINK_TOKEN_PURPOSE = 'driver-invite-link';
+
+/** Characters of the token's base64url HMAC kept in the link (22 ≈ 128 bits). */
+export const DRIVER_INVITE_LINK_SIGNATURE_LENGTH = 22;
+
+/** Per-IP throttle on the public tracked-link endpoint (GET /driver-invites/open/:token). */
+export const DRIVER_INVITE_LINK_RATE_LIMIT = { limit: 30, windowSeconds: 60 } as const;
+
 /** A driver's score only means something after this many trips — until then they read as `new`. */
 export const MIN_SCORED_TRIPS = 5;
 

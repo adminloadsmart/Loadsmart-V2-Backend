@@ -2,6 +2,8 @@
  * domain from modules/auth/'s auth.types.ts (see docs/driver-auth.md). Shapes mirror auth.types.ts
  * where the concept is the same (device capture), but nothing here imports from modules/auth/. */
 
+import { DriverInviteSendStatus } from '../drivers.types';
+
 export type DriverDevicePlatform = 'ios' | 'android' | 'web';
 
 // Optional on every session-issuing input below — same convention as auth.types.ts's
@@ -77,6 +79,13 @@ export interface RevokedDriverSessionToken {
 export interface DriverInviteNotifyResult {
   pushed: boolean;
   notificationId: string | null;
+}
+
+/** The invite WhatsApp's send — `requestId` is MSG91's, when its response carried one. */
+export interface DriverInviteWhatsAppResult {
+  /** `skipped` = WhatsApp isn't configured, nothing was sent. */
+  status: DriverInviteSendStatus | 'skipped';
+  requestId: string | null;
 }
 
 /** A driver's latest app activity across their sessions (DriverAuthRepository). */
