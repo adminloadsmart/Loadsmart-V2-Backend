@@ -153,7 +153,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       201: {
         description:
           '{ requisition, loads, capacitySummary, allocationByProduct, fitVerdicts, complianceWarnings } ' +
-          '— complianceWarnings is always empty now: expired papers block the plan (409) instead.',
+          '— complianceWarnings lists expired vehicle papers (LS_N_0017); the plan still goes through.',
       },
       400: {
         description: 'Validation failed, or a cargo mix exceeds truck capacity',
@@ -162,8 +162,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       409: {
         description:
           'Requisition not found/closed, a referenced vehicle/truck type is not usable, a ' +
-          'vehicle fails the C-01/C-02/C-03 duplicate-use checks, or a vehicle has an expired ' +
-          'document / its driver an expired licence (LS_N_0017; details.reason = ' +
+          'vehicle fails the C-01/C-02/C-03 duplicate-use checks, or a driver has an expired ' +
+          'licence (LS_N_0017; details.reason = ' +
           '"compliance_expired" with subject, docType, expiryDate)',
         ...errorContent,
       },
@@ -302,13 +302,17 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       body: json(loadValidators.assign.shape.body),
     },
     responses: {
-      200: { description: 'Updated load' },
+      200: {
+        description:
+          'Updated load, plus complianceWarnings — expired papers on the vehicle (matched to Fleet ' +
+          'Master by number); the assignment still goes through',
+      },
       400: { description: 'Validation failed', ...errorContent },
       409: {
         description:
           'Load is own-fleet, is not in the "created" state, the vehicle number is already ' +
-          'on another active load elsewhere (C-07), or the vehicle (matched to Fleet Master by ' +
-          'number) has an expired document / the driver (matched by phone) an expired licence ' +
+          'on another active load elsewhere (C-07), or the driver (matched by phone) has an expired ' +
+          'licence ' +
           '(LS_N_0017; details.reason = "compliance_expired" with subject, docType, expiryDate)',
         ...errorContent,
       },

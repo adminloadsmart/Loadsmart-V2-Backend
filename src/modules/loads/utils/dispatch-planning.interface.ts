@@ -71,6 +71,8 @@ export interface TruckLineFitVerdict {
 export interface AvailableVehicleRow extends VehicleEntity {
   isAvailable: boolean;
   unavailableReason: 'on_active_load' | 'already_in_requisition' | null;
+  /** Expired vehicle papers (LS_N_0017) — the vehicle can still be picked, with this warning. */
+  complianceWarnings: string[];
 }
 
 export type ListAvailableVehiclesResult = Paginated<AvailableVehicleRow>;

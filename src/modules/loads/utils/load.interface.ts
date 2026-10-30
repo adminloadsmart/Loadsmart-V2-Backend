@@ -147,7 +147,10 @@ export interface AssignmentCompliance {
   driverName: string | null;
   vehicleChecked: boolean;
   driverChecked: boolean;
+  /** Blocks the assignment — an expired driver licence. */
   failure: AssignmentComplianceFailure | null;
+  /** Allowed with a warning — each expired vehicle paper, earliest expiry first. */
+  warnings: AssignmentComplianceFailure[];
 }
 
 export interface StageTransitionInput {
