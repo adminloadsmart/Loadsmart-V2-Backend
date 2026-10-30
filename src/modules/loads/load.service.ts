@@ -44,6 +44,8 @@ import {
   UploadPodInput,
 } from './utils/load.interface';
 import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
+import { DriverAuthService } from '../driver/auth/driver-auth.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
@@ -143,6 +145,10 @@ export class LoadService {
     private readonly stageService: LoadStageService,
     // LS_N_0017 — refuses a vehicle or driver with an expired document at Load Assignment.
     private readonly assignmentComplianceService: AssignmentComplianceService,
+    // Driver push + in-app when the loading point or its contact changes — same shape as the
+    // 'load.assigned' push (DispatchPlanningService.notifyAssignedDrivers).
+    private readonly driverAuthService: DriverAuthService,
+    private readonly notificationsService: NotificationsService,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
     private readonly onIssueReported?: IssueReportedNotifier,
@@ -1039,6 +1045,11 @@ export class LoadService {
         },
         newData: { id: loadId, loadingContactName: input.name, loadingContactPhone: input.phone },
       });
+      await this.notifyDriver(tenantId, load, {
+        type: 'load.loading_contact_changed',
+        title: 'Loading contact changed',
+        body: `New loading contact for ${load.code}: ${input.name}, ${input.phone}`,
+      });
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to change the loading contact');
@@ -1087,9 +1098,43 @@ export class LoadService {
         oldData: { id: loadId, loadingPointId: load.loadingPointId },
         newData: { id: loadId, loadingPointId: point.id },
       });
+      await this.notifyDriver(tenantId, load, {
+        type: 'load.loading_point_changed',
+        title: 'Loading point changed',
+        body: `Loading point for ${load.code} changed to ${point.title}, ${point.city}`,
+      });
       return (await this.repository.findById(tenantId, loadId)) ?? updated;
     } catch (error) {
       rethrow(error, 'Failed to change the loading point');
+    }
+  }
+
+  /** Best-effort push + in-app to the load's driver, one per active device session — same as the
+   *  'load.assigned' push. Logged, never thrown: the change itself is already saved. */
+  private async notifyDriver(
+    tenantId: string,
+    load: LoadEntity,
+    content: { type: string; title: string; body: string },
+  ): Promise<void> {
+    if (!load.driverId) return;
+    try {
+      const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
+      await Promise.all(
+        sessions
+          .filter((session) => session.fcmToken)
+          .map((session) =>
+            this.notificationsService.send(tenantId, {
+              recipientUserId: load.driverId!,
+              ...content,
+              channels: ['push'],
+              destinations: { pushToken: session.fcmToken! },
+              metadata: { loadIds: [load.id] },
+              severity: 'p2_action',
+            }),
+          ),
+      );
+    } catch (error) {
+      console.error(`Failed to notify driver ${load.driverId} of ${content.type}`, error);
     }
   }
 

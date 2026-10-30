@@ -150,6 +150,8 @@ export function createLoadsModule(
     deps.auditService,
     loadStageService,
     deps.assignmentComplianceService,
+    deps.driverAuthService,
+    deps.notificationsService,
     deps.onIssueReported,
     deps.onLoadEvent,
   );
