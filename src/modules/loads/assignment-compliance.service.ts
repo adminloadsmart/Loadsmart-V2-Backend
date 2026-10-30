@@ -1,6 +1,7 @@
 import { DataSource, Repository } from 'typeorm';
 import { ConflictError } from '../../shared/errors';
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
+import { VehicleDocumentEntity } from '../masters/vehicle/entities/vehicle-document.entity';
 import { resolveDocumentStatus } from '../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/vehicle/vehicle.type';
 import { DOCUMENT_TYPE_LABELS } from '../masters/vehicle/vehicle.constants';
@@ -15,13 +16,37 @@ import { DRIVING_LICENCE_DOC_LABEL } from './utils/loads.types';
 
 const DATED_DOCUMENT_TYPES: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
 
+/** A vehicle's expired RC / insurance / permit / PUC / fitness / road tax, earliest expiry first.
+ *  Shared by the assignment check and the Dispatch Planning vehicle picker. */
+export function expiredVehicleDocuments(
+  documents: VehicleDocumentEntity[],
+): AssignmentComplianceFailure[] {
+  return documents
+    .filter(
+      (document) =>
+        !document.deletedAt &&
+        document.expiryDate &&
+        DATED_DOCUMENT_TYPES.includes(document.documentType) &&
+        resolveDocumentStatus(document.expiryDate) === 'expired',
+    )
+    .sort((a, b) => a.expiryDate!.localeCompare(b.expiryDate!))
+    .map((document) => ({
+      subject: 'vehicle',
+      docType:
+        DOCUMENT_TYPE_LABELS[document.documentType as keyof typeof DOCUMENT_TYPE_LABELS] ??
+        document.documentType,
+      expiryDate: document.expiryDate!,
+    }));
+}
+
 /** Registration numbers compared without spaces/dashes and case-blind. */
 const plateKey = (vehicleNumber: string) =>
   vehicleNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
 /**
- * Assignment-time compliance (LS_N_0017): a vehicle with an expired RC, insurance, permit, PUC,
- * fitness or road tax, or a driver with an expired licence, cannot be assigned to a load. Uses the
+ * Assignment-time compliance (LS_N_0017): a driver with an expired licence cannot be assigned to a
+ * load; a vehicle with an expired RC, insurance, permit, PUC, fitness or road tax can, but comes
+ * back as a warning for the caller to show. Uses the
  * same expiry rules the masters screens show — vehicle papers via resolveDocumentStatus, the
  * licence expired from the day after its expiry date (UTC, like the driver roster's
  * 'licence_expired' filter). A typed-in market vehicle or driver that isn't in the masters can't
@@ -40,29 +65,12 @@ export class AssignmentComplianceService {
     const vehicle = await this.findVehicle(tenantId, target);
     const relation = await this.findDriverRelation(tenantId, target);
 
-    let failure: AssignmentComplianceFailure | null = null;
-    const expiredDocument = (vehicle?.documents ?? [])
-      .filter(
-        (document) =>
-          !document.deletedAt &&
-          document.expiryDate &&
-          DATED_DOCUMENT_TYPES.includes(document.documentType) &&
-          resolveDocumentStatus(document.expiryDate) === 'expired',
-      )
-      .sort((a, b) => a.expiryDate!.localeCompare(b.expiryDate!))[0];
-    if (expiredDocument) {
-      failure = {
-        subject: 'vehicle',
-        docType:
-          DOCUMENT_TYPE_LABELS[expiredDocument.documentType as keyof typeof DOCUMENT_TYPE_LABELS] ??
-          expiredDocument.documentType,
-        expiryDate: expiredDocument.expiryDate!,
-      };
-    }
+    const warnings = expiredVehicleDocuments(vehicle?.documents ?? []);
 
+    let failure: AssignmentComplianceFailure | null = null;
     const licenceExpiry = relation?.driver.licenseExpiry ?? null;
     const today = new Date().toISOString().slice(0, 10);
-    if (!failure && licenceExpiry && licenceExpiry < today) {
+    if (licenceExpiry && licenceExpiry < today) {
       failure = {
         subject: 'driver',
         docType: DRIVING_LICENCE_DOC_LABEL,
@@ -77,6 +85,7 @@ export class AssignmentComplianceService {
       vehicleChecked: Boolean(vehicle),
       driverChecked: Boolean(relation),
       failure,
+      warnings,
     };
   }
 
@@ -125,6 +134,14 @@ export class AssignmentComplianceService {
     }
     return query.getOne();
   }
+}
+
+/** The warning shown for a vehicle with an expired paper — in the picker and on assignment. */
+export function vehicleDocumentWarning(
+  vehicleNumber: string,
+  warning: AssignmentComplianceFailure,
+): string {
+  return `${vehicleNumber}: its ${warning.docType} expired on ${warning.expiryDate}. Renew it soon.`;
 }
 
 /** The 409 an assignment blocked by `failure` returns — the screen shows the message as-is. */

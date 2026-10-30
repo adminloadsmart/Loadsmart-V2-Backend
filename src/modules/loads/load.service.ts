@@ -47,6 +47,7 @@ import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notif
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
+  vehicleDocumentWarning,
   assignmentBlockedEvent,
 } from './assignment-compliance.service';
 import {
@@ -172,7 +173,7 @@ export class LoadService {
     actorId: string,
     loadId: string,
     input: AssignLoadInput,
-  ): Promise<LoadEntity> {
+  ): Promise<LoadEntity & { complianceWarnings: string[] }> {
     try {
       const load = await this.assertExists(tenantId, loadId);
       if (load.sourceType === 'own_fleet') {
@@ -209,9 +210,9 @@ export class LoadService {
         );
       }
 
-      // LS_N_0017 — a vehicle with an expired document, or a driver with an expired licence, can't
-      // be assigned. Matched to the masters by number; one that isn't on file can't be checked
-      // and is let through (LS_N_0016 then says so). No override.
+      // LS_N_0017 — a driver with an expired licence can't be assigned; a vehicle with an expired
+      // document can, with a warning in the response. Matched to the masters by number; one that
+      // isn't on file can't be checked and is let through (LS_N_0016 then says so). No override.
       const compliance = await this.assignmentComplianceService.check(tenantId, {
         vehicleNumber,
         driverPhone: input.driverNumber,
@@ -266,7 +267,12 @@ export class LoadService {
         driverChecked: compliance.driverChecked,
       });
 
-      return updated;
+      return {
+        ...updated,
+        complianceWarnings: compliance.warnings.map((warning) =>
+          vehicleDocumentWarning(vehicleNumber, warning),
+        ),
+      };
     } catch (error) {
       rethrow(error, 'Failed to assign load');
     }

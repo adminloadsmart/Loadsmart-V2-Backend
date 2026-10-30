@@ -80,6 +80,7 @@ function setup(compliance: Partial<AssignmentCompliance>, licenseExpiry = '2030-
       vehicleChecked: true,
       driverChecked: true,
       failure: null,
+      warnings: [],
       ...compliance,
     })),
   } as unknown as AssignmentComplianceService;
