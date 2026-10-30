@@ -2027,7 +2027,9 @@ export class DriverService {
    * and Resend). Push and WhatsApp are sent and their results recorded; SMS stays `pending` as
    * stamped by inviteSendColumns. `sendAppInvite: false` (see DriverInviteSendOptions): the invite
    * and its app push still go out, its WhatsApp message doesn't, and no WhatsApp status is kept
-   * for this send (so the invite doesn't list WhatsApp as a channel it went out on).
+   * for this send (so the invite doesn't list WhatsApp as a channel it went out on). A WhatsApp
+   * that was wanted but couldn't go out (not configured, or the driver has no phone number) is
+   * recorded as failed — the drawer shows it didn't go through rather than hiding it.
    */
   private async deliverInvite(
     tenantId: string,
@@ -2055,14 +2057,12 @@ export class DriverService {
       invitationId,
       pushed ? 'sent' : 'failed',
     );
-    // Not sent — turned off, or not configured yet (no template / DRIVER_APP_URL): don't leave the
-    // send's "pending" WhatsApp status behind, or the invite would list a channel it never used.
-    if (!sendAppInvite || whatsappSend.status === 'skipped') {
+    if (!sendAppInvite) {
       await this.driverTenantRelationRepository.clearWhatsAppSendStatus(invitationId);
     } else {
       await this.driverTenantRelationRepository.setWhatsAppSendStatus(
         invitationId,
-        whatsappSend.status,
+        whatsappSend.status === 'skipped' ? 'failed' : whatsappSend.status,
         whatsappSend.requestId,
       );
     }

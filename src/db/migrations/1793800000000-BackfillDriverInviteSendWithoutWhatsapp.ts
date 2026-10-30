@@ -4,7 +4,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Sends that went out without the invite's WhatsApp message were logged without
  * `whatsapp: false`, so their history read "Invite Sent on WhatsApp". Such a send is the one row
  * state where WhatsApp's status is NULL while push's is set (DriverService.deliverInvite clears
- * it via clearWhatsAppSendStatus), and it's always the latest send: marks that send entry.
+ * it via clearWhatsAppSendStatus when WhatsApp was turned off, or — before WhatsApp that couldn't
+ * go out was recorded as failed — when it wasn't configured), and it's always the latest send:
+ * marks that send entry.
  */
 export class BackfillDriverInviteSendWithoutWhatsapp1793800000000 implements MigrationInterface {
   name = 'BackfillDriverInviteSendWithoutWhatsapp1793800000000';
