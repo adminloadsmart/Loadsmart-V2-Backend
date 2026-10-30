@@ -1284,7 +1284,8 @@ export const NOTIFICATION_CATALOG = {
           record_kind: context.kind,
           record_id: context.recordId,
           cta_label: 'Review and approve',
-          cta_path: APPROVALS_PATH,
+          // Drivers are approved from the Invitations tab, which sends their invite.
+          cta_path: context.kind === 'driver' ? FRONTEND_PATHS.driverInvitations : APPROVALS_PATH,
         },
       };
     },

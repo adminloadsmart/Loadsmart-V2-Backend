@@ -872,7 +872,9 @@ export class DriverTenantRelationRepository {
 
   /**
    * "Invitations Sent" tab — tenant-initiated relations whose invite actually went out
-   * (invite_sent_at set), with the display status derived per DRIVER_INVITATION_STATUSES.
+   * (invite_sent_at set), with the display status derived per DRIVER_INVITATION_STATUSES, plus
+   * dispatch-added drivers still waiting for an org admin (`needs_approval`, no send yet) so the
+   * admin can approve them from the same list. Those come first: they're the ones needing action.
    */
   async listInvitations(
     tenantId: string,
@@ -888,10 +890,13 @@ export class DriverTenantRelationRepository {
       .andWhere('relation.initiatedBy IN (:...initiators)', {
         initiators: ['fleet_owner', 'staff'],
       })
-      .andWhere('relation.inviteSentAt IS NOT NULL')
       .andWhere(
         new Brackets((statusClause) => {
-          const pendingDriver = "relation.status = 'pending_driver_review'";
+          const sent = 'relation.inviteSentAt IS NOT NULL';
+          if (!status || status === 'needs_approval') {
+            statusClause.orWhere("relation.status = 'pending_staff_review'");
+          }
+          const pendingDriver = `${sent} AND relation.status = 'pending_driver_review'`;
           // Mirrors toInvitationView: a driver who left the platform (driver.service.ts's
           // isDriverOffPlatform) makes a still-pending invite read `expired`, whatever its date.
           const onPlatform = 'driver.deletedAt IS NULL';
@@ -906,15 +911,15 @@ export class DriverTenantRelationRepository {
             );
           }
           if (!status || status === 'accepted') {
-            statusClause.orWhere("relation.status = 'active'");
+            statusClause.orWhere(`${sent} AND relation.status = 'active'`);
           }
           if (!status || status === 'cancelled') {
-            statusClause.orWhere("relation.status = 'cancelled'");
+            statusClause.orWhere(`${sent} AND relation.status = 'cancelled'`);
           }
           // A staff-rejected dispatch driver never reached the driver — only driver declines count.
           if (!status || status === 'rejected') {
             statusClause.orWhere(
-              "relation.status = 'rejected' AND relation.driverRespondedAt IS NOT NULL",
+              `${sent} AND relation.status = 'rejected' AND relation.driverRespondedAt IS NOT NULL`,
             );
           }
         }),
@@ -927,7 +932,9 @@ export class DriverTenantRelationRepository {
     }
 
     const [items, total] = await query
-      .orderBy('relation.inviteSentAt', 'DESC')
+      // needs_approval rows have no send yet — NULLS FIRST puts them on top, newest added first.
+      .orderBy('relation.inviteSentAt', 'DESC', 'NULLS FIRST')
+      .addOrderBy('relation.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -990,6 +997,25 @@ export class DriverTenantRelationRepository {
             at: now.toISOString(),
             channel: 'whatsapp',
           }),
+        }),
+      };
+    });
+  }
+
+  /** This send went out without its WhatsApp message (the fleet turned it off) — drops the
+   *  WhatsApp state the send stamped, so the invite doesn't list WhatsApp as a channel, and marks
+   *  the send's timeline entry so its history doesn't say it went out on WhatsApp. */
+  async clearWhatsAppSendStatus(id: string): Promise<void> {
+    await this.updateLocked({ id }, (relation) => {
+      const latestSend = relation.inviteTimeline.filter(isInviteSendEvent).at(-1);
+      return {
+        whatsappDeliveryStatus: null,
+        whatsappDeliveryStatusAt: null,
+        whatsappRequestId: null,
+        ...(latestSend && {
+          inviteTimeline: relation.inviteTimeline.map((event) =>
+            event === latestSend ? { ...latestSend, whatsapp: false as const } : event,
+          ),
         }),
       };
     });

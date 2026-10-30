@@ -42,6 +42,13 @@ export function createAdminRoutes(controller: AdminController): Router {
     validate(adminValidators.listOrganizations),
     asyncHandler(controller.listOrganizations),
   );
+  // Before '/organizations/:organizationId' so "summary" isn't read as an id.
+  router.get(
+    '/organizations/summary',
+    requirePermission(...anyReviewer),
+    validate(adminValidators.getOrganizationsSummary),
+    asyncHandler(controller.getOrganizationsSummary),
+  );
   router.get(
     '/organizations/:organizationId',
     requirePermission(...anyReviewer),
@@ -143,12 +150,23 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.createStaff),
   );
   router.get(
+    '/staff/summary',
+    requirePermission(...adminOnly),
+    asyncHandler(controller.getStaffSummary),
+  );
+  router.get(
     '/staff',
     requirePermission(...anyReviewer),
     validate(adminValidators.listStaff),
     asyncHandler(controller.listStaff),
   );
 
+  router.get(
+    '/staff/:staffId',
+    requirePermission(...adminOnly),
+    validate(adminValidators.getStaff),
+    asyncHandler(controller.getStaff),
+  );
   router.patch(
     '/staff/:staffId',
     requirePermission(...adminOnly),
@@ -174,6 +192,12 @@ export function createAdminRoutes(controller: AdminController): Router {
     requirePermission(...adminOnly),
     validate(adminValidators.listReferralCodes),
     asyncHandler(controller.listReferralCodes),
+  );
+  // Before '/referral-codes/:referralCodeId' so "summary" isn't read as an id.
+  router.get(
+    '/referral-codes/summary',
+    requirePermission(...adminOnly),
+    asyncHandler(controller.getReferralCodesSummary),
   );
   router.get(
     '/referral-codes/:referralCodeId',

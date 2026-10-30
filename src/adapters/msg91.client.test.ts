@@ -88,3 +88,38 @@ describe('Msg91Client — WhatsApp response', () => {
     );
   });
 });
+
+describe('Msg91Client — WhatsApp components', () => {
+  function sentComponents() {
+    const call = vi.mocked(globalThis.fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body));
+    return body.payload.template.to_and_components[0].components;
+  }
+
+  function mockSend() {
+    vi.spyOn(env, 'msg91AuthKey', 'get').mockReturnValue('key');
+    vi.spyOn(env, 'msg91WhatsappIntegratedNumber', 'get').mockReturnValue('919999999999');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'success', hasError: false })),
+    );
+  }
+
+  it('fills named {{var_N}} templates by parameter name', async () => {
+    mockSend();
+    await new Msg91Client().sendWhatsapp('9876543210', ['Asha', 'Sohal'], 'ls_n_0001');
+    expect(sentComponents()).toEqual({
+      body_var_1: { type: 'text', value: 'Asha', parameter_name: 'var_1' },
+      body_var_2: { type: 'text', value: 'Sohal', parameter_name: 'var_2' },
+    });
+  });
+
+  // Authentication templates take the code twice: the body's {{1}} and the Copy code button.
+  it('sends an authentication code in the body and the Copy code button', async () => {
+    mockSend();
+    await new Msg91Client().sendWhatsappAuthCode('9876543210', '4821', 'ls_n_0008');
+    expect(sentComponents()).toEqual({
+      body_1: { type: 'text', value: '4821' },
+      button_1: { subtype: 'url', type: 'text', value: '4821' },
+    });
+  });
+});

@@ -16,7 +16,8 @@ import { RoleEntity } from '../roles/entities/role.entity';
 import { UserPermissionEntity } from '../roles/entities/user-permission.entity';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { NotFoundError } from '../../shared/errors';
-import { LoginPortal, DevicePlatform } from './auth.types';
+import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { LoginPortal, DevicePlatform, StaffMemberRole } from './auth.types';
 
 export class AuthRepository {
   private readonly users: Repository<UserEntity>;
@@ -159,13 +160,39 @@ export class AuthRepository {
       });
     }
     // Narrows to a specific role (e.g. 'online_kyc_desk') — used by the admin UI to populate
-    // the KYC verifier/agent assignment dropdowns with only eligible staff.
+    // the KYC verifier/agent assignment dropdowns with only eligible staff. Otherwise only the
+    // hireable roles — the platform admin's own account isn't an employee row.
     if (role) {
       qb.andWhere('role.name = :role', { role });
+    } else {
+      qb.andWhere('role.name IN (:...staffRoles)', { staffRoles: STAFF_ASSIGNABLE_ROLES });
     }
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
+  }
+
+  findStaffUserById(id: string): Promise<UserEntity | null> {
+    return this.users.findOne({
+      where: {
+        id,
+        tenantId: IsNull(),
+        deletedAt: IsNull(),
+        role: { name: In([...STAFF_ASSIGNABLE_ROLES]) },
+      },
+      relations: { role: true },
+    });
+  }
+
+  // Every platform staff member's id + role, unpaged — for the Employees screen's per-role
+  // cards (AuthService.getStaffSummary). Staff counts are small (tens, not thousands).
+  async listAllStaffRoles(): Promise<StaffMemberRole[]> {
+    const staff = await this.users.find({
+      select: { id: true, role: { name: true } },
+      where: { tenantId: IsNull(), deletedAt: IsNull(), role: { scope: 'platform' } },
+      relations: { role: true },
+    });
+    return staff.map((member) => ({ id: member.id, role: member.role.name }));
   }
 
   // Organization-scope counterpart to listStaffUsers above — every user (org_admin plus invited

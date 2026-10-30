@@ -92,6 +92,7 @@ import {
   InviteDriverByPhoneInput,
   InviteDriverByPhoneResult,
   VerifyDriverDlResult,
+  DriverInviteSendOptions,
 } from './drivers.interface';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -212,7 +213,8 @@ function toInvitationView(
 ): DriverInvitationView {
   let status: DriverInvitationView['status'];
   let expiredReason: DriverInvitationView['expiredReason'] = null;
-  if (relation.status === 'active') status = 'accepted';
+  if (relation.status === 'pending_staff_review') status = 'needs_approval';
+  else if (relation.status === 'active') status = 'accepted';
   else if (relation.status === 'rejected') status = 'rejected';
   else if (relation.status === 'cancelled') status = 'cancelled';
   else if (isDriverOffPlatform(relation.driver)) {
@@ -238,27 +240,31 @@ function toInvitationView(
     phoneNumber: relation.driver.phoneNumber,
     status,
     expiredReason,
-    sentAt: relation.inviteSentAt!,
+    sentAt: relation.inviteSentAt,
     expiresAt: relation.inviteExpiresAt,
     respondedAt: relation.driverRespondedAt,
     rejectionReason: relation.rejectionReason,
-    deliveryChannels: [
-      {
-        channel: 'sms',
-        status: relation.smsDeliveryStatus,
-        statusAt: relation.smsDeliveryStatusAt,
-      },
-      {
-        channel: 'whatsapp',
-        status: relation.whatsappDeliveryStatus,
-        statusAt: relation.whatsappDeliveryStatusAt,
-      },
-      {
-        channel: 'push',
-        status: relation.pushDeliveryStatus,
-        statusAt: relation.pushDeliveryStatusAt,
-      },
-    ],
+    // Only the channels this send went out on — e.g. WhatsApp is left out when the fleet turned
+    // the invite's WhatsApp message off (clearWhatsAppSendStatus).
+    deliveryChannels: (
+      [
+        {
+          channel: 'sms',
+          status: relation.smsDeliveryStatus,
+          statusAt: relation.smsDeliveryStatusAt,
+        },
+        {
+          channel: 'whatsapp',
+          status: relation.whatsappDeliveryStatus,
+          statusAt: relation.whatsappDeliveryStatusAt,
+        },
+        {
+          channel: 'push',
+          status: relation.pushDeliveryStatus,
+          statusAt: relation.pushDeliveryStatusAt,
+        },
+      ] as const
+    ).filter((channel) => channel.status !== null),
     appInstalled,
     openedAt: linkOpenedSinceLatestSend(relation),
     canResend: resendable && sendsAfterDecline?.left !== 0,
@@ -364,10 +370,13 @@ function toInvitationDetailView(
   };
 
   // The stored log as-is (it's append-only), oldest first. Every invite has at least its first
-  // send there; the fallback only covers a row the log has somehow never seen.
+  // send there; the fallback only covers a row the log has somehow never seen. (The detail is only
+  // served for invites that went out — findInvitation — so sentAt is set here.)
   const events: DriverInviteEvent[] = relation.inviteTimeline.length
     ? relation.inviteTimeline
-    : [{ step: 'sent', at: view.sentAt.toISOString(), by: relation.inviteSentBy }];
+    : view.sentAt
+      ? [{ step: 'sent', at: view.sentAt.toISOString(), by: relation.inviteSentBy }]
+      : [];
   const timeline = buildInvitationTimeline({
     events,
     toActor: toInvitationActor,
@@ -1498,7 +1507,14 @@ export class DriverService {
     input: OnboardDriverInput,
   ): Promise<DriverWithRelation> {
     try {
-      const { verification, bankDetails, documents, operationalStatus, ...driverInput } = input;
+      const {
+        verification,
+        bankDetails,
+        documents,
+        operationalStatus,
+        sendAppInvite,
+        ...driverInput
+      } = input;
 
       // The licence lookup runs here, server-side, rather than trusting a result the client sends —
       // same as the bank check below and DriverIdentityService.completeRegistration. A result the
@@ -1611,7 +1627,9 @@ export class DriverService {
         pending: driver.status === 'pending_staff_review',
       });
 
-      if (invitationId) await this.deliverInvite(tenantId, invitationId, driverId);
+      if (invitationId) {
+        await this.deliverInvite(tenantId, invitationId, driverId, undefined, { sendAppInvite });
+      }
 
       return driver;
     } catch (error) {
@@ -1806,6 +1824,7 @@ export class DriverService {
     tenantId: string,
     actorId: string,
     invitationId: string,
+    { sendAppInvite = true }: DriverInviteSendOptions = {},
   ): Promise<DriverInvitationView> {
     try {
       const invite = await this.findInvitationOrThrow(tenantId, invitationId);
@@ -1853,7 +1872,9 @@ export class DriverService {
         },
       });
 
-      await this.deliverInvite(tenantId, relation.id, relation.driverId);
+      await this.deliverInvite(tenantId, relation.id, relation.driverId, undefined, {
+        sendAppInvite,
+      });
       // Re-read so deliveryChannels carries the push result deliverInvite just recorded.
       const resentInvitation = await this.findInvitationOrThrow(tenantId, relation.id);
 
@@ -1961,6 +1982,16 @@ export class DriverService {
       });
 
       if (awaitingApproval) {
+        // LS_N_0009, same as a dispatch-added driver in onboardDriver. The requester is the
+        // dispatcher here, not driver.createdBy — the driver may have been added by another fleet.
+        await this.approvalNotifier?.requested({
+          kind: 'driver',
+          tenantId,
+          recordId: driver.id,
+          masterValue: driver.fullName,
+          createdBy: actorId,
+          pending: true,
+        });
         return { driverId: driver.id, invitationId, awaitingApproval, invitation: null };
       }
 
@@ -1994,22 +2025,25 @@ export class DriverService {
   /**
    * The single place an invite goes out to the driver (first send from onboardDriver/approveDriver,
    * and Resend). Push and WhatsApp are sent and their results recorded; SMS stays `pending` as
-   * stamped by inviteSendColumns. WhatsApp left `pending` too when it's skipped (not configured).
+   * stamped by inviteSendColumns. `sendAppInvite: false` (see DriverInviteSendOptions): the invite
+   * and its app push still go out, its WhatsApp message doesn't, and no WhatsApp status is kept
+   * for this send (so the invite doesn't list WhatsApp as a channel it went out on).
    */
   private async deliverInvite(
     tenantId: string,
     invitationId: string,
     driverId: string,
     tenantName?: string | null,
+    { sendAppInvite = true }: DriverInviteSendOptions = {},
   ): Promise<void> {
     const name =
       tenantName ??
       (await this.organizationService.getOrganizationStatus(tenantId)).name ??
       'A fleet owner';
     const driver = await this.driverRepository.findById(driverId);
-    const [{ pushed }, whatsapp] = await Promise.all([
+    const [{ pushed }, whatsappSend] = await Promise.all([
       this.driverPushNotifier.notifyInvited(tenantId, driverId, name, invitationId),
-      driver?.phoneNumber
+      sendAppInvite && driver?.phoneNumber
         ? this.driverPushNotifier.notifyInvitedOnWhatsApp(
             driver.phoneNumber,
             name,
@@ -2021,11 +2055,15 @@ export class DriverService {
       invitationId,
       pushed ? 'sent' : 'failed',
     );
-    if (whatsapp.status !== 'skipped') {
+    // Not sent — turned off, or not configured yet (no template / DRIVER_APP_URL): don't leave the
+    // send's "pending" WhatsApp status behind, or the invite would list a channel it never used.
+    if (!sendAppInvite || whatsappSend.status === 'skipped') {
+      await this.driverTenantRelationRepository.clearWhatsAppSendStatus(invitationId);
+    } else {
       await this.driverTenantRelationRepository.setWhatsAppSendStatus(
         invitationId,
-        whatsapp.status,
-        whatsapp.requestId,
+        whatsappSend.status,
+        whatsappSend.requestId,
       );
     }
   }
@@ -2131,6 +2169,7 @@ export class DriverService {
     tenantId: string,
     actorId: string,
     driverId: string,
+    { sendAppInvite = true }: DriverInviteSendOptions = {},
   ): Promise<DriverWithRelation> {
     try {
       const existing = await this.assertDriverExists(tenantId, driverId);
@@ -2167,7 +2206,9 @@ export class DriverService {
 
       const organization = await this.organizationService.getOrganizationStatus(tenantId);
       if (sendToDriver) {
-        await this.deliverInvite(tenantId, existing.id, driverId, organization.name);
+        await this.deliverInvite(tenantId, existing.id, driverId, organization.name, {
+          sendAppInvite,
+        });
       } else {
         await this.driverPushNotifier.notifyJoinRequestApproved(
           tenantId,

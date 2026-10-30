@@ -48,7 +48,7 @@ export function resolveDateRange(
   }
 }
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+export const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 // Every IST calendar date (YYYY-MM-DD, inclusive) `range` spans, in order — for zero-filling a
 // per-day series so a chart shows one point per day even when some days have no rows, not just

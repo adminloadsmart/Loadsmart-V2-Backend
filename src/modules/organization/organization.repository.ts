@@ -5,12 +5,19 @@ import {
   EntityManager,
   FindOptionsWhere,
   ILike,
+  In,
   IsNull,
+  LessThan,
   Not,
   Repository,
 } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
-import { DateFilter, resolveDateRange } from '../../shared/utils/date-filter';
+import { ONE_DAY_MS, resolveDateRange } from '../../shared/utils/date-filter';
+import {
+  OrganizationListFilters,
+  OrganizationQueueSummary,
+  ReferralSignupCounts,
+} from './organization.types';
 import {
   OrganizationEntity,
   OrganizationJourneyStage,
@@ -96,61 +103,92 @@ export class OrganizationRepository {
     return results.map((org) => ({ id: org.id, name: org.name ?? '' }));
   }
 
-  async list(filters: {
-    status?: OrganizationStatus;
-    journeyStage?: OrganizationJourneyStage;
-    search?: string;
-    filter?: DateFilter;
-    from?: string;
-    to?: string;
-    page: number;
-    limit: number;
-    // Role-scoping — see AdminService.listOrganizations, the only caller that sets these (for
-    // online_kyc_desk/offline_kyc_desk callers; platform_admin leaves them undefined).
-    onlineKycVerifierId?: string;
-    physicalKycAgentId?: string;
-    onlineKycCompleted?: boolean;
-  }): Promise<{ items: OrganizationEntity[]; total: number }> {
+  async list(
+    filters: OrganizationListFilters & { page: number; limit: number },
+  ): Promise<{ items: OrganizationEntity[]; total: number }> {
+    const { page, limit } = filters;
+    const where = this.buildListWhere(filters);
+    // Counted separately: findAndCount's count query miscounts with the partial referralCode
+    // select once a page is short of the full result (e.g. total 4 for 38 rows at limit 10).
+    const [items, total] = await Promise.all([
+      this.repo.find({
+        where,
+        relations: { referralCode: true },
+        select: { referralCode: { id: true, code: true } },
+        order: { createdAt: 'DESC' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.repo.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  /** Counts for the verification queue's tabs and summary cards — same filters as list(). */
+  async summarize(filters: OrganizationListFilters): Promise<OrganizationQueueSummary> {
+    const scoped = { ...filters, status: undefined, excludeDrafts: true };
+    const count = (extra: FindOptionsWhere<OrganizationEntity>, overrides = {}) =>
+      this.repo.count({ where: this.buildListWhere({ ...scoped, ...overrides }, extra) });
+    const today = resolveDateRange('today')!;
+
+    const [total, pending, partialPending, approved, rejected, overdue, approvedToday] =
+      await Promise.all([
+        count({}),
+        count({ status: 'pending' }),
+        count({ status: 'partial_pending' }),
+        count({ status: 'active' }),
+        count({ status: In(['rejected', 'suspended']) }),
+        count({
+          status: 'pending',
+          submittedAt: LessThan(new Date(Date.now() - ONE_DAY_MS)),
+        }),
+        count(
+          { status: 'active', approvedAt: Between(today.from, today.to) },
+          { filter: undefined, from: undefined, to: undefined },
+        ),
+      ]);
+    return { total, pending, partialPending, approved, rejected, overdue, approvedToday };
+  }
+
+  // `extra` is merged into every OR-branch (search matches on name OR legal name).
+  private buildListWhere(
+    filters: OrganizationListFilters,
+    extra: FindOptionsWhere<OrganizationEntity> = {},
+  ): FindOptionsWhere<OrganizationEntity>[] {
     const {
       status,
+      excludeDrafts,
       journeyStage,
       search,
       filter,
       from,
       to,
-      page,
-      limit,
       onlineKycVerifierId,
       physicalKycAgentId,
       onlineKycCompleted,
     } = filters;
 
     const base: FindOptionsWhere<OrganizationEntity> = {};
-    if (status) base.status = status;
+    const statuses = (status === undefined ? [] : [status].flat()).filter(
+      (candidate) => !excludeDrafts || candidate !== 'draft',
+    );
+    if (statuses.length) base.status = statuses.length === 1 ? statuses[0] : In(statuses);
+    else if (excludeDrafts) base.status = Not('draft');
     if (journeyStage) base.journeyStage = journeyStage;
     if (onlineKycVerifierId) base.onlineKycVerifierId = onlineKycVerifierId;
     if (physicalKycAgentId) base.physicalKycAgentId = physicalKycAgentId;
     if (onlineKycCompleted) base.onlineKycCompletedAt = Not(IsNull());
     const range = resolveDateRange(filter, from, to);
     if (range) base.createdAt = Between(range.from, range.to);
+    Object.assign(base, extra);
 
-    const where: FindOptionsWhere<OrganizationEntity>[] = search
+    return search
       ? [
           { ...base, name: ILike(`%${search}%`) },
           { ...base, companyLegalName: ILike(`%${search}%`) },
         ]
       : [base];
-
-    const [items, total] = await this.repo.findAndCount({
-      where,
-      relations: { referralCode: true },
-      select: { referralCode: { id: true, code: true } },
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-
-    return { items, total };
   }
 
   async update(
@@ -202,20 +240,30 @@ export class OrganizationRepository {
   }
 
   // Batched for AuthService.listStaffUsers — one grouped query for the whole page of staff,
-  // keyed by referral-code owner id. Only counts fully approved orgs ('active'), unlike
-  // countByReferralCodeId above which counts any status.
-  async countActiveByReferralCodeOwnerIds(ownerUserIds: string[]): Promise<Map<string, number>> {
+  // keyed by referral-code owner id. Signups = submitted orgs (drafts left out) that used any
+  // of the owner's codes; approved = those now 'active' — same definition as the Referral Codes
+  // list (ReferralCodeRepository.countSignups).
+  async countSignupsByReferralCodeOwnerIds(
+    ownerUserIds: string[],
+  ): Promise<Map<string, ReferralSignupCounts>> {
     if (ownerUserIds.length === 0) return new Map();
     const rows = await this.repo
       .createQueryBuilder('org')
       .innerJoin('org.referralCode', 'rc')
       .where('rc.owner_user_id IN (:...ownerUserIds)', { ownerUserIds })
-      .andWhere('org.status = :status', { status: 'active' })
+      .andWhere('org.status <> :draftStatus', { draftStatus: 'draft' })
       .select('rc.owner_user_id', 'ownerUserId')
-      .addSelect('COUNT(*)', 'count')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect('COUNT(*) FILTER (WHERE org.status = :approvedStatus)', 'approved')
+      .setParameter('approvedStatus', 'active')
       .groupBy('rc.owner_user_id')
-      .getRawMany<{ ownerUserId: string; count: string }>();
-    return new Map(rows.map((row) => [row.ownerUserId, Number(row.count)]));
+      .getRawMany<{ ownerUserId: string; total: string; approved: string }>();
+    return new Map(
+      rows.map((row) => [
+        row.ownerUserId,
+        { total: Number(row.total), approved: Number(row.approved) },
+      ]),
+    );
   }
 
   // Batched for AuthService.listStaffUsers — "workload" here means KYC review assignments not

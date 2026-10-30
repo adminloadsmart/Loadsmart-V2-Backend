@@ -41,6 +41,7 @@ import {
 import {
   DISPATCH_ROLE,
   ORG_ADMIN_ROLE,
+  SALES_ROLE,
   STAFF_ASSIGNABLE_ROLES,
   ORG_ASSIGNABLE_ROLES,
 } from '../../shared/constants/roles';
@@ -61,6 +62,7 @@ import {
   SaveUserDetailsInput,
   LoginPortal,
   DevicePlatform,
+  StaffRoleSummary,
 } from './auth.types';
 import {
   SaveCompanyDetailsInput,
@@ -69,7 +71,9 @@ import {
   OnboardingStatus,
   OnboardingStep,
   OrganizationOnboardingProgress,
+  ReferralCodeOwner,
 } from '../organization/organization.types';
+import { ReferralCodeEntity } from '../organization/entities/referral-code.entity';
 import { UserEntity } from './entities/user.entity';
 import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
 import {
@@ -418,6 +422,11 @@ export class AuthService {
       await this.roleService.grantPermission(actingUser, user.id, permissionId);
     }
 
+    // Every salesperson needs their own code to attribute signups — made here so hiring and code
+    // creation are one action.
+    const referralCode =
+      role.name === SALES_ROLE ? await this.createHireReferralCode(actingUser, user) : null;
+
     return {
       id: user.id,
       fullName: user.fullName,
@@ -426,8 +435,37 @@ export class AuthService {
       role: user.role.name,
       coverage: user.coverage,
       permissions: await this.roleService.getEffectivePermissions(user.id),
+      // The salesperson's code, made at hire — null for other roles, or if it couldn't be made
+      // (the hire still stands; the admin can generate one from Referral Codes).
+      referralCode: referralCode ? { id: referralCode.id, code: referralCode.code } : null,
       createdAt: user.createdAt,
     };
+  }
+
+  private async createHireReferralCode(
+    actingUser: AuthenticatedUser,
+    user: ReferralCodeOwner,
+  ): Promise<ReferralCodeEntity | null> {
+    try {
+      const referralCode = await this.referralCodeService.createForSalesperson(user, actingUser.id);
+      await this.auditService.log({
+        tenantId: null,
+        userId: actingUser.id,
+        action: 'REFERRAL_CODE_CREATED',
+        resourceType: 'referral_code',
+        newData: {
+          id: referralCode.id,
+          code: referralCode.code,
+          ownerUserId: referralCode.ownerUserId,
+          validUntil: referralCode.validUntil,
+          createdAtHire: true,
+        },
+      });
+      return referralCode;
+    } catch (error) {
+      console.error(`Failed to create a referral code for new salesperson ${user.id}`, error);
+      return null;
+    }
   }
 
   /** Org admin invites a teammate into their own org (Settings → Users & Roles) — the
@@ -881,35 +919,73 @@ export class AuthService {
 
   async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
-    const staffIds = items.map((user) => user.id);
-    // Batched, not per-row — fixed number of extra queries for the whole page, keyed by
-    // owner/staff id, run concurrently.
-    const [codesByOwner, signupCountByOwner, workloadByStaff] = await Promise.all([
-      this.referralCodeService.listByOwnerIds(staffIds),
-      this.organizationService.countActiveByReferralCodeOwnerIds(staffIds),
-      this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
-    ]);
     return {
-      items: items.map((user) => ({
-        id: user.id,
-        fullName: user.fullName,
-        phoneNumber: user.phoneNumber,
-        email: user.email,
-        role: user.role.name,
-        coverage: user.coverage,
-        referralCodes: codesByOwner.get(user.id) ?? [],
-        // Organizations that onboarded (status 'active') via any of this staff member's referral codes.
-        signupCount: signupCountByOwner.get(user.id) ?? 0,
-        // Orgs assigned to this staff member for KYC review (online or physical) not yet completed —
-        // the only "current work" concept this schema has; non-KYC roles are always 0.
-        workload: workloadByStaff.get(user.id) ?? 0,
-        createdAt: user.createdAt,
-      })),
+      items: await this.toStaffListItems(items),
       page: input.page,
       limit: input.limit,
       total,
       totalPages: Math.ceil(total / input.limit),
     };
+  }
+
+  /** One staff member in the same shape as a listStaffUsers item — the admin edit screen. */
+  async getStaffUser(staffId: string) {
+    const user = await this.authRepository.findStaffUserById(staffId);
+    if (!user) throw new NotFoundError(`Staff member ${staffId} not found`);
+    const [item] = await this.toStaffListItems([user]);
+    return item;
+  }
+
+  private async toStaffListItems(users: UserEntity[]) {
+    const staffIds = users.map((user) => user.id);
+    // Batched, not per-row — fixed number of extra queries for the whole page, keyed by
+    // owner/staff id, run concurrently.
+    const [codesByOwner, signupsByOwner, workloadByStaff] = await Promise.all([
+      this.referralCodeService.listByOwnerIds(staffIds),
+      this.organizationService.countSignupsByReferralCodeOwnerIds(staffIds),
+      this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
+    ]);
+    return users.map((user) => ({
+      id: user.id,
+      fullName: user.fullName,
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      role: user.role.name,
+      coverage: user.coverage,
+      referralCodes: codesByOwner.get(user.id) ?? [],
+      // Submitted orgs that used any of this staff member's referral codes, and how many of
+      // those are approved — same numbers as the Referral Codes list.
+      signupCount: signupsByOwner.get(user.id)?.total ?? 0,
+      approvedSignupCount: signupsByOwner.get(user.id)?.approved ?? 0,
+      // Orgs assigned to this staff member for KYC review (online or physical) not yet completed —
+      // the only "current work" concept this schema has; non-KYC roles are always 0.
+      workload: workloadByStaff.get(user.id) ?? 0,
+      createdAt: user.createdAt,
+    }));
+  }
+
+  /** Per-role cards on the admin Employees screen: headcount, open KYC assignments (KYC roles)
+   *  and referral signups (sales) — across all staff, not just the loaded page. */
+  async getStaffSummary(): Promise<Record<string, StaffRoleSummary>> {
+    const staff = await this.authRepository.listAllStaffRoles();
+    const staffIds = staff.map((member) => member.id);
+    const [signupsByOwner, workloadByStaff] = await Promise.all([
+      this.organizationService.countSignupsByReferralCodeOwnerIds(staffIds),
+      this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
+    ]);
+    const summary: Record<string, StaffRoleSummary> = {};
+    for (const role of STAFF_ASSIGNABLE_ROLES) {
+      summary[role] = { count: 0, workload: 0, signups: 0, approvedSignups: 0 };
+    }
+    for (const member of staff) {
+      const roleSummary = summary[member.role];
+      if (!roleSummary) continue; // e.g. platform_admin
+      roleSummary.count += 1;
+      roleSummary.workload += workloadByStaff.get(member.id) ?? 0;
+      roleSummary.signups += signupsByOwner.get(member.id)?.total ?? 0;
+      roleSummary.approvedSignups += signupsByOwner.get(member.id)?.approved ?? 0;
+    }
+    return summary;
   }
 
   /** Platform admin edits an existing staff account (PATCH /admin/staff/:staffId) — profile
