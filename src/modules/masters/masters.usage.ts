@@ -13,6 +13,7 @@ export type MasterUsageTarget =
   | { kind: 'customer'; id: string }
   | { kind: 'transporter'; id: string }
   | { kind: 'loading_point'; id: string }
+  | { kind: 'product'; id: string }
   | { kind: 'delivery_points'; ids: string[] };
 
 export interface ActiveLoadRef {
@@ -73,6 +74,20 @@ export class MasterUsageRepository {
               .where('usageReq.loading_point_id = :targetId')
               .orWhere('usagePosting.pickup_loading_point_id = :targetId')
               .orWhere('usagePosting.drop_loading_point_id = :targetId'),
+          ),
+          { targetId: target.id },
+        );
+      case 'product':
+        // Products ride on a load's cargo mix, or on the requisition it was planned from.
+        return query.andWhere(
+          new Brackets((qb) =>
+            qb
+              .where(
+                'EXISTS (SELECT 1 FROM loads.load_cargo_items usage_cargo WHERE usage_cargo.load_id = load.id AND usage_cargo.product_id = :targetId)',
+              )
+              .orWhere(
+                'EXISTS (SELECT 1 FROM loads.requisition_items usage_req_item WHERE usage_req_item.requisition_id = load.requisition_id AND usage_req_item.product_id = :targetId)',
+              ),
           ),
           { targetId: target.id },
         );
