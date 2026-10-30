@@ -45,7 +45,8 @@ export class DriverPushNotifier {
   ): Promise<DriverInviteWhatsAppResult> {
     const templateName = env.msg91WhatsappTemplateDriverInvite;
     if (!templateName || !env.driverAppUrl) {
-      console.info(
+      // Recorded as a failed WhatsApp on the invite (DriverService.deliverInvite).
+      console.warn(
         `Driver invite WhatsApp to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_DRIVER_INVITE / DRIVER_APP_URL not configured`,
       );
       return { status: 'skipped', requestId: null };

@@ -2,6 +2,7 @@ import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
 import { AuditService } from '../../audit/audit.service';
 import { ProductRepository, ProductWithCreator } from './product.repository';
+import { MasterUsageRepository } from '../masters.usage';
 import {
   CFT_PER_CBM,
   KG_PER_CBM,
@@ -88,6 +89,7 @@ export class ProductService {
   constructor(
     private readonly repository: ProductRepository,
     private readonly auditService: AuditService,
+    private readonly usage: MasterUsageRepository,
     // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
     // throws (see notifications/master-approvals.ts).
     private readonly approvalNotifier?: MasterApprovalNotifier,
@@ -327,10 +329,21 @@ export class ProductService {
       rethrow(error, 'Failed to transition product');
     }
   }
+  /** Delete guard — blocked while a load carrying this product is still running. Once every such
+   *  load is closed it is soft-deleted, so past loads keep showing it but new ones cannot pick it. */
+  private async assertNotInUse(tenantId: string, id: string) {
+    const activeLoads = await this.usage.activeLoads(tenantId, { kind: 'product', id });
+    if (activeLoads.length)
+      throw new ConflictError(
+        `Product is in use right now — ${activeLoads[0].code} is still running, so it cannot be deleted`,
+        { activeLoads },
+      );
+  }
   async delete(tenantId: string, actorId: string, id: string) {
     try {
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Product ${id} not found`);
+      await this.assertNotInUse(tenantId, id);
       await this.repository.softDelete(tenantId, id, actorId);
       await this.auditService.log({
         tenantId,

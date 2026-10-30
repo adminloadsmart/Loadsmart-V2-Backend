@@ -21,7 +21,14 @@ export function buildInvitationTimeline(
         case 'sent':
         case 'resent':
           openedSinceSend = false;
-          return [{ step: event.step, at, by: input.toActor(event.by) }];
+          return [
+            {
+              step: event.step,
+              at,
+              by: input.toActor(event.by),
+              whatsapp: event.whatsapp !== false,
+            },
+          ];
         case 'link_opened':
           if (openedSinceSend) return [];
           openedSinceSend = true;

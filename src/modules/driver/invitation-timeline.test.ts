@@ -80,4 +80,22 @@ describe('buildInvitationTimeline', () => {
       ),
     ).toEqual(['sent', 'expired']);
   });
+
+  it('marks a send that went out without its WhatsApp message', () => {
+    const timeline = buildInvitationTimeline({
+      events: [
+        { step: 'sent', at: '2026-10-23T10:00:00Z', by: 'u1', whatsapp: false },
+        { step: 'resent', at: '2026-10-24T10:00:00Z', by: 'u1' },
+      ],
+      toActor: () => null,
+      firstAppLoginAt: null,
+      status: 'pending',
+      expiresAt: new Date('2026-10-30T10:00:00Z'),
+    });
+    expect(timeline.map((step) => ('whatsapp' in step ? step.whatsapp : undefined))).toEqual([
+      false,
+      true,
+      undefined,
+    ]);
+  });
 });

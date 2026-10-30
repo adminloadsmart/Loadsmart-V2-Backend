@@ -202,9 +202,11 @@ export const DRIVER_INVITE_TTL_DAYS = 7;
  * "Invitations Sent" display status — derived from a tenant-initiated relation, never stored:
  * pending = pending_driver_review & not yet expired, expired = pending_driver_review past
  * invite_expires_at, accepted = active, rejected = declined by the driver, cancelled = withdrawn
- * by the fleet owner.
+ * by the fleet owner, needs_approval = added by dispatch and waiting for an org admin, whose
+ * approval is what sends the invite (so it has no sentAt yet).
  */
 export const DRIVER_INVITATION_STATUSES = [
+  'needs_approval',
   'pending',
   'accepted',
   'rejected',

@@ -32,12 +32,13 @@ import {
  * resent; until then the drawer derives it from invite_expires_at. `whatsapp_read` is the driver
  * reading a send's WhatsApp message — logged once per send (not written while read tracking is
  * off). `link_opened` is the driver tapping the tracked app link in it — logged on every tap, with
- * the device; the invitation's `openedAt` and `opened` step. `viewed` (an in-app notification
- * opened) is no longer written; it stays here only so older rows still type-check, and the
- * invitation detail drops it.
+ * the device; the invitation's `openedAt` and `opened` step. A send's `whatsapp` is `false` when
+ * it went out without its WhatsApp message (turned off, or not configured) — absent means it did.
+ * `viewed` (an in-app notification opened) is no longer written; it stays here only so older rows
+ * still type-check, and the invitation detail drops it.
  */
 export type DriverInviteEvent =
-  | { step: DriverInviteSendStep; at: string; by: string | null }
+  | { step: DriverInviteSendStep; at: string; by: string | null; whatsapp?: false }
   | { step: 'whatsapp_read'; at: string }
   | { step: 'link_opened'; at: string; device: string | null }
   | { step: 'viewed'; at: string; device: string | null; notificationId?: string }

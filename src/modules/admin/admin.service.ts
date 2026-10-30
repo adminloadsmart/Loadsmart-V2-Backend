@@ -1,4 +1,4 @@
-import { DataSource, IsNull } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
@@ -8,9 +8,16 @@ import {
   OrganizationJourneyStage,
 } from '../organization/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../organization/entities/organization-document.entity';
+import {
+  govResultOf,
+  OrganizationGovResult,
+  registryCheckOf,
+  verifiedByOf,
+} from '../organization/organization-document-registry-check';
 import { AuthService } from '../auth/auth.service';
 import { UserEntity } from '../auth/entities/user.entity';
 import {
+  BUSINESS_DOCUMENT_ORDER,
   isTenantAccessible,
   organizationDisplayName,
   ORGANIZATION_DOCUMENT_TYPE_LABELS,
@@ -38,7 +45,9 @@ import {
   ListOrganizationsInput,
   ListReferralCodesInput,
   ListStaffInput,
+  OrganizationBusinessDocument,
   OrganizationDecisionReasonInput,
+  OrganizationsSummaryInput,
   SetReferralCodeStatusInput,
   UpdateOrganizationInput,
   UpdateReferralCodeInput,
@@ -69,12 +78,20 @@ export class AdminService {
     try {
       const scoped = { ...input, ...this.reviewerScopeFilter(actingUser) };
       const { items, total } = await this.organizationService.listOrganizations(scoped);
-      const trails = await this.organizationJourneyStageService.getTrails(
-        items.map((organization) => organization.id),
-      );
+      const organizationIds = items.map((organization) => organization.id);
+      const [trails, orgAdminNames, documents] = await Promise.all([
+        this.organizationJourneyStageService.getTrails(organizationIds),
+        this.getOrgAdminNames(organizationIds),
+        this.organizationDocumentService.listByOrganizations(organizationIds),
+      ]);
       return paginate(
         items.map((organization) => ({
           ...this.toPublicOrganization(organization),
+          orgAdminName: orgAdminNames.get(organization.id) ?? organization.orgAdminName,
+          ...this.listDocumentFields(
+            organization,
+            documents.filter((document) => document.organizationId === organization.id),
+          ),
           journeyStageHistory: trails.get(organization.id) ?? [],
         })),
         total,
@@ -82,6 +99,19 @@ export class AdminService {
       );
     } catch (error) {
       rethrow(error, 'Failed to list organizations');
+    }
+  }
+
+  /** Tab and summary-card counts for the verification queue — same reviewer scoping as the list,
+   *  never-submitted (draft) sign-ups left out. */
+  async getOrganizationsSummary(actingUser: AuthenticatedUser, input: OrganizationsSummaryInput) {
+    try {
+      return await this.organizationService.summarizeOrganizations({
+        ...input,
+        ...this.reviewerScopeFilter(actingUser),
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to summarize organizations');
     }
   }
 
@@ -105,14 +135,82 @@ export class AdminService {
       ]);
       return {
         ...this.toPublicOrganization(organization),
+        orgAdminName: orgAdmin?.fullName || organization.orgAdminName,
         orgAdminPhone: orgAdmin?.phoneNumber ?? null,
         orgAdminEmail: orgAdmin?.email ?? null,
-        documents,
+        govResult: govResultOf(documents, this.legalNameOf(organization)),
+        documents: documents.map((document) =>
+          this.toAdminDocument(document, this.legalNameOf(organization)),
+        ),
         journeyStageHistory,
       };
     } catch (error) {
       rethrow(error, 'Failed to get organization');
     }
+  }
+
+  /** First org_admin's full name per org. Onboarding saves the contact name on that user, not on
+   *  organizations.org_admin_name (only older orgs have that column filled), so read it from there. */
+  private async getOrgAdminNames(organizationIds: string[]): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    if (organizationIds.length === 0) return names;
+    const orgAdmins = await this.dataSource.getRepository(UserEntity).find({
+      select: { tenantId: true, fullName: true },
+      where: {
+        tenantId: In(organizationIds),
+        role: { name: ORG_ADMIN_ROLE },
+        deletedAt: IsNull(),
+      },
+      order: { createdAt: 'ASC' },
+    });
+    for (const orgAdmin of orgAdmins) {
+      if (orgAdmin.tenantId && orgAdmin.fullName && !names.has(orgAdmin.tenantId)) {
+        names.set(orgAdmin.tenantId, orgAdmin.fullName);
+      }
+    }
+    return names;
+  }
+
+  // Per-row document data the queue list shows: the Gov Result and the business-registration
+  // number under the company name (GST, else CIN/Udyam/shop licence).
+  private listDocumentFields(
+    organization: OrganizationEntity,
+    documents: OrganizationDocumentEntity[],
+  ): {
+    govResult: OrganizationGovResult | null;
+    businessDocument: OrganizationBusinessDocument | null;
+  } {
+    const businessDocument = BUSINESS_DOCUMENT_ORDER.map((documentType) =>
+      documents.find(
+        (document) => document.documentType === documentType && document.documentNumber,
+      ),
+    ).find((document) => document !== undefined);
+    return {
+      govResult: govResultOf(documents, this.legalNameOf(organization)),
+      businessDocument: businessDocument
+        ? {
+            documentType: businessDocument.documentType,
+            documentNumber: businessDocument.documentNumber,
+          }
+        : null,
+    };
+  }
+
+  private legalNameOf(organization: OrganizationEntity): string | null {
+    return (
+      organization.companyLegalName ?? organization.registeredBusinessName ?? organization.name
+    );
+  }
+
+  /** Adds the government-registry (IDfy) outcome and who verified the document; the raw vendor
+   *  response stays server-side. */
+  private toAdminDocument(
+    document: OrganizationDocumentEntity,
+    organizationLegalName: string | null,
+  ) {
+    const { rawResponse: _rawResponse, ...rest } = document;
+    const registryCheck = registryCheckOf(document, organizationLegalName);
+    return { ...rest, registryCheck, verifiedBy: verifiedByOf(document, registryCheck) };
   }
 
   private toPublicOrganization(
@@ -794,6 +892,18 @@ export class AdminService {
     }
   }
 
+  getStaffSummary() {
+    return this.authService.getStaffSummary();
+  }
+
+  async getStaff(staffId: string) {
+    try {
+      return await this.authService.getStaffUser(staffId);
+    } catch (error) {
+      rethrow(error, 'Failed to fetch staff');
+    }
+  }
+
   async listStaff(input: ListStaffInput) {
     try {
       return await this.authService.listStaffUsers(input);
@@ -866,6 +976,10 @@ export class AdminService {
     } catch (error) {
       rethrow(error, 'Failed to list referral codes');
     }
+  }
+
+  getReferralCodesSummary() {
+    return this.referralCodeService.summarize();
   }
 
   async getReferralCode(referralCodeId: string) {

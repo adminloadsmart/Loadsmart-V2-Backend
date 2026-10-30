@@ -163,10 +163,14 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.approveDriver',
     ...approve(
-      'Approve a pending driver (added by dispatch — see onboardDriver). Settings → Approvals. ' +
-        'org_admin only.',
+      'Approve a pending driver (added by dispatch — see onboardDriver), which sends their ' +
+        'invite. Optional body { sendAppInvite } (default true): false sends the invite without ' +
+        'its WhatsApp message. org_admin only.',
     ),
-    request: { params: driverValidators.approveDriver.shape.params },
+    request: {
+      params: driverValidators.approveDriver.shape.params,
+      body: json(driverValidators.approveDriver.shape.body),
+    },
     responses: {
       200: { description: 'Approved driver' },
       404: { description: 'Driver not found', ...errorContent },
@@ -264,7 +268,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.listDriverInvitations',
     ...authenticated(
       'List invites this tenant sent to drivers (org_admin onboarding, or dispatch-added drivers ' +
-        'after approval), newest `sentAt` first. `status` is derived: `pending` (awaiting the ' +
+        'after approval), plus dispatch-added drivers still waiting for org_admin approval ' +
+        '(`needs_approval`, sentAt null — approving via PATCH /drivers/:driverId/approve sends ' +
+        'the invite). Those come first, then newest `sentAt`. `status` is derived: `pending` (awaiting the ' +
         'driver, not expired), `expired` (unanswered 7 days after the last send), `accepted`, ' +
         '`rejected` (declined by the driver), `cancelled` (withdrawn by this organisation). ' +
         '`phoneNumber` searches by mobile only (names are not unique) — partial digits match, ' +
@@ -325,8 +331,9 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     ...authenticated(
       'Invitation detail drawer — the list item plus `credentials` { licenseNumber, ' +
         'licenseClass, registry: { source: sarathi, status, checkedAt } | null }, `timeline` for ' +
-        'the invite — one thread sorted by time: sent { at, by: { name, role } } (first send), ' +
-        'resent { at, by } (each Resend or re-invite, its own entry), opened { at } (the driver ' +
+        'the invite — one thread sorted by time: sent { at, by: { name, role }, whatsapp } (first ' +
+        'send; whatsapp false when it went out without its WhatsApp message), resent { at, by, ' +
+        'whatsapp } (each Resend or re-invite, its own entry), opened { at } (the driver ' +
         "read that send's WhatsApp message; once per send), installed { at } (the driver's " +
         'first app login — can come before the first send), expired { at } (logged when an ' +
         'expired invite is resent), declined { at, ' +
@@ -355,9 +362,13 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
         'delivery channel resets to `pending` (push then carries its real result) and the ' +
         'timeline gains `resent` (after `expired` if it had run out). Once the driver has ' +
         'declined, the invite can be sent only one more time (Resend or invite-by-mobile); ' +
-        'after that this returns 409.',
+        'after that this returns 409. Optional body { sendAppInvite } (default true): false ' +
+        'resends without the WhatsApp message, and the send is logged with whatsapp: false.',
     ),
-    request: { params: driverValidators.resendInvitation.shape.params },
+    request: {
+      params: driverValidators.resendInvitation.shape.params,
+      body: json(driverValidators.resendInvitation.shape.body),
+    },
     responses: {
       200: { description: 'Updated invitation (same item shape as the list)' },
       404: { description: 'Invitation not found', ...errorContent },

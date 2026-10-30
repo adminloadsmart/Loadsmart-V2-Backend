@@ -169,7 +169,7 @@ export class OtpService {
     const templateName = env.msg91WhatsappTemplateOtp;
     console.info(`WhatsApp OTP copy to ${phoneNumber} sending — template=${templateName}`);
     this.msg91Client
-      .sendWhatsapp(phoneNumber, [otp], templateName)
+      .sendWhatsappAuthCode(phoneNumber, otp, templateName)
       .then((response) =>
         // Accepted is not delivered — if it never arrives, search the MSG91 dashboard's WhatsApp
         // reports for this number; Meta's rejection reason only shows there.

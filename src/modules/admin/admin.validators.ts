@@ -9,6 +9,7 @@ import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { REFERRAL_CODE_SETTABLE_STATUSES } from '../organization/referral-code.service';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import { booleanString } from '../../shared/validators/boolean-string';
 
 const uuid = z.string().uuid();
 const organizationParams = z.object({ organizationId: uuid });
@@ -17,33 +18,52 @@ const organizationDocumentParams = organizationParams.extend({ documentId: uuid 
 const decisionReasonBody = z.object({ reason: z.string().min(1) });
 const referralCodeParams = z.object({ referralCodeId: uuid });
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be in YYYY-MM-DD format');
+// One status or a comma-separated list — `?status=rejected,suspended`.
+const statusList = z.preprocess(
+  (value) => (typeof value === 'string' ? value.split(',').filter(Boolean) : value),
+  z.array(z.enum(ORGANIZATION_STATUSES)).min(1),
+);
+const dateRangeQuery = z.object({
+  filter: z.enum(DATE_FILTERS).optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+const refineDateRange = (
+  data: { filter?: string; from?: string; to?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (data.filter === 'custom' && (!data.from || !data.to)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['from'],
+      message: 'from and to are required when filter is custom',
+    });
+  }
+  if (data.from && data.to && data.from > data.to) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['to'],
+      message: 'to must be on/after from',
+    });
+  }
+};
 
 export const adminValidators = {
   listOrganizations: z.object({
     query: pagination
       .extend({
-        status: z.enum(ORGANIZATION_STATUSES).optional(),
+        status: statusList.optional(),
+        excludeDrafts: booleanString.optional(),
         journeyStage: z.enum(ORGANIZATION_JOURNEY_STAGES).optional(),
-        filter: z.enum(DATE_FILTERS).optional(),
-        from: isoDate.optional(),
-        to: isoDate.optional(),
       })
-      .superRefine((data, ctx) => {
-        if (data.filter === 'custom' && (!data.from || !data.to)) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['from'],
-            message: 'from and to are required when filter is custom',
-          });
-        }
-        if (data.from && data.to && data.from > data.to) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['to'],
-            message: 'to must be on/after from',
-          });
-        }
-      }),
+      .merge(dateRangeQuery)
+      .superRefine(refineDateRange),
+  }),
+
+  getOrganizationsSummary: z.object({
+    query: dateRangeQuery
+      .extend({ search: z.string().min(1).optional() })
+      .superRefine(refineDateRange),
   }),
   getOrganization: z.object({ params: organizationParams }),
 
@@ -147,6 +167,7 @@ export const adminValidators = {
     }),
   }),
 
+  getStaff: z.object({ params: staffParams }),
   deleteStaff: z.object({ params: staffParams }),
 
   // role narrows to eligible staff for the KYC assignment dropdowns (see auth.repository.ts's
@@ -171,7 +192,8 @@ export const adminValidators = {
     params: referralCodeParams,
     body: z.object({
       ownerUserId: uuid.optional(),
-      validUntil: isoDate.optional(),
+      // null clears the expiry — the code then never expires.
+      validUntil: isoDate.nullable().optional(),
     }),
   }),
   // Separate from updateReferralCode above — a dedicated, idempotent active/revoked toggle, not

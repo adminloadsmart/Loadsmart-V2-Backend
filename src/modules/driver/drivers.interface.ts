@@ -197,7 +197,8 @@ export interface DriverInvitationView {
   status: DriverInvitationStatus;
   /** Set only when status is `expired`. */
   expiredReason: DriverInvitationExpiryReason | null;
-  sentAt: Date;
+  /** Null only for `needs_approval` — the invite goes out when an org admin approves. */
+  sentAt: Date | null;
   expiresAt: Date | null;
   respondedAt: Date | null;
   rejectionReason: string | null;
@@ -239,6 +240,13 @@ export interface DriverInvitationDetailView extends DriverInvitationView {
   timeline: DriverInvitationTimelineStep[];
 }
 
+/** How an invite send goes out: `sendAppInvite: false` leaves out its WhatsApp message (Add a
+ *  Driver's "Send Driver App Invite on WhatsApp", or the invite drawer's switch on Resend).
+ *  Omitted = send it. */
+export interface DriverInviteSendOptions {
+  sendAppInvite?: boolean;
+}
+
 /** Staff user behind a timeline entry, as the drawer shows them. */
 export interface DriverInvitationActor {
   name: string | null;
@@ -258,7 +266,7 @@ export interface DriverStaffActor extends DriverInvitationActor {
  * otherwise `awaiting_response`.
  */
 export type DriverInvitationTimelineStep =
-  | { step: DriverInviteSendStep; at: Date; by: DriverInvitationActor | null }
+  | { step: DriverInviteSendStep; at: Date; by: DriverInvitationActor | null; whatsapp: boolean }
   | { step: 'opened'; at: Date }
   | { step: 'installed'; at: Date }
   | { step: 'accepted'; at: Date | null }
@@ -859,6 +867,8 @@ export interface OnboardDriverInput extends Omit<CreateDriverInput, 'onboardingS
   bankDetails?: AddBankDetailsInput;
   documents?: AddDriverDocumentInput[];
   operationalStatus?: SetDriverOperationalStatusInput;
+  /** False: the invite goes out without its WhatsApp message. Omitted = send it. */
+  sendAppInvite?: boolean;
 }
 
 /* Route parameter shapes, used to type `Request<P>` in the controller. */

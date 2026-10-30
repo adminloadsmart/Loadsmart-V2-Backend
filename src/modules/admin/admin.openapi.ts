@@ -62,9 +62,29 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
           'Paginated organizations — { data: { items, page, limit, total, totalPages } }. Each ' +
           'item includes journeyStageHistory: the full, chronological trail of journey-stage ' +
           'transitions it has passed through, each with a timestamp and who caused it — same ' +
-          'shape as GET .../organizations/{organizationId} below.',
+          'shape as GET .../organizations/{organizationId} below — and govResult: the ' +
+          'government-registry (IDfy) check of its GST/CIN/Udyam/shop document ' +
+          '({ documentType, status, details, nameMatches }), null when none can be checked — ' +
+          'and businessDocument ({ documentType, documentNumber }: GST, else CIN/Udyam/shop ' +
+          'licence). status takes one value or a comma-separated list; excludeDrafts=true ' +
+          'leaves out sign-ups that were never submitted.',
       },
     },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/organizations/summary`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.getOrganizationsSummary',
+    ...anyReviewer(
+      'Counts for the verification queue — { total, pending, partialPending, approved, ' +
+        'rejected (incl. suspended), overdue (pending, submitted over 24h ago), approvedToday ' +
+        '(approved today IST, whenever created) }. Same search, date range and reviewer ' +
+        'scoping as the listing; draft (never-submitted) sign-ups are always left out.',
+    ),
+    request: { query: adminValidators.getOrganizationsSummary.shape.query },
+    responses: { 200: { description: 'Queue counts' } },
   });
 
   registry.registerPath({
@@ -82,7 +102,14 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { params: adminValidators.getOrganization.shape.params },
     responses: {
-      200: { description: 'Organization detail, including documents and journeyStageHistory' },
+      200: {
+        description:
+          'Organization detail, including documents, journeyStageHistory and govResult (same ' +
+          'as the listing). Each document ' +
+          'carries registryCheck ({ status: verified | inactive | not_found | failed | ' +
+          'in_progress | not_checked, details, nameMatches }, null when the registry cannot ' +
+          "check it) and verifiedBy ('registry' | 'reviewer' | null).",
+      },
       404: {
         description: 'Organization not found (or not visible to this reviewer)',
         ...errorContent,
@@ -368,7 +395,11 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { body: json(adminValidators.createStaff.shape.body) },
     responses: {
-      201: { description: 'Created staff account (no password hash in the response)' },
+      201: {
+        description:
+          'Created staff account (no password hash in the response). A sales hire also gets their ' +
+          'own referral code, returned as referralCode ({ id, code }; null for other roles).',
+      },
       400: { description: 'Validation failed, or roleId is not staff-assignable', ...errorContent },
       403: {
         description: 'A permissionId in the list is organization-scope, not platform-scope',
@@ -396,10 +427,48 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       200: {
         description:
           'Paginated staff — { data: { items, page, limit, total, totalPages } }. Each item ' +
-          "includes signupCount (orgs onboarded via the staff member's referral codes) and " +
+          "includes signupCount (submitted orgs that used the staff member's referral codes), " +
+          'approvedSignupCount (those now approved), referralCodes (each with its status) and ' +
           'workload (orgs currently assigned to them for KYC review, not yet completed).',
       },
     },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/staff/{staffId}`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.getStaff',
+    ...adminOnly('One staff account, in the same shape as a GET .../staff item.'),
+    request: { params: adminValidators.getStaff.shape.params },
+    responses: {
+      200: { description: 'Staff account' },
+      404: { description: 'Staff member not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/staff/summary`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.getStaffSummary',
+    ...adminOnly(
+      'Per-role cards for the Employees screen, across all staff — { [role]: { count, workload, ' +
+        'signups, approvedSignups } } for online_kyc_desk, offline_kyc_desk, sales and load_console.',
+    ),
+    responses: { 200: { description: 'Staff counts by role' } },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/referral-codes/summary`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.getReferralCodesSummary',
+    ...adminOnly(
+      'Counts for the Referral Codes cards — { total, active, expired, revoked }, status derived ' +
+        'the same way as on each code.',
+    ),
+    responses: { 200: { description: 'Referral code counts' } },
   });
 
   registry.registerPath({
@@ -488,7 +557,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.listReferralCodes',
     ...adminOnly(
       'List referral codes, paginated and optionally filtered by ownerUserId and/or code search. ' +
-        'Each item includes its computed status.',
+        'Each item includes its computed status, owner ({ id, fullName, coverage, deletedAt }), ' +
+        'totalSignup (submitted orgs that used it) and approvedSignup (those now approved).',
     ),
     request: { query: adminValidators.listReferralCodes.shape.query },
     responses: {

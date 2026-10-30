@@ -225,6 +225,8 @@ export const FRONTEND_PATHS = {
   home: '/home',
   login: '/auth/login',
   fleet: '/fleet',
+  /** My Drivers → Invitations, where a dispatch-added driver is approved (and invited). */
+  driverInvitations: '/drivers?view=invitations',
   vehicle: (vehicleId: string) => `/fleet/${vehicleId}`,
   load: (loadId: string) => `/loads/${loadId}`,
 } as const;
