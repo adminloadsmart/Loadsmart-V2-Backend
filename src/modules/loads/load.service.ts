@@ -73,7 +73,7 @@ const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 export interface ListTripsResult extends Paginated<TripListRow> {
   /** Tab counts for the whole tenant (scoped by the same non-group filters as the list itself),
    *  independent of which `group` — if any — the caller requested. */
-  counts: { active: number; completed: number };
+  counts: { active: number; completed: number; open: number };
 }
 
 /** Driver-app "Trips Done" screen — a dedicated, always-completed-only view of a single driver's

@@ -175,6 +175,12 @@ export const COMPLETED_LOAD_STATUSES: readonly LoadStatus[] = ['closed'];
 export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
   (status) => !COMPLETED_LOAD_STATUSES.includes(status),
 );
+/** Trips "Active" tab — the trip is still being executed. Once the truck has unloaded (either
+ *  delivered stage, or a money stage after it) the trip moves to Open, where it stays until its
+ *  E-POD is accepted and the load is closed. */
+export const ACTIVE_TAB_LOAD_STATUSES: readonly LoadStatus[] = ACTIVE_LOAD_STATUSES.filter(
+  (status) => !UNLOADED_LOAD_STATUSES.includes(status),
+);
 /** Driver-app "Open Trips" tab — every status except 'closed'. Named separately from
  *  ACTIVE_LOAD_STATUSES (equal today) since they serve different audiences and may diverge. */
 export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
@@ -211,7 +217,7 @@ export const MAX_ISSUE_ETA_IMPACT_MINUTES = 7 * 24 * 60;
 export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
-  active: ACTIVE_LOAD_STATUSES,
+  active: ACTIVE_TAB_LOAD_STATUSES,
   completed: COMPLETED_LOAD_STATUSES,
   open: OPEN_LOAD_STATUSES,
   upcoming: UPCOMING_LOAD_STATUSES,

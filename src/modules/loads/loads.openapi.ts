@@ -206,7 +206,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.listLoads',
     ...authenticated(
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
-        'completed|open|upcoming` is the tab filter (upcoming = created, bids_received and truck_assigned loads whose requisition pickupDate is today or later), mutually ' +
+        'completed|open|upcoming` is the tab filter (active = still being executed, so a delivered load leaves it; open = everything not yet closed, so a delivered load stays there until its E-POD is accepted and it closes; upcoming = created, bids_received and truck_assigned loads whose requisition pickupDate is today or later), mutually ' +
         'exclusive with `status`. `podStatus=pending|accepted|rejected` filters by E-POD status. ' +
         '`fromDate`/`toDate` (YYYY-MM-DD, inclusive, UTC, either optional) filter on deliveredAt ' +
         'when group=completed, otherwise on createdAt. ' +
@@ -225,7 +225,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: {
         description:
           'Paginated trips — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
-          'counts: { active, completed } } }. `counts` is tenant-wide (scoped by any non-group ' +
+          'counts: { active, completed, open } } }. `counts` is tenant-wide (scoped by any non-group ' +
           'filters given) and independent of which group, if any, was requested — lets the UI ' +
           'render both tab badges from one call. Each row also carries `plannedCapacityTonnes`, ' +
           '`freightValue` (market-only, null until Assignment confirms a rate), `advance`/`balance` ' +

@@ -20,6 +20,7 @@ import { RequisitionEntity } from './entities/requisition.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
   ARRIVED_AT_DELIVERY_STATUSES,
+  ACTIVE_TAB_LOAD_STATUSES,
   COMPLETED_LOAD_STATUSES,
   FreightMode,
   FreightType,
@@ -340,7 +341,7 @@ export class LoadRepository {
       ListLoadsFilters,
       'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
     >,
-  ): Promise<{ active: number; completed: number }> {
+  ): Promise<{ active: number; completed: number; open: number }> {
     const base: FindOptionsWhere<LoadEntity> = { tenantId: scopeToTenants(tenantId) };
     if (filters.requisitionId) base.requisitionId = filters.requisitionId;
     if (filters.sourceType) base.sourceType = filters.sourceType;
@@ -371,14 +372,18 @@ export class LoadRepository {
       .groupBy('load.status')
       .getRawMany<{ status: LoadStatus; count: string }>();
     const completedStatuses: readonly string[] = COMPLETED_LOAD_STATUSES;
+    const activeStatuses: readonly string[] = ACTIVE_TAB_LOAD_STATUSES;
     return rows.reduce(
       (acc, row) => {
         const count = Number(row.count);
         if (completedStatuses.includes(row.status)) acc.completed += count;
-        else acc.active += count;
+        else {
+          acc.open += count;
+          if (activeStatuses.includes(row.status)) acc.active += count;
+        }
         return acc;
       },
-      { active: 0, completed: 0 },
+      { active: 0, completed: 0, open: 0 },
     );
   }
 
