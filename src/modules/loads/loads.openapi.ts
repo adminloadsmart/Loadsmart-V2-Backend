@@ -421,8 +421,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.uploadPod',
     ...manageDocuments(
-      'Record proof of delivery — POD front (podFileKey) and back (podBackFileKey), receiver ' +
-        'name/mobile, and quantity received are required; receiver designation, sealStatus, ' +
+      'Record proof of delivery — POD front (podFileKey), receiver name/mobile, and quantity ' +
+        'received are required; POD back (podBackFileKey), receiver designation, sealStatus, ' +
         'shortageOrDamage, numberOfTonnesShort, damagePhotoKey, and podRemarks are optional. ' +
         'damagePhotoKey becomes required when shortageOrDamage is `damage`, `wet` or `both`. ' +
         'Accepted once the load is In-transit for unloading (it is marked Reached unloading point ' +

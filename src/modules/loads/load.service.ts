@@ -898,7 +898,9 @@ export class LoadService {
       }
 
       await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
-      await this.assertLoadDocumentUpload(tenantId, actorRole, input.podBackFileKey, 'trips/pod');
+      if (input.podBackFileKey) {
+        await this.assertLoadDocumentUpload(tenantId, actorRole, input.podBackFileKey, 'trips/pod');
+      }
       if (input.damagePhotoKey) {
         await this.assertLoadDocumentUpload(tenantId, actorRole, input.damagePhotoKey, 'trips/pod');
       }
@@ -909,7 +911,7 @@ export class LoadService {
         // change when the truck physically arrived.
         ...(isResubmission ? {} : { deliveredAt: new Date() }),
         podFileKey: input.podFileKey,
-        podBackFileKey: input.podBackFileKey,
+        podBackFileKey: input.podBackFileKey ?? null,
         podReceiverName: input.podReceiverName,
         podReceiverMobile: input.podReceiverMobile ?? null,
         podReceiverVerifiedAt,

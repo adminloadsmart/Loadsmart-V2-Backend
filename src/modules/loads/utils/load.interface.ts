@@ -82,7 +82,7 @@ export interface ReviewPodInput {
 export interface UploadPodInput {
   podFileKey: string;
   /** The POD's back side — the receiver's remarks on damage, shortage or pilferage. */
-  podBackFileKey: string;
+  podBackFileKey?: string;
   podReceiverName: string;
   /** Absent when the receiver has no phone — the POD photo alone is then the proof. A driver
    *  sending it must have verified it first via LoadService.verifyPodReceiverCode. */
