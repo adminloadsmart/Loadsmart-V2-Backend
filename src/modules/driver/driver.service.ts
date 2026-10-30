@@ -29,6 +29,9 @@ import {
   isInviteSendEvent,
 } from './driver-tenant-relation.repository';
 import { buildInvitationTimeline } from './invitation-timeline';
+import { invitationIdFromLinkToken, inviteTrackedLink } from './utils/invite-link-token';
+import { parseMsg91WhatsappReports } from '../../adapters/msg91-whatsapp-report';
+import { env } from '../../config/env';
 import { Paginated, paginate } from '../../shared/utils/pagination';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
@@ -88,6 +91,7 @@ import {
   DriverTripStats,
   InviteDriverByPhoneInput,
   InviteDriverByPhoneResult,
+  VerifyDriverDlResult,
 } from './drivers.interface';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -190,6 +194,18 @@ function assertSendAllowedAfterDecline(relation: DriverTenantRelationEntity): vo
   }
 }
 
+/** The driver's first tap on the tracked app link since the latest send — the invitation's
+ *  `openedAt`. A Resend resets it. */
+function linkOpenedSinceLatestSend(relation: DriverTenantRelationEntity): Date | null {
+  const latestSend = relation.inviteTimeline.filter(isInviteSendEvent).at(-1);
+  const opened = relation.inviteTimeline.find(
+    (event) =>
+      event.step === 'link_opened' &&
+      (!latestSend || Date.parse(event.at) >= Date.parse(latestSend.at)),
+  );
+  return opened ? new Date(opened.at) : null;
+}
+
 function toInvitationView(
   relation: DriverTenantRelationEntity,
   appInstalled: boolean,
@@ -244,7 +260,7 @@ function toInvitationView(
       },
     ],
     appInstalled,
-    openedAt: relation.inviteViewedAt,
+    openedAt: linkOpenedSinceLatestSend(relation),
     canResend: resendable && sendsAfterDecline?.left !== 0,
     sendsLeftAfterDecline: sendsAfterDecline?.left ?? null,
     canSendAgainAt: sendsAfterDecline?.sendAgainAt ?? null,
@@ -616,6 +632,57 @@ export class DriverService {
       return await this.dlVerificationClient.lookupDrivingLicence(licenseNumber, dateOfBirth);
     } catch (error) {
       rethrow(error, 'Failed to check driving licence against Sarathi');
+    }
+  }
+
+  /**
+   * The Add-a-driver form's licence step. A licence already in the DB (matched on number alone) is
+   * answered from our own record — no paid Sarathi call — with the stored profile and this tenant's
+   * invite state, so the form offers only "Send invitation". Anything else is a normal checkDrivingLicence.
+   */
+  async verifyDrivingLicence(
+    tenantId: string,
+    licenseNumber: string,
+    dateOfBirth: string,
+  ): Promise<VerifyDriverDlResult> {
+    try {
+      const driver = await this.driverRepository.findByLicenseNumber(licenseNumber.toUpperCase());
+      if (!driver) return await this.checkDrivingLicence(licenseNumber, dateOfBirth);
+
+      const relation = await this.driverTenantRelationRepository.findLatestByTenantAndDriver(
+        tenantId,
+        driver.id,
+      );
+      let reason: string | null = null;
+      if (relation) {
+        try {
+          assertCanReinvite(relation);
+        } catch (error) {
+          if (!(error instanceof ConflictError)) throw error;
+          reason = error.message;
+        }
+      }
+      return {
+        existingDriver: {
+          driverId: driver.id,
+          fullName: driver.fullName,
+          phoneNumber: driver.phoneNumber,
+          licenseNumber: driver.licenseNumber,
+          licenseVerified: driver.licenseVerified,
+          licenseExpiry: driver.licenseExpiry,
+          dateOfBirth: driver.dateOfBirth,
+          bloodGroup: driver.bloodGroup,
+          addressLine1: driver.addressLine1,
+          addressLine2: driver.addressLine2,
+          city: driver.city,
+          pinCode: driver.pinCode,
+          emergencyContactName: driver.emergencyContactName,
+          emergencyContactPhone: driver.emergencyContactPhone,
+        },
+        invitation: { canInvite: reason === null, reason, invitationId: relation?.id ?? null },
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to look up driving licence');
     }
   }
 
@@ -1926,8 +1993,8 @@ export class DriverService {
 
   /**
    * The single place an invite goes out to the driver (first send from onboardDriver/approveDriver,
-   * and Resend). Today only push is really sent and its result recorded; SMS/WhatsApp were stamped
-   * `pending` by inviteSendColumns — wire the notification branch's sending in here once merged.
+   * and Resend). Push and WhatsApp are sent and their results recorded; SMS stays `pending` as
+   * stamped by inviteSendColumns. WhatsApp left `pending` too when it's skipped (not configured).
    */
   private async deliverInvite(
     tenantId: string,
@@ -1936,23 +2003,86 @@ export class DriverService {
     tenantName?: string | null,
   ): Promise<void> {
     const name =
-      tenantName ?? (await this.organizationService.getOrganizationStatus(tenantId)).name;
-    const { pushed } = await this.driverPushNotifier.notifyInvited(
-      tenantId,
-      driverId,
-      name ?? 'A fleet owner',
-      invitationId,
-    );
+      tenantName ??
+      (await this.organizationService.getOrganizationStatus(tenantId)).name ??
+      'A fleet owner';
+    const driver = await this.driverRepository.findById(driverId);
+    const [{ pushed }, whatsapp] = await Promise.all([
+      this.driverPushNotifier.notifyInvited(tenantId, driverId, name, invitationId),
+      driver?.phoneNumber
+        ? this.driverPushNotifier.notifyInvitedOnWhatsApp(
+            driver.phoneNumber,
+            name,
+            inviteTrackedLink(invitationId),
+          )
+        : Promise.resolve({ status: 'skipped' as const, requestId: null }),
+    ]);
     await this.driverTenantRelationRepository.setPushDeliveryStatus(
       invitationId,
       pushed ? 'sent' : 'failed',
     );
+    if (whatsapp.status !== 'skipped') {
+      await this.driverTenantRelationRepository.setWhatsAppSendStatus(
+        invitationId,
+        whatsapp.status,
+        whatsapp.requestId,
+      );
+    }
+  }
+
+  /**
+   * The driver tapped the invite WhatsApp's tracked link (GET /v1/driver-invites/open/:token —
+   * public, no login). Records it and returns where to send them — always the app link, even for a
+   * bad token or a failed write, so the driver is never stuck on an error page. Null when
+   * DRIVER_APP_URL isn't set.
+   */
+  async recordInviteLinkOpened(token: string, userAgent: string | null): Promise<string | null> {
+    const invitationId = invitationIdFromLinkToken(token);
+    if (!invitationId) {
+      console.warn(`Driver invite link opened with an invalid token — not recorded`);
+    } else {
+      try {
+        await this.driverTenantRelationRepository.recordInviteLinkOpened(
+          invitationId,
+          userAgent?.slice(0, 255) || null,
+          new Date(),
+        );
+        console.info(`Driver invite link opened — invitation ${invitationId}`);
+      } catch (error) {
+        console.warn(
+          `Driver invite link open for invitation ${invitationId} not recorded: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return env.driverAppUrl ?? null;
+  }
+
+  /**
+   * MSG91's WhatsApp delivery-report webhook (POST /v1/webhooks/msg91/whatsapp). The integrated
+   * number's reports for every message arrive here; only those matching an invite's latest send
+   * (by request id) are recorded. Returns how many were applied.
+   *
+   * `read` reports are ignored for now — "opened" is the driver tapping the app link instead
+   * (recordInviteLinkOpened). Drop the filter to track reads again.
+   */
+  async recordWhatsAppReports(body: unknown): Promise<number> {
+    let applied = 0;
+    const reports = parseMsg91WhatsappReports(body).filter((report) => report.status !== 'read');
+    for (const report of reports) {
+      const invitationId = await this.driverTenantRelationRepository.findIdByWhatsAppRequestId(
+        report.requestId,
+      );
+      if (!invitationId) continue;
+      await this.recordInviteWhatsAppStatus(invitationId, report.status, report.at);
+      applied += 1;
+    }
+    return applied;
   }
 
   /**
    * WhatsApp's delivery report for an invite's latest send — `read` is the driver reading the
-   * invite message, which the drawer shows as "Opened" (once per send). Not called yet: the
-   * WhatsApp provider's status webhook calls this once WhatsApp sending is wired into deliverInvite.
+   * invite message, which the drawer shows as "Opened" (once per send). Called by
+   * recordWhatsAppReports, from MSG91's delivery-report webhook.
    */
   async recordInviteWhatsAppStatus(
     invitationId: string,

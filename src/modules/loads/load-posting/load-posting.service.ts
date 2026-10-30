@@ -44,6 +44,7 @@ import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
+  vehicleDocumentWarning,
   assignmentBlockedEvent,
 } from '../assignment-compliance.service';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
@@ -80,6 +81,8 @@ export interface PostLoadResult {
   recipients: LoadRecipientEntity[];
   /** Own fleet only — the truck and driver the trip was assigned to (PL-25). */
   assignedTruck: { vehicleNumber: string | null; driver: AssignedDriver } | null;
+  /** Own fleet only — expired papers on the chosen vehicle; the post went through anyway. */
+  complianceWarnings: string[];
   /** True when an earlier request with the same idempotency key already posted this load. */
   duplicate: boolean;
 }
@@ -159,6 +162,7 @@ export class LoadPostingService {
       let contractId: string | null = null;
       let vehicleLoadDefaults: Partial<CreateLoadData> = {};
       let assignedDriverName: string | null = null;
+      let complianceWarnings: string[] = [];
 
       if (input.mode === 'market_fleet') {
         const ids = [...new Set(input.transporterIds ?? [])];
@@ -176,8 +180,8 @@ export class LoadPostingService {
         vehicleLoadDefaults = own.defaults;
         assignedDriverName = own.driverName;
 
-        // PL-22 / LS_N_0017 — expired papers or an expired driver licence block the post. Nothing
-        // is saved, so the alert carries the cities and pickup time.
+        // PL-22 / LS_N_0017 — an expired driver licence blocks the post (nothing is saved, so the
+        // alert carries the cities and pickup time); expired vehicle papers only warn.
         const compliance = await this.assignmentComplianceService.check(tenantId, {
           vehicleId: input.vehicleId,
           driverId: own.defaults.driverId,
@@ -196,6 +200,9 @@ export class LoadPostingService {
         // After the compliance check, so an expired licence raises LS_N_0017 first; this one still
         // catches the licence class (and the India-date expiry edge).
         this.assertDriverLicenceCoversTruck(own.driverRelation, own.grossVehicleWeightKg);
+        complianceWarnings = compliance.warnings.map((warning) =>
+          vehicleDocumentWarning(own.defaults.vehicleNumber ?? '', warning),
+        );
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
@@ -449,6 +456,7 @@ export class LoadPostingService {
                 },
               }
             : null,
+        complianceWarnings,
         duplicate: false,
       };
     } catch (error) {
@@ -961,6 +969,7 @@ export class LoadPostingService {
       loads: loads.map((load) => ({ id: load.id, code: load.code })),
       recipients,
       assignedTruck: await this.describeAssignedTruck(tenantId, posting, loads[0]),
+      complianceWarnings: [],
       duplicate: true,
     };
   }

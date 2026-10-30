@@ -1,4 +1,4 @@
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
 import { OrganizationDocumentVerificationService } from '../organization/organization-document-verification.service';
@@ -9,6 +9,7 @@ import {
 } from '../organization/entities/organization.entity';
 import { OrganizationDocumentEntity } from '../organization/entities/organization-document.entity';
 import { AuthService } from '../auth/auth.service';
+import { UserEntity } from '../auth/entities/user.entity';
 import {
   isTenantAccessible,
   organizationDisplayName,
@@ -25,6 +26,7 @@ import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
   PLATFORM_ADMIN_ROLE,
+  ORG_ADMIN_ROLE,
   ONLINE_KYC_DESK_ROLE,
   OFFLINE_KYC_DESK_ROLE,
   SALES_ROLE,
@@ -88,11 +90,26 @@ export class AdminService {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
       this.assertOrgAccessible(actingUser, organization);
 
-      const [documents, journeyStageHistory] = await Promise.all([
+      const [documents, journeyStageHistory, orgAdmin] = await Promise.all([
         this.organizationDocumentService.listByOrganization(organizationId),
         this.organizationJourneyStageService.getTrail(organizationId),
+        // The shipper's contact details live on its org_admin user, not the organization row.
+        this.dataSource.getRepository(UserEntity).findOne({
+          where: {
+            tenantId: organizationId,
+            role: { name: ORG_ADMIN_ROLE },
+            deletedAt: IsNull(),
+          },
+          order: { createdAt: 'ASC' },
+        }),
       ]);
-      return { ...this.toPublicOrganization(organization), documents, journeyStageHistory };
+      return {
+        ...this.toPublicOrganization(organization),
+        orgAdminPhone: orgAdmin?.phoneNumber ?? null,
+        orgAdminEmail: orgAdmin?.email ?? null,
+        documents,
+        journeyStageHistory,
+      };
     } catch (error) {
       rethrow(error, 'Failed to get organization');
     }

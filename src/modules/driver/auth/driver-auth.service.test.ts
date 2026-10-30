@@ -64,7 +64,7 @@ function build(
     relations as unknown as DriverTenantRelationRepository,
     sessions as unknown as DriverSessionRepository,
     organizations as unknown as OrganizationService,
-    {} as OtpService,
+    { requestOtpCode: vi.fn(), verifyOtpCode: vi.fn() } as unknown as OtpService,
   );
   return { service, sessions, calls };
 }

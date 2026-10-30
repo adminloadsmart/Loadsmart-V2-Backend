@@ -45,6 +45,7 @@ export class PlacesService {
         query: query.q,
         sessionToken: query.sessionToken,
         country: query.country,
+        citiesOnly: query.type === 'city',
       });
       return predictions.map((p) => ({
         placeId: p.place_id,

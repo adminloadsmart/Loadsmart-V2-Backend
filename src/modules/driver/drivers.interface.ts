@@ -147,6 +147,39 @@ export interface InviteDriverByPhoneResult {
   invitation: DriverInvitationView | null;
 }
 
+/**
+ * What POST /drivers/verify-dl returns when the licence number already belongs to a driver in the
+ * DB: the stored profile (no bank details) and whether this tenant can invite them. The form then
+ * offers only "Send invitation" (via POST /drivers/invitations with `phoneNumber`) — no Sarathi call.
+ */
+export interface ExistingDriverLookup {
+  existingDriver: {
+    driverId: string;
+    fullName: string;
+    phoneNumber: string;
+    licenseNumber: string | null;
+    licenseVerified: boolean;
+    licenseExpiry: string | null;
+    dateOfBirth: string | null;
+    bloodGroup: DriverEntity['bloodGroup'];
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    pinCode: string | null;
+    emergencyContactName: string | null;
+    emergencyContactPhone: string | null;
+  };
+  invitation: {
+    canInvite: boolean;
+    /** Why not, shown as-is; null while canInvite. */
+    reason: string | null;
+    /** This tenant's existing invitation (for Resend), if it has one. */
+    invitationId: string | null;
+  };
+}
+
+export type VerifyDriverDlResult = SarathiDrivingLicenceResult | ExistingDriverLookup;
+
 export interface DriverInvitationDeliveryChannel {
   channel: DriverInviteChannel;
   status: DriverInviteDeliveryStatus | null;
@@ -173,8 +206,9 @@ export interface DriverInvitationView {
   /** Whether the driver has ever logged into the driver app — false for a number invited before
    *  its owner installed it. */
   appInstalled: boolean;
-  /** First time the driver opened the latest send's invite notification in the app; null until
-   *  then. Cleared by every Resend, so it describes the invite currently waiting. */
+  /** First tap on the invite WhatsApp's tracked app link since the latest send; null until then
+   *  (and always, when API_PUBLIC_URL isn't set). Reset by every Resend, so it describes the
+   *  invite currently waiting. */
   openedAt: Date | null;
   /** Whether POST …/resend would go through now — drives the Resend button. */
   canResend: boolean;
@@ -831,6 +865,9 @@ export interface OnboardDriverInput extends Omit<CreateDriverInput, 'onboardingS
 
 export type DriverParams = { driverId: string };
 export type InvitationParams = { invitationId: string };
+
+/** GET /driver-invites/open/:token — the invite WhatsApp's tracked app link. */
+export type InviteLinkParams = { token: string };
 export type DriverDocumentParams = { driverId: string; documentId: string };
 export type DriverBankDetailsParams = { driverId: string; bankDetailsId: string };
 export type DriverRelationParams = { relationId: string };

@@ -30,13 +30,16 @@ import {
  * appended — a Resend or a fresh invite on the same row adds to the log and never clears it. `at`
  * is an ISO timestamp; `by` is the staff user's id. `expired` is written when an expired invite is
  * resent; until then the drawer derives it from invite_expires_at. `whatsapp_read` is the driver
- * reading a send's WhatsApp message — logged once per send. `viewed` (an in-app notification
+ * reading a send's WhatsApp message — logged once per send (not written while read tracking is
+ * off). `link_opened` is the driver tapping the tracked app link in it — logged on every tap, with
+ * the device; the invitation's `openedAt` and `opened` step. `viewed` (an in-app notification
  * opened) is no longer written; it stays here only so older rows still type-check, and the
  * invitation detail drops it.
  */
 export type DriverInviteEvent =
   | { step: DriverInviteSendStep; at: string; by: string | null }
   | { step: 'whatsapp_read'; at: string }
+  | { step: 'link_opened'; at: string; device: string | null }
   | { step: 'viewed'; at: string; device: string | null; notificationId?: string }
   | { step: 'expired'; at: string }
   | { step: 'declined'; at: string; reason: string | null }
@@ -164,6 +167,12 @@ export class DriverTenantRelationEntity {
 
   @Column({ name: 'whatsapp_delivery_status_at', type: 'timestamptz', nullable: true })
   whatsappDeliveryStatusAt!: Date | null;
+
+  // MSG91's request id for the latest WhatsApp send — matches its delivery-report webhook to this
+  // invite. Null until a send is accepted; overwritten on every Resend.
+  @Index('driver_tenant_relations_whatsapp_request_id_idx')
+  @Column({ name: 'whatsapp_request_id', type: 'varchar', length: 100, nullable: true })
+  whatsappRequestId!: string | null;
 
   @Column({
     name: 'push_delivery_status',

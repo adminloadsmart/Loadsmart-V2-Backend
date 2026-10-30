@@ -4,6 +4,8 @@ import { createDriverAuth } from '../../shared/middleware/driver-auth.middleware
 import { DriverRepository } from './driver.repository';
 import { DriverTenantRelationRepository } from './driver-tenant-relation.repository';
 import { DriverService } from './driver.service';
+import { createDriverInviteTrackingRoutes } from './driver-invite-tracking.routes';
+import { DriverInviteTrackingController } from './driver-invite-tracking.controller';
 import { DriverController } from './driver.controller';
 import { DriverImportService } from './driver-import.service';
 import { DriverImportController } from './driver-import.controller';
@@ -94,6 +96,10 @@ export function createDriverModule(
     idfyClient,
     dlVerificationClient: sarathiClient,
     driverPushNotifier,
+    // Public: the invite WhatsApp's tracked link and MSG91's delivery-report webhook.
+    inviteTrackingRouter: createDriverInviteTrackingRoutes(
+      new DriverInviteTrackingController(driverService),
+    ),
   };
 }
 

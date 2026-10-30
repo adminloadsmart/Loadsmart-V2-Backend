@@ -13,7 +13,7 @@ export function registerPlacesOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'places.search',
     security: [{ bearerAuth: [] }],
     description:
-      'Search any place by text (Google Places Autocomplete). Returns suggestions, each with a placeId to pass to GET /places/{placeId}. Pass the same sessionToken (a UUID) on the search calls and the final details call so Google bills them as one session. Any authenticated user; rate limited.',
+      'Search any place by text (Google Places Autocomplete). Returns suggestions, each with a placeId to pass to GET /places/{placeId}. Pass the same sessionToken (a UUID) on the search calls and the final details call so Google bills them as one session. Pass type=city to get only cities/towns. Any authenticated user; rate limited.',
     request: { query: placesValidators.search.shape.query },
     responses: {
       200: {

@@ -31,6 +31,8 @@ import { LoadEventNotifier } from '../notifications/notifications.interface';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
+  expiredVehicleDocuments,
+  vehicleDocumentWarning,
   assignmentBlockedEvent,
 } from './assignment-compliance.service';
 import {
@@ -429,7 +431,14 @@ export class DispatchPlanningService {
             : inThisRequisitionIds.has(vehicle.id)
               ? 'already_in_requisition'
               : null;
-          return { ...vehicle, isAvailable: unavailableReason === null, unavailableReason };
+          return {
+            ...vehicle,
+            isAvailable: unavailableReason === null,
+            unavailableReason,
+            complianceWarnings: expiredVehicleDocuments(vehicle.documents ?? []).map((warning) =>
+              vehicleDocumentWarning(vehicle.registrationNumber, warning),
+            ),
+          };
         })
         .filter((row) => row.isAvailable);
 
@@ -465,8 +474,7 @@ export class DispatchPlanningService {
     cargoTonnes: number,
     cargoRows: { productId: string; tonnesPerTruck: string }[],
   ): Promise<BuiltLine> {
-    // Expired papers used to only warn here; they now block (LS_N_0017, below), so this stays
-    // empty — kept so the response keeps its `complianceWarnings` field.
+    // Expired vehicle papers warn here (LS_N_0017); an expired driver licence blocks, below.
     const complianceWarnings = new Map<string, string>();
     const capacities: number[] = [];
     const blockedVehicles: {
@@ -492,12 +500,20 @@ export class DispatchPlanningService {
         (link) => link.isPrimary && link.status === 'active',
       );
 
-      // LS_N_0017 — an expired vehicle document or driver licence blocks the whole plan. Every
+      // LS_N_0017 — an expired driver licence blocks the whole plan. Every
       // blocked truck in the line is alerted, then the first one's error is returned.
       const compliance = await this.assignmentComplianceService.check(tenantId, {
         vehicleId: vehicle.id,
         driverId: primaryLink?.driverId ?? null,
       });
+      if (compliance.warnings.length > 0) {
+        complianceWarnings.set(
+          vehicle.id,
+          compliance.warnings
+            .map((warning) => vehicleDocumentWarning(vehicle.registrationNumber, warning))
+            .join(' '),
+        );
+      }
       if (compliance.failure) {
         blockedVehicles.push({
           vehicleNumber: vehicle.registrationNumber,

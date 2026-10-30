@@ -6,7 +6,7 @@ import { LoadActivityService } from './load-activity.service';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import { LoadEntity } from './entities/load.entity';
 import { stageGateError, stageTransitionError } from './utils/load-stages';
-import { LoadStatus } from './utils/loads.types';
+import { DELIVERED_LOAD_STATUSES, LoadStatus } from './utils/loads.types';
 import { LoadStageHook, StageTransitionInput } from './utils/load.interface';
 
 /** The timestamp column each stage stamps when the load enters it. Delivered with issues shares
@@ -107,13 +107,20 @@ export class LoadStageService {
 
       await this.onStageEntered?.(updated, to);
 
-      if (to === 'closed' && updated.vehicleId && actorId) {
-        // Own-fleet loads carry a vehicleId — release it back to idle now that this was its one
-        // active load (dispatch-planning's C-02 guarantees one active load per vehicle).
-        await this.vehicleService.setOperationalStatus(tenantId, actorId, updated.vehicleId, {
-          operationalStatus: 'idle',
-          reason: `Load ${loadId} closed`,
-        });
+      const delivered = DELIVERED_LOAD_STATUSES.includes(to);
+      if ((delivered || to === 'closed') && updated.vehicleId) {
+        // Own-fleet loads carry a vehicleId — release it back to idle as soon as the load is
+        // delivered (not only once closed, which waits on E-POD/issues/payment) so it can take the
+        // next load; dispatch-planning's C-02 guarantees one active load per vehicle. Closing
+        // repeats the write harmlessly. Geofence transitions have no actor, so fall back to the
+        // load's last editor.
+        const releasedBy = actorId ?? updated.updatedBy;
+        if (releasedBy) {
+          await this.vehicleService.setOperationalStatus(tenantId, releasedBy, updated.vehicleId, {
+            operationalStatus: 'idle',
+            reason: `Load ${loadId} ${delivered ? 'delivered' : 'closed'}`,
+          });
+        }
       }
 
       return updated;

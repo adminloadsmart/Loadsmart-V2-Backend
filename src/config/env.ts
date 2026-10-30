@@ -201,6 +201,19 @@ export const env = {
   notificationsTestEndpoint:
     nodeEnv !== 'production' && process.env.NOTIFICATIONS_TEST_ENDPOINT === 'true',
   msg91WhatsappTemplateOtp: process.env.MSG91_WHATSAPP_TEMPLATE_OTP || undefined,
+  // Driver invite (Invitations tab's Send on WhatsApp / Resend) — Meta-approved template whose
+  // {{var_1}} is the org name and {{var_2}} the driver app install link (driverAppUrl). Unset
+  // (either one) = the invite goes out on push only, as before.
+  msg91WhatsappTemplateDriverInvite: process.env.MSG91_WHATSAPP_TEMPLATE_DRIVER_INVITE || undefined,
+  driverAppUrl: process.env.DRIVER_APP_URL?.trim() || undefined,
+  // This API's public base URL (e.g. https://api.loadsmart.in). Set = the invite's {{var_2}} is a
+  // tracked link (GET /v1/driver-invites/open/:token) that records the tap, then redirects to
+  // driverAppUrl. Unset = the plain driverAppUrl goes out and taps aren't recorded.
+  apiPublicUrl: process.env.API_PUBLIC_URL?.trim().replace(/\/+$/, '') || undefined,
+  // Shared secret in the MSG91 WhatsApp delivery-report webhook URL
+  // (POST /v1/webhooks/msg91/whatsapp?token=…) — MSG91 doesn't sign its webhooks. Unset = the
+  // webhook rejects every call.
+  msg91WebhookToken: process.env.MSG91_WEBHOOK_TOKEN || undefined,
   // LS_N_0008's DLT-approved OTP SMS template — a Flow (SMS) template with the code in ##var1##,
   // sent via Msg91Client.sendTransactional for staff signup/login (see OtpService). No fallback.
   msg91SmsTemplateOtp: process.env.MSG91_SMS_TEMPLATE_OTP || undefined,

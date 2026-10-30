@@ -36,8 +36,13 @@ describe('Msg91Client — test numbers', () => {
     return (
       vi
         .spyOn(globalThis, 'fetch')
-        // A fresh Response per call — a body can only be read once.
-        .mockImplementation(async () => new Response(JSON.stringify({ type: 'success' })))
+        // A fresh Response per call — a body can only be read once. Each API's own success shape:
+        // SMS (Flow) answers with `type`, WhatsApp with `status`/`hasError`.
+        .mockImplementation(async (url) =>
+          String(url).includes('/whatsapp/')
+            ? new Response(JSON.stringify({ status: 'success', hasError: false }))
+            : new Response(JSON.stringify({ type: 'success' })),
+        )
     );
   }
 
@@ -58,5 +63,28 @@ describe('Msg91Client — test numbers', () => {
     await client.sendTransactional('8888812345', { title: 't' }, 'template');
     await client.sendWhatsapp('8888812345', ['x'], 'template');
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('Msg91Client — WhatsApp response', () => {
+  function sendWith(body: unknown) {
+    vi.spyOn(env, 'msg91AuthKey', 'get').mockReturnValue('key');
+    vi.spyOn(env, 'msg91WhatsappIntegratedNumber', 'get').mockReturnValue('919999999999');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(body)));
+    return new Msg91Client().sendWhatsapp('9876543210', ['x'], 'template');
+  }
+
+  // An accepted message must resolve — throwing here made BullMQ retry it, sending it 3 times.
+  it('resolves on status: success (no `type` field)', async () => {
+    await expect(sendWith({ status: 'success', hasError: false })).resolves.toEqual({
+      status: 'success',
+      hasError: false,
+    });
+  });
+
+  it('throws with the full response body when MSG91 reports an error', async () => {
+    await expect(sendWith({ status: 'fail', hasError: true, errors: 'bad' })).rejects.toThrow(
+      'MSG91 send WhatsApp message failed (HTTP 200): {"status":"fail","hasError":true,"errors":"bad"}',
+    );
   });
 });

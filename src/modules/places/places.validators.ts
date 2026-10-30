@@ -15,6 +15,8 @@ export const placesValidators = {
         .length(2)
         .transform((v) => v.toLowerCase())
         .default('in'),
+      // `city` limits suggestions to cities/towns (Google's `(cities)` type collection).
+      type: z.enum(['city']).optional(),
     }),
   }),
   details: z.object({

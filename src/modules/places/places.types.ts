@@ -21,6 +21,7 @@ export interface SearchPlacesQuery {
   q: string;
   sessionToken?: string;
   country: string;
+  type?: 'city';
 }
 
 export interface PlaceParams {

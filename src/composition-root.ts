@@ -586,7 +586,11 @@ export function buildContainer(dataSource: DataSource): Container {
     tenancyGateway: auth.tenancyGateway,
     authMiddleware,
     auditMiddleware,
-    publicRouters: [{ path: '/auth', router: auth.publicRouter }],
+    publicRouters: [
+      { path: '/auth', router: auth.publicRouter },
+      // Full paths inside (/driver-invites/open/:token, /webhooks/msg91/whatsapp) — see the router.
+      { path: '', router: driver.inviteTrackingRouter },
+    ],
     authenticatedRouters: [
       { path: '/auth', router: auth.protectedRouter },
       { path: '/auth', router: organizationOnboarding.router },
