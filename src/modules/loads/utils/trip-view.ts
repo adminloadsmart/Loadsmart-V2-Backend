@@ -73,6 +73,8 @@ export interface TripListRow {
   requisitionCode: string | null;
   /** The requisition's planned pickup date (YYYY-MM-DD) — null only if the relation wasn't loaded. */
   pickupDate: string | null;
+  /** The requisition's (or posting's) promised delivery date (YYYY-MM-DD) — the Loads table's Delivery date. */
+  expectedDeliveryDate: string | null;
   route: {
     loadingPointTitle: string;
     loadingPointCity: string;
@@ -84,7 +86,7 @@ export interface TripListRow {
   vehicle: TripVehicleDetails | null;
   /** Own-fleet: the Driver-master row backing this load's driver snapshot. Market: the free-text
    *  driverName entered at Assignment, with `id: null` since no Driver-master row backs it. */
-  driver: { id: string | null; fullName: string } | null;
+  driver: { id: string | null; fullName: string; phone: string | null } | null;
   source: { type: LoadSourceType; label: string };
   plannedCapacityTonnes: string;
   freightValue: string | null;
@@ -185,6 +187,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,
     pickupDate: origin.pickupDate,
+    expectedDeliveryDate: origin.expectedDeliveryDate,
     route:
       origin.pickup && origin.drop
         ? {
@@ -198,9 +201,9 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     vehicleNumber: load.vehicleNumber,
     vehicle: buildVehicleDetails(load),
     driver: driver
-      ? { id: driver.id, fullName: driver.fullName }
+      ? { id: driver.id, fullName: driver.fullName, phone: driver.phoneNumber ?? load.driverNumber }
       : load.driverName
-        ? { id: null, fullName: load.driverName }
+        ? { id: null, fullName: load.driverName, phone: load.driverNumber }
         : null,
     source:
       load.sourceType === 'own_fleet'

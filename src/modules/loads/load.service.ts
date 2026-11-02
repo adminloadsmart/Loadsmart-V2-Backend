@@ -430,6 +430,14 @@ export class LoadService {
     if (input.invoiceNumber !== undefined) uploadedMetadata.invoiceNumber = input.invoiceNumber;
     if (input.ewayBillNumber !== undefined) uploadedMetadata.ewayBillNumber = input.ewayBillNumber;
     if (input.elrFileKey !== undefined) uploadedMetadata.elrNumber = input.elrNumber ?? null;
+    // Which documents this call carried — the timeline names them (all three papers → generic).
+    const documents: string[] = [];
+    if (input.invoiceFileKey !== undefined) documents.push('invoice');
+    if (input.ewayBillFileKey !== undefined) documents.push('ewayBill');
+    if (input.elrFileKey !== undefined) documents.push('elr');
+    if (input.loadingPhotoFileKeys !== undefined) documents.push('loadingPhotos');
+    if (input.weighingSlipFileKey !== undefined) documents.push('weighingSlip');
+    if (documents.length > 0) uploadedMetadata.documents = documents;
     await this.loadActivityService.record(
       tenantId,
       loadId,
