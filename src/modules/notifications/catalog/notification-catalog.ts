@@ -25,7 +25,7 @@ import {
   FRONTEND_PATHS,
 } from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
-import { formatIndiaDateTime } from '../utils/trip-time';
+import { formatHoursSince, formatIndiaDateTime } from '../utils/trip-time';
 import type { AssignmentComplianceSubject, LoadIssueCategory } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
@@ -196,9 +196,10 @@ export interface DailyBriefContext {
   userId: string;
   orgName: string;
   tripsRunning: number;
-  /** No GPS/ETA data yet — static placeholders, marked "(static)" (see DAILY_BRIEF_STATIC). */
+  /** No GPS/ETA data yet — static placeholder, marked "(static)" (see DAILY_BRIEF_STATIC). */
   arrivingToday: string;
-  delayed: string;
+  /** Running trips already past their promised delivery time. */
+  delayed: number;
   podsPending?: number;
   approvalsPending?: number;
   vehiclesBlocked?: number;
@@ -212,7 +213,6 @@ export interface DailyBriefContext {
  *  "(static)" in the text and listed in the notification's `static_tokens` metadata. */
 export const DAILY_BRIEF_STATIC = {
   arrivingToday: '0 (static)',
-  delayed: '0 (static)',
   idleLocations: 'location unavailable (static)',
 };
 
@@ -1924,14 +1924,14 @@ export const NOTIFICATION_CATALOG = {
           org_name: context.orgName,
           trips_running: String(context.tripsRunning),
           arriving_today: context.arrivingToday,
-          delayed: context.delayed,
+          delayed: String(context.delayed),
           needs_action: String(context.needsAction),
           pods_pending: context.podsPending?.toString() ?? '',
           approvals_pending: context.approvalsPending?.toString() ?? '',
           vehicles_blocked: context.vehiclesBlocked?.toString() ?? '',
           empty_vehicles: context.emptyVehicles?.toString() ?? '',
           idle_locations: context.idleLocations ?? '',
-          static_tokens: 'arriving_today,delayed,idle_locations',
+          static_tokens: 'arriving_today,idle_locations',
           brief: body,
           run_date: context.runDate,
           cta_label: 'Open my day',
@@ -2714,17 +2714,17 @@ export const NOTIFICATION_CATALOG = {
     templates: {
       whatsapp: {
         templateName: env.msg91WhatsappTemplateTrackingSignalLost,
-        variables: ['first_name', 'vehicle_no', 'hours_since', 'last_location'],
+        variables: ['first_name', 'vehicle_no', 'time_since', 'last_location'],
       },
     },
     dedupeKey: (context: TrackingSignalLostContext) =>
       `${context.loadId}-${context.lastSeenAt}-${context.step}`,
     buildContent: (context: TrackingSignalLostContext, recipient) => {
       const vehicleNo = context.vehicleNo ?? 'the vehicle';
-      const hoursSince = String(
+      const hoursSince =
         context.hoursSince ??
-          Math.floor((Date.now() - new Date(context.lastSeenAt).getTime()) / MS_PER_HOUR),
-      );
+        Math.floor((Date.now() - new Date(context.lastSeenAt).getTime()) / MS_PER_HOUR);
+      const timeSince = formatHoursSince(hoursSince);
       const lastLocation =
         context.lastLocation ??
         (context.lastLat != null && context.lastLng != null
@@ -2739,13 +2739,14 @@ export const NOTIFICATION_CATALOG = {
       return {
         title: `No tracking signal from ${vehicleNo}`,
         body:
-          `Last position ${lastLocation} at ${lastPingTime}, ${hoursSince} hours ago, on ${loadCode} to ${destination}.` +
+          `Last position ${lastLocation} at ${lastPingTime}, ${timeSince} ago, on ${loadCode} to ${destination}.` +
           ` Call ${driver || 'the driver'} or ask ${transporter} to check the device.`,
-        highlights: [vehicleNo, `${hoursSince} hours`],
+        highlights: [vehicleNo, timeSince],
         metadata: {
           ...loadMetadataOf(context),
           first_name: firstNameOf(recipient.fullName),
-          hours_since: hoursSince,
+          hours_since: String(hoursSince),
+          time_since: timeSince,
           last_location: lastLocation,
           last_ping_time: lastPingTime,
           last_seen_at: context.lastSeenAt,
