@@ -924,11 +924,10 @@ export class LoadPostingService {
       const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
       if (sessions.length === 0) return;
 
-      // Re-read with the route relations so the push can name the route and pickup.
+      // Re-read with the route relations — the freshly created load carries none.
       const detailed = (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load;
       const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
       const { body, metadata } = driverAssignmentMessage([detailed], owner ?? null);
-
       await Promise.all(
         sessions
           .filter((session) => session.fcmToken)
