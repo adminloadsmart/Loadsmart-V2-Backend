@@ -43,7 +43,7 @@ export async function scheduleDigests(queue: JobQueue): Promise<void> {
 }
 
 export function createDigests(deps: DigestsDeps) {
-  const { scheduledAlertRepository, triggers } = deps;
+  const { scheduledAlertRepository, triggers, tracking } = deps;
 
   return {
     /** LS_N_0059 — per organisation, the longest-idle vehicle headlines; the rest are counted. */
@@ -84,6 +84,12 @@ export function createDigests(deps: DigestsDeps) {
       let sentCount = 0;
       for (const organization of organizations) {
         const counts = await scheduledAlertRepository.countDailyBrief(organization.id, today);
+        // Tracking unreachable/unconfigured → late by date only, so the brief still goes out.
+        const lateByEtaIds = (await tracking.listRunningLateTripIds(organization.id)) ?? [];
+        const delayed = await scheduledAlertRepository.countDelayedTrips(
+          organization.id,
+          lateByEtaIds,
+        );
         const emptyVehicles = freeVehicles.filter(
           (vehicle) => vehicle.tenantId === organization.id,
         ).length;
@@ -111,7 +117,7 @@ export function createDigests(deps: DigestsDeps) {
             orgName: organizationDisplayName(organization),
             tripsRunning: counts.running,
             arrivingToday: DAILY_BRIEF_STATIC.arrivingToday,
-            delayed: DAILY_BRIEF_STATIC.delayed,
+            delayed,
             podsPending,
             approvalsPending,
             vehiclesBlocked,

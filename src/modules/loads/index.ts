@@ -31,6 +31,7 @@ import {
 } from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
+import { LoadPostingRepository } from './load-posting/load-posting.repository';
 import { AssignmentComplianceService } from './assignment-compliance.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadStatus } from './utils/loads.types';
@@ -177,6 +178,7 @@ export function createLoadsModule(
     deps.driverAuthService,
     deps.notificationsService,
     deps.assignmentComplianceService,
+    new LoadPostingRepository(dataSource),
     deps.onLoadEvent,
     runStageHooks,
     (tenantId) => deps.authService.getFleetOwner(tenantId),

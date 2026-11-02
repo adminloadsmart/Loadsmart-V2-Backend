@@ -115,6 +115,12 @@ export interface ListLoadsInput extends PaginationInput {
   search?: string;
 }
 
+/** GET /loads/live — `cursor` is the previous page's opaque nextCursor. */
+export interface ListLiveLoadsInput {
+  limit: number;
+  cursor?: string;
+}
+
 export type LoadParams = { loadId: string };
 
 export interface EwayBillExpiry {

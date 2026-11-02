@@ -35,13 +35,28 @@ export interface TrackingClient {
     tenantId: string,
     loadId: string,
   ): Promise<{ eta: TripEta | null; position: TripPosition | null }>;
+  /** Load ids of the tenant's active trips whose live ETA is past the promised delivery time
+   *  (projectedDelayMin > 0, ETA not stale). Null when tracking isn't configured or can't be
+   *  reached — callers fall back to what they know without it. */
+  listRunningLateTripIds(tenantId: string): Promise<string[] | null>;
 }
 
 const REQUEST_TIMEOUT_MS = 5000;
+/** Tracking's own cap on GET /v1/trips. */
+const MAX_TRIPS_PER_LIST = 500;
 const SERVICE_TOKEN_TTL_SECONDS = 60;
 /** Not a real user: tracking only reads the token's tenant, and this backend's own auth rejects
  *  the token (no such user), so it can't be used against our API. */
 const SERVICE_USER_ID = '00000000-0000-0000-0000-000000000000';
+
+interface TripListResponse {
+  data?: {
+    trips?: {
+      tripId?: string;
+      eta?: { projectedDelayMin?: number | null; stale?: boolean } | null;
+    }[];
+  };
+}
 
 interface TripResponse {
   data?: {
@@ -79,30 +94,13 @@ export class HttpTrackingClient implements TrackingClient {
     loadId: string,
   ): Promise<{ eta: TripEta | null; position: TripPosition | null }> {
     const none = { eta: null, position: null };
-    if (!this.baseUrl) return none;
-    // A short-lived token scoped to this tenant, signed with the shared JWT secret — tracking's
-    // staff auth reads the tenant from it (see the tracking requirements list).
-    const token = signToken(
-      {
-        id: SERVICE_USER_ID,
-        tenantId,
-        role: 'system',
-        permissions: [],
-        portal: 'organization',
-        purpose: 'access',
-      },
-      SERVICE_TOKEN_TTL_SECONDS,
-    );
     try {
-      const response = await fetch(
-        `${this.baseUrl.replace(/\/+$/, '')}/v1/trips/${encodeURIComponent(loadId)}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        },
+      const body = await this.get<TripResponse>(
+        tenantId,
+        `/v1/trips/${encodeURIComponent(loadId)}`,
       );
-      if (!response.ok) return none;
-      const data = ((await response.json()) as TripResponse).data;
+      if (!body) return none;
+      const data = body.data;
       const etaAt = validDate(data?.eta?.etaAt);
       const recordedAt = validDate(data?.position?.recordedAt ?? undefined);
       const { lat, lng } = data?.position ?? {};
@@ -134,5 +132,44 @@ export class HttpTrackingClient implements TrackingClient {
       console.warn(`Tracking lookup failed for load ${loadId}`, error);
       return none;
     }
+  }
+
+  async listRunningLateTripIds(tenantId: string): Promise<string[] | null> {
+    try {
+      const body = await this.get<TripListResponse>(
+        tenantId,
+        `/v1/trips?state=active&limit=${MAX_TRIPS_PER_LIST}`,
+      );
+      if (!body) return null;
+      return (body.data?.trips ?? [])
+        .filter((trip) => !trip.eta?.stale && Number(trip.eta?.projectedDelayMin) > 0)
+        .flatMap((trip) => (trip.tripId ? [trip.tripId] : []));
+    } catch (error) {
+      console.warn(`Tracking trip list failed for tenant ${tenantId}`, error);
+      return null;
+    }
+  }
+
+  /** GET against tracking as this tenant; null when tracking isn't configured or answers non-2xx. */
+  private async get<T>(tenantId: string, path: string): Promise<T | null> {
+    if (!this.baseUrl) return null;
+    // A short-lived token scoped to this tenant, signed with the shared JWT secret — tracking's
+    // staff auth reads the tenant from it (see the tracking requirements list).
+    const token = signToken(
+      {
+        id: SERVICE_USER_ID,
+        tenantId,
+        role: 'system',
+        permissions: [],
+        portal: 'organization',
+        purpose: 'access',
+      },
+      SERVICE_TOKEN_TTL_SECONDS,
+    );
+    const response = await fetch(`${this.baseUrl.replace(/\/+$/, '')}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return response.ok ? ((await response.json()) as T) : null;
   }
 }

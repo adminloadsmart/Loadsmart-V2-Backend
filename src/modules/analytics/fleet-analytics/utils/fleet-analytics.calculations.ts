@@ -5,7 +5,7 @@ import { TyreEntity } from '../../../maintenance/entities/tyre.entity';
 import { money } from '../../../maintenance/calculations/downtime';
 import { LoadEntity } from '../../../loads/entities/load.entity';
 import { UNLOADED_LOAD_STATUSES } from '../../../loads/utils/loads.types';
-import { RequisitionEntity } from '../../../loads/entities/requisition.entity';
+import { resolveLoadOrigin } from '../../../loads/utils/load-origin';
 import { addDays, daysBetween, msToDays, round } from '../../../maintenance/calculations/dates';
 import { endOfIstDate, startOfIstDate, toIstDateString } from '../../../../shared/utils/ist-time';
 import {
@@ -264,10 +264,38 @@ export function isDelivered(load: LoadEntity): boolean {
   return UNLOADED_LOAD_STATUSES.includes(load.status) || load.status === 'closed';
 }
 
-/** Due time: the promised delivery. Only a date is recorded, so the end of that IST day. */
+/** Due time (§6): the promised delivery date and time. A posted load carries the exact time; a
+ *  requisition carries only a date, so the end of that IST day. */
 export function dueAt(load: LoadEntity): Date | null {
+  if (load.posting?.deliverByAt) return load.posting.deliverByAt;
   const date = load.requisition?.expectedDeliveryDate;
   return date ? endOfIstDate(date) : null;
+}
+
+/** True when the load's due time is a requisition date rather than a promised date and time. */
+export function hasDateOnlyDue(load: LoadEntity): boolean {
+  return !load.posting?.deliverByAt && Boolean(load.requisition?.expectedDeliveryDate);
+}
+
+/** Unloading gate-out: leaving the drop geofence (GPS), else the driver's "Delivered". */
+export function unloadingGateOut(load: LoadEntity): Date | null {
+  return load.departedDropAt ?? load.deliveredAt ?? null;
+}
+
+/**
+ * Weight of a load in tonnes. The E-LR weighbridge weight (§12) isn't recorded, so the best
+ * recorded figure: tonnes received at POD, else the weight declared on the posting, else the
+ * planned capacity.
+ */
+export function weightOf(load: LoadEntity): number {
+  const weight =
+    load.podQuantityReceived ?? load.posting?.weightTonnes ?? load.plannedCapacityTonnes;
+  return Number(weight ?? 0);
+}
+
+/** The customer a load is for — from its requisition (Dispatch Planning) or its posting. */
+export function customerIdOf(load: LoadEntity): string | null {
+  return load.requisition?.customerId ?? load.posting?.customerId ?? null;
 }
 
 /** On time (§6): arrived before the window closes, 4 hours after the due time. */
@@ -292,35 +320,36 @@ export function loadingHours(load: LoadEntity): number | null {
 
 /** Hours at the unloading point: gate-in to gate-out. */
 export function unloadingHours(load: LoadEntity): number | null {
-  return hoursBetween(load.reachedDeliveryPointAt, load.deliveredAt);
+  return hoursBetween(load.reachedDeliveryPointAt, unloadingGateOut(load));
 }
 
 /** Turnaround (§13): first loading gate-in to last unloading gate-out, in days. */
 export function turnaroundDays(load: LoadEntity): number | null {
-  const hours = hoursBetween(load.atPlantAt, load.deliveredAt);
+  const hours = hoursBetween(load.atPlantAt, unloadingGateOut(load));
   return hours === null ? null : hours / 24;
 }
 
 export interface Lane {
-  /** `${loadingPointId}:${customerDeliveryPointId}` — the value the lane filter takes. */
+  /** `${from-city}|${to-city}`, lower-cased — the value the lane filter takes. */
   key: string;
   label: string;
 }
 
-/** The lane a requisition runs: loading point city to delivery point city. */
-export function laneOfRequisition(requisition: RequisitionEntity | null | undefined): Lane | null {
-  if (!requisition) return null;
-  const from = requisition.loadingPoint?.city ?? 'Unknown';
-  const delivery = requisition.customerDeliveryPoint;
-  const to = delivery?.city ?? delivery?.location ?? 'Unknown';
-  return {
-    key: `${requisition.loadingPointId}:${requisition.customerDeliveryPointId}`,
-    label: `${from} → ${to}`,
-  };
+function cityKey(city: string): string {
+  return city.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/**
+ * The lane a load runs (§12): first loading city to last unloading city, from the load's
+ * requisition or posting, with a loading point changed on the load itself winning (the latest
+ * saved points apply). Needs `requisition`, `posting` and `loadingPoint` loaded with their points.
+ */
 export function laneOf(load: LoadEntity): Lane | null {
-  return laneOfRequisition(load.requisition);
+  const origin = resolveLoadOrigin(load);
+  const from = origin.pickup?.city?.trim();
+  const to = (origin.drop?.city ?? origin.drop?.location)?.trim();
+  if (!from || !to) return null;
+  return { key: `${cityKey(from)}|${cityKey(to)}`, label: `${from} → ${to}` };
 }
 
 // ─── Documents (§18) ─────────────────────────────────────────────────────────

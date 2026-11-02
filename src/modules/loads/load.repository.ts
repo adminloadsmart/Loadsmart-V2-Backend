@@ -7,6 +7,7 @@ import {
   ILike,
   In,
   IsNull,
+  LessThan,
   LessThanOrEqual,
   MoreThanOrEqual,
   Not,
@@ -28,7 +29,9 @@ import {
   LoadSourceType,
   LoadStatus,
   ON_ROAD_LOAD_STATUSES,
+  OPEN_LOAD_STATUSES,
 } from './utils/loads.types';
+import { LiveLoadsCursor } from './utils/live-loads-cursor';
 
 // A single tenant for staff, several for a driver linked to more than one fleet.
 const scopeToTenants = (tenantId: string | string[]) =>
@@ -45,6 +48,22 @@ const ORIGIN_POSTING_RELATIONS = {
   pickupLoadingPoint: true,
   dropCustomerDeliveryPoint: true,
   dropLoadingPoint: true,
+} as const;
+
+/** Everything toTripListRow reads. driverLinks is loaded so it can fall back to the vehicle's
+ *  current driver when this load's own driverId snapshot is null (e.g. planned before any driver
+ *  was linked to the vehicle) — see load.service.ts. truckType is loaded on both `vehicle`
+ *  (own-fleet) and the load itself (market — see load.entity.ts's own doc comment) so
+ *  toTripListRow can resolve a truck-type name regardless of sourcing strategy. */
+const TRIP_LIST_RELATIONS = {
+  vehicle: { driverLinks: { driver: true }, truckType: true },
+  truckType: true,
+  driver: true,
+  loadingPoint: true,
+  transporter: true,
+  requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+  posting: ORIGIN_POSTING_RELATIONS,
+  cargoItems: { product: true },
 } as const;
 
 export interface CreateLoadData {
@@ -311,24 +330,34 @@ export class LoadRepository {
 
     return this.loads.findAndCount({
       where,
-      relations: {
-        // driverLinks is loaded so toTripListRow can fall back to the vehicle's current driver
-        // when this load's own driverId snapshot is null (e.g. planned before any driver was
-        // linked to the vehicle) — see load.service.ts. truckType is loaded on both `vehicle`
-        // (own-fleet) and the load itself (market — see load.entity.ts's own doc comment) so
-        // toTripListRow can resolve a truck-type name regardless of sourcing strategy.
-        vehicle: { driverLinks: { driver: true }, truckType: true },
-        truckType: true,
-        driver: true,
-        loadingPoint: true,
-        transporter: true,
-        requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
-        posting: ORIGIN_POSTING_RELATIONS,
-        cargoItems: { product: true },
-      },
+      relations: TRIP_LIST_RELATIONS,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
+    });
+  }
+
+  /** Home Live Loads — every non-closed load, newest first, keyset-paginated on (createdAt, id)
+   *  past `after`. Takes `limit + 1` so the caller can tell whether another page exists. */
+  listLive(
+    tenantId: string | string[],
+    { limit, after }: { limit: number; after?: LiveLoadsCursor | null },
+  ): Promise<LoadEntity[]> {
+    const base: FindOptionsWhere<LoadEntity> = {
+      tenantId: scopeToTenants(tenantId),
+      status: In(OPEN_LOAD_STATUSES),
+    };
+    const where: FindOptionsWhere<LoadEntity>[] = after
+      ? [
+          { ...base, createdAt: LessThan(after.createdAt) },
+          { ...base, createdAt: after.createdAt, id: LessThan(after.id) },
+        ]
+      : [base];
+    return this.loads.find({
+      where,
+      relations: TRIP_LIST_RELATIONS,
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: limit + 1,
     });
   }
 

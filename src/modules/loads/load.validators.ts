@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../shared/constants/pagination';
 import {
   FREIGHT_TYPES,
   LOAD_SOURCE_TYPES,
@@ -175,6 +176,13 @@ export const loadValidators = {
         (data) => !(data.status && data.group),
         'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',
       ),
+  }),
+  // Home Live Loads — scroll pagination. `cursor` is the opaque nextCursor of the previous page.
+  listLive: z.object({
+    query: z.object({
+      limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+      cursor: z.string().min(1).optional(),
+    }),
   }),
   get: z.object({ params }),
   getActivities: z.object({ params }),

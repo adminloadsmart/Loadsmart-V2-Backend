@@ -41,7 +41,9 @@ import { NotificationEntity } from './notifications.entity';
 import {
   DAILY_BRIEF_POD_PENDING_STATUS,
   DAILY_BRIEF_RUNNING_STATUSES,
+  INDIA_TIME_ZONE,
   MAINTENANCE_COST_AVERAGE_MONTHS,
+  PROMISED_DELIVERY_TIME_IST,
   TRIP_FINISHED_LOAD_STATUSES,
 } from './notifications.constants';
 import {
@@ -299,6 +301,35 @@ export class ScheduledAlertRepository {
         .getCount(),
     ]);
     return { running, pods, blocked };
+  }
+
+  /** LS_N_0060's "delayed" — running trips that are late by date (still on the way after the
+   *  promised time, or reached the drop after it) or by tracking's live ETA (`lateByEtaIds`),
+   *  each counted once. The promise is the requisition's delivery date at
+   *  PROMISED_DELIVERY_TIME_IST, else the posting's deliver-by — the same rule as promisedAtOf
+   *  (utils/trip-time.ts) and tracking's promised_delivery_at. */
+  async countDelayedTrips(tenantId: string, lateByEtaIds: string[]): Promise<number> {
+    const promisedAt =
+      'COALESCE((requisition.expected_delivery_date + CAST(:promisedDeliveryTime AS time)) ' +
+      'AT TIME ZONE :timeZone, posting.deliver_by_at)';
+    const lateByDateCondition = `COALESCE(load.reached_delivery_point_at, now()) > ${promisedAt}`;
+    return this.loads
+      .createQueryBuilder('load')
+      .leftJoin('load.requisition', 'requisition')
+      .leftJoin('load.posting', 'posting')
+      .where('load.tenant_id = :tenantId', { tenantId })
+      .andWhere('load.status IN (:...statuses)', { statuses: [...DAILY_BRIEF_RUNNING_STATUSES] })
+      .andWhere(
+        lateByEtaIds.length
+          ? `(${lateByDateCondition} OR load.id IN (:...lateByEtaIds))`
+          : lateByDateCondition,
+        { lateByEtaIds },
+      )
+      .setParameters({
+        promisedDeliveryTime: PROMISED_DELIVERY_TIME_IST,
+        timeZone: INDIA_TIME_ZONE,
+      })
+      .getCount();
   }
 
   /** LS_N_0056/0057 — own-fleet vehicles in service with a service record to measure from, not

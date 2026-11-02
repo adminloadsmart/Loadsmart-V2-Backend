@@ -1,8 +1,12 @@
 import type { LatLng } from '../../geofences/utils/geofence.interface';
 import {
+  DAYS_PER_MONTH,
+  DAYS_PER_YEAR,
   DEFAULT_REPORTING_TIME_IST,
+  HOURS_PER_DAY,
   INDIA_TIME_ZONE,
   INDIA_UTC_OFFSET_MS,
+  PROMISED_DELIVERY_TIME_IST,
 } from '../notifications.constants';
 
 /** When the vehicle is due at the loading point: a posting's pickup time, else the requisition's
@@ -17,10 +21,12 @@ export function reportingAtOf(pickupAt: Date | null, pickupDate: string | null):
 }
 
 /** LS_N_0031 — a promised delivery date (YYYY-MM-DD) as a moment: only the date is recorded, so
- *  the end of that day in India (23:59), same as tracking's promised_delivery_at. */
+ *  PROMISED_DELIVERY_TIME_IST on that day, same as tracking's promised_delivery_at. */
 export function promisedAtOf(promisedDate: string | null): Date | null {
   if (!promisedDate) return null;
-  return new Date(Date.parse(`${promisedDate}T23:59:00Z`) - INDIA_UTC_OFFSET_MS);
+  return new Date(
+    Date.parse(`${promisedDate}T${PROMISED_DELIVERY_TIME_IST}:00Z`) - INDIA_UTC_OFFSET_MS,
+  );
 }
 
 /** The India date of a moment, YYYY-MM-DD — "today" for the daily checks. */
@@ -37,6 +43,20 @@ export function formatIndiaDateTime(at: Date | string): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(at));
+}
+
+/** "1 hour", "3 days" — the unit pluralised for anything but 1. */
+const formatCountWithUnit = (count: number, unit: string) =>
+  `${count} ${unit}${count === 1 ? '' : 's'}`;
+
+/** "5 hours" under a day, "3 days" under a month, "4 months" under a year, then "2 years" —
+ *  rounded down, so a silence never reads longer than it is (LS_N_0029's {{3}}). */
+export function formatHoursSince(hours: number): string {
+  if (hours < HOURS_PER_DAY) return formatCountWithUnit(hours, 'hour');
+  const days = Math.floor(hours / HOURS_PER_DAY);
+  if (days < DAYS_PER_MONTH) return formatCountWithUnit(days, 'day');
+  if (days < DAYS_PER_YEAR) return formatCountWithUnit(Math.floor(days / DAYS_PER_MONTH), 'month');
+  return formatCountWithUnit(Math.floor(days / DAYS_PER_YEAR), 'year');
 }
 
 /** Straight-line metres between two points (haversine) — geofence checks (LS_N_0027). */

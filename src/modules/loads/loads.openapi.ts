@@ -239,6 +239,28 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/loads/live`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listLiveLoads',
+    ...authenticated(
+      'Home Live Loads — every load of the tenant that is not closed, newest first, ' +
+        'scroll-paginated by an opaque keyset cursor. Omit `cursor` for the first page, then ' +
+        "pass the previous page's `nextCursor`. A cursor this endpoint did not issue is a 400.",
+    ),
+    request: { query: loadValidators.listLive.shape.query },
+    responses: {
+      200: {
+        description:
+          '{ data: { items: LiveLoadRow[], nextCursor: string | null, hasMore: boolean } }. ' +
+          'LiveLoadRow is the same TripListRow as GET /loads plus `progressPercent` (0–100, how ' +
+          "far along the load's own stage path it is).",
+      },
+      400: { description: 'Invalid cursor or limit', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/loads/{loadId}`,
     tags: [TAGS.LOADS],
     operationId: 'loads.getLoad',

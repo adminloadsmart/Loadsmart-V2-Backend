@@ -60,6 +60,11 @@ export const MS_PER_MINUTE = 60 * 1000;
 export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 export const MS_PER_DAY = 24 * MS_PER_HOUR;
 
+/** Calendar units for "time since" copy (formatHoursSince) — a month is taken as 30 days. */
+export const HOURS_PER_DAY = 24;
+export const DAYS_PER_MONTH = 30;
+export const DAYS_PER_YEAR = 365;
+
 /** How long before an e-way bill's expiry its 'load.eway_bill_expiry' alert (LS_N_0025) goes out
  *  — the sheet's last (1 h) step; its 12 h / 4 h steps need a real validity (the placeholder is 2
  *  hours from generation). */
@@ -101,6 +106,10 @@ export const BANK_NAME_BY_IFSC_PREFIX: Record<string, string> = {
  *  Planning loads only a pickup date — this time of day (India time) stands in until loads
  *  capture a real reporting time (LS_N_0016/0017/0021/0022). */
 export const DEFAULT_REPORTING_TIME_IST = '10:00';
+
+/** A promised delivery date only records the day, so the promise is this time of day (India
+ *  time) on it — the end of the day, same as tracking's promised_delivery_at (LS_N_0031/0060). */
+export const PROMISED_DELIVERY_TIME_IST = '23:59';
 
 /** LS_N_0021 — minutes after the reporting time each "not reported" alert goes out (the sheet's
  *  60 min, then every 2 h, 3 alerts at most). From the second one (3 h) org admins are added. */

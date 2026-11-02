@@ -17,6 +17,12 @@ import {
   sizeOf,
   tyreBand,
   tyreLifeLeft,
+  customerIdOf,
+  dueAt,
+  laneOf,
+  turnaroundDays,
+  unloadingHours,
+  weightOf,
 } from './fleet-analytics.calculations';
 import { VehicleEntity } from '../../../masters/vehicle/entities/vehicle.entity';
 import { VehicleDocumentEntity } from '../../../masters/vehicle/entities/vehicle-document.entity';
@@ -345,5 +351,99 @@ describe('perKm', () => {
   it('divides cost by km and is null without km', () => {
     expect(perKm(1000, 400)).toBe(2.5);
     expect(perKm(1000, 0)).toBeNull();
+  });
+});
+
+describe('load origin (requisition or posting)', () => {
+  const requisition = {
+    customerId: 'cust-req',
+    expectedDeliveryDate: '2026-10-20',
+    loadingPoint: { city: 'Mohali' },
+    customerDeliveryPoint: { city: 'Kolkata', location: 'Kolkata DC' },
+  };
+  const posting = {
+    customerId: 'cust-post',
+    deliverByAt: new Date('2026-10-20T06:30:00Z'),
+    weightTonnes: '18.50',
+    pickupLoadingPoint: null,
+    pickupAddress: { label: 'Yard', city: 'Ludhiana' },
+    dropCustomerDeliveryPoint: { city: 'Bhiwandi', location: 'Bhiwandi WH' },
+    dropLoadingPoint: null,
+    dropAddress: null,
+  };
+
+  it('reads lane and customer from a requisition', () => {
+    const load = { requisition, posting: null, loadingPoint: null } as unknown as LoadEntity;
+    expect(laneOf(load)).toEqual({ key: 'mohali|kolkata', label: 'Mohali → Kolkata' });
+    expect(customerIdOf(load)).toBe('cust-req');
+  });
+
+  it('reads lane and customer from a posting', () => {
+    const load = { requisition: null, posting, loadingPoint: null } as unknown as LoadEntity;
+    expect(laneOf(load)).toEqual({ key: 'ludhiana|bhiwandi', label: 'Ludhiana → Bhiwandi' });
+    expect(customerIdOf(load)).toBe('cust-post');
+  });
+
+  it('lets a loading point changed on the load win', () => {
+    const load = {
+      requisition: null,
+      posting,
+      loadingPoint: { city: 'Zirakpur' },
+    } as unknown as LoadEntity;
+    expect(laneOf(load)?.key).toBe('zirakpur|bhiwandi');
+  });
+
+  it('has no lane without both cities', () => {
+    expect(laneOf({ requisition: null, posting: null } as unknown as LoadEntity)).toBeNull();
+  });
+
+  it('uses the posting promised time exactly, a requisition date to the end of the IST day', () => {
+    expect(dueAt({ posting } as unknown as LoadEntity)).toEqual(posting.deliverByAt);
+    expect(dueAt({ posting: null, requisition } as unknown as LoadEntity)).toEqual(
+      new Date('2026-10-20T18:29:59.999Z'),
+    );
+    expect(dueAt({ posting: null, requisition: null } as unknown as LoadEntity)).toBeNull();
+  });
+});
+
+describe('weightOf', () => {
+  it('prefers tonnes received at POD, then the declared weight, then planned capacity', () => {
+    const planned = { plannedCapacityTonnes: '25.00' };
+    expect(
+      weightOf({
+        ...planned,
+        podQuantityReceived: '17.2',
+        posting: { weightTonnes: '18' },
+      } as unknown as LoadEntity),
+    ).toBe(17.2);
+    expect(
+      weightOf({
+        ...planned,
+        podQuantityReceived: null,
+        posting: { weightTonnes: '18' },
+      } as unknown as LoadEntity),
+    ).toBe(18);
+    expect(
+      weightOf({ ...planned, podQuantityReceived: null, posting: null } as unknown as LoadEntity),
+    ).toBe(25);
+  });
+});
+
+describe('unloading gate-out', () => {
+  const load = {
+    atPlantAt: new Date('2026-10-10T00:00:00Z'),
+    reachedDeliveryPointAt: new Date('2026-10-12T00:00:00Z'),
+    deliveredAt: new Date('2026-10-12T02:00:00Z'),
+  };
+
+  it('uses leaving the drop geofence when GPS recorded it', () => {
+    const tracked = { ...load, departedDropAt: new Date('2026-10-12T06:00:00Z') } as LoadEntity;
+    expect(unloadingHours(tracked)).toBe(6);
+    expect(turnaroundDays(tracked)).toBe(2.25);
+  });
+
+  it('falls back to the delivered time', () => {
+    const untracked = { ...load, departedDropAt: null } as LoadEntity;
+    expect(unloadingHours(untracked)).toBe(2);
   });
 });
