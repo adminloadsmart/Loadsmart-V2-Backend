@@ -17,6 +17,7 @@ import { PlanDispatchInput } from './utils/dispatch-planning.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
+  ListLiveLoadsInput,
   ListLoadsInput,
   LoadParams,
   ReviewPodInput,
@@ -115,6 +116,15 @@ export class LoadsController {
       req.locale,
     );
     respond(res, loads);
+  };
+
+  listLiveLoads = async (req: Request, res: Response) => {
+    const result = await this.loadService.listLive(
+      requireTenantId(req),
+      req.validatedQuery as ListLiveLoadsInput,
+      req.locale,
+    );
+    respond(res, result);
   };
 
   getLoad = async (req: Request<LoadParams>, res: Response) => {

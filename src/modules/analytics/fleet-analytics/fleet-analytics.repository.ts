@@ -1,4 +1,5 @@
 import {
+  Between,
   DataSource,
   FindOptionsWhere,
   In,
@@ -19,7 +20,17 @@ import { BatterySohReadingEntity } from '../../maintenance/entities/battery-soh-
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { MAINTAINED_VEHICLE_STATUSES } from '../../maintenance/maintenance.types';
 import { LoadEntity } from '../../loads/entities/load.entity';
+import { LoadPaymentEntity } from '../../loads/entities/load-payment.entity';
 import { RequisitionEntity } from '../../loads/entities/requisition.entity';
+import { LoadPostingEntity } from '../../loads/load-posting/entities/load-posting.entity';
+
+/** What lane, customer and due time are read from (calculations' laneOf, customerIdOf, dueAt):
+ *  the requisition or the posting, and a loading point changed on the load itself. */
+const LOAD_ORIGIN_RELATIONS = {
+  requisition: { loadingPoint: true, customerDeliveryPoint: true },
+  posting: { pickupLoadingPoint: true, dropCustomerDeliveryPoint: true, dropLoadingPoint: true },
+  loadingPoint: true,
+} as const;
 
 // Reads masters/maintenance/driver entities directly via the DataSource, same as
 // AnalyticsRepository (shipper analytics) — a reporting concern spanning several modules, not a
@@ -37,6 +48,8 @@ export class FleetAnalyticsRepository {
   private readonly driverRelations: Repository<DriverTenantRelationEntity>;
   private readonly loads: Repository<LoadEntity>;
   private readonly requisitions: Repository<RequisitionEntity>;
+  private readonly postings: Repository<LoadPostingEntity>;
+  private readonly payments: Repository<LoadPaymentEntity>;
 
   constructor(dataSource: DataSource) {
     this.vehicles = dataSource.getRepository(VehicleEntity);
@@ -48,6 +61,8 @@ export class FleetAnalyticsRepository {
     this.driverRelations = dataSource.getRepository(DriverTenantRelationEntity);
     this.loads = dataSource.getRepository(LoadEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
+    this.postings = dataSource.getRepository(LoadPostingEntity);
+    this.payments = dataSource.getRepository(LoadPaymentEntity);
   }
 
   /** The running fleet narrowed by "Held as" (and a single vehicle). Body type and size are
@@ -75,52 +90,60 @@ export class FleetAnalyticsRepository {
 
   /**
    * Loads these trucks were on during the window: assigned past `created`, started before the
-   * window ends and not delivered before it starts. Narrowed by customer and lane. The exact
-   * overlap is settled in code from the stage timestamps (loadInterval).
+   * window ends and not delivered before it starts. The exact overlap is settled in code from the
+   * stage timestamps (onLoadInterval), and the customer and lane filters are applied in code too,
+   * because a load takes them from its requisition or its posting.
    */
   listLoadsInWindow(
     tenantId: string,
     vehicleIds: string[],
     range: { from: Date; to: Date },
-    filters: Pick<FleetAnalyticsFilters, 'customerId' | 'laneKey'>,
   ): Promise<LoadEntity[]> {
     if (vehicleIds.length === 0) return Promise.resolve([]);
-    const [loadingPointId, customerDeliveryPointId] = filters.laneKey?.split(':') ?? [];
-    const requisition: FindOptionsWhere<RequisitionEntity> = {
-      ...(filters.customerId ? { customerId: filters.customerId } : {}),
-      ...(filters.laneKey ? { loadingPointId, customerDeliveryPointId } : {}),
-    };
     const base: FindOptionsWhere<LoadEntity> = {
       tenantId,
       vehicleId: In(vehicleIds),
       status: Not('created'),
       createdAt: LessThanOrEqual(range.to),
-      ...(Object.keys(requisition).length ? { requisition } : {}),
     };
     return this.loads.find({
       where: [
         { ...base, deliveredAt: IsNull() },
         { ...base, deliveredAt: MoreThanOrEqual(range.from) },
       ],
-      relations: {
-        requisition: { loadingPoint: true, customerDeliveryPoint: true },
-      },
+      relations: LOAD_ORIGIN_RELATIONS,
       order: { createdAt: 'ASC' },
     });
   }
 
-  /** Every lane the tenant has raised a requisition on, for the lane filter. */
-  listRequisitionLanes(tenantId: string): Promise<RequisitionEntity[]> {
-    return this.requisitions.find({
-      where: { tenantId },
-      relations: { loadingPoint: true, customerDeliveryPoint: true },
-      select: {
-        id: true,
-        loadingPointId: true,
-        customerDeliveryPointId: true,
-        loadingPoint: { id: true, city: true },
-        customerDeliveryPoint: { id: true, city: true, location: true },
-      },
+  /** Every load the tenant has moved past `created`, with its points — the lane filter's options. */
+  listLaneLoads(tenantId: string): Promise<LoadEntity[]> {
+    return this.loads.find({
+      where: { tenantId, status: Not('created') },
+      relations: LOAD_ORIGIN_RELATIONS,
+    });
+  }
+
+  /**
+   * Freight paid to transporters for market and indent loads, dated in the window — per-trip hire
+   * (§7, "Hire paid out"). Rejected payments are left out. Carries the load's origin so the
+   * customer and lane filters apply.
+   */
+  listTransporterPayments(
+    tenantId: string,
+    range: { fromDate: string; toDate: string },
+  ): Promise<LoadPaymentEntity[]> {
+    const base: FindOptionsWhere<LoadPaymentEntity> = {
+      tenantId,
+      transporterId: Not(IsNull()),
+      paymentDate: Between(range.fromDate, range.toDate),
+    };
+    return this.payments.find({
+      where: [
+        { ...base, verificationStatus: IsNull() },
+        { ...base, verificationStatus: Not('rejected') },
+      ],
+      relations: { load: LOAD_ORIGIN_RELATIONS },
     });
   }
 
@@ -277,17 +300,25 @@ export class FleetAnalyticsRepository {
     if (vehicleIds.length === 0) return Promise.resolve([]);
     return this.loads.find({
       where: { tenantId, vehicleId: In(vehicleIds), status: In([...ON_THE_ROAD_STATUSES]) },
-      relations: { requisition: true },
+      relations: LOAD_ORIGIN_RELATIONS,
     });
   }
 
-  /** Customers with at least one requisition — the Customer filter's options. */
+  /** Customers with at least one requisition or load posting — the Customer filter's options. */
   async listCustomersWithLoads(tenantId: string): Promise<CustomerEntity[]> {
-    const requisitions = await this.requisitions.find({
-      where: { tenantId },
-      select: { id: true, customerId: true },
-    });
-    const ids = [...new Set(requisitions.map((requisition) => requisition.customerId))];
+    const [requisitions, postings] = await Promise.all([
+      this.requisitions.find({ where: { tenantId }, select: { id: true, customerId: true } }),
+      this.postings.find({
+        where: { tenantId, customerId: Not(IsNull()) },
+        select: { id: true, customerId: true },
+      }),
+    ]);
+    const ids = [
+      ...new Set([
+        ...requisitions.map((requisition) => requisition.customerId),
+        ...postings.map((posting) => posting.customerId!),
+      ]),
+    ];
     if (ids.length === 0) return [];
     return this.customers.find({
       where: { tenantId, id: In(ids), deletedAt: IsNull() },

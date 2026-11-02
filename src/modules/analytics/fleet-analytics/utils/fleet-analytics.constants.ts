@@ -179,15 +179,15 @@ export const UNAVAILABLE_REASONS = {
   eChallans: 'E-challans (Parivahan) are not recorded yet.',
   tripExpenses:
     'Trip expenses (bhatta settlement, loading labour, parking, weighbridge, unapproved detention) are not recorded yet.',
-  hire: 'Hire and rental for attached trucks (vendor agreements) are not recorded yet.',
+  hire: 'Rental of attached trucks (vendor agreements) is not recorded yet.',
   truckPrice:
     'Trucks carry no on-road price or purchase date yet, so depreciation and written-down value cannot be worked out.',
   statePermitFee:
     'Permit cost is charged only for trucks VAHAN lists with a National Permit (₹17,500 a year); state permit fees are not recorded yet.',
   weight:
-    'Load weight from the E-LR is not recorded yet; the planned tonnage of each load is used.',
+    'The E-LR weighbridge weight is not recorded yet; tonnes received at POD are used, else the weight declared on the load posting, else the planned tonnage.',
   promisedTime:
-    'Only a promised delivery date is recorded, so the due time is the end of that day; loads with no promised date are left out.',
+    'Loads raised from a requisition carry only a promised delivery date, so their due time is the end of that day; posted loads use their promised date and time. Loads with no promised delivery are left out.',
   freeHours: 'Customer free hours and detention rules are not recorded yet.',
   drivingEvents: 'Driving events (overspeed, harsh braking) are not recorded yet.',
   registrationAge:

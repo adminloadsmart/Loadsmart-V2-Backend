@@ -31,13 +31,15 @@ import {
   PodReviewDecision,
   LoadStatus,
 } from './utils/loads.types';
-import { hasLoadingPapers } from './utils/load-stages';
+import { hasLoadingPapers, progressPercentFor } from './utils/load-stages';
+import { decodeLiveLoadsCursor, encodeLiveLoadsCursor } from './utils/live-loads-cursor';
 import { LoadActivityWithActor } from './utils/load-activity.interface';
 import { ReportLoadIssueInput } from './utils/load-issue.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
   EwayBillExpiry,
+  ListLiveLoadsInput,
   ListLoadsInput,
   SetLoadingContactInput,
   SetLoadingPointInput,
@@ -74,6 +76,19 @@ export interface ListTripsResult extends Paginated<TripListRow> {
   /** Tab counts for the whole tenant (scoped by the same non-group filters as the list itself),
    *  independent of which `group` — if any — the caller requested. */
   counts: { active: number; completed: number; open: number };
+}
+
+/** Home Live Loads row — a trips-list row plus how far along its route the load is. */
+export interface LiveLoadRow extends TripListRow {
+  progressPercent: number;
+}
+
+/** One scroll page of Home Live Loads. Pass `nextCursor` back as `cursor` for the next page;
+ *  it is null once `hasMore` is false. */
+export interface ListLiveLoadsResult {
+  items: LiveLoadRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 /** Driver-app "Trips Done" screen — a dedicated, always-completed-only view of a single driver's
@@ -1556,6 +1571,32 @@ export class LoadService {
       };
     } catch (error) {
       rethrow(error, 'Failed to list loads');
+    }
+  }
+
+  /** Home Live Loads — every load that isn't closed, newest first, one scroll page at a time. */
+  async listLive(
+    tenantId: string | string[],
+    { limit, cursor }: ListLiveLoadsInput,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<ListLiveLoadsResult> {
+    const after = cursor ? decodeLiveLoadsCursor(cursor) : null;
+    if (cursor && !after) throw new ValidationError('Invalid cursor');
+    try {
+      const rows = await this.repository.listLive(tenantId, { limit, after });
+      const hasMore = rows.length > limit;
+      const page = hasMore ? rows.slice(0, limit) : rows;
+      const last = page[page.length - 1];
+      return {
+        items: page.map((load) => ({
+          ...toTripListRow(load, locale),
+          progressPercent: progressPercentFor(load),
+        })),
+        nextCursor: hasMore && last ? encodeLiveLoadsCursor(last) : null,
+        hasMore,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to list live loads');
     }
   }
 

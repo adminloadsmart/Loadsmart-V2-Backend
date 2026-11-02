@@ -21,12 +21,12 @@ const fleetAnalyticsQuery = z
     size: z.string().min(1).max(40).optional(),
     heldAs: z.enum(FLEET_ANALYTICS_HELD_AS).default('owned_and_attached'),
     vehicleId: uuid.optional(),
+    /** `${from-city}|${to-city}`, lower-cased — the lane ids /fleet/filters returns. */
     laneKey: z
       .string()
-      .regex(
-        /^[0-9a-f-]{36}:[0-9a-f-]{36}$/i,
-        'laneKey is `${loadingPointId}:${customerDeliveryPointId}`',
-      )
+      .min(3)
+      .max(200)
+      .regex(/^[^|]+\|[^|]+$/, 'laneKey is `${fromCity}|${toCity}` from /fleet/filters')
       .optional(),
     customerId: uuid.optional(),
   })

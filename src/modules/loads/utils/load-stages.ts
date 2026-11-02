@@ -82,3 +82,10 @@ export function stageGateError(load: StageGateLoad, to: LoadStatus): string | nu
   }
   return null;
 }
+
+/** How far along its own stage path the load is, 0–100 — the Home Live Loads progress bar. */
+export function progressPercentFor(load: StagePathLoad): number {
+  const path = stagePathFor(load);
+  const index = path.indexOf(load.status);
+  return index < 0 ? 0 : Math.round(((index + 1) / path.length) * 100);
+}
