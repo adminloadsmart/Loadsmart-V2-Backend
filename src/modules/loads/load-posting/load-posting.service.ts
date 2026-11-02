@@ -19,6 +19,7 @@ import { LoadRepository, CreateLoadData } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadEntity } from '../entities/load.entity';
 import { formatLoadCode } from '../utils/code.util';
+import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { LoadStageHook } from '../utils/load.interface';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
@@ -120,6 +121,8 @@ export class LoadPostingService {
     /** Set by the Loadsmart ops module once built: every market posting goes to Loadsmart too
      *  ("Loadsmart is always ticked") and opens a sourcing for its Approval team. */
     private readonly hooks: LoadPostingHooks = {},
+    /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
+    private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
 
   async post(
@@ -919,6 +922,13 @@ export class LoadPostingService {
     if (!load?.driverId) return;
     try {
       const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
+      if (sessions.length === 0) return;
+
+      // Re-read with the route relations so the push can name the route and pickup.
+      const detailed = (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load;
+      const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
+      const { body, metadata } = driverAssignmentMessage([detailed], owner ?? null);
+
       await Promise.all(
         sessions
           .filter((session) => session.fcmToken)
@@ -927,10 +937,10 @@ export class LoadPostingService {
               recipientUserId: load.driverId!,
               type: 'load.assigned',
               title: 'New load assigned',
-              body: `Load ${load.code} has been assigned to you`,
+              body,
               channels: ['push'],
               destinations: { pushToken: session.fcmToken! },
-              metadata: { loadIds: [load.id] },
+              metadata,
             }),
           ),
       );
