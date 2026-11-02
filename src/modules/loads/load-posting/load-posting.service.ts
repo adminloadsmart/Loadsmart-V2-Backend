@@ -39,6 +39,7 @@ import {
   PostAddress,
 } from './utils/load-posting.types';
 import { buildPostMessage } from './utils/post-message';
+import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { driverUnavailableReason } from './utils/driver-availability';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import {
@@ -120,6 +121,8 @@ export class LoadPostingService {
     /** Set by the Loadsmart ops module once built: every market posting goes to Loadsmart too
      *  ("Loadsmart is always ticked") and opens a sourcing for its Approval team. */
     private readonly hooks: LoadPostingHooks = {},
+    /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
+    private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
 
   async post(
@@ -919,6 +922,10 @@ export class LoadPostingService {
     if (!load?.driverId) return;
     try {
       const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
+      // Re-read with the route relations — the freshly created load carries none.
+      const detailed = (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load;
+      const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
+      const { body, metadata } = driverAssignmentMessage([detailed], owner ?? null);
       await Promise.all(
         sessions
           .filter((session) => session.fcmToken)
@@ -927,10 +934,10 @@ export class LoadPostingService {
               recipientUserId: load.driverId!,
               type: 'load.assigned',
               title: 'New load assigned',
-              body: `Load ${load.code} has been assigned to you`,
+              body,
               channels: ['push'],
               destinations: { pushToken: session.fcmToken! },
-              metadata: { loadIds: [load.id] },
+              metadata,
             }),
           ),
       );
