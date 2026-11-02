@@ -2,6 +2,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
+import { driverAssignmentMessage, FleetOwnerLookup } from './utils/driver-assignment-message';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
@@ -103,6 +104,8 @@ export class DispatchPlanningService {
     /** Own-fleet loads are born at Truck assigned — the stage hooks (tracking source, alerts)
      *  run for them after commit. */
     private readonly onStageEntered?: LoadStageHook,
+    /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
+    private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
 
   /**
@@ -316,11 +319,19 @@ export class DispatchPlanningService {
           const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(driverId);
           if (sessions.length === 0) return;
 
-          const assignedLoads = loads.filter((load) => load.driverId === driverId);
-          const body =
-            assignedLoads.length === 1
-              ? `Load ${assignedLoads[0].code} has been assigned to you`
-              : `${assignedLoads.length} loads have been assigned to you`;
+          // Re-read with the route relations — the loads from planning carry none.
+          const assignedLoads = (
+            await Promise.all(
+              loads
+                .filter((load) => load.driverId === driverId)
+                .map(
+                  async (load) =>
+                    (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load,
+                ),
+            )
+          ).filter((load): load is LoadEntity => Boolean(load));
+          const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
+          const { body, metadata } = driverAssignmentMessage(assignedLoads, owner ?? null);
 
           await Promise.all(
             sessions.map((session) =>
@@ -331,7 +342,7 @@ export class DispatchPlanningService {
                 body,
                 channels: ['push'],
                 destinations: { pushToken: session.fcmToken! },
-                metadata: { loadIds: assignedLoads.map((load) => load.id) },
+                metadata,
                 severity: 'p2_action',
               }),
             ),

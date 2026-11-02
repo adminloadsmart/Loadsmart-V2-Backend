@@ -7,7 +7,7 @@ import {
 } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, FleetOwnerDetails } from '../auth/auth.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { StorageService } from '../storage/storage.service';
 import { msg } from '../../shared/i18n/translate';
@@ -119,6 +119,8 @@ export interface LoadDetailView {
   load: LoadEntity;
   ownerPhoneNumber: string | null;
   dispatchPhoneNumber: string | null;
+  /** The fleet owner (org admin) and dispatch contact behind this load. */
+  fleetOwner: FleetOwnerDetails;
   documentKeys: LoadDocumentKeys;
   timeline: LoadActivityWithActor[];
   payments: LoadPaymentEntity[];
@@ -1447,19 +1449,20 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, contactPhones, openIssue] = await Promise.all([
+      const [timeline, payments, loadWithUrls, fleetOwner, openIssue] = await Promise.all([
         this.loadActivityService.listByLoad(tenantId, loadId),
         this.loadPaymentRepository.listByLoad(tenantId, loadId),
         this.withDocumentDownloadUrls(tenantId, actorRole, load),
-        this.authService.getOrganizationContactPhones(tenantId),
+        this.authService.getFleetOwner(tenantId),
         this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
       ]);
       const incident = buildIncident(openIssue);
 
       return {
         load: loadWithUrls,
-        ownerPhoneNumber: contactPhones.ownerPhoneNumber,
-        dispatchPhoneNumber: contactPhones.dispatchPhoneNumber,
+        ownerPhoneNumber: fleetOwner.owner?.phoneNumber ?? null,
+        dispatchPhoneNumber: fleetOwner.dispatch?.phoneNumber ?? null,
+        fleetOwner,
         documentKeys: {
           invoiceFileKey: load.invoiceFileKey,
           ewayBillFileKey: load.ewayBillFileKey,

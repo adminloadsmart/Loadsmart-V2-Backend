@@ -338,7 +338,7 @@ export function allSampleContexts(
       orgName: 'Acme Logistics',
       tripsRunning: 12,
       arrivingToday: '4',
-      delayed: '1',
+      delayed: 1,
       podsPending: 3,
       approvalsPending: 2,
       vehiclesBlocked: 1,

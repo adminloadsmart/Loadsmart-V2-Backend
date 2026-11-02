@@ -181,6 +181,7 @@ export function createLoadsModule(
     new LoadPostingRepository(dataSource),
     deps.onLoadEvent,
     runStageHooks,
+    (tenantId) => deps.authService.getFleetOwner(tenantId),
   );
 
   const elrService = new ElrService(
@@ -250,6 +251,7 @@ export function createLoadsModule(
     onLoadEvent: deps.onLoadEvent,
     onStageEntered: runStageHooks,
     hooks: postingHooks,
+    fleetOwnerLookup: (tenantId) => deps.authService.getFleetOwner(tenantId),
   });
   protectedRouter.use('/post', loadPosting.router);
 

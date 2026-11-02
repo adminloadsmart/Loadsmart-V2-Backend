@@ -16,6 +16,7 @@ import { LoadDraftService } from './load-draft.service';
 import { LoadPostingController } from './load-posting.controller';
 import { createLoadPostingRoutes } from './load-posting.routes';
 import { LoadDispatchNotifier, LoggingLoadDispatchNotifier } from './load-dispatch-notifier';
+import type { FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { AssignmentComplianceService } from '../assignment-compliance.service';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import { LoadStageHook } from '../utils/load.interface';
@@ -40,6 +41,7 @@ export function createLoadPostingModule(
     notifier?: LoadDispatchNotifier;
     onStageEntered?: LoadStageHook;
     hooks?: LoadPostingHooks;
+    fleetOwnerLookup?: FleetOwnerLookup;
   },
 ) {
   const repository = new LoadPostingRepository(dataSource);
@@ -61,6 +63,7 @@ export function createLoadPostingModule(
     deps.onLoadEvent,
     deps.onStageEntered,
     deps.hooks,
+    deps.fleetOwnerLookup,
   );
   const lookupService = new LoadPostingLookupService(
     dataSource,

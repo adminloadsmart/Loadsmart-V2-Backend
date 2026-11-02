@@ -69,6 +69,7 @@ function setup(
   } as unknown as LoadAlertRepository;
   const tracking: TrackingClient = {
     getTripEta: vi.fn(),
+    listRunningLateTripIds: vi.fn(),
     getTrip: vi.fn(async () => ({
       eta: overrides.eta === undefined ? lateEta : overrides.eta,
       position: overrides.position === undefined ? freshPosition : overrides.position,
