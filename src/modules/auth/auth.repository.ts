@@ -291,7 +291,7 @@ export class AuthRepository {
         deletedAt: IsNull(),
         role: { scope: 'organization', name: In(roleNames) },
       },
-      relations: { role: true },
+      relations: { role: true, organization: true },
     });
   }
 

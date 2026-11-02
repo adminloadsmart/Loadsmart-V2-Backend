@@ -199,14 +199,15 @@ export class LoadPostingLookupService {
   }
 
   /** PL-22 — only trucks that can take the load are listed: active (so not in the workshop,
-   *  inactive or pending), not on a trip, and not on a live load. Expired papers hide a truck;
-   *  papers expiring soon only add a warning. */
+   *  inactive or pending), not on a trip, and not on a live load. Expired or expiring papers
+   *  only add a warning. */
   async fleetOptions(tenantId: string, search?: string) {
     try {
       const { items } = await this.vehicleService.listVehicles(tenantId, {
         page: 1,
         limit: FLEET_PICKER_LIMIT,
         search,
+        status: 'active',
       });
       const candidates = items.filter((v) => v.status === 'active');
       const active = candidates.length
@@ -252,8 +253,6 @@ export class LoadPostingLookupService {
         usable.map(async (vehicle) => {
           const detail = await this.vehicleService.getVehicle(tenantId, vehicle.id);
           const papers = this.postingService.paperStatus(detail.documents ?? []);
-          // Expired papers make a truck ineligible — it is left out of the list entirely.
-          if (papers.expired.length > 0) return null;
           const primary = (vehicle.driverLinks ?? []).find(
             (link) => link.isPrimary && link.status === 'active',
           );
@@ -284,7 +283,10 @@ export class LoadPostingLookupService {
             driver: linkedDriver,
             // True when the shipper must pick a (different) idle driver before posting.
             needsDriverChoice: !linkedDriver || !linkedDriver.available,
-            warnings: papers.expiringSoon.map((type) => `${type} expiring soon`),
+            warnings: [
+              ...papers.expired.map((type) => `${type} expired`),
+              ...papers.expiringSoon.map((type) => `${type} expiring soon`),
+            ],
           };
         }),
       );

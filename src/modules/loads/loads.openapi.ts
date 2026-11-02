@@ -258,6 +258,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: {
         description:
           '{ load (document fields are download URLs), ownerPhoneNumber, dispatchPhoneNumber, ' +
+          'fleetOwner ({ organizationName, owner, dispatch } — each contact { name, phoneNumber, email }), ' +
           'documentKeys (the same document fields as raw ' +
           'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
           'TripStepperStep[] (steps ahead of a halted trip have onHold: true), nextAction: TripNextAction, ' +

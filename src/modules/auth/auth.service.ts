@@ -113,6 +113,18 @@ type AuthSession = {
   portal: LoginPortal;
 };
 
+export interface FleetOwnerContact {
+  name: string | null;
+  phoneNumber: string;
+  email: string | null;
+}
+
+export interface FleetOwnerDetails {
+  organizationName: string | null;
+  owner: FleetOwnerContact | null;
+  dispatch: FleetOwnerContact | null;
+}
+
 export class AuthService {
   constructor(
     private readonly authRepository: AuthRepository,
@@ -894,6 +906,24 @@ export class AuthService {
         users.find((user) => user.role.name === ORG_ADMIN_ROLE)?.phoneNumber ?? null,
       dispatchPhoneNumber:
         users.find((user) => user.role.name === DISPATCH_ROLE)?.phoneNumber ?? null,
+    };
+  }
+
+  /** The fleet owner (the organisation's admin) and its dispatch contact — name and phone, for the
+   *  load detail screen and the driver's "load assigned" message. */
+  async getFleetOwner(tenantId: string): Promise<FleetOwnerDetails> {
+    const users = await this.authRepository.listUsersByRole(tenantId, [
+      ORG_ADMIN_ROLE,
+      DISPATCH_ROLE,
+    ]);
+    const owner = users.find((user) => user.role.name === ORG_ADMIN_ROLE) ?? null;
+    const dispatch = users.find((user) => user.role.name === DISPATCH_ROLE) ?? null;
+    const contact = (user: (typeof users)[number] | null) =>
+      user ? { name: user.fullName, phoneNumber: user.phoneNumber, email: user.email } : null;
+    return {
+      organizationName: owner?.organization?.name ?? dispatch?.organization?.name ?? null,
+      owner: contact(owner),
+      dispatch: contact(dispatch),
     };
   }
 
