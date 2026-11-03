@@ -140,14 +140,7 @@ export class OtpService {
     if (!env.msg91SmsTemplateOtp) {
       throw new Error('MSG91_SMS_TEMPLATE_OTP not configured — cannot send OTP SMS');
     }
-    const requestId = await this.msg91Client.sendTransactional(
-      phoneNumber,
-      { var1: otp },
-      env.msg91SmsTemplateOtp,
-    );
-    // Accepted is not delivered — search this request id in the MSG91 dashboard's SMS
-    // reports for the operator delivery status.
-    console.info(`MSG91 OTP SMS accepted for ${phoneNumber} — request_id=${requestId ?? 'n/a'}`);
+    await this.msg91Client.sendTransactional(phoneNumber, { var1: otp }, env.msg91SmsTemplateOtp);
   }
 
   /** The code over WhatsApp only (the driver chose it) — awaited, so a failure fails the request:
@@ -156,39 +149,17 @@ export class OtpService {
     if (!env.msg91WhatsappTemplateOtp) {
       throw new Error('MSG91_WHATSAPP_TEMPLATE_OTP not configured — cannot send OTP on WhatsApp');
     }
-    const templateName = env.msg91WhatsappTemplateOtp;
-    const response = await this.msg91Client.sendWhatsappAuthCode(phoneNumber, otp, templateName);
-    // Accepted is not delivered — Meta's rejection reason only shows in MSG91's WhatsApp reports.
-    console.info(
-      `WhatsApp OTP to ${phoneNumber} accepted by MSG91 — template=${templateName}, response=${JSON.stringify(response ?? null).replace(otp, '****')}`,
-    );
+    await this.msg91Client.sendWhatsappAuthCode(phoneNumber, otp, env.msg91WhatsappTemplateOtp);
   }
 
   /** Best-effort WhatsApp copy of the same code, once its template is configured — never awaited
-   *  by the request, and a failure never affects login (SMS is the primary channel). The code is
-   *  never included in logs. */
+   *  by the request, and a failure never affects login (SMS is the primary channel). */
   private sendWhatsappCopy(phoneNumber: string, otp: string): void {
-    if (!env.msg91WhatsappTemplateOtp) {
-      console.info(
-        `WhatsApp OTP copy to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_OTP not configured`,
-      );
-      return;
-    }
-    const templateName = env.msg91WhatsappTemplateOtp;
-    console.info(`WhatsApp OTP copy to ${phoneNumber} sending — template=${templateName}`);
+    if (!env.msg91WhatsappTemplateOtp) return;
     this.msg91Client
-      .sendWhatsappAuthCode(phoneNumber, otp, templateName)
-      .then((response) =>
-        // Accepted is not delivered — if it never arrives, search the MSG91 dashboard's WhatsApp
-        // reports for this number; Meta's rejection reason only shows there.
-        console.info(
-          `WhatsApp OTP copy to ${phoneNumber} accepted by MSG91 — template=${templateName}, response=${JSON.stringify(response ?? null).replace(otp, '****')}`,
-        ),
-      )
+      .sendWhatsappAuthCode(phoneNumber, otp, env.msg91WhatsappTemplateOtp)
       .catch((error: unknown) =>
-        console.warn(
-          `WhatsApp OTP copy to ${phoneNumber} failed: ${error instanceof Error ? error.message.replace(otp, '****') : 'unknown error'}`,
-        ),
+        console.warn(`Failed to send the WhatsApp OTP copy to ${phoneNumber}`, error),
       );
   }
 

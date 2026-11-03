@@ -44,11 +44,8 @@ export class Msg91Client {
     phoneNumber: string,
     variables: Record<string, string>,
     templateId: string | undefined = env.msg91NotificationTemplateId,
-  ): Promise<string | undefined> {
-    if (isMsg91SkippedNumber(phoneNumber)) {
-      console.info(`MSG91 SMS skipped for test number ${phoneNumber}`);
-      return undefined;
-    }
+  ): Promise<void> {
+    if (isMsg91SkippedNumber(phoneNumber)) return;
     if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
@@ -68,8 +65,6 @@ export class Msg91Client {
     if (body?.type !== 'success') {
       throw new Error(`MSG91 send SMS failed: ${body?.message ?? response.status}`);
     }
-    // On success the Flow API's `message` is the request id (searchable in MSG91's SMS reports).
-    return body.message;
   }
 
   /**
@@ -124,10 +119,7 @@ export class Msg91Client {
     templateName: string | undefined,
     components: Msg91WhatsappComponents,
   ): Promise<Msg91WhatsappResponse | undefined> {
-    if (isMsg91SkippedNumber(phoneNumber)) {
-      console.info(`MSG91 WhatsApp skipped for test number ${phoneNumber}`);
-      return undefined;
-    }
+    if (isMsg91SkippedNumber(phoneNumber)) return undefined;
     if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',

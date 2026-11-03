@@ -86,10 +86,8 @@ export class PlacesService {
     try {
       const result = await this.client.reverseGeocode(point);
       return result ? toShortAddress(result) : null;
-    } catch (err) {
-      console.warn(
-        `Reverse geocoding failed at ${point.lat},${point.lng}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch (error) {
+      console.warn(`Failed to reverse geocode ${point.lat},${point.lng}`, error);
       return null;
     }
   }

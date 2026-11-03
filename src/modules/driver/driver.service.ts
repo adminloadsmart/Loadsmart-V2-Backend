@@ -2085,11 +2085,8 @@ export class DriverService {
           userAgent?.slice(0, 255) || null,
           new Date(),
         );
-        console.info(`Driver invite link opened — invitation ${invitationId}`);
       } catch (error) {
-        console.warn(
-          `Driver invite link open for invitation ${invitationId} not recorded: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        console.warn(`Failed to record the invite link open for invitation ${invitationId}`, error);
       }
     }
     return env.driverAppUrl ?? null;

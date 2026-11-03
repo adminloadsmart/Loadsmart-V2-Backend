@@ -32,7 +32,7 @@ const original = {
 
 function build() {
   const client = new Msg91Client();
-  const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue('req-1');
+  const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue(undefined);
   return { service: new OtpService(client), sendTransactional };
 }
 
@@ -129,7 +129,7 @@ describe('OtpService — channel the driver picked', () => {
 
   function buildWithWhatsapp() {
     const client = new Msg91Client();
-    const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue('req-1');
+    const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue(undefined);
     const sendWhatsappAuthCode = vi
       .spyOn(client, 'sendWhatsappAuthCode')
       .mockResolvedValue(undefined);

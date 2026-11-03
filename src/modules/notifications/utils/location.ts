@@ -41,7 +41,7 @@ export function createLocationDescriber({
       const cached = await cache.get(key);
       if (cached) return cached;
     } catch (error) {
-      console.warn(`Location cache read failed for ${key}`, error);
+      console.warn(`Failed to read location cache for ${key}`, error);
     }
 
     // addressAt is null both when Google has nothing and when the lookup failed, so a miss isn't
@@ -52,7 +52,7 @@ export function createLocationDescriber({
     try {
       await cache.set(key, shortened, LOCATION_CACHE_TTL_SECONDS);
     } catch (error) {
-      console.warn(`Location cache write failed for ${key}`, error);
+      console.warn(`Failed to write location cache for ${key}`, error);
     }
     return shortened;
   };

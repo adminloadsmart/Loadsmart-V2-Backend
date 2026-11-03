@@ -50,9 +50,6 @@ export class DriverPushNotifier {
     const templateName = env.msg91WhatsappTemplateDriverInvite;
     if (!templateName || !env.driverAppUrl) {
       // Recorded as a failed WhatsApp on the invite (DriverService.deliverInvite).
-      console.warn(
-        `Driver invite WhatsApp to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_DRIVER_INVITE / DRIVER_APP_URL not configured`,
-      );
       return { status: 'skipped', requestId: null };
     }
     try {
@@ -61,16 +58,9 @@ export class DriverPushNotifier {
         [tenantName, trackedLink ?? env.driverAppUrl],
         templateName,
       );
-      const requestId = whatsappRequestIdOf(response);
-      // Accepted is not delivered — Meta's rejection reason only shows in MSG91's WhatsApp reports.
-      console.info(
-        `Driver invite WhatsApp to ${phoneNumber} accepted by MSG91 — template=${templateName}, requestId=${requestId ?? 'none found'}, response=${JSON.stringify(response ?? null)}`,
-      );
-      return { status: 'sent', requestId };
+      return { status: 'sent', requestId: whatsappRequestIdOf(response) };
     } catch (error) {
-      console.warn(
-        `Driver invite WhatsApp to ${phoneNumber} failed: ${error instanceof Error ? error.message : 'unknown error'}`,
-      );
+      console.warn(`Failed to send the driver invite WhatsApp to ${phoneNumber}`, error);
       return { status: 'failed', requestId: null };
     }
   }

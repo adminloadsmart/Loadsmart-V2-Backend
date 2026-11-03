@@ -32,11 +32,7 @@ export class DriverInviteTrackingController {
       res.status(401).json({ success: false });
       return;
     }
-    // The payload shape isn't verified yet (see adapters/msg91-whatsapp-report.ts) — logged in
-    // full so the parser can be checked against a real report.
-    console.info(`MSG91 WhatsApp webhook payload: ${JSON.stringify(req.body)}`);
-    const applied = await this.driverService.recordWhatsAppReports(req.body);
-    console.info(`MSG91 WhatsApp webhook: ${applied} driver invite report(s) applied`);
+    await this.driverService.recordWhatsAppReports(req.body);
     // Always 200 once authenticated — a non-2xx makes MSG91 retry reports we've already seen.
     res.status(200).json({ success: true });
   };

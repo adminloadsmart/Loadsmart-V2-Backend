@@ -553,15 +553,9 @@ export function createLoadAlertResolvers(
       tenantId: string,
       context: VehicleHaltedContext,
     ): Promise<VehicleHaltedContext | null> => {
-      const skip = (reason: string) => {
-        console.debug(
-          `LS_N_0027 skipped for load ${context.loadId} (${context.step}, halt ${context.haltAlertId}): ${reason}`,
-        );
-        return null;
-      };
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot || snapshot.status !== 'in_transit_unloading') {
-        return skip('load not in transit');
+        return null; // load not in transit
       }
       if (
         await loadAlertRepository.hasSentNotification(tenantId, 'load.vehicle_halted', {
@@ -570,7 +564,7 @@ export function createLoadAlertResolvers(
           halt_step: context.step,
         })
       ) {
-        return skip('already sent');
+        return null; // already sent
       }
 
       const anchor = { lat: context.anchorLat, lng: context.anchorLng };
@@ -580,7 +574,7 @@ export function createLoadAlertResolvers(
         position.stale ||
         distanceMetresBetween(anchor, position) > VEHICLE_HALT_SAME_SPOT_M
       ) {
-        return skip('halt over or no fresh position');
+        return null; // halt over or no fresh position
       }
 
       const exclusion = await findHaltExclusion({
@@ -613,10 +607,10 @@ export function createLoadAlertResolvers(
         trackingStopPlaceKind: context.stopPlaceKind ?? null,
         geofences: haltGeofences,
       });
-      if (exclusion) return skip(`expected stop (${exclusion.kind})`);
+      if (exclusion) return null; // an expected stop (origin, destination, rest stop, toll)
 
       if (!eta || eta.stale || eta.projectedDelayMin == null || eta.projectedDelayMin <= 0) {
-        return skip('ETA not at risk');
+        return null; // ETA not at risk
       }
 
       return {
