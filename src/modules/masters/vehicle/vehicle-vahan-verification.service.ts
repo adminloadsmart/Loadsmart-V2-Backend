@@ -18,7 +18,7 @@ export const VAHAN_VERIFICATION_QUEUE = 'vahan-verification';
 const JOB_NAME = 'verify-vehicle';
 
 // Retries are for ULIP hiccups only (timeout, network, upstream error) — a registry answer is
-// final. Backoff starts at the 2-minute window since the limiter would hold the job anyway.
+// final. Backoff starts at the 2-minute window since the IP lane would hold the job anyway.
 const JOB_OPTIONS: JobsOptions = {
   attempts: 5,
   backoff: { type: 'exponential', delay: 120_000 },
@@ -36,6 +36,9 @@ export interface VahanVerificationJobPayload {
   tenantId: string;
   recordId: string;
   actorId: string;
+  /** The importer's IP — its lane in VahanIpRateGate. Optional so jobs enqueued before lanes
+   *  existed still run (in the 'unknown' lane). */
+  clientIp?: string;
 }
 
 export type VahanVerificationJobResult =
@@ -115,7 +118,7 @@ export function blankFieldsFromVahan(
 /**
  * Background VAHAN verification for bulk-imported trucks. The import saves each truck with a
  * 'pending' snapshot and enqueues one job per truck (jobId = vehicle id). The 'vahan-verification'
- * worker runs one lookup per window; each result goes through VehicleService.recordVerification,
+ * worker runs one lookup per window per importer IP (VahanIpRateGate); each result goes through VehicleService.recordVerification,
  * so papers, the national-permit flag, the fleet badge and the VAHAN notification behave exactly
  * as when the Add a truck drawer saves a verified truck.
  */
