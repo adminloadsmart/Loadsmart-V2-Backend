@@ -27,3 +27,13 @@ export interface LoadActivityWithActor {
   metadata: Record<string, unknown> | null;
   createdAt: Date;
 }
+
+/** The staff user who put a truck on a load — see LoadActivityService.assignedByLoad. */
+export interface LoadAssignedBy {
+  userId: string;
+  name: string | null;
+  role: string | null;
+  phoneNumber: string | null;
+  /** ISO time the truck was assigned; null if unknown. */
+  assignedAt: string | null;
+}

@@ -33,7 +33,7 @@ import {
 } from './utils/loads.types';
 import { hasLoadingPapers, progressPercentFor } from './utils/load-stages';
 import { decodeLiveLoadsCursor, encodeLiveLoadsCursor } from './utils/live-loads-cursor';
-import { LoadActivityWithActor } from './utils/load-activity.interface';
+import { LoadActivityWithActor, LoadAssignedBy } from './utils/load-activity.interface';
 import { ReportLoadIssueInput } from './utils/load-issue.interface';
 import {
   AssignLoadInput,
@@ -62,6 +62,7 @@ import {
   toTripDoneDetail,
   toTripListRow,
   TripDoneDetail,
+  TripAssignment,
   TripListRow,
   TripNextAction,
   TripStepperStep,
@@ -121,6 +122,8 @@ export interface LoadDetailView {
   dispatchPhoneNumber: string | null;
   /** The fleet owner (org admin) and dispatch contact behind this load. */
   fleetOwner: FleetOwnerDetails;
+  /** Who assigned the truck; null while none is assigned or when the system did. */
+  assignedBy: LoadAssignedBy | null;
   documentKeys: LoadDocumentKeys;
   timeline: LoadActivityWithActor[];
   payments: LoadPaymentEntity[];
@@ -299,6 +302,27 @@ export class LoadService {
     } catch (error) {
       rethrow(error, 'Failed to assign load');
     }
+  }
+
+  /** Who assigned each load plus the fleet owner behind it, for the trip rows and trip detail.
+   *  Loads can span tenants (a driver linked to several fleets), so the owner is looked up once
+   *  per distinct tenant. */
+  private async tripAssignments(loads: LoadEntity[]): Promise<Map<string, TripAssignment>> {
+    const tenantIds = [...new Set(loads.map((load) => load.tenantId))];
+    const [assignedBy, owners] = await Promise.all([
+      this.loadActivityService.assignedByLoad(loads),
+      Promise.all(tenantIds.map((id) => this.authService.getFleetOwner(id))),
+    ]);
+    const ownerByTenant = new Map(tenantIds.map((id, i) => [id, owners[i]]));
+    return new Map(
+      loads.map((load) => [
+        load.id,
+        {
+          assignedBy: assignedBy.get(load.id) ?? null,
+          fleetOwner: ownerByTenant.get(load.tenantId) ?? null,
+        },
+      ]),
+    );
   }
 
   /** Validates a document was uploaded via the storage module for the expected purpose and is
@@ -1449,13 +1473,15 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, fleetOwner, openIssue] = await Promise.all([
-        this.loadActivityService.listByLoad(tenantId, loadId),
-        this.loadPaymentRepository.listByLoad(tenantId, loadId),
-        this.withDocumentDownloadUrls(tenantId, actorRole, load),
-        this.authService.getFleetOwner(tenantId),
-        this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
-      ]);
+      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy] =
+        await Promise.all([
+          this.loadActivityService.listByLoad(tenantId, loadId),
+          this.loadPaymentRepository.listByLoad(tenantId, loadId),
+          this.withDocumentDownloadUrls(tenantId, actorRole, load),
+          this.authService.getFleetOwner(tenantId),
+          this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
+          this.loadActivityService.assignedByLoad([load]),
+        ]);
       const incident = buildIncident(openIssue);
 
       return {
@@ -1463,6 +1489,7 @@ export class LoadService {
         ownerPhoneNumber: fleetOwner.owner?.phoneNumber ?? null,
         dispatchPhoneNumber: fleetOwner.dispatch?.phoneNumber ?? null,
         fleetOwner,
+        assignedBy: assignedBy.get(load.id) ?? null,
         documentKeys: {
           invoiceFileKey: load.invoiceFileKey,
           ewayBillFileKey: load.ewayBillFileKey,
@@ -1515,7 +1542,7 @@ export class LoadService {
       if (load.driverId !== driverId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      return toTripDoneDetail(load);
+      return toTripDoneDetail(load, (await this.tripAssignments([load])).get(load.id));
     } catch (error) {
       rethrow(error, 'Failed to fetch trip detail');
     }
@@ -1564,9 +1591,10 @@ export class LoadService {
           search,
         }),
       ]);
+      const assignments = await this.tripAssignments(items);
       return {
         ...paginate(
-          items.map((load) => toTripListRow(load, locale)),
+          items.map((load) => toTripListRow(load, locale, assignments.get(load.id))),
           total,
           input,
         ),
@@ -1590,9 +1618,10 @@ export class LoadService {
       const hasMore = rows.length > limit;
       const page = hasMore ? rows.slice(0, limit) : rows;
       const last = page[page.length - 1];
+      const assignments = await this.tripAssignments(page);
       return {
         items: page.map((load) => ({
-          ...toTripListRow(load, locale),
+          ...toTripListRow(load, locale, assignments.get(load.id)),
           progressPercent: progressPercentFor(load),
         })),
         nextCursor: hasMore && last ? encodeLiveLoadsCursor(last) : null,
@@ -1619,9 +1648,10 @@ export class LoadService {
         stats.totalCompleted === 0
           ? 0
           : Math.round((stats.podVerifiedCount / stats.totalCompleted) * 100);
+      const assignments = await this.tripAssignments(items);
       return {
         ...paginate(
-          items.map((load) => toTripListRow(load, locale)),
+          items.map((load) => toTripListRow(load, locale, assignments.get(load.id))),
           total,
           input,
         ),

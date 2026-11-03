@@ -224,7 +224,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          'Paginated trips — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
+          'Paginated trips (each row carries assignedBy and fleetOwner) — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
           'counts: { active, completed, open } } }. `counts` is tenant-wide (scoped by any non-group ' +
           'filters given) and independent of which group, if any, was requested — lets the UI ' +
           'render both tab badges from one call. Each row also carries `plannedCapacityTonnes`, ' +
@@ -281,7 +281,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
         description:
           '{ load (document fields are download URLs), ownerPhoneNumber, dispatchPhoneNumber, ' +
           'fleetOwner ({ organizationName, owner, dispatch } — each contact { name, phoneNumber, email }), ' +
-          'documentKeys (the same document fields as raw ' +
+          'assignedBy ({ userId, name, role, phoneNumber, assignedAt } — who assigned the truck; null until one is, ' +
+          'or if the system did), documentKeys (the same document fields as raw ' +
           'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
           'TripStepperStep[] (steps ahead of a halted trip have onHold: true), nextAction: TripNextAction, ' +
           'incident: TripIncident | null (newest unresolved driver-reported issue; halted: true for ' +

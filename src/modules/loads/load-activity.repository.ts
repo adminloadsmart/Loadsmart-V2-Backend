@@ -1,4 +1,4 @@
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { LoadActivityEntity } from './entities/load-activity.entity';
 import { CreateLoadActivityData } from './utils/load-activity.interface';
 
@@ -23,6 +23,15 @@ export class LoadActivityRepository {
   listByLoad(tenantId: string, loadId: string): Promise<LoadActivityEntity[]> {
     return this.activities.find({
       where: { tenantId, loadId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /** Every move into Truck assigned on the given loads, oldest first — who assigned each one. */
+  listTruckAssignments(loadIds: string[]): Promise<LoadActivityEntity[]> {
+    if (loadIds.length === 0) return Promise.resolve([]);
+    return this.activities.find({
+      where: { loadId: In(loadIds), action: 'STATUS_CHANGED', toValue: 'truck_assigned' },
       order: { createdAt: 'ASC' },
     });
   }
