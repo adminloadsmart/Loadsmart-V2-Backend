@@ -57,7 +57,9 @@ export class PushChannel implements NotificationChannel {
                 .map(([key, value]) => [key, String(value)]),
             )
           : {}),
-        severity: notification.severity,
+        // FCM rejects a non-string data value, so an unset severity (DriverPushNotifier's ad hoc
+        // pushes carry none) is left out rather than sent as undefined.
+        ...(notification.severity && { severity: notification.severity }),
       },
     });
   }
