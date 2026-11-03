@@ -242,3 +242,17 @@ export const FRONTEND_PATHS = {
 
 /** Metadata key — and email template variable — carrying the email button's full link. */
 export const EMAIL_CTA_URL_KEY = 'cta_url';
+
+/** Metadata key on a driver-app notification holding the values its text is rebuilt from, per
+ *  language (driver-notification-content.ts). Left out of the push's FCM data. */
+export const DRIVER_MESSAGE_PARAMS_KEY = 'messageParams';
+
+/** Where a vehicle is, in notification copy (utils/location.ts): found addresses are cached in
+ *  Redis per ~110 m cell (3 decimals) for 30 days, like tracking's own resolver. */
+export const LOCATION_CACHE_KEY_PREFIX = 'notif:addr';
+export const LOCATION_CACHE_KEY_DECIMALS = 3;
+export const LOCATION_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** Last resort when no address can be found — a tappable map pin instead of bare numbers. */
+export const GOOGLE_MAPS_PIN_URL = 'https://maps.google.com/?q=';
+/** LS_N_0029's {{4}} ("last detected at …") when the trip has had no position at all. */
+export const NO_TRIP_POSITION_LOCATION = 'the start of this trip (no GPS received since)';

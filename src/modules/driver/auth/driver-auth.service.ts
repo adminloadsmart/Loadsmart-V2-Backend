@@ -66,6 +66,7 @@ export class DriverAuthService {
       phoneNumber,
       purpose: 'driver-login',
       cooldownSeconds: env.driverLoginOtpResendCooldownSeconds,
+      channel: input.channel,
     });
 
     const loginToken = signToken(
@@ -76,7 +77,12 @@ export class DriverAuthService {
     return {
       loginToken,
       expiresIn: env.driverLoginOtpTtlSeconds,
-      message: t(locale ?? DEFAULT_LOCALE, 'errors.otp.sent', { phoneNumber }),
+      channel: input.channel,
+      message: t(
+        locale ?? DEFAULT_LOCALE,
+        input.channel === 'whatsapp' ? 'errors.otp.sentWhatsapp' : 'errors.otp.sent',
+        { phoneNumber },
+      ),
     };
   }
 
@@ -189,6 +195,8 @@ export class DriverAuthService {
         deviceType: stored.deviceType ?? undefined,
         deviceInfo: stored.deviceInfo ?? undefined,
         ipAddress: stored.ipAddress,
+        // A refresh that sent no Accept-Language keeps the language this device had.
+        locale: input.locale ?? stored.locale,
       },
     );
 
@@ -205,10 +213,16 @@ export class DriverAuthService {
     await blockToken(jti, exp);
   }
 
-  async updateDeviceToken(sid: string, fcmToken: string, deviceType: DriverDevicePlatform) {
+  async updateDeviceToken(
+    sid: string,
+    fcmToken: string,
+    deviceType: DriverDevicePlatform,
+    locale?: Locale | null,
+  ) {
     const updated = await this.driverSessionRepository.updateSessionDeviceInfo(sid, {
       fcmToken,
       deviceType,
+      locale,
     });
     if (!updated) throw new NotFoundError(msg('errors.session.noActiveSession'));
   }
@@ -322,6 +336,7 @@ export class DriverAuthService {
       deviceType: device?.deviceType,
       deviceInfo: device?.deviceInfo,
       ipAddress: device?.ipAddress,
+      locale: device?.locale,
       accessJti: jti,
       accessExpiresAt: new Date(Date.now() + accessTtlSeconds * 1000),
     });

@@ -168,6 +168,16 @@ describe('LS_N_0028 / 0029 / 0030 content', () => {
     expect(timeSinceAfter(800 * 24)).toBe('2 years');
   });
 
+  it('signal lost: {{4}} is a map link without an address, and reads naturally with no GPS', () => {
+    const lastLocationOf = (lastLat: number | null, lastLng: number | null) =>
+      NOTIFICATION_CATALOG['load.tracking_signal_lost'].buildContent(
+        { ...load, step: '4h', lastSeenAt: AT, lastLat, lastLng, hoursSince: 4 },
+        recipient,
+      ).metadata?.last_location;
+    expect(lastLocationOf(22.7, 75.8)).toBe('https://maps.google.com/?q=22.70000,75.80000');
+    expect(lastLocationOf(null, null)).toBe('the start of this trip (no GPS received since)');
+  });
+
   it('delivery late: personalised copy, reason and SMS/WhatsApp variables', () => {
     const content = NOTIFICATION_CATALOG['load.delivery_late'].buildContent(
       {

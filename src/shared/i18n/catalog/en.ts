@@ -6,6 +6,7 @@ export const en = {
     internal: 'Something went wrong',
     otp: {
       sent: 'OTP sent to {phoneNumber}',
+      sentWhatsapp: 'OTP sent on WhatsApp to {phoneNumber}',
       cooldown: 'Please wait before requesting another OTP',
       invalid: 'Invalid OTP',
       tooManyAttemptsLogin: 'Too many incorrect attempts, please request a new login OTP',
@@ -79,6 +80,48 @@ export const en = {
     driverAccountDeleted: {
       title: 'Driver account deleted',
       body: '{driverName} ({phoneNumber}) has deleted their account and is no longer linked to your fleet.',
+    },
+  },
+  // Push + in-app notifications to the driver app — rendered by
+  // notifications/driver-notification-content.ts, per device for push and per request in-app.
+  driverNotifications: {
+    invited: {
+      title: "You've been invited",
+      body: '{tenantName} has invited you to join their fleet. Open the app to accept or decline.',
+    },
+    joinApproved: {
+      title: 'Request approved',
+      body: 'Your request to join {tenantName} has been approved.',
+    },
+    joinRejected: {
+      title: 'Request declined',
+      body: 'Your request to join {tenantName} was declined.',
+    },
+    podReminder: {
+      title: 'Upload the E-POD',
+      body: 'Load {loadCode} is at the unloading point. Upload the POD front and back once unloading is done.',
+      bodyWithVehicle:
+        'Load {loadCode} ({vehicleNumber}) is at the unloading point. Upload the POD front and back once unloading is done.',
+    },
+    loadAssigned: {
+      title: 'New load assigned',
+      body: 'Load {loadCode} has been assigned to you',
+      bodyWithDetails: 'Load {loadCode} has been assigned to you: {details}',
+      bodyMany_one: '{count} load has been assigned to you',
+      bodyMany_other: '{count} loads have been assigned to you',
+      pickup: 'Pickup {pickupAt}',
+      truck: 'Truck {vehicleNumber}',
+      fleetOwner: 'Fleet owner: {name} ({phoneNumber})',
+      fleetOwnerFallbackName: 'Fleet owner',
+      withFleetOwner: '{message}. {fleetOwner}',
+    },
+    loadingContactChanged: {
+      title: 'Loading contact changed',
+      body: 'New loading contact for {loadCode}: {name}, {phoneNumber}',
+    },
+    loadingPointChanged: {
+      title: 'Loading point changed',
+      body: 'Loading point for {loadCode} changed to {pointTitle}, {city}',
     },
   },
   validation: {

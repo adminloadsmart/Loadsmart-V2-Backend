@@ -24,6 +24,12 @@ export interface SearchPlacesQuery {
   type?: 'city';
 }
 
+/** A map point to look up an address for (PlacesService.addressAt). */
+export interface PlacePoint {
+  lat: number;
+  lng: number;
+}
+
 export interface PlaceParams {
   placeId: string;
 }

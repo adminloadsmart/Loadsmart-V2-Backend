@@ -49,9 +49,15 @@ function setup(
     findSnapshot: vi.fn(async () => ({ ...snapshot, ...overrides.snapshot })),
     findClaimWindowDays: vi.fn(async () => overrides.claimWindowDays ?? 7),
   } as unknown as LoadAlertRepository;
-  const resolvers = createLoadAlertResolvers(repository, vi.fn(), {} as TrackingClient, {
-    list: async () => [],
-  });
+  const resolvers = createLoadAlertResolvers(
+    repository,
+    vi.fn(),
+    {} as TrackingClient,
+    {
+      list: async () => [],
+    },
+    vi.fn(),
+  );
   return { resolvers };
 }
 

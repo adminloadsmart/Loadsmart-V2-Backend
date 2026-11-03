@@ -10,6 +10,11 @@ import {
   DRIVER_ONBOARDING_STEPS,
 } from '../drivers.types';
 import { IFSC_REGEX } from '../../masters/masters.constants';
+import { OTP_CHANNELS } from '../../auth/auth.constants';
+
+// Which button the driver tapped — "Send OTP" (sms, also the default for older app builds) or
+// "Get OTP on WhatsApp". The code goes out on that channel only.
+const otpChannel = z.enum(OTP_CHANNELS).default('sms');
 
 // Same convention as modules/auth/auth.validators.ts's deviceTokenFields — optional on every
 // session-issuing endpoint below, deviceType required alongside fcmToken via .superRefine. No
@@ -47,6 +52,7 @@ export const driverAuthValidators = {
   requestOtp: z.object({
     body: z.object({
       phoneNumber: z.string().trim().min(10),
+      channel: otpChannel,
     }),
   }),
   verifyOtp: z.object({
@@ -100,7 +106,7 @@ export const driverAuthValidators = {
 
   // --- Self-registration ---
   requestRegisterOtp: z.object({
-    body: z.object({ phoneNumber: z.string().trim().min(10) }),
+    body: z.object({ phoneNumber: z.string().trim().min(10), channel: otpChannel }),
   }),
   verifyRegisterOtp: z.object({
     body: z

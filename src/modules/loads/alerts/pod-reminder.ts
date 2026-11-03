@@ -12,12 +12,9 @@ export async function processPodReminder(
   if (!load || load.status !== 'reached_unloading' || load.podFileKey || !load.driverId) {
     return 'skipped';
   }
-  await notifier.notifyTripReminder(
-    load.tenantId,
-    load.driverId,
-    'driver.trip.pod_reminder',
-    'Upload the E-POD',
-    `Load ${load.code}${load.vehicleNumber ? ` (${load.vehicleNumber})` : ''} is at the unloading point. Upload the POD front and back once unloading is done.`,
-  );
+  await notifier.notifyTripReminder(load.tenantId, load.driverId, {
+    type: 'driver.trip.pod_reminder',
+    params: { loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
+  });
   return 'sent';
 }

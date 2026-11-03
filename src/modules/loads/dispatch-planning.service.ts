@@ -5,6 +5,8 @@ import { AuditService } from '../audit/audit.service';
 import { driverAssignmentMessage, FleetOwnerLookup } from './utils/driver-assignment-message';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { renderDriverMessage } from '../notifications/driver-notification-content';
+import { DEFAULT_LOCALE } from '../../shared/i18n/locales';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
 import { TruckTypeService } from '../masters/truck-type/truck-type.service';
@@ -331,15 +333,14 @@ export class DispatchPlanningService {
             )
           ).filter((load): load is LoadEntity => Boolean(load));
           const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
-          const { body, metadata } = driverAssignmentMessage(assignedLoads, owner ?? null);
+          const { message, metadata } = driverAssignmentMessage(assignedLoads, owner ?? null);
 
           await Promise.all(
             sessions.map((session) =>
               this.notificationsService.send(tenantId, {
                 recipientUserId: driverId,
-                type: 'load.assigned',
-                title: 'New load assigned',
-                body,
+                type: message.type,
+                ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
                 channels: ['push'],
                 destinations: { pushToken: session.fcmToken! },
                 metadata,

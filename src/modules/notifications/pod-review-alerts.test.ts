@@ -41,9 +41,15 @@ function setup(overrides: Partial<LoadAlertSnapshot> = {}) {
     findSnapshot: vi.fn(async () => ({ ...snapshot, ...overrides })),
     findPersonName: vi.fn(async () => 'Anita Sharma'),
   } as unknown as LoadAlertRepository;
-  return createLoadAlertResolvers(repository, vi.fn(), {} as TrackingClient, {
-    list: async () => [],
-  });
+  return createLoadAlertResolvers(
+    repository,
+    vi.fn(),
+    {} as TrackingClient,
+    {
+      list: async () => [],
+    },
+    vi.fn(),
+  );
 }
 
 describe('LS_N_0039 POD still pending', () => {

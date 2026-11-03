@@ -1,4 +1,5 @@
-import { RequestHandler } from 'express';
+import { Request, RequestHandler } from 'express';
+import { Locale } from '../i18n/locales';
 import { resolveLocale } from '../i18n/resolve-locale';
 
 // Resolves the request language from the client's own signals only: `?lang=` first, then
@@ -16,3 +17,8 @@ export const localeMiddleware: RequestHandler = (req, res, next) => {
   res.vary('Accept-Language');
   next();
 };
+
+// The language the client actually asked for, or null when it sent none — for saving a preference
+// (e.g. a driver device's push language) without overwriting it with the English default.
+export const requestedLocaleOf = (req: Request): Locale | null =>
+  req.localeSource === 'default' ? null : req.locale;

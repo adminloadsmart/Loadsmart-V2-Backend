@@ -187,7 +187,7 @@ export const env = {
   msg91WhatsappTemplateOrgApproved: process.env.MSG91_WHATSAPP_TEMPLATE_ORG_APPROVED || undefined,
   msg91SmsTemplateOrgApproved: process.env.MSG91_SMS_TEMPLATE_ORG_APPROVED || undefined,
   msg91EmailTemplateOrgApproved: process.env.MSG91_EMAIL_TEMPLATE_ORG_APPROVED || undefined,
-  // LS_N_0029 "tracking signal lost" (WhatsApp: first_name, vehicle_no, hours_since,
+  // LS_N_0029 "tracking signal lost" (WhatsApp: first_name, vehicle_no, time_since,
   // last_location + an "Open load" button) and LS_N_0030 "delivery will be late" (WhatsApp:
   // first_name, load_code, consignee, delay, revised_eta; DLT SMS: load code, revised ETA).
   msg91WhatsappTemplateTrackingSignalLost:

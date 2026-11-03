@@ -47,6 +47,7 @@ import {
   VEHICLE_HALT_SAME_SPOT_M,
 } from './notifications.constants';
 import {
+  DescribeLocation,
   HaltGeofences,
   LoadAlertSnapshot,
   LoadEventNotifier,
@@ -266,12 +267,14 @@ function reportingTimeOf(pickupAt: Date | null, pickupDate: string | null): stri
 /** Context resolvers for the trigger worker (wired in composition-root.ts). `checkCompliance` is
  *  the loads module's assignment-time check (AssignmentComplianceService.check) — LS_N_0017 re-runs
  *  it to tell whether the expired document has been renewed. `tracking` supplies the live ETA
- *  for LS_N_0025/0026/0027; `haltGeofences` the geofences LS_N_0027 checks a halt against. */
+ *  for LS_N_0025/0026/0027; `haltGeofences` the geofences LS_N_0027 checks a halt against;
+ *  `describeLocation` turns a vehicle's position into words (utils/location.ts). */
 export function createLoadAlertResolvers(
   loadAlertRepository: LoadAlertRepository,
   checkCompliance: (tenantId: string, target: AssignmentTarget) => Promise<AssignmentCompliance>,
   tracking: TrackingClient,
   haltGeofences: HaltGeofences,
+  describeLocation: DescribeLocation,
 ) {
   return {
     /** LS_N_0025 — null once the truck has reached the delivery point (or later), its bill was
@@ -350,7 +353,7 @@ export function createLoadAlertResolvers(
         isOwnFleet: snapshot.sourceType === 'own_fleet',
         createdBy: snapshot.createdBy,
         lateMinutes: (Date.now() - new Date(context.reportingAt).getTime()) / MS_PER_MINUTE,
-        lastSeenPlace: position?.placeName ?? null,
+        lastSeenPlace: position ? await describeLocation(position, position.placeName) : null,
         distanceAwayKm:
           position && hasOrigin
             ? distanceKmBetween(position, { lat: snapshot.originLat!, lng: snapshot.originLng! })
@@ -619,7 +622,7 @@ export function createLoadAlertResolvers(
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
-        location: position.placeName ?? `${position.lat.toFixed(4)}, ${position.lng.toFixed(4)}`,
+        location: await describeLocation(position, position.placeName),
         destination: snapshot.destinationCity,
         revisedEtaAt: eta.etaAt.toISOString(),
         delayMin: eta.projectedDelayMin,
@@ -641,7 +644,10 @@ export function createLoadAlertResolvers(
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
-        location: position?.placeName ?? `${context.lat.toFixed(4)}, ${context.lng.toFixed(4)}`,
+        location: await describeLocation(
+          { lat: context.lat, lng: context.lng },
+          position?.placeName,
+        ),
         revisedEtaAt: eta && !eta.stale ? eta.etaAt.toISOString() : null,
         deviationDurationMin:
           (Date.now() - new Date(context.deviationStartedAt).getTime()) / MS_PER_MINUTE,
@@ -661,14 +667,15 @@ export function createLoadAlertResolvers(
       const lastSeenMs = new Date(context.lastSeenAt).getTime();
       const { position } = await tracking.getTrip(tenantId, context.loadId);
       if (position && position.recordedAt.getTime() > lastSeenMs + MS_PER_MINUTE) return null;
-      const known = context.lastLat != null && context.lastLng != null;
+      const lastPoint =
+        context.lastLat != null && context.lastLng != null
+          ? { lat: context.lastLat, lng: context.lastLng }
+          : null;
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
-        lastLocation: known
-          ? (position?.placeName ??
-            `${context.lastLat!.toFixed(4)}, ${context.lastLng!.toFixed(4)}`)
-          : null,
+        // No position on this trip at all → null; the catalog words that case (LS_N_0029).
+        lastLocation: lastPoint ? await describeLocation(lastPoint, position?.placeName) : null,
         hoursSince: Math.floor((Date.now() - lastSeenMs) / MS_PER_HOUR),
         destination: snapshot.destinationCity,
         driverName: snapshot.driverName,

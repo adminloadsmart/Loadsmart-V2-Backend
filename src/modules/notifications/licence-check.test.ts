@@ -65,9 +65,15 @@ describe('LS_N_0050 licence class does not match the vehicle', () => {
         async () => ({ code: 'LD-1001', vehicleNumber: 'MH12AB1234' }) as LoadAlertSnapshot,
       ),
     } as unknown as LoadAlertRepository;
-    return createLoadAlertResolvers(repository, vi.fn(), {} as TrackingClient, {
-      list: async () => [],
-    });
+    return createLoadAlertResolvers(
+      repository,
+      vi.fn(),
+      {} as TrackingClient,
+      {
+        list: async () => [],
+      },
+      vi.fn(),
+    );
   }
   const context = { loadId: 'load-1', assignedAt: '2026-10-22T08:00:00.000Z' };
   const build = NOTIFICATION_CATALOG['load.licence_mismatch'].buildContent;

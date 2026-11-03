@@ -16,6 +16,7 @@ import {
 } from '../../../shared/errors';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { msg, t } from '../../../shared/i18n/translate';
+import { OtpChannel } from '../../auth/auth.constants';
 import { signToken } from '../../../shared/utils/token';
 import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
 import { OtpService } from '../../../shared/services/otp.service';
@@ -91,7 +92,8 @@ export class DriverIdentityService {
     private readonly idfyClient: IdfyClient,
   ) {}
 
-  async requestOtp(phoneNumber: string, locale?: Locale) {
+  /** `channel` — the code goes out on SMS or WhatsApp only, as the driver chose. */
+  async requestOtp(phoneNumber: string, locale?: Locale, channel: OtpChannel = 'sms') {
     const normalized = this.normalizePhone(phoneNumber);
 
     const existing = await this.driverRepository.findByPhoneNumber(normalized);
@@ -103,6 +105,7 @@ export class DriverIdentityService {
       phoneNumber: normalized,
       purpose: 'driver-register',
       cooldownSeconds: env.driverLoginOtpResendCooldownSeconds,
+      channel,
     });
 
     const otpToken = signToken(
@@ -113,7 +116,12 @@ export class DriverIdentityService {
     return {
       otpToken,
       expiresIn: env.driverLoginOtpTtlSeconds,
-      message: t(locale ?? DEFAULT_LOCALE, 'errors.otp.sent', { phoneNumber: normalized }),
+      channel,
+      message: t(
+        locale ?? DEFAULT_LOCALE,
+        channel === 'whatsapp' ? 'errors.otp.sentWhatsapp' : 'errors.otp.sent',
+        { phoneNumber: normalized },
+      ),
     };
   }
 

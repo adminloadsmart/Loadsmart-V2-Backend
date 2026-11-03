@@ -1,6 +1,7 @@
 import { cert, getApps, initializeApp, App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { env } from '../../../config/env';
+import { DRIVER_MESSAGE_PARAMS_KEY } from '../notifications.constants';
 import { NotificationEntity } from '../notifications.entity';
 import { NotificationChannel } from './notification-channel.interface';
 
@@ -42,9 +43,12 @@ export class PushChannel implements NotificationChannel {
       // `severity` rides alongside metadata so the app can style/prioritize the push the same way
       // as the in-app list — an extra data key, ignored by clients that don't read it.
       data: {
+        // messageParams only rebuilds the text in another language — not for the app.
         ...(notification.metadata
           ? Object.fromEntries(
-              Object.entries(notification.metadata).map(([key, value]) => [key, String(value)]),
+              Object.entries(notification.metadata)
+                .filter(([key]) => key !== DRIVER_MESSAGE_PARAMS_KEY)
+                .map(([key, value]) => [key, String(value)]),
             )
           : {}),
         severity: notification.severity,

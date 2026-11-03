@@ -39,6 +39,7 @@ import {
 import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
 import { DriverTenantRelationEntity } from '../entities/driver-tenant-relation.entity';
 import { NotificationEntity } from '../../notifications/notifications.entity';
+import { renderStoredDriverMessage } from '../../notifications/driver-notification-content';
 
 /** The invitationId an invite card carries; null on any other notification. */
 function invitationIdOf(notification: NotificationEntity): string | null {
@@ -509,12 +510,14 @@ export class DriverPortalService {
    * Each "You've been invited" card also gets its invite's live state (`invitation`): every Resend
    * adds a card for the same invite, and only the newest send's card is actionable — older ones
    * read `replaced`, and every card follows the invite once it's accepted, declined, cancelled or
-   * expired. Nothing is deleted; the cards and the invite's timeline stay as they are.
+   * expired. Nothing is deleted; the cards and the invite's timeline stay as they are. Title/body
+   * come back in `locale` (Accept-Language) for every card saved with messageParams.
    */
   async getMyNotifications(
     driverId: string,
     category: DriverNotificationCategory | undefined,
     query: ListNotificationsInput,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<Paginated<DriverNotificationItem>> {
     const page = await this.notificationsService.listForDriver(driverId, {
       ...query,
@@ -531,7 +534,12 @@ export class DriverPortalService {
 
     return {
       ...page,
-      items: page.items.map((notification) => {
+      items: page.items.map((stored) => {
+        // Cards saved with messageParams follow the app's language; older ones keep their text.
+        const notification = {
+          ...stored,
+          ...renderStoredDriverMessage(stored.type, stored.metadata, locale),
+        };
         const invitationId = invitationIdOf(notification);
         if (!invitationId) return { ...notification, invitation: null };
         const status = inviteCardStatusOf(notification, relationsById.get(invitationId));
