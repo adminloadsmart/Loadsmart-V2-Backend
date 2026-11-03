@@ -7,6 +7,12 @@ import { NotificationChannel } from './notification-channel.interface';
 
 let app: App | null = null;
 
+/** Data keys FCM rejects outright ("Invalid data payload key") — e.g. load.assigned's `from`
+ *  (pickup city). Left out of the push; the stored notification keeps them. */
+const FCM_RESERVED_DATA_KEYS = new Set(['from', 'message_type', 'collapse_key']);
+const isFcmReservedDataKey = (key: string): boolean =>
+  FCM_RESERVED_DATA_KEYS.has(key) || key.startsWith('google') || key.startsWith('gcm');
+
 function getFirebaseApp(): App {
   if (app) return app;
   if (!env.firebaseProjectId || !env.firebaseClientEmail || !env.firebasePrivateKey) {
@@ -47,7 +53,7 @@ export class PushChannel implements NotificationChannel {
         ...(notification.metadata
           ? Object.fromEntries(
               Object.entries(notification.metadata)
-                .filter(([key]) => key !== DRIVER_MESSAGE_PARAMS_KEY)
+                .filter(([key]) => key !== DRIVER_MESSAGE_PARAMS_KEY && !isFcmReservedDataKey(key))
                 .map(([key, value]) => [key, String(value)]),
             )
           : {}),
