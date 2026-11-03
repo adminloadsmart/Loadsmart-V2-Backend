@@ -54,10 +54,19 @@ export class PushChannel implements NotificationChannel {
           ? Object.fromEntries(
               Object.entries(notification.metadata)
                 .filter(([key]) => key !== DRIVER_MESSAGE_PARAMS_KEY && !isFcmReservedDataKey(key))
-                .map(([key, value]) => [key, String(value)]),
+                // FCM data is strings only — objects (e.g. load.assigned's fleetOwner) go as JSON,
+                // not "[object Object]". Arrays keep their "a,b" form (loadIds), as before.
+                .map(([key, value]) => [
+                  key,
+                  value !== null && typeof value === 'object' && !Array.isArray(value)
+                    ? JSON.stringify(value)
+                    : String(value),
+                ]),
             )
           : {}),
-        severity: notification.severity,
+        // FCM rejects a non-string data value, so an unset severity (DriverPushNotifier's ad hoc
+        // pushes carry none) is left out rather than sent as undefined.
+        ...(notification.severity && { severity: notification.severity }),
       },
     });
   }
