@@ -117,6 +117,9 @@ export interface LoadDocumentKeys {
   podBackFileKey: string | null;
   weighingSlipFileKey: string | null;
   loadingPhotoFileKeys: string[] | null;
+  /** The assigned driver's driving licence photos (masters.driver_documents). */
+  dlFrontKey: string | null;
+  dlBackKey: string | null;
 }
 
 export interface LoadDetailView {
@@ -1476,7 +1479,7 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy] =
+      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy, licenceKeys] =
         await Promise.all([
           this.loadActivityService.listByLoad(tenantId, loadId),
           this.loadPaymentRepository.listByLoad(tenantId, loadId),
@@ -1484,6 +1487,9 @@ export class LoadService {
           this.authService.getFleetOwner(tenantId),
           this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
           this.loadActivityService.assignedByLoad([load]),
+          load.driverId
+            ? this.repository.findDriverLicenceKeys(load.driverId)
+            : { dlFrontKey: null, dlBackKey: null },
         ]);
       const incident = buildIncident(openIssue);
 
@@ -1501,6 +1507,7 @@ export class LoadService {
           podBackFileKey: load.podBackFileKey,
           weighingSlipFileKey: load.weighingSlipFileKey,
           loadingPhotoFileKeys: load.loadingPhotoFileKeys,
+          ...licenceKeys,
         },
         timeline,
         payments,

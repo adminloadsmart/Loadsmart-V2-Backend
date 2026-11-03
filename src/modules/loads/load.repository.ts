@@ -16,6 +16,7 @@ import {
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
+import { DriverDocumentEntity } from '../driver/entities/driver-document.entity';
 import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { ListLoadsInput } from './utils/load.interface';
@@ -129,11 +130,33 @@ export class LoadRepository {
   private readonly loads: Repository<LoadEntity>;
   private readonly cargoItems: Repository<LoadCargoItemEntity>;
   private readonly loadingPoints: Repository<LoadingPointEntity>;
+  private readonly driverDocuments: Repository<DriverDocumentEntity>;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
     this.cargoItems = dataSource.getRepository(LoadCargoItemEntity);
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
+    this.driverDocuments = dataSource.getRepository(DriverDocumentEntity);
+  }
+
+  /** Storage keys of the driver's latest driving licence front/back photos (null when missing). */
+  async findDriverLicenceKeys(
+    driverId: string,
+  ): Promise<{ dlFrontKey: string | null; dlBackKey: string | null }> {
+    const documents = await this.driverDocuments.find({
+      where: {
+        driverId,
+        documentType: In(['driving_license_front', 'driving_license_back']),
+        deletedAt: IsNull(),
+      },
+      order: { createdAt: 'DESC' },
+    });
+    const latest = (type: string) =>
+      documents.find((d) => d.documentType === type)?.fileUrl ?? null;
+    return {
+      dlFrontKey: latest('driving_license_front'),
+      dlBackKey: latest('driving_license_back'),
+    };
   }
 
   findLoadingPoint(tenantId: string, id: string): Promise<LoadingPointEntity | null> {

@@ -283,7 +283,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
           'fleetOwner ({ organizationName, owner, dispatch } — each contact { name, phoneNumber, email }), ' +
           'assignedBy ({ userId, name, role, phoneNumber, assignedAt } — who assigned the truck; null until one is, ' +
           'or if the system did), documentKeys (the same document fields as raw ' +
-          'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
+          "storage keys, plus dlFrontKey/dlBackKey — the driver's driving licence photo keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: " +
           'TripStepperStep[] (steps ahead of a halted trip have onHold: true), nextAction: TripNextAction, ' +
           'incident: TripIncident | null (newest unresolved driver-reported issue; halted: true for ' +
           'accident/breakdown) }',
