@@ -246,7 +246,8 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         '(type driver.account.invited), where it is { invitationId, status: pending | accepted | ' +
         'declined | cancelled | expired | replaced, actionable }. Each Resend adds a card for the ' +
         'same invite; only the newest one is `actionable` (show Accept / Decline only then) — ' +
-        'older ones read `replaced`.',
+        'older ones read `replaced`. `title`/`body` follow Accept-Language (en | hi) for every ' +
+        'notification saved since translation was added; older ones keep their original English.',
     ),
     request: { query: driverPortalValidators.getMyNotifications.shape.query },
     responses: {

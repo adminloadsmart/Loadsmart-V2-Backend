@@ -48,6 +48,9 @@ import {
 import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { renderDriverMessage } from '../notifications/driver-notification-content';
+import { DRIVER_MESSAGE_PARAMS_KEY } from '../notifications/notifications.constants';
+import { DriverMessage } from '../notifications/notifications.types';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
@@ -1098,8 +1101,7 @@ export class LoadService {
       });
       await this.notifyDriver(tenantId, load, {
         type: 'load.loading_contact_changed',
-        title: 'Loading contact changed',
-        body: `New loading contact for ${load.code}: ${input.name}, ${input.phone}`,
+        params: { loadCode: load.code, name: input.name, phoneNumber: input.phone },
       });
       return updated;
     } catch (error) {
@@ -1151,8 +1153,7 @@ export class LoadService {
       });
       await this.notifyDriver(tenantId, load, {
         type: 'load.loading_point_changed',
-        title: 'Loading point changed',
-        body: `Loading point for ${load.code} changed to ${point.title}, ${point.city}`,
+        params: { loadCode: load.code, pointTitle: point.title, city: point.city },
       });
       return (await this.repository.findById(tenantId, loadId)) ?? updated;
     } catch (error) {
@@ -1161,11 +1162,12 @@ export class LoadService {
   }
 
   /** Best-effort push + in-app to the load's driver, one per active device session — same as the
-   *  'load.assigned' push. Logged, never thrown: the change itself is already saved. */
+   *  'load.assigned' push. Each row is written in its device's language; the in-app list
+   *  re-renders it from messageParams. Logged, never thrown: the change itself is already saved. */
   private async notifyDriver(
     tenantId: string,
     load: LoadEntity,
-    content: { type: string; title: string; body: string },
+    message: DriverMessage,
   ): Promise<void> {
     if (!load.driverId) return;
     try {
@@ -1176,16 +1178,17 @@ export class LoadService {
           .map((session) =>
             this.notificationsService.send(tenantId, {
               recipientUserId: load.driverId!,
-              ...content,
+              type: message.type,
+              ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
               channels: ['push'],
               destinations: { pushToken: session.fcmToken! },
-              metadata: { loadIds: [load.id] },
+              metadata: { loadIds: [load.id], [DRIVER_MESSAGE_PARAMS_KEY]: message.params },
               severity: 'p2_action',
             }),
           ),
       );
     } catch (error) {
-      console.error(`Failed to notify driver ${load.driverId} of ${content.type}`, error);
+      console.error(`Failed to notify driver ${load.driverId} of ${message.type}`, error);
     }
   }
 

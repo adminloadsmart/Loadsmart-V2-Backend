@@ -332,6 +332,7 @@ export class DriverPortalController {
       req.driver!.id,
       category,
       query,
+      req.locale,
     );
     respond(res, notifications);
   };

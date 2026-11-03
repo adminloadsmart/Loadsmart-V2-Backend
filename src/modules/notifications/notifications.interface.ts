@@ -707,6 +707,19 @@ export interface HaltGeofences {
   list(tenantId: string): Promise<HaltGeofence[]>;
 }
 
+/** Readable place for a point in notification copy (utils/location.ts): the address tracking
+ *  already has (`knownAddress`), else one looked up and cached, else a map link — never empty. */
+export type DescribeLocation = (point: LatLng, knownAddress?: string | null) => Promise<string>;
+
+export interface LocationDescriberDeps {
+  /** Short address at a point (PlacesService.addressAt); null when there's none. */
+  addressAt: (point: LatLng) => Promise<string | null>;
+  cache: {
+    get(key: string): Promise<string | null>;
+    set(key: string, value: string, exSeconds: number): Promise<unknown>;
+  };
+}
+
 /** A master point's pin and geofence radius (null = default). */
 export interface TripEndPin extends LatLng {
   radiusM: number | null;

@@ -21,10 +21,10 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_AUTH],
     operationId: 'driverAuth.requestOtp',
     description:
-      'Request a login OTP for a driver phone number. Only succeeds against an already-registered global driver profile (masters.drivers) — an unregistered phone must use /register/otp/request instead. Returns a short-lived loginToken (send as the bearer token to /otp/verify).',
+      'Request a login OTP for a driver phone number. Only succeeds against an already-registered global driver profile (masters.drivers) — an unregistered phone must use /register/otp/request instead. Returns a short-lived loginToken (send as the bearer token to /otp/verify). `channel`: "sms" (Send OTP, default) or "whatsapp" (Get OTP on WhatsApp) — the code goes out on that channel only; both share the resend cooldown and request limit.',
     request: { body: json(driverAuthValidators.requestOtp.shape.body) },
     responses: {
-      200: { description: 'OTP sent — { data: { loginToken, expiresIn, message } }' },
+      200: { description: 'OTP sent — { data: { loginToken, expiresIn, channel, message } }' },
       401: { description: 'Driver is not registered', ...errorContent },
       429: { description: 'Too many requests', ...errorContent },
     },
@@ -96,7 +96,12 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/device-token`,
     tags: [TAGS.DRIVER_AUTH],
     operationId: 'driverAuth.updateDeviceToken',
-    ...authenticated('Update the FCM push token registered against the caller’s current session.'),
+    ...authenticated(
+      'Update the FCM push token registered against the caller’s current session. The request’s ' +
+        'Accept-Language (en | hi) is also saved as this device’s push language — call this again ' +
+        'with the new header when the driver switches app language. Login, select-relation and ' +
+        'refresh save it the same way; no header keeps the previous language (default English).',
+    ),
     request: { body: json(driverAuthValidators.updateDeviceToken.shape.body) },
     responses: {
       200: { description: '{ success: true }' },
@@ -155,10 +160,10 @@ export function registerDriverAuthOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_AUTH],
     operationId: 'driverAuth.requestRegisterOtp',
     description:
-      'Request an OTP to self-register a new driver phone number. Fails if that phone already has a self-registered profile — use /otp/request (login) instead. Returns a short-lived otpToken (send as the bearer token to /register/otp/verify).',
+      'Request an OTP to self-register a new driver phone number. Fails if that phone already has a self-registered profile — use /otp/request (login) instead. Returns a short-lived otpToken (send as the bearer token to /register/otp/verify). `channel`: "sms" (default) or "whatsapp" — same as /otp/request.',
     request: { body: json(driverAuthValidators.requestRegisterOtp.shape.body) },
     responses: {
-      200: { description: 'OTP sent — { data: { otpToken, expiresIn, message } }' },
+      200: { description: 'OTP sent — { data: { otpToken, expiresIn, channel, message } }' },
       409: { description: 'Phone number already registered', ...errorContent },
       429: { description: 'Too many requests', ...errorContent },
     },

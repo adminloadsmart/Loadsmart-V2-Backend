@@ -50,9 +50,15 @@ function setup(
     arrivedByTracking: vi.fn(async () => overrides.arrivedByTracking ?? false),
     hasSentNotification: vi.fn(async () => overrides.alreadySent ?? false),
   } as unknown as LoadAlertRepository;
-  const resolvers = createLoadAlertResolvers(repository, vi.fn(), {} as TrackingClient, {
-    list: async () => [],
-  });
+  const resolvers = createLoadAlertResolvers(
+    repository,
+    vi.fn(),
+    {} as TrackingClient,
+    {
+      list: async () => [],
+    },
+    vi.fn(),
+  );
   return { repository, resolvers };
 }
 

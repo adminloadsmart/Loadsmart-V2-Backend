@@ -23,8 +23,10 @@ import {
   MS_PER_MINUTE,
   VehicleHaltStep,
   FRONTEND_PATHS,
+  NO_TRIP_POSITION_LOCATION,
 } from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
+import { mapLinkOf } from '../utils/location';
 import { formatHoursSince, formatIndiaDateTime } from '../utils/trip-time';
 import type { AssignmentComplianceSubject, LoadIssueCategory } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
@@ -2665,7 +2667,7 @@ export const NOTIFICATION_CATALOG = {
     buildContent: (context: RouteDeviationContext) => {
       const vehicleNo = context.vehicleNo ?? 'The vehicle';
       const distanceOff = `${Math.round(context.distanceOffKm)}`;
-      const location = context.location ?? `${context.lat.toFixed(4)}, ${context.lng.toFixed(4)}`;
+      const location = context.location ?? mapLinkOf({ lat: context.lat, lng: context.lng });
       const duration = durationOf(
         context.deviationDurationMin ??
           (Date.now() - new Date(context.deviationStartedAt).getTime()) / MS_PER_MINUTE,
@@ -2728,8 +2730,8 @@ export const NOTIFICATION_CATALOG = {
       const lastLocation =
         context.lastLocation ??
         (context.lastLat != null && context.lastLng != null
-          ? `${context.lastLat.toFixed(4)}, ${context.lastLng.toFixed(4)}`
-          : 'no position yet on this trip');
+          ? mapLinkOf({ lat: context.lastLat, lng: context.lastLng })
+          : NO_TRIP_POSITION_LOCATION);
       const lastPingTime = formatIndiaDateTime(context.lastSeenAt);
       const loadCode = context.loadCode ?? 'the load';
       const destination = context.destination ?? 'the destination';

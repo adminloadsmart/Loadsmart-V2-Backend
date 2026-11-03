@@ -85,7 +85,6 @@ import { buildCsv, CSV_EXPORT_MAX_ROWS } from '../../shared/utils/csv';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { joinCapabilities } from '../notifications/capability-wording';
 import type { AccessRemovedContext } from '../notifications/catalog/notification-catalog';
-import { traceNotification, warnNotification } from '../notifications/utils/notification-trace';
 import { NotificationTriggers } from '../notifications/notifications.interface';
 
 // Threaded through issueTokenPairForUser/buildAuthSession/issueTokenPair.
@@ -810,16 +809,8 @@ export class AuthService {
         this.notificationTriggers.enqueue('user.access_removed', tenantId, context),
         this.notificationTriggers.enqueue('user.access_removed_confirmation', tenantId, context),
       ]);
-      traceNotification(
-        'user.access_removed',
-        `queued for removed user ${target.id} (email${target.email ? '' : ' — no email on file, nothing will go out'}) and admin ${actingUser.id} (in-app)`,
-      );
     } catch (error) {
-      warnNotification(
-        'user.access_removed',
-        `Failed to queue access-removed notification for user ${target.id}`,
-        error,
-      );
+      console.warn(`Failed to queue access-removed notification for user ${target.id}`, error);
     }
   }
 

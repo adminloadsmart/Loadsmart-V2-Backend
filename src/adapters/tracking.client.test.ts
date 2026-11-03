@@ -50,3 +50,29 @@ describe('HttpTrackingClient.listRunningLateTripIds', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('HttpTrackingClient.getTrip', () => {
+  it("reads tracking's reverse-geocoded `address` as the position's place name", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: {
+              eta: null,
+              position: {
+                lat: 27.88,
+                lng: 76.28,
+                recordedAt: '2026-11-02T08:00:00.000Z',
+                stale: false,
+                address: ' NH 48, Behror, Rajasthan 301701, India ',
+              },
+            },
+          }),
+        ),
+      ),
+    );
+    const { position } = await new HttpTrackingClient().getTrip('tenant-1', 'load-1');
+    expect(position?.placeName).toBe('NH 48, Behror, Rajasthan 301701, India');
+  });
+});

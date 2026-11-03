@@ -1,8 +1,9 @@
 import { DataSource, EntityManager, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { DriverSessionEntity } from '../entities/driver-session.entity';
 import {
-  DriverDevicePlatform,
+  CreateDriverSessionData,
   DriverLastSeenRow,
+  DriverSessionDeviceUpdate,
   RevokedDriverSessionToken,
 } from './driver-auth.types';
 
@@ -16,19 +17,7 @@ export class DriverSessionRepository {
     this.sessions = dataSource.getRepository(DriverSessionEntity);
   }
 
-  async createSession(data: {
-    driverId: string;
-    tenantId: string | null;
-    driverTenantRelationId: string | null;
-    tokenHash: string;
-    expiresAt: Date;
-    fcmToken?: string | null;
-    deviceType?: DriverDevicePlatform | null;
-    deviceInfo?: string | null;
-    ipAddress?: string | null;
-    accessJti?: string | null;
-    accessExpiresAt?: Date | null;
-  }): Promise<DriverSessionEntity> {
+  async createSession(data: CreateDriverSessionData): Promise<DriverSessionEntity> {
     const session = this.sessions.create({ ...data, revokedAt: null, lastSeen: new Date() });
     return this.sessions.save(session);
   }
@@ -132,13 +121,16 @@ export class DriverSessionRepository {
   // Keyed by the row's own id (the driver access token's `sid` claim). Returns whether a row was
   // actually matched, so the caller can 404 on a since-revoked/expired session rather than
   // silently no-op-ing — same contract as AuthRepository.updateSessionDeviceInfo.
-  async updateSessionDeviceInfo(
-    id: string,
-    data: { fcmToken: string; deviceType: DriverDevicePlatform },
-  ): Promise<boolean> {
+  async updateSessionDeviceInfo(id: string, data: DriverSessionDeviceUpdate): Promise<boolean> {
     const result = await this.sessions.update(
       { id, revokedAt: IsNull() },
-      { fcmToken: data.fcmToken, deviceType: data.deviceType, lastSeen: new Date() },
+      {
+        fcmToken: data.fcmToken,
+        deviceType: data.deviceType,
+        // No Accept-Language on this call = keep the language the device sent before.
+        ...(data.locale && { locale: data.locale }),
+        lastSeen: new Date(),
+      },
     );
     return (result.affected ?? 0) > 0;
   }

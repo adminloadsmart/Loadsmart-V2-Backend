@@ -41,11 +41,10 @@ import { NotificationEntity } from './notifications.entity';
 import {
   DAILY_BRIEF_POD_PENDING_STATUS,
   DAILY_BRIEF_RUNNING_STATUSES,
-  INDIA_TIME_ZONE,
   MAINTENANCE_COST_AVERAGE_MONTHS,
-  PROMISED_DELIVERY_TIME_IST,
   TRIP_FINISHED_LOAD_STATUSES,
 } from './notifications.constants';
+import { promisedAtOf } from './utils/trip-time';
 import {
   DailyBriefCounts,
   DriverUpcomingTrips,
@@ -305,31 +304,33 @@ export class ScheduledAlertRepository {
 
   /** LS_N_0060's "delayed" — running trips that are late by date (still on the way after the
    *  promised time, or reached the drop after it) or by tracking's live ETA (`lateByEtaIds`),
-   *  each counted once. The promise is the requisition's delivery date at
-   *  PROMISED_DELIVERY_TIME_IST, else the posting's deliver-by — the same rule as promisedAtOf
-   *  (utils/trip-time.ts) and tracking's promised_delivery_at. */
+   *  each counted once. The promise is the requisition's delivery date (promisedAtOf), else the
+   *  posting's deliver-by — the same rule as tracking's promised_delivery_at. Trips with neither
+   *  count only when tracking says they're late. */
   async countDelayedTrips(tenantId: string, lateByEtaIds: string[]): Promise<number> {
-    const promisedAt =
-      'COALESCE((requisition.expected_delivery_date + CAST(:promisedDeliveryTime AS time)) ' +
-      'AT TIME ZONE :timeZone, posting.deliver_by_at)';
-    const lateByDateCondition = `COALESCE(load.reached_delivery_point_at, now()) > ${promisedAt}`;
-    return this.loads
-      .createQueryBuilder('load')
-      .leftJoin('load.requisition', 'requisition')
-      .leftJoin('load.posting', 'posting')
-      .where('load.tenant_id = :tenantId', { tenantId })
-      .andWhere('load.status IN (:...statuses)', { statuses: [...DAILY_BRIEF_RUNNING_STATUSES] })
-      .andWhere(
-        lateByEtaIds.length
-          ? `(${lateByDateCondition} OR load.id IN (:...lateByEtaIds))`
-          : lateByDateCondition,
-        { lateByEtaIds },
-      )
-      .setParameters({
-        promisedDeliveryTime: PROMISED_DELIVERY_TIME_IST,
-        timeZone: INDIA_TIME_ZONE,
-      })
-      .getCount();
+    const runningLoads = await this.loads.find({
+      where: { tenantId, status: In([...DAILY_BRIEF_RUNNING_STATUSES]) },
+      relations: { requisition: true, posting: true },
+      select: {
+        id: true,
+        reachedDeliveryPointAt: true,
+        requisition: { id: true, expectedDeliveryDate: true },
+        posting: { id: true, deliverByAt: true },
+      },
+    });
+    const lateByEta = new Set(lateByEtaIds);
+    const now = Date.now();
+    return runningLoads.filter((load) => {
+      if (lateByEta.has(load.id)) return true;
+      const promisedAt =
+        promisedAtOf(load.requisition?.expectedDeliveryDate ?? null) ??
+        load.posting?.deliverByAt ??
+        null;
+      return (
+        promisedAt !== null &&
+        (load.reachedDeliveryPointAt?.getTime() ?? now) > promisedAt.getTime()
+      );
+    }).length;
   }
 
   /** LS_N_0056/0057 — own-fleet vehicles in service with a service record to measure from, not

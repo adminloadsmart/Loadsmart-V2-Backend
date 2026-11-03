@@ -21,6 +21,7 @@ vi.mock('../../db/redis', () => ({
 import { env } from '../../config/env';
 import { Msg91Client } from '../../adapters/msg91.client';
 import { OtpService } from './otp.service';
+import { OtpChannel } from '../../modules/auth/auth.constants';
 
 const PHONE = '6284333505';
 const original = {
@@ -31,7 +32,7 @@ const original = {
 
 function build() {
   const client = new Msg91Client();
-  const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue('req-1');
+  const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue(undefined);
   return { service: new OtpService(client), sendTransactional };
 }
 
@@ -107,5 +108,79 @@ describe('OtpService (MSG91 Flow SMS)', () => {
 
     await expect(request(service)).rejects.toThrow(`Failed to send OTP to ${PHONE}`);
     expect(sendTransactional).not.toHaveBeenCalled();
+  });
+});
+
+describe('OtpService — channel the driver picked', () => {
+  beforeEach(() => {
+    store.clear();
+    Object.assign(env, {
+      msg91AuthKey: 'auth-key',
+      msg91SmsTemplateOtp: 'tpl-otp',
+      msg91WhatsappTemplateOtp: 'ls_n_0008',
+    });
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    Object.assign(env, original);
+    vi.restoreAllMocks();
+  });
+
+  function buildWithWhatsapp() {
+    const client = new Msg91Client();
+    const sendTransactional = vi.spyOn(client, 'sendTransactional').mockResolvedValue(undefined);
+    const sendWhatsappAuthCode = vi
+      .spyOn(client, 'sendWhatsappAuthCode')
+      .mockResolvedValue(undefined);
+    return { service: new OtpService(client), sendTransactional, sendWhatsappAuthCode };
+  }
+
+  const requestOn = (service: OtpService, channel?: OtpChannel) =>
+    service.requestOtpCode({ phoneNumber: PHONE, purpose: 'login', cooldownSeconds: 30, channel });
+
+  it('without a channel (staff) sends the SMS plus a WhatsApp copy', async () => {
+    const { service, sendTransactional, sendWhatsappAuthCode } = buildWithWhatsapp();
+    await requestOn(service);
+
+    expect(sendTransactional).toHaveBeenCalledTimes(1);
+    expect(sendWhatsappAuthCode).toHaveBeenCalledTimes(1);
+  });
+
+  it('"sms" sends only the SMS', async () => {
+    const { service, sendTransactional, sendWhatsappAuthCode } = buildWithWhatsapp();
+    await requestOn(service, 'sms');
+
+    expect(sendTransactional).toHaveBeenCalledTimes(1);
+    expect(sendWhatsappAuthCode).not.toHaveBeenCalled();
+  });
+
+  it('"whatsapp" sends only on WhatsApp, and that code verifies', async () => {
+    const { service, sendTransactional, sendWhatsappAuthCode } = buildWithWhatsapp();
+    await requestOn(service, 'whatsapp');
+
+    expect(sendTransactional).not.toHaveBeenCalled();
+    expect(sendWhatsappAuthCode).toHaveBeenCalledWith(
+      PHONE,
+      expect.stringMatching(/^\d{4}$/),
+      'ls_n_0008',
+    );
+    await expect(verify(service, sendWhatsappAuthCode.mock.calls[0][1])).resolves.toBeUndefined();
+  });
+
+  it('a failed WhatsApp send fails the request and stores no code', async () => {
+    const { service, sendWhatsappAuthCode } = buildWithWhatsapp();
+    sendWhatsappAuthCode.mockRejectedValue(new Error('template rejected'));
+
+    await expect(requestOn(service, 'whatsapp')).rejects.toThrow(`Failed to send OTP to ${PHONE}`);
+    expect(store.has(`login:${PHONE}:code`)).toBe(false);
+  });
+
+  it('fails loudly when MSG91_WHATSAPP_TEMPLATE_OTP is not set', async () => {
+    env.msg91WhatsappTemplateOtp = undefined;
+    const { service, sendWhatsappAuthCode } = buildWithWhatsapp();
+
+    await expect(requestOn(service, 'whatsapp')).rejects.toThrow(`Failed to send OTP to ${PHONE}`);
+    expect(sendWhatsappAuthCode).not.toHaveBeenCalled();
   });
 });

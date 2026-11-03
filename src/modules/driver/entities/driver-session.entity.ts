@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 'typeorm';
+import { Locale } from '../../../shared/i18n/locales';
 
 // The driver-identity counterpart to auth.refresh_tokens (see refresh-token.entity.ts) — but a
 // separate table, not a row in that one: a driver is not an auth.users row. See
@@ -37,6 +38,11 @@ export class DriverSessionEntity {
 
   @Column({ name: 'device_info', type: 'varchar', nullable: true })
   deviceInfo!: string | null;
+
+  // The app language this device last sent (Accept-Language) — pushes to it go out in this.
+  // Null = never sent one → English. See notifications/driver-notification-content.ts.
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  locale!: Locale | null;
 
   @Column({ name: 'ip_address', type: 'varchar', nullable: true })
   ipAddress!: string | null;

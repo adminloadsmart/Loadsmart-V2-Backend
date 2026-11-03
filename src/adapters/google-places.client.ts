@@ -44,6 +44,11 @@ interface DetailsResponse extends GooglePlacesResponse {
   result?: GooglePlaceDetailsResult;
 }
 
+/** Geocoding API results carry the same place fields as Place Details (no `name`). */
+interface GeocodeResponse extends GooglePlacesResponse {
+  results?: GooglePlaceDetailsResult[];
+}
+
 const DETAILS_FIELDS = 'place_id,name,formatted_address,geometry/location,address_components';
 
 /** Thrown for any non-OK/non-empty Google outcome — the service maps `status` to an AppError. */
@@ -58,7 +63,8 @@ export class GooglePlacesError extends Error {
 }
 
 /**
- * Wraps Google's Places Autocomplete and Place Details (legacy `maps.googleapis.com`) endpoints.
+ * Wraps Google's Places Autocomplete, Place Details and reverse Geocoding (legacy
+ * `maps.googleapis.com`) endpoints.
  * The API key stays server-side — the browser/app only ever talks to our own /places routes.
  * `sessionToken` ties an autocomplete session to its closing details call so Google bills them
  * as one session instead of per keystroke.
@@ -89,6 +95,21 @@ export class GooglePlacesClient {
     const body = await this.get<DetailsResponse>('/maps/api/place/details/json', search);
     if (!body.result) throw new GooglePlacesError('NOT_FOUND', 'Place not found');
     return body.result;
+  }
+
+  /** The best-matching place at a point; null when Google has none (ZERO_RESULTS). Needs the
+   *  Geocoding API enabled on GOOGLE_MAPS_API_KEY. */
+  async reverseGeocode(params: {
+    lat: number;
+    lng: number;
+  }): Promise<GooglePlaceDetailsResult | null> {
+    const search = new URLSearchParams({
+      latlng: `${params.lat},${params.lng}`,
+      language: 'en',
+      region: 'in',
+    });
+    const body = await this.get<GeocodeResponse>('/maps/api/geocode/json', search);
+    return body.results?.[0] ?? null;
   }
 
   private async get<T extends GooglePlacesResponse>(

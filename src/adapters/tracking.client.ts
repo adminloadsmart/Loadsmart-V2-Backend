@@ -19,7 +19,8 @@ export interface TripPosition {
   lng: number;
   recordedAt: Date;
   stale: boolean;
-  /** "Khanna, Ludhiana" — once tracking resolves place names (its location resolver). */
+  /** Tracking's reverse-geocoded address for the position (its `address`); null when tracking
+   *  couldn't resolve one (no Google key there, or the lookup failed). */
   placeName: string | null;
 }
 
@@ -71,7 +72,7 @@ interface TripResponse {
       lng?: number;
       recordedAt?: string;
       stale?: boolean;
-      placeName?: string | null;
+      address?: string | null;
     } | null;
   };
 }
@@ -124,7 +125,7 @@ export class HttpTrackingClient implements TrackingClient {
                 lng,
                 recordedAt,
                 stale: Boolean(data?.position?.stale),
-                placeName: data?.position?.placeName?.trim() || null,
+                placeName: data?.position?.address?.trim() || null,
               }
             : null,
       };

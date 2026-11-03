@@ -9,6 +9,11 @@ export const SIGNUP_RESEND_COOLDOWN_SECONDS = 30;
 // MSG91 credentials or sending real SMS. Only ever accepted when useDevOtpBypass() is true.
 export const DEV_BYPASS_OTP = '1234';
 
+// Where an OTP goes when the caller picks one (the driver app's "Send OTP" / "Get OTP on
+// WhatsApp"). Staff requests pick none and get SMS plus a best-effort WhatsApp copy.
+export const OTP_CHANNELS = ['sms', 'whatsapp'] as const;
+export type OtpChannel = (typeof OTP_CHANNELS)[number];
+
 // True whenever MSG91 isn't configured outside production — auth.service.ts's requestOtpCode /
 // verifyOtpCode use this to skip Msg91Client entirely and accept/emit DEV_BYPASS_OTP instead.
 // Hard-gated on nodeEnv (not just "is MSG91 configured") so a prod deploy that's missing MSG91

@@ -5,11 +5,11 @@ import {
   GooglePlacesError,
 } from '../../adapters/google-places.client';
 import { InternalError, NotFoundError, ValidationError } from '../../shared/errors';
-import { PlaceDetails, PlaceSuggestion, SearchPlacesQuery } from './places.types';
+import { PlaceDetails, PlacePoint, PlaceSuggestion, SearchPlacesQuery } from './places.types';
 
 /** First address component carrying any of `types`, in priority order — Google omits levels
  *  that don't exist for a place, and India's city can sit under locality or admin_area_2. */
-function pick(components: GoogleAddressComponent[], types: string[]): string | null {
+export function pick(components: GoogleAddressComponent[], types: string[]): string | null {
   for (const type of types) {
     const found = components.find((c) => c.types.includes(type));
     if (found) return found.long_name;
@@ -34,6 +34,20 @@ export function toPlaceDetails(result: GooglePlaceDetailsResult): PlaceDetails {
     pinCode: pick(components, ['postal_code']),
     country: pick(components, ['country']),
   };
+}
+
+/** "Behror, Alwar, Rajasthan" — the place's area, town, district and state (repeats dropped),
+ *  short enough for a notification line. Falls back to Google's full address, else null. */
+export function toShortAddress(result: GooglePlaceDetailsResult): string | null {
+  const components = result.address_components ?? [];
+  const parts = [
+    pick(components, ['sublocality_level_1', 'sublocality', 'neighborhood']),
+    pick(components, ['locality', 'administrative_area_level_3']),
+    pick(components, ['administrative_area_level_2']),
+    pick(components, ['administrative_area_level_1']),
+  ].filter((part): part is string => Boolean(part));
+  const unique = [...new Set(parts)];
+  return unique.length ? unique.join(', ') : (result.formatted_address ?? null);
 }
 
 export class PlacesService {
@@ -63,6 +77,18 @@ export class PlacesService {
       return toPlaceDetails(await this.client.details({ placeId, sessionToken }));
     } catch (err) {
       throw this.mapError(err);
+    }
+  }
+
+  /** Short address at a point for notifications — null when Google has none or the lookup fails
+   *  (not configured, quota, network), so callers fall back instead of failing. */
+  async addressAt(point: PlacePoint): Promise<string | null> {
+    try {
+      const result = await this.client.reverseGeocode(point);
+      return result ? toShortAddress(result) : null;
+    } catch (error) {
+      console.warn(`Failed to reverse geocode ${point.lat},${point.lng}`, error);
+      return null;
     }
   }
 

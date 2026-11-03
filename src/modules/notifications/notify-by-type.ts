@@ -16,7 +16,6 @@ import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
 import { EMAIL_CTA_URL_KEY, QUIET_HOURS_HELD_CHANNELS } from './notifications.constants';
 import { getQuietHoursDelayMs } from './utils/quiet-hours';
 import { resolveChannelPreferences } from './utils/channel-preferences';
-import { traceNotification } from './utils/notification-trace';
 import { appUrl } from './utils/app-url';
 
 export interface NotifyByTypeDeps {
@@ -133,12 +132,6 @@ async function notifyByTypeImpl(
       (recipient, index) =>
         recipient.id !== excludedUserId &&
         audience.findIndex((other) => other.id === recipient.id) === index,
-    );
-    traceNotification(
-      type,
-      recipients.length
-        ? `recipients: ${recipients.map((recipient) => recipient.id).join(', ')}`
-        : `no recipient found in tenant ${tenantId}${targetUserId ? ` for user ${targetUserId}` : ''} — nothing sent`,
     );
 
     // Each recipient's own mediums for this type (Settings → Notifications): their saved row, else
@@ -262,12 +255,7 @@ async function notifyByTypeImpl(
         // all for this type ("turning an alert off stops it on every channel"). Types never shown
         // in the app (inApp: false) keep their row as before: it carries delivery tracking and
         // once_per_tenant.
-        traceNotification(
-          type,
-          `user ${recipient.id}: preferences ${JSON.stringify(enabled)}; sending in-app ${isShownInApp && enabled.inApp ? 'yes' : 'no'}, other mediums [${channels.join(', ')}]${definition.channels.includes('email') && !recipient.email ? ' — no email on file' : ''}`,
-        );
         if (isShownInApp && !enabled.inApp && channels.length === 0) {
-          traceNotification(type, `user ${recipient.id}: every medium is off — nothing sent`);
           return;
         }
 
@@ -297,7 +285,6 @@ async function notifyByTypeImpl(
           // In-app off → the row exists only to carry the other mediums; hidden from the inbox.
           showInApp: isShownInApp ? enabled.inApp : true,
         });
-        traceNotification(type, `user ${recipient.id}: notification saved`);
       }),
     );
   } catch (error) {

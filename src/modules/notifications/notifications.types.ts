@@ -1,3 +1,5 @@
+import type { Locale } from '../../shared/i18n/locales';
+
 // External delivery channels a notification can request in addition to the in-app record itself
 // (the notification row is always visible via GET /notifications regardless of `channels`).
 export const NOTIFICATION_CHANNELS = ['email', 'sms', 'push', 'whatsapp'] as const;
@@ -83,3 +85,73 @@ export const TRACKING_EVENT_TYPES = [
   'alert.opened',
 ] as const;
 export type TrackingEventType = (typeof TRACKING_EVENT_TYPES)[number];
+
+// Driver-app notifications whose text is rebuilt per language (driver-notification-content.ts):
+// the sender stores these values as `metadata.messageParams`, so push is rendered in each
+// device session's language and the in-app list in the request's Accept-Language. Only names,
+// codes, places and numbers go in here — never finished English text.
+export interface DriverTenantMessageParams {
+  tenantName: string;
+}
+
+export interface DriverPodReminderMessageParams {
+  loadCode: string;
+  vehicleNumber: string | null;
+}
+
+export interface DriverLoadAssignedMessageParams {
+  /** More than one = the count-only body ("3 loads have been assigned to you"). */
+  loadCount: number;
+  loadCode: string | null;
+  from: string | null;
+  to: string | null;
+  /** The posting's pickup time (ISO), formatted per language; else `pickupDate` as stored. */
+  pickupAt: string | null;
+  pickupDate: string | null;
+  vehicleNumber: string | null;
+  /** Null name with a phone = "Fleet owner" in the reader's language. */
+  fleetOwnerName: string | null;
+  fleetOwnerPhone: string | null;
+}
+
+export interface DriverLoadingContactMessageParams {
+  loadCode: string;
+  name: string;
+  phoneNumber: string;
+}
+
+export interface DriverLoadingPointMessageParams {
+  loadCode: string;
+  pointTitle: string;
+  city: string;
+}
+
+/** Every driver-app notification type and the values its text is built from. */
+export interface DriverMessageParamsByType {
+  'driver.account.invited': DriverTenantMessageParams;
+  'driver.account.join_approved': DriverTenantMessageParams;
+  'driver.account.join_rejected': DriverTenantMessageParams;
+  'driver.trip.pod_reminder': DriverPodReminderMessageParams;
+  'load.assigned': DriverLoadAssignedMessageParams;
+  'load.loading_contact_changed': DriverLoadingContactMessageParams;
+  'load.loading_point_changed': DriverLoadingPointMessageParams;
+}
+export type DriverMessageType = keyof DriverMessageParamsByType;
+
+/** A driver notification's type plus the values its title/body are rendered from. */
+export type DriverMessage = {
+  [Type in DriverMessageType]: { type: Type; params: DriverMessageParamsByType[Type] };
+}[DriverMessageType];
+
+export interface DriverMessageText {
+  title: string;
+  body: string;
+}
+
+/** One title/body builder per driver message type, typed to that type's params. */
+export type DriverMessageRenderers = {
+  [Type in DriverMessageType]: (
+    params: DriverMessageParamsByType[Type],
+    locale: Locale,
+  ) => DriverMessageText;
+};

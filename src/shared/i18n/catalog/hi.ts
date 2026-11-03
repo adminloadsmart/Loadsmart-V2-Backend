@@ -9,6 +9,7 @@ export const hi = {
     internal: 'कुछ गलत हो गया',
     otp: {
       sent: '{phoneNumber} पर OTP भेज दिया गया है',
+      sentWhatsapp: '{phoneNumber} पर WhatsApp से OTP भेज दिया गया है',
       cooldown: 'दूसरा OTP मांगने से पहले कृपया प्रतीक्षा करें',
       invalid: 'गलत OTP',
       tooManyAttemptsLogin: 'बहुत ज़्यादा गलत प्रयास हुए, कृपया नया लॉगिन OTP मांगें',
@@ -82,6 +83,46 @@ export const hi = {
     driverAccountDeleted: {
       title: 'ड्राइवर का अकाउंट हटाया गया',
       body: '{driverName} ({phoneNumber}) ने अपना अकाउंट हटा दिया है और अब आपके फ्लीट से जुड़ा नहीं है।',
+    },
+  },
+  driverNotifications: {
+    invited: {
+      title: 'आपको आमंत्रण मिला है',
+      body: '{tenantName} ने आपको अपने फ्लीट से जुड़ने के लिए आमंत्रित किया है। स्वीकार या अस्वीकार करने के लिए ऐप खोलें।',
+    },
+    joinApproved: {
+      title: 'अनुरोध स्वीकार हुआ',
+      body: '{tenantName} से जुड़ने का आपका अनुरोध स्वीकार कर लिया गया है।',
+    },
+    joinRejected: {
+      title: 'अनुरोध अस्वीकार हुआ',
+      body: '{tenantName} से जुड़ने का आपका अनुरोध अस्वीकार कर दिया गया।',
+    },
+    podReminder: {
+      title: 'E-POD अपलोड करें',
+      body: 'लोड {loadCode} अनलोडिंग पॉइंट पर है। अनलोडिंग पूरी होने के बाद POD के आगे और पीछे की फोटो अपलोड करें।',
+      bodyWithVehicle:
+        'लोड {loadCode} ({vehicleNumber}) अनलोडिंग पॉइंट पर है। अनलोडिंग पूरी होने के बाद POD के आगे और पीछे की फोटो अपलोड करें।',
+    },
+    loadAssigned: {
+      title: 'नया लोड असाइन हुआ',
+      body: 'लोड {loadCode} आपको असाइन किया गया है',
+      bodyWithDetails: 'लोड {loadCode} आपको असाइन किया गया है: {details}',
+      bodyMany_one: '{count} लोड आपको असाइन किया गया है',
+      bodyMany_other: '{count} लोड आपको असाइन किए गए हैं',
+      pickup: 'पिकअप {pickupAt}',
+      truck: 'ट्रक {vehicleNumber}',
+      fleetOwner: 'फ्लीट मालिक: {name} ({phoneNumber})',
+      fleetOwnerFallbackName: 'फ्लीट मालिक',
+      withFleetOwner: '{message}। {fleetOwner}',
+    },
+    loadingContactChanged: {
+      title: 'लोडिंग संपर्क बदला गया',
+      body: '{loadCode} के लिए नया लोडिंग संपर्क: {name}, {phoneNumber}',
+    },
+    loadingPointChanged: {
+      title: 'लोडिंग पॉइंट बदला गया',
+      body: '{loadCode} का लोडिंग पॉइंट बदलकर {pointTitle}, {city} कर दिया गया है',
     },
   },
   validation: {

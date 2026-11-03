@@ -29,6 +29,8 @@ import { createTrackingModule } from './modules/tracking';
 import { createGeofencesModule } from './modules/geofences';
 import { GeofenceRepository } from './modules/geofences/geofence.repository';
 import { createHaltGeofences } from './modules/notifications/halt-exclusions';
+import { createLocationDescriber } from './modules/notifications/utils/location';
+import { redisManager } from './db/redis';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
 import { env } from './config/env';
@@ -376,6 +378,12 @@ export function buildContainer(dataSource: DataSource): Container {
     trackingClient,
     // LS_N_0027 — the origin / destination / rest stop / toll plaza geofences a halt is expected in.
     createHaltGeofences(new GeofenceRepository(dataSource)),
+    // LS_N_0021/0027/0028/0029 — a vehicle's position in words: tracking's address, else our own
+    // Google lookup (cached in Redis), else a map link.
+    createLocationDescriber({
+      addressAt: (point) => places.service.addressAt(point),
+      cache: redisManager,
+    }),
   );
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,

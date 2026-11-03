@@ -4,7 +4,8 @@ import { env } from '../../config/env';
 import { normalizePhoneNumber } from '../utils/phone-number';
 import { redisManager } from '../../db/redis';
 import { Msg91Client } from '../../adapters/msg91.client';
-import { MessageRef, msg } from '../i18n/translate';
+import { msg } from '../i18n/translate';
+import { RequestOtpCodeInput, VerifyOtpCodeInput } from './otp.types';
 import {
   MAX_OTP_ATTEMPTS,
   DEV_BYPASS_OTP,
@@ -28,14 +29,8 @@ const OTP_CODE_TTL_SECONDS = 10 * 60;
 export class OtpService {
   constructor(private readonly msg91Client: Msg91Client) {}
 
-  async requestOtpCode(input: {
-    phoneNumber: string;
-    purpose: string;
-    cooldownSeconds: number;
-    /** Client IP (req.ip) — for LS_N_0008's per-IP request limit. Omitted = per-phone only. */
-    ipAddress?: string | null;
-  }): Promise<void> {
-    const { phoneNumber, purpose, cooldownSeconds, ipAddress } = input;
+  async requestOtpCode(input: RequestOtpCodeInput): Promise<void> {
+    const { phoneNumber, purpose, cooldownSeconds, ipAddress, channel } = input;
     const cooldownKey = this.otpCooldownKey(purpose, phoneNumber);
     if (await redisManager.get(cooldownKey)) {
       throw new RateLimitError(msg('errors.otp.cooldown'));
@@ -54,19 +49,11 @@ export class OtpService {
         .toString()
         .padStart(DEV_BYPASS_OTP.length, '0');
       try {
-        if (!env.msg91SmsTemplateOtp) {
-          throw new Error('MSG91_SMS_TEMPLATE_OTP not configured — cannot send OTP SMS');
+        if (channel === 'whatsapp') {
+          await this.sendWhatsappCode(phoneNumber, otp);
+        } else {
+          await this.sendSmsCode(phoneNumber, otp);
         }
-        const requestId = await this.msg91Client.sendTransactional(
-          phoneNumber,
-          { var1: otp },
-          env.msg91SmsTemplateOtp,
-        );
-        // Accepted is not delivered — search this request id in the MSG91 dashboard's SMS
-        // reports for the operator delivery status.
-        console.info(
-          `MSG91 OTP SMS accepted for ${phoneNumber} — request_id=${requestId ?? 'n/a'}`,
-        );
       } catch (error) {
         rethrow(error, `Failed to send OTP to ${phoneNumber}`);
       }
@@ -75,7 +62,7 @@ export class OtpService {
         this.hashOtp(otp),
         OTP_CODE_TTL_SECONDS,
       );
-      this.sendWhatsappCopy(phoneNumber, otp);
+      if (!channel) this.sendWhatsappCopy(phoneNumber, otp);
     }
 
     // A fresh OTP always gets a fresh guess budget — otherwise a stale counter from a previous
@@ -83,14 +70,7 @@ export class OtpService {
     await redisManager.delete(this.otpAttemptsKey(purpose, phoneNumber));
   }
 
-  async verifyOtpCode(input: {
-    phoneNumber: string;
-    otp: string;
-    purpose: string;
-    ttlSeconds: number;
-    invalidOtpMessage: string | MessageRef;
-    tooManyAttemptsMessage: string | MessageRef;
-  }): Promise<void> {
+  async verifyOtpCode(input: VerifyOtpCodeInput): Promise<void> {
     const { phoneNumber, otp, purpose, ttlSeconds, invalidOtpMessage, tooManyAttemptsMessage } =
       input;
 
@@ -156,31 +136,30 @@ export class OtpService {
     );
   }
 
-  /** Best-effort WhatsApp copy of the same code, once its template is configured — never awaited
-   *  by the request, and a failure never affects login (SMS is the primary channel). The code is
-   *  never included in logs. */
-  private sendWhatsappCopy(phoneNumber: string, otp: string): void {
-    if (!env.msg91WhatsappTemplateOtp) {
-      console.info(
-        `WhatsApp OTP copy to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_OTP not configured`,
-      );
-      return;
+  private async sendSmsCode(phoneNumber: string, otp: string): Promise<void> {
+    if (!env.msg91SmsTemplateOtp) {
+      throw new Error('MSG91_SMS_TEMPLATE_OTP not configured — cannot send OTP SMS');
     }
-    const templateName = env.msg91WhatsappTemplateOtp;
-    console.info(`WhatsApp OTP copy to ${phoneNumber} sending — template=${templateName}`);
+    await this.msg91Client.sendTransactional(phoneNumber, { var1: otp }, env.msg91SmsTemplateOtp);
+  }
+
+  /** The code over WhatsApp only (the driver chose it) — awaited, so a failure fails the request:
+   *  unlike sendWhatsappCopy there's no SMS behind it. */
+  private async sendWhatsappCode(phoneNumber: string, otp: string): Promise<void> {
+    if (!env.msg91WhatsappTemplateOtp) {
+      throw new Error('MSG91_WHATSAPP_TEMPLATE_OTP not configured — cannot send OTP on WhatsApp');
+    }
+    await this.msg91Client.sendWhatsappAuthCode(phoneNumber, otp, env.msg91WhatsappTemplateOtp);
+  }
+
+  /** Best-effort WhatsApp copy of the same code, once its template is configured — never awaited
+   *  by the request, and a failure never affects login (SMS is the primary channel). */
+  private sendWhatsappCopy(phoneNumber: string, otp: string): void {
+    if (!env.msg91WhatsappTemplateOtp) return;
     this.msg91Client
-      .sendWhatsappAuthCode(phoneNumber, otp, templateName)
-      .then((response) =>
-        // Accepted is not delivered — if it never arrives, search the MSG91 dashboard's WhatsApp
-        // reports for this number; Meta's rejection reason only shows there.
-        console.info(
-          `WhatsApp OTP copy to ${phoneNumber} accepted by MSG91 — template=${templateName}, response=${JSON.stringify(response ?? null).replace(otp, '****')}`,
-        ),
-      )
+      .sendWhatsappAuthCode(phoneNumber, otp, env.msg91WhatsappTemplateOtp)
       .catch((error: unknown) =>
-        console.warn(
-          `WhatsApp OTP copy to ${phoneNumber} failed: ${error instanceof Error ? error.message.replace(otp, '****') : 'unknown error'}`,
-        ),
+        console.warn(`Failed to send the WhatsApp OTP copy to ${phoneNumber}`, error),
       );
   }
 

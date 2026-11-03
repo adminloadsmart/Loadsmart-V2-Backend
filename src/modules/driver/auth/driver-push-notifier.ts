@@ -1,7 +1,11 @@
 import { Msg91Client } from '../../../adapters/msg91.client';
 import { whatsappRequestIdOf } from '../../../adapters/msg91-whatsapp-report';
 import { env } from '../../../config/env';
+import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
+import { renderDriverMessage } from '../../notifications/driver-notification-content';
+import { DRIVER_MESSAGE_PARAMS_KEY } from '../../notifications/notifications.constants';
 import { NotificationEntity } from '../../notifications/notifications.entity';
+import { DriverMessage } from '../../notifications/notifications.types';
 import { PushChannel } from '../../notifications/channels/push.channel';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { DriverSessionRepository } from './driver-auth.repository';
@@ -46,9 +50,6 @@ export class DriverPushNotifier {
     const templateName = env.msg91WhatsappTemplateDriverInvite;
     if (!templateName || !env.driverAppUrl) {
       // Recorded as a failed WhatsApp on the invite (DriverService.deliverInvite).
-      console.warn(
-        `Driver invite WhatsApp to ${phoneNumber} skipped — MSG91_WHATSAPP_TEMPLATE_DRIVER_INVITE / DRIVER_APP_URL not configured`,
-      );
       return { status: 'skipped', requestId: null };
     }
     try {
@@ -57,37 +58,33 @@ export class DriverPushNotifier {
         [tenantName, trackedLink ?? env.driverAppUrl],
         templateName,
       );
-      const requestId = whatsappRequestIdOf(response);
-      // Accepted is not delivered — Meta's rejection reason only shows in MSG91's WhatsApp reports.
-      console.info(
-        `Driver invite WhatsApp to ${phoneNumber} accepted by MSG91 — template=${templateName}, requestId=${requestId ?? 'none found'}, response=${JSON.stringify(response ?? null)}`,
-      );
-      return { status: 'sent', requestId };
+      return { status: 'sent', requestId: whatsappRequestIdOf(response) };
     } catch (error) {
-      console.warn(
-        `Driver invite WhatsApp to ${phoneNumber} failed: ${error instanceof Error ? error.message : 'unknown error'}`,
-      );
+      console.warn(`Failed to send the driver invite WhatsApp to ${phoneNumber}`, error);
       return { status: 'failed', requestId: null };
     }
   }
 
   /**
    * Returns whether at least one of the driver's devices accepted the push — false when they have
-   * no FCM-registered session or every send failed. `data` rides along as the FCM data payload.
+   * no FCM-registered session or every send failed. Each device gets the text in its own session
+   * language. `data` rides along as the FCM data payload.
    */
   private async push(
     driverId: string,
-    title: string,
-    body: string,
+    message: DriverMessage,
     data?: Record<string, string>,
   ): Promise<boolean> {
     try {
       const sessions = await this.driverSessionRepository.findActiveByDriverId(driverId);
-      const notification = { title, body, metadata: data } as unknown as NotificationEntity;
       const results = await Promise.allSettled(
         sessions
           .filter((session) => session.fcmToken)
-          .map((session) => this.pushChannel.send(notification, session.fcmToken!)),
+          .map((session) => {
+            const { title, body } = renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE);
+            const notification = { title, body, metadata: data } as unknown as NotificationEntity;
+            return this.pushChannel.send(notification, session.fcmToken!);
+          }),
       );
       return results.some((result) => result.status === 'fulfilled');
     } catch {
@@ -96,22 +93,23 @@ export class DriverPushNotifier {
     }
   }
 
+  /** Saved with English text plus the message's params, so the in-app list re-renders it in
+   *  the app's language (DriverPortalService.getMyNotifications). */
   private async persist(
     tenantId: string,
     driverId: string,
-    type: string,
-    title: string,
-    body: string,
+    message: DriverMessage,
     metadata?: Record<string, unknown>,
   ): Promise<NotificationEntity | null> {
     try {
+      const { title, body } = renderDriverMessage(message, DEFAULT_LOCALE);
       return await this.notificationsService.send(tenantId, {
         recipientUserId: driverId,
-        type,
+        type: message.type,
         title,
         body,
         channels: [],
-        metadata,
+        metadata: { ...metadata, [DRIVER_MESSAGE_PARAMS_KEY]: message.params },
       });
     } catch {
       // Best-effort, same reasoning as push() above.
@@ -119,17 +117,8 @@ export class DriverPushNotifier {
     }
   }
 
-  private async send(
-    tenantId: string,
-    driverId: string,
-    type: string,
-    title: string,
-    body: string,
-  ): Promise<void> {
-    await Promise.all([
-      this.push(driverId, title, body),
-      this.persist(tenantId, driverId, type, title, body),
-    ]);
+  private async send(tenantId: string, driverId: string, message: DriverMessage): Promise<void> {
+    await Promise.all([this.push(driverId, message), this.persist(tenantId, driverId, message)]);
   }
 
   /**
@@ -143,14 +132,13 @@ export class DriverPushNotifier {
     tenantName: string,
     invitationId: string,
   ): Promise<DriverInviteNotifyResult> {
-    const type = DRIVER_INVITED_NOTIFICATION_TYPE;
-    const title = "You've been invited";
-    const body = `${tenantName} has invited you to join their fleet. Open the app to accept or decline.`;
-    const notification = await this.persist(tenantId, driverId, type, title, body, {
-      invitationId,
-    });
-    const pushed = await this.push(driverId, title, body, {
-      type,
+    const message: DriverMessage = {
+      type: DRIVER_INVITED_NOTIFICATION_TYPE,
+      params: { tenantName },
+    };
+    const notification = await this.persist(tenantId, driverId, message, { invitationId });
+    const pushed = await this.push(driverId, message, {
+      type: message.type,
       invitationId,
       ...(notification && { notificationId: notification.id }),
     });
@@ -158,33 +146,21 @@ export class DriverPushNotifier {
   }
 
   /** A trip reminder to the driver's app (e.g. upload the E-POD) — push plus an in-app row. */
-  notifyTripReminder(
-    tenantId: string,
-    driverId: string,
-    type: string,
-    title: string,
-    body: string,
-  ): Promise<void> {
-    return this.send(tenantId, driverId, type, title, body);
+  notifyTripReminder(tenantId: string, driverId: string, message: DriverMessage): Promise<void> {
+    return this.send(tenantId, driverId, message);
   }
 
   notifyJoinRequestApproved(tenantId: string, driverId: string, tenantName: string): Promise<void> {
-    return this.send(
-      tenantId,
-      driverId,
-      'driver.account.join_approved',
-      'Request approved',
-      `Your request to join ${tenantName} has been approved.`,
-    );
+    return this.send(tenantId, driverId, {
+      type: 'driver.account.join_approved',
+      params: { tenantName },
+    });
   }
 
   notifyJoinRequestRejected(tenantId: string, driverId: string, tenantName: string): Promise<void> {
-    return this.send(
-      tenantId,
-      driverId,
-      'driver.account.join_rejected',
-      'Request declined',
-      `Your request to join ${tenantName} was declined.`,
-    );
+    return this.send(tenantId, driverId, {
+      type: 'driver.account.join_rejected',
+      params: { tenantName },
+    });
   }
 }
