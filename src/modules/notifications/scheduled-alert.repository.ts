@@ -44,6 +44,7 @@ import {
   MAINTENANCE_COST_AVERAGE_MONTHS,
   TRIP_FINISHED_LOAD_STATUSES,
 } from './notifications.constants';
+import { promisedAtOf } from './utils/trip-time';
 import {
   DailyBriefCounts,
   DriverUpcomingTrips,
@@ -299,6 +300,37 @@ export class ScheduledAlertRepository {
         .getCount(),
     ]);
     return { running, pods, blocked };
+  }
+
+  /** LS_N_0060's "delayed" — running trips that are late by date (still on the way after the
+   *  promised time, or reached the drop after it) or by tracking's live ETA (`lateByEtaIds`),
+   *  each counted once. The promise is the requisition's delivery date (promisedAtOf), else the
+   *  posting's deliver-by — the same rule as tracking's promised_delivery_at. Trips with neither
+   *  count only when tracking says they're late. */
+  async countDelayedTrips(tenantId: string, lateByEtaIds: string[]): Promise<number> {
+    const runningLoads = await this.loads.find({
+      where: { tenantId, status: In([...DAILY_BRIEF_RUNNING_STATUSES]) },
+      relations: { requisition: true, posting: true },
+      select: {
+        id: true,
+        reachedDeliveryPointAt: true,
+        requisition: { id: true, expectedDeliveryDate: true },
+        posting: { id: true, deliverByAt: true },
+      },
+    });
+    const lateByEta = new Set(lateByEtaIds);
+    const now = Date.now();
+    return runningLoads.filter((load) => {
+      if (lateByEta.has(load.id)) return true;
+      const promisedAt =
+        promisedAtOf(load.requisition?.expectedDeliveryDate ?? null) ??
+        load.posting?.deliverByAt ??
+        null;
+      return (
+        promisedAt !== null &&
+        (load.reachedDeliveryPointAt?.getTime() ?? now) > promisedAt.getTime()
+      );
+    }).length;
   }
 
   /** LS_N_0056/0057 — own-fleet vehicles in service with a service record to measure from, not

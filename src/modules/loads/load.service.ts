@@ -7,7 +7,7 @@ import {
 } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, FleetOwnerDetails } from '../auth/auth.service';
 import { TransporterService } from '../masters/transporter/transporter.service';
 import { StorageService } from '../storage/storage.service';
 import { msg } from '../../shared/i18n/translate';
@@ -31,19 +31,26 @@ import {
   PodReviewDecision,
   LoadStatus,
 } from './utils/loads.types';
-import { hasLoadingPapers } from './utils/load-stages';
-import { LoadActivityWithActor } from './utils/load-activity.interface';
+import { hasLoadingPapers, progressPercentFor } from './utils/load-stages';
+import { decodeLiveLoadsCursor, encodeLiveLoadsCursor } from './utils/live-loads-cursor';
+import { LoadActivityWithActor, LoadAssignedBy } from './utils/load-activity.interface';
 import { ReportLoadIssueInput } from './utils/load-issue.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
   EwayBillExpiry,
+  ListLiveLoadsInput,
   ListLoadsInput,
   SetLoadingContactInput,
   SetLoadingPointInput,
   UploadPodInput,
 } from './utils/load.interface';
 import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
+import { DriverAuthService } from '../driver/auth/driver-auth.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { renderDriverMessage } from '../notifications/driver-notification-content';
+import { DRIVER_MESSAGE_PARAMS_KEY } from '../notifications/notifications.constants';
+import { DriverMessage } from '../notifications/notifications.types';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
@@ -58,6 +65,7 @@ import {
   toTripDoneDetail,
   toTripListRow,
   TripDoneDetail,
+  TripAssignment,
   TripListRow,
   TripNextAction,
   TripStepperStep,
@@ -71,7 +79,20 @@ const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 export interface ListTripsResult extends Paginated<TripListRow> {
   /** Tab counts for the whole tenant (scoped by the same non-group filters as the list itself),
    *  independent of which `group` — if any — the caller requested. */
-  counts: { active: number; completed: number };
+  counts: { active: number; completed: number; open: number };
+}
+
+/** Home Live Loads row — a trips-list row plus how far along its route the load is. */
+export interface LiveLoadRow extends TripListRow {
+  progressPercent: number;
+}
+
+/** One scroll page of Home Live Loads. Pass `nextCursor` back as `cursor` for the next page;
+ *  it is null once `hasMore` is false. */
+export interface ListLiveLoadsResult {
+  items: LiveLoadRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 /** Driver-app "Trips Done" screen — a dedicated, always-completed-only view of a single driver's
@@ -96,12 +117,19 @@ export interface LoadDocumentKeys {
   podBackFileKey: string | null;
   weighingSlipFileKey: string | null;
   loadingPhotoFileKeys: string[] | null;
+  /** The assigned driver's driving licence photos (masters.driver_documents). */
+  dlFrontKey: string | null;
+  dlBackKey: string | null;
 }
 
 export interface LoadDetailView {
   load: LoadEntity;
   ownerPhoneNumber: string | null;
   dispatchPhoneNumber: string | null;
+  /** The fleet owner (org admin) and dispatch contact behind this load. */
+  fleetOwner: FleetOwnerDetails;
+  /** Who assigned the truck; null while none is assigned or when the system did. */
+  assignedBy: LoadAssignedBy | null;
   documentKeys: LoadDocumentKeys;
   timeline: LoadActivityWithActor[];
   payments: LoadPaymentEntity[];
@@ -143,6 +171,10 @@ export class LoadService {
     private readonly stageService: LoadStageService,
     // LS_N_0017 — refuses a vehicle or driver with an expired document at Load Assignment.
     private readonly assignmentComplianceService: AssignmentComplianceService,
+    // Driver push + in-app when the loading point or its contact changes — same shape as the
+    // 'load.assigned' push (DispatchPlanningService.notifyAssignedDrivers).
+    private readonly driverAuthService: DriverAuthService,
+    private readonly notificationsService: NotificationsService,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
     private readonly onIssueReported?: IssueReportedNotifier,
@@ -276,6 +308,27 @@ export class LoadService {
     } catch (error) {
       rethrow(error, 'Failed to assign load');
     }
+  }
+
+  /** Who assigned each load plus the fleet owner behind it, for the trip rows and trip detail.
+   *  Loads can span tenants (a driver linked to several fleets), so the owner is looked up once
+   *  per distinct tenant. */
+  private async tripAssignments(loads: LoadEntity[]): Promise<Map<string, TripAssignment>> {
+    const tenantIds = [...new Set(loads.map((load) => load.tenantId))];
+    const [assignedBy, owners] = await Promise.all([
+      this.loadActivityService.assignedByLoad(loads),
+      Promise.all(tenantIds.map((id) => this.authService.getFleetOwner(id))),
+    ]);
+    const ownerByTenant = new Map(tenantIds.map((id, i) => [id, owners[i]]));
+    return new Map(
+      loads.map((load) => [
+        load.id,
+        {
+          assignedBy: assignedBy.get(load.id) ?? null,
+          fleetOwner: ownerByTenant.get(load.tenantId) ?? null,
+        },
+      ]),
+    );
   }
 
   /** Validates a document was uploaded via the storage module for the expected purpose and is
@@ -424,6 +477,14 @@ export class LoadService {
     if (input.invoiceNumber !== undefined) uploadedMetadata.invoiceNumber = input.invoiceNumber;
     if (input.ewayBillNumber !== undefined) uploadedMetadata.ewayBillNumber = input.ewayBillNumber;
     if (input.elrFileKey !== undefined) uploadedMetadata.elrNumber = input.elrNumber ?? null;
+    // Which documents this call carried — the timeline names them (all three papers → generic).
+    const documents: string[] = [];
+    if (input.invoiceFileKey !== undefined) documents.push('invoice');
+    if (input.ewayBillFileKey !== undefined) documents.push('ewayBill');
+    if (input.elrFileKey !== undefined) documents.push('elr');
+    if (input.loadingPhotoFileKeys !== undefined) documents.push('loadingPhotos');
+    if (input.weighingSlipFileKey !== undefined) documents.push('weighingSlip');
+    if (documents.length > 0) uploadedMetadata.documents = documents;
     await this.loadActivityService.record(
       tenantId,
       loadId,
@@ -898,7 +959,9 @@ export class LoadService {
       }
 
       await this.assertLoadDocumentUpload(tenantId, actorRole, input.podFileKey, 'trips/pod');
-      await this.assertLoadDocumentUpload(tenantId, actorRole, input.podBackFileKey, 'trips/pod');
+      if (input.podBackFileKey) {
+        await this.assertLoadDocumentUpload(tenantId, actorRole, input.podBackFileKey, 'trips/pod');
+      }
       if (input.damagePhotoKey) {
         await this.assertLoadDocumentUpload(tenantId, actorRole, input.damagePhotoKey, 'trips/pod');
       }
@@ -909,7 +972,7 @@ export class LoadService {
         // change when the truck physically arrived.
         ...(isResubmission ? {} : { deliveredAt: new Date() }),
         podFileKey: input.podFileKey,
-        podBackFileKey: input.podBackFileKey,
+        podBackFileKey: input.podBackFileKey ?? null,
         podReceiverName: input.podReceiverName,
         podReceiverMobile: input.podReceiverMobile ?? null,
         podReceiverVerifiedAt,
@@ -1039,6 +1102,10 @@ export class LoadService {
         },
         newData: { id: loadId, loadingContactName: input.name, loadingContactPhone: input.phone },
       });
+      await this.notifyDriver(tenantId, load, {
+        type: 'load.loading_contact_changed',
+        params: { loadCode: load.code, name: input.name, phoneNumber: input.phone },
+      });
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to change the loading contact');
@@ -1087,9 +1154,44 @@ export class LoadService {
         oldData: { id: loadId, loadingPointId: load.loadingPointId },
         newData: { id: loadId, loadingPointId: point.id },
       });
+      await this.notifyDriver(tenantId, load, {
+        type: 'load.loading_point_changed',
+        params: { loadCode: load.code, pointTitle: point.title, city: point.city },
+      });
       return (await this.repository.findById(tenantId, loadId)) ?? updated;
     } catch (error) {
       rethrow(error, 'Failed to change the loading point');
+    }
+  }
+
+  /** Best-effort push + in-app to the load's driver, one per active device session — same as the
+   *  'load.assigned' push. Each row is written in its device's language; the in-app list
+   *  re-renders it from messageParams. Logged, never thrown: the change itself is already saved. */
+  private async notifyDriver(
+    tenantId: string,
+    load: LoadEntity,
+    message: DriverMessage,
+  ): Promise<void> {
+    if (!load.driverId) return;
+    try {
+      const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
+      await Promise.all(
+        sessions
+          .filter((session) => session.fcmToken)
+          .map((session) =>
+            this.notificationsService.send(tenantId, {
+              recipientUserId: load.driverId!,
+              type: message.type,
+              ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
+              channels: ['push'],
+              destinations: { pushToken: session.fcmToken! },
+              metadata: { loadIds: [load.id], [DRIVER_MESSAGE_PARAMS_KEY]: message.params },
+              severity: 'p2_action',
+            }),
+          ),
+      );
+    } catch (error) {
+      console.error(`Failed to notify driver ${load.driverId} of ${message.type}`, error);
     }
   }
 
@@ -1377,19 +1479,26 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, contactPhones, openIssue] = await Promise.all([
-        this.loadActivityService.listByLoad(tenantId, loadId),
-        this.loadPaymentRepository.listByLoad(tenantId, loadId),
-        this.withDocumentDownloadUrls(tenantId, actorRole, load),
-        this.authService.getOrganizationContactPhones(tenantId),
-        this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
-      ]);
+      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy, licenceKeys] =
+        await Promise.all([
+          this.loadActivityService.listByLoad(tenantId, loadId),
+          this.loadPaymentRepository.listByLoad(tenantId, loadId),
+          this.withDocumentDownloadUrls(tenantId, actorRole, load),
+          this.authService.getFleetOwner(tenantId),
+          this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
+          this.loadActivityService.assignedByLoad([load]),
+          load.driverId
+            ? this.repository.findDriverLicenceKeys(load.driverId)
+            : { dlFrontKey: null, dlBackKey: null },
+        ]);
       const incident = buildIncident(openIssue);
 
       return {
         load: loadWithUrls,
-        ownerPhoneNumber: contactPhones.ownerPhoneNumber,
-        dispatchPhoneNumber: contactPhones.dispatchPhoneNumber,
+        ownerPhoneNumber: fleetOwner.owner?.phoneNumber ?? null,
+        dispatchPhoneNumber: fleetOwner.dispatch?.phoneNumber ?? null,
+        fleetOwner,
+        assignedBy: assignedBy.get(load.id) ?? null,
         documentKeys: {
           invoiceFileKey: load.invoiceFileKey,
           ewayBillFileKey: load.ewayBillFileKey,
@@ -1398,6 +1507,7 @@ export class LoadService {
           podBackFileKey: load.podBackFileKey,
           weighingSlipFileKey: load.weighingSlipFileKey,
           loadingPhotoFileKeys: load.loadingPhotoFileKeys,
+          ...licenceKeys,
         },
         timeline,
         payments,
@@ -1442,7 +1552,7 @@ export class LoadService {
       if (load.driverId !== driverId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      return toTripDoneDetail(load);
+      return toTripDoneDetail(load, (await this.tripAssignments([load])).get(load.id));
     } catch (error) {
       rethrow(error, 'Failed to fetch trip detail');
     }
@@ -1491,9 +1601,10 @@ export class LoadService {
           search,
         }),
       ]);
+      const assignments = await this.tripAssignments(items);
       return {
         ...paginate(
-          items.map((load) => toTripListRow(load, locale)),
+          items.map((load) => toTripListRow(load, locale, assignments.get(load.id))),
           total,
           input,
         ),
@@ -1501,6 +1612,33 @@ export class LoadService {
       };
     } catch (error) {
       rethrow(error, 'Failed to list loads');
+    }
+  }
+
+  /** Home Live Loads — every load that isn't closed, newest first, one scroll page at a time. */
+  async listLive(
+    tenantId: string | string[],
+    { limit, cursor }: ListLiveLoadsInput,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<ListLiveLoadsResult> {
+    const after = cursor ? decodeLiveLoadsCursor(cursor) : null;
+    if (cursor && !after) throw new ValidationError('Invalid cursor');
+    try {
+      const rows = await this.repository.listLive(tenantId, { limit, after });
+      const hasMore = rows.length > limit;
+      const page = hasMore ? rows.slice(0, limit) : rows;
+      const last = page[page.length - 1];
+      const assignments = await this.tripAssignments(page);
+      return {
+        items: page.map((load) => ({
+          ...toTripListRow(load, locale, assignments.get(load.id)),
+          progressPercent: progressPercentFor(load),
+        })),
+        nextCursor: hasMore && last ? encodeLiveLoadsCursor(last) : null,
+        hasMore,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to list live loads');
     }
   }
 
@@ -1520,9 +1658,10 @@ export class LoadService {
         stats.totalCompleted === 0
           ? 0
           : Math.round((stats.podVerifiedCount / stats.totalCompleted) * 100);
+      const assignments = await this.tripAssignments(items);
       return {
         ...paginate(
-          items.map((load) => toTripListRow(load, locale)),
+          items.map((load) => toTripListRow(load, locale, assignments.get(load.id))),
           total,
           input,
         ),

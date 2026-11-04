@@ -2,8 +2,11 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
+import { driverAssignmentMessage, FleetOwnerLookup } from './utils/driver-assignment-message';
 import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { renderDriverMessage } from '../notifications/driver-notification-content';
+import { DEFAULT_LOCALE } from '../../shared/i18n/locales';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
 import { TruckTypeService } from '../masters/truck-type/truck-type.service';
@@ -40,6 +43,23 @@ import {
   AssignmentComplianceFailure,
   LoadStageHook,
 } from './utils/load.interface';
+import type { LoadPostingRepository } from './load-posting/load-posting.repository';
+import {
+  DriverUnavailableReason,
+  driverUnavailableReason,
+} from './load-posting/utils/driver-availability';
+import { DriverTenantRelationEntity } from '../driver/entities/driver-tenant-relation.entity';
+
+/** The driver reads Post a load's idle-driver rule is built on — LoadPostingRepository has them. */
+export type DriverAvailabilityReader = Pick<
+  LoadPostingRepository,
+  'listDriverRelationsByDriverIds' | 'listDriverIdsOnActiveLoads' | 'listDriverIdsWithApp'
+>;
+
+interface DriverAvailability {
+  relation: DriverTenantRelationEntity | undefined;
+  reason: DriverUnavailableReason | null;
+}
 
 const MIN_OVERRIDE_REASON_LENGTH = 15; // V-17
 
@@ -78,12 +98,16 @@ export class DispatchPlanningService {
     private readonly notificationsService: NotificationsService,
     // LS_N_0017 — refuses a vehicle or driver with an expired document.
     private readonly assignmentComplianceService: AssignmentComplianceService,
+    // A driver picked for an own-fleet vehicle must be idle — same rule as Post a load.
+    private readonly driverAvailability: DriverAvailabilityReader,
     // LS_N_0016/0017 — optional; only queues a notification and never throws (see
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
     /** Own-fleet loads are born at Truck assigned — the stage hooks (tracking source, alerts)
      *  run for them after commit. */
     private readonly onStageEntered?: LoadStageHook,
+    /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
+    private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
 
   /**
@@ -119,8 +143,12 @@ export class DispatchPlanningService {
         await this.assertVehicleChecks(tenantId, requisitionId, input, manager);
 
         const built: BuiltLine[] = [];
+        // A driver can only drive one of the trucks in this plan.
+        const usedDriverIds = new Set<string>();
         for (const line of input.truckLines) {
-          built.push(await this.buildRowsForLine(tenantId, actorId, requisitionId, line));
+          built.push(
+            await this.buildRowsForLine(tenantId, actorId, requisitionId, line, usedDriverIds),
+          );
         }
 
         const allRows = built.flatMap((line) => line.rows);
@@ -293,22 +321,29 @@ export class DispatchPlanningService {
           const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(driverId);
           if (sessions.length === 0) return;
 
-          const assignedLoads = loads.filter((load) => load.driverId === driverId);
-          const body =
-            assignedLoads.length === 1
-              ? `Load ${assignedLoads[0].code} has been assigned to you`
-              : `${assignedLoads.length} loads have been assigned to you`;
+          // Re-read with the route relations — the loads from planning carry none.
+          const assignedLoads = (
+            await Promise.all(
+              loads
+                .filter((load) => load.driverId === driverId)
+                .map(
+                  async (load) =>
+                    (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load,
+                ),
+            )
+          ).filter((load): load is LoadEntity => Boolean(load));
+          const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
+          const { message, metadata } = driverAssignmentMessage(assignedLoads, owner ?? null);
 
           await Promise.all(
             sessions.map((session) =>
               this.notificationsService.send(tenantId, {
                 recipientUserId: driverId,
-                type: 'load.assigned',
-                title: 'New load assigned',
-                body,
+                type: message.type,
+                ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
                 channels: ['push'],
                 destinations: { pushToken: session.fcmToken! },
-                metadata: { loadIds: assignedLoads.map((load) => load.id) },
+                metadata,
                 severity: 'p2_action',
               }),
             ),
@@ -424,8 +459,8 @@ export class DispatchPlanningService {
       const activeElsewhereIds = new Set(activeElsewhere.map((load) => load.vehicleId));
       const inThisRequisitionIds = new Set(inThisRequisition.map((load) => load.vehicleId));
 
-      const rows: AvailableVehicleRow[] = items
-        .map((vehicle): AvailableVehicleRow => {
+      const rows = items
+        .map((vehicle): Omit<AvailableVehicleRow, 'primaryDriver'> => {
           const unavailableReason = activeElsewhereIds.has(vehicle.id)
             ? 'on_active_load'
             : inThisRequisitionIds.has(vehicle.id)
@@ -442,10 +477,61 @@ export class DispatchPlanningService {
         })
         .filter((row) => row.isAvailable);
 
-      return { items: rows, page, limit, total, totalPages };
+      const primaryLinks = new Map(
+        rows.flatMap((row) => {
+          const link = (row.driverLinks ?? []).find(
+            (candidate) => candidate.isPrimary && candidate.status === 'active',
+          );
+          return link ? [[row.id, link] as const] : [];
+        }),
+      );
+      const availability = await this.readDriverAvailability(
+        tenantId,
+        [...primaryLinks.values()].map((link) => link.driverId),
+      );
+      const withDrivers: AvailableVehicleRow[] = rows.map((row) => {
+        const link = primaryLinks.get(row.id);
+        if (!link) return { ...row, primaryDriver: null };
+        const { reason } = availability.get(link.driverId)!;
+        return {
+          ...row,
+          primaryDriver: {
+            id: link.driverId,
+            name: link.driver?.fullName ?? '',
+            phone: link.driver?.phoneNumber ?? null,
+            available: reason === null,
+            unavailableReason: reason,
+          },
+        };
+      });
+
+      return { items: withDrivers, page, limit, total, totalPages };
     } catch (error) {
       rethrow(error, 'Failed to list available vehicles');
     }
+  }
+
+  /** Idle-or-not for each driver, by Post a load's rule (load-posting/utils/driver-availability). */
+  private async readDriverAvailability(
+    tenantId: string,
+    driverIds: string[],
+  ): Promise<Map<string, DriverAvailability>> {
+    const ids = [...new Set(driverIds)];
+    if (!ids.length) return new Map();
+    const [relations, busy, withApp] = await Promise.all([
+      this.driverAvailability.listDriverRelationsByDriverIds(tenantId, ids),
+      this.driverAvailability.listDriverIdsOnActiveLoads(tenantId, ids),
+      this.driverAvailability.listDriverIdsWithApp(ids),
+    ]);
+    return new Map(
+      ids.map((id) => {
+        const relation = relations.find((candidate) => candidate.driverId === id);
+        return [
+          id,
+          { relation, reason: driverUnavailableReason(relation, busy.has(id), withApp.has(id)) },
+        ];
+      }),
+    );
   }
 
   private async buildRowsForLine(
@@ -453,6 +539,7 @@ export class DispatchPlanningService {
     actorId: string,
     requisitionId: string,
     line: TruckLineInput,
+    usedDriverIds: Set<string>,
   ): Promise<BuiltLine> {
     const cargoTonnes = line.cargoMix.reduce((sum, item) => sum + item.tonnesPerTruck, 0);
     const cargoRows = line.cargoMix.map((item) => ({
@@ -461,7 +548,15 @@ export class DispatchPlanningService {
     }));
 
     if (line.sourceType === 'own_fleet') {
-      return this.buildOwnFleetLine(tenantId, actorId, requisitionId, line, cargoTonnes, cargoRows);
+      return this.buildOwnFleetLine(
+        tenantId,
+        actorId,
+        requisitionId,
+        line,
+        cargoTonnes,
+        cargoRows,
+        usedDriverIds,
+      );
     }
     return this.buildMarketLine(tenantId, actorId, requisitionId, line, cargoTonnes, cargoRows);
   }
@@ -473,7 +568,14 @@ export class DispatchPlanningService {
     line: OwnFleetTruckLineInput,
     cargoTonnes: number,
     cargoRows: { productId: string; tonnesPerTruck: string }[],
+    usedDriverIds: Set<string>,
   ): Promise<BuiltLine> {
+    const pickedDrivers = new Map(
+      (line.drivers ?? []).map((entry) => [entry.vehicleId, entry.driverId]),
+    );
+    const pickedAvailability = await this.readDriverAvailability(tenantId, [
+      ...pickedDrivers.values(),
+    ]);
     // Expired vehicle papers warn here (LS_N_0017); an expired driver licence blocks, below.
     const complianceWarnings = new Map<string, string>();
     const capacities: number[] = [];
@@ -500,11 +602,36 @@ export class DispatchPlanningService {
         (link) => link.isPrimary && link.status === 'active',
       );
 
+      // A picked driver replaces the linked one and must be idle, same as Post a load.
+      const pickedDriverId = pickedDrivers.get(vehicle.id);
+      let driverId = primaryLink?.driverId ?? null;
+      let driverNumber = primaryLink?.driver?.phoneNumber ?? null;
+      if (pickedDriverId) {
+        const { relation, reason } = pickedAvailability.get(pickedDriverId)!;
+        if (reason || !relation) {
+          throw new ConflictError(
+            `${relation?.driver?.fullName ?? 'This driver'} is not available (${(reason ?? 'not_in_fleet').replaceAll('_', ' ')}). Choose an idle driver for ${vehicle.registrationNumber}.`,
+            { driverId: pickedDriverId, vehicleId: vehicle.id, reason },
+          );
+        }
+        driverId = pickedDriverId;
+        driverNumber = relation.driver.phoneNumber;
+      }
+      if (driverId) {
+        if (usedDriverIds.has(driverId)) {
+          throw new ConflictError(
+            `The same driver is on more than one truck in this plan. Choose another driver for ${vehicle.registrationNumber}.`,
+            { driverId, vehicleId: vehicle.id },
+          );
+        }
+        usedDriverIds.add(driverId);
+      }
+
       // LS_N_0017 — an expired driver licence blocks the whole plan. Every
       // blocked truck in the line is alerted, then the first one's error is returned.
       const compliance = await this.assignmentComplianceService.check(tenantId, {
         vehicleId: vehicle.id,
-        driverId: primaryLink?.driverId ?? null,
+        driverId,
       });
       if (compliance.warnings.length > 0) {
         complianceWarnings.set(
@@ -531,8 +658,8 @@ export class DispatchPlanningService {
         plannedCapacityTonnes: vehicle.capacityTons,
         vehicleId: vehicle.id,
         vehicleNumber: vehicle.registrationNumber,
-        driverId: primaryLink?.driverId ?? null,
-        driverNumber: primaryLink?.driver?.phoneNumber ?? null,
+        driverId,
+        driverNumber,
         createdBy: actorId,
       });
     }

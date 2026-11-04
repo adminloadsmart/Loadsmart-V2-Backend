@@ -29,6 +29,8 @@ import { createTrackingModule } from './modules/tracking';
 import { createGeofencesModule } from './modules/geofences';
 import { GeofenceRepository } from './modules/geofences/geofence.repository';
 import { createHaltGeofences } from './modules/notifications/halt-exclusions';
+import { createLocationDescriber } from './modules/notifications/utils/location';
+import { redisManager } from './db/redis';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
 import { env } from './config/env';
@@ -60,6 +62,7 @@ import { createDigests, digestJobs, scheduleDigests } from './modules/notificati
 import { createJobQueue } from './jobs/queue-registry';
 import { createGstVerificationWorker } from './modules/masters/gst/workers/gst-verification.worker';
 import { createVehicleVahanVerificationWorker } from './modules/masters/vehicle/workers/vehicle-vahan-verification.worker';
+import { VahanIpRateGate } from './modules/masters/vehicle/vahan-ip-rate-gate';
 import {
   GstBackgroundVerification,
   GstTargetRecord,
@@ -317,10 +320,13 @@ export function buildContainer(dataSource: DataSource): Container {
     triggers: notifications.triggers,
     listTyreQueue: (tenantId) => maintenance.tyreService.listQueue(tenantId),
   });
+  // The live ETA and position from the loadsmart-tracking service (LS_N_0025/0026/0027/0060).
+  const trackingClient = new HttpTrackingClient();
   // LS_N_0059/0060 — weekly idle-vehicle roll-up and the daily morning brief (digests.ts).
   const digests = createDigests({
     scheduledAlertRepository: notifications.scheduledAlertRepository,
     triggers: notifications.triggers,
+    tracking: trackingClient,
   });
   // LS_N_0021/0023 — the 5-minute trip-timing sweep (trip-timing.ts).
   const tripTimingChecks = createTripTimingChecks(
@@ -370,10 +376,15 @@ export function buildContainer(dataSource: DataSource): Container {
   const loadAlertResolvers = createLoadAlertResolvers(
     notifications.loadAlertRepository,
     (tenantId, target) => assignmentComplianceService.check(tenantId, target),
-    // LS_N_0025/0026/0027 — the live ETA and position from the loadsmart-tracking service.
-    new HttpTrackingClient(),
+    trackingClient,
     // LS_N_0027 — the origin / destination / rest stop / toll plaza geofences a halt is expected in.
     createHaltGeofences(new GeofenceRepository(dataSource)),
+    // LS_N_0021/0027/0028/0029 — a vehicle's position in words: tracking's address, else our own
+    // Google lookup (cached in Redis), else a map link.
+    createLocationDescriber({
+      addressAt: (point) => places.service.addressAt(point),
+      cache: redisManager,
+    }),
   );
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,
@@ -661,7 +672,10 @@ export function buildContainer(dataSource: DataSource): Container {
         customers.gstBackgroundVerification,
         masters.transporterGstVerification,
       ] as GstBackgroundVerification<GstTargetRecord>[]),
-      createVehicleVahanVerificationWorker(masters.vehicleVahanVerification),
+      createVehicleVahanVerificationWorker(
+        masters.vehicleVahanVerification,
+        new VahanIpRateGate(redisManager),
+      ),
       loads.loadRemindersWorker,
     ],
   };

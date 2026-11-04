@@ -104,6 +104,23 @@ export const DOCUMENT_NUMBER_REGEX: Record<
 // referral-code.service.ts (defense in depth for any other caller of createCode).
 export const REFERRAL_CODE_REGEX = /^[A-Z0-9_-]{4,40}$/;
 
+/** A salesperson's code made at hire (ReferralCodeService.createForSalesperson): FIRSTNAME, cut
+ *  to this length, with these stand-ins when the name or territory has no letters. */
+export const REFERRAL_CODE_PREFIX_MAX_LENGTH = 20;
+export const REFERRAL_CODE_FALLBACK_PREFIX = 'REF';
+export const REFERRAL_CODE_FALLBACK_TERRITORY = 'X';
+/** Random suffixes tried before giving up on a free code. */
+export const REFERRAL_CODE_GENERATION_ATTEMPTS = 5;
+
+/** Which business-registration document stands for an org (the queue's Gov Result and the number
+ *  under its name), most authoritative first. */
+export const BUSINESS_DOCUMENT_ORDER: readonly OrganizationDocumentType[] = [
+  'gst_certificate',
+  'cin',
+  'udyam',
+  'shop_establishment',
+];
+
 /** LS_N_0030 "delivery will be late" — the company's limit when its org admin never set one:
  *  late by more than a day. Mirrored by the tracking service (delay.monitor.ts), which decides. */
 export const DEFAULT_LATE_DELIVERY_THRESHOLD_MINUTES = 24 * 60;

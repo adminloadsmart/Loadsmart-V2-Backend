@@ -3,7 +3,9 @@ import { LoadEntity } from '../entities/load.entity';
 import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
+import type { FleetOwnerDetails } from '../../auth/auth.service';
 import { EwayBillExpiry } from './load.interface';
+import { LoadAssignedBy } from './load-activity.interface';
 import { resolveLoadOrigin } from './load-origin';
 import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.type';
 import {
@@ -55,6 +57,15 @@ function buildVehicleDetails(load: LoadEntity): TripVehicleDetails | null {
   };
 }
 
+/** Who assigned the load and the fleet owner behind it — attached to every trip row and detail. */
+export interface TripAssignment {
+  /** Null while no truck is on the load, or when the system made the assignment. */
+  assignedBy: LoadAssignedBy | null;
+  fleetOwner: FleetOwnerDetails | null;
+}
+
+const NO_ASSIGNMENT: TripAssignment = { assignedBy: null, fleetOwner: null };
+
 /** One row of the Trips Home-page table — a flattened, display-ready projection of a Load plus
  *  its requisition's route/customer (neither of which the LoadEntity carries directly). */
 export interface TripListRow {
@@ -73,6 +84,8 @@ export interface TripListRow {
   requisitionCode: string | null;
   /** The requisition's planned pickup date (YYYY-MM-DD) — null only if the relation wasn't loaded. */
   pickupDate: string | null;
+  /** The requisition's (or posting's) promised delivery date (YYYY-MM-DD) — the Loads table's Delivery date. */
+  expectedDeliveryDate: string | null;
   route: {
     loadingPointTitle: string;
     loadingPointCity: string;
@@ -84,7 +97,7 @@ export interface TripListRow {
   vehicle: TripVehicleDetails | null;
   /** Own-fleet: the Driver-master row backing this load's driver snapshot. Market: the free-text
    *  driverName entered at Assignment, with `id: null` since no Driver-master row backs it. */
-  driver: { id: string | null; fullName: string } | null;
+  driver: { id: string | null; fullName: string; phone: string | null } | null;
   source: { type: LoadSourceType; label: string };
   plannedCapacityTonnes: string;
   freightValue: string | null;
@@ -101,6 +114,8 @@ export interface TripListRow {
    *  the same uploadPod endpoint. Always null otherwise. */
   podRejectionReason: string | null;
   createdAt: string;
+  assignedBy: LoadAssignedBy | null;
+  fleetOwner: FleetOwnerDetails | null;
 }
 
 /** One entry of the trip-detail screen's stage stepper — the stages of the load's own route, in
@@ -155,7 +170,11 @@ export interface TripNextAction {
   balance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
 }
 
-export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE): TripListRow {
+export function toTripListRow(
+  load: LoadEntity,
+  locale: Locale = DEFAULT_LOCALE,
+  assignment: TripAssignment = NO_ASSIGNMENT,
+): TripListRow {
   const req = load.requisition;
   const origin = resolveLoadOrigin(load);
 
@@ -185,6 +204,7 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,
     pickupDate: origin.pickupDate,
+    expectedDeliveryDate: origin.expectedDeliveryDate,
     route:
       origin.pickup && origin.drop
         ? {
@@ -198,9 +218,9 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     vehicleNumber: load.vehicleNumber,
     vehicle: buildVehicleDetails(load),
     driver: driver
-      ? { id: driver.id, fullName: driver.fullName }
+      ? { id: driver.id, fullName: driver.fullName, phone: driver.phoneNumber ?? load.driverNumber }
       : load.driverName
-        ? { id: null, fullName: load.driverName }
+        ? { id: null, fullName: load.driverName, phone: load.driverNumber }
         : null,
     source:
       load.sourceType === 'own_fleet'
@@ -238,6 +258,8 @@ export function toTripListRow(load: LoadEntity, locale: Locale = DEFAULT_LOCALE)
     podStatus: load.podStatus,
     podRejectionReason: load.podRejectionReason,
     createdAt: load.createdAt.toISOString(),
+    assignedBy: assignment.assignedBy,
+    fleetOwner: assignment.fleetOwner,
   };
 }
 
@@ -294,9 +316,14 @@ export interface TripDoneDetail {
     podRejectionReason: string | null;
   } | null;
   closedAt: string | null;
+  assignedBy: LoadAssignedBy | null;
+  fleetOwner: FleetOwnerDetails | null;
 }
 
-export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
+export function toTripDoneDetail(
+  load: LoadEntity,
+  assignment: TripAssignment = NO_ASSIGNMENT,
+): TripDoneDetail {
   const { pickup, drop } = resolveLoadOrigin(load);
   const cargoItems = (load.cargoItems ?? []).map((item) => ({
     productId: item.productId,
@@ -345,6 +372,8 @@ export function toTripDoneDetail(load: LoadEntity): TripDoneDetail {
         }
       : null,
     closedAt: load.closedAt?.toISOString() ?? null,
+    assignedBy: assignment.assignedBy,
+    fleetOwner: assignment.fleetOwner,
   };
 }
 

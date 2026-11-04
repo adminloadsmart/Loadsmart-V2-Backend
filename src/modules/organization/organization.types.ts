@@ -5,7 +5,13 @@ import {
   OrganizationDocumentEntity,
   OrganizationDocumentInput,
 } from './entities/organization-document.entity';
-import { OrganizationEntity, OrganizationOnboardingStep } from './entities/organization.entity';
+import {
+  OrganizationEntity,
+  OrganizationJourneyStage,
+  OrganizationOnboardingStep,
+  OrganizationStatus,
+} from './entities/organization.entity';
+import { DateFilter } from '../../shared/utils/date-filter';
 import type { AuditService } from '../audit/audit.service';
 import type { OrganizationService } from './organization.service';
 
@@ -104,4 +110,56 @@ export interface LateDeliverySetting {
 export interface OrganizationOnboardingDeps {
   organizationService: OrganizationService;
   auditService: AuditService;
+}
+
+export interface OrganizationListFilters {
+  // One status, or several (e.g. the queue's Rejected tab = rejected + suspended).
+  status?: OrganizationStatus | OrganizationStatus[];
+  // Leaves out sign-ups that were never submitted — the verification queue's view.
+  excludeDrafts?: boolean;
+  journeyStage?: OrganizationJourneyStage;
+  search?: string;
+  filter?: DateFilter;
+  from?: string;
+  to?: string;
+  // Role-scoping — see AdminService.listOrganizations, the only caller that sets these (for
+  // online_kyc_desk/offline_kyc_desk callers; platform_admin leaves them undefined).
+  onlineKycVerifierId?: string;
+  physicalKycAgentId?: string;
+  onlineKycCompleted?: boolean;
+}
+
+export interface OrganizationQueueSummary {
+  total: number;
+  pending: number;
+  partialPending: number;
+  approved: number;
+  // rejected + suspended
+  rejected: number;
+  // Pending and submitted more than 24h ago.
+  overdue: number;
+  // Approved today (IST), whenever the org was created — ignores the date range.
+  approvedToday: number;
+}
+
+/** Referral signups: submitted orgs (drafts left out) that used the code(s), and how many of
+ *  those are approved ('active'). */
+export interface ReferralSignupCounts {
+  total: number;
+  approved: number;
+}
+
+/** Counts for the admin Referral Codes cards. */
+export interface ReferralCodeSummary {
+  total: number;
+  active: number;
+  expired: number;
+  revoked: number;
+}
+
+/** The salesperson a code is made for at hire. */
+export interface ReferralCodeOwner {
+  id: string;
+  fullName: string | null;
+  coverage: string | null;
 }

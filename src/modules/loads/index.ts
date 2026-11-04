@@ -31,6 +31,7 @@ import {
 } from '../notifications/notifications.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
+import { LoadPostingRepository } from './load-posting/load-posting.repository';
 import { AssignmentComplianceService } from './assignment-compliance.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadStatus } from './utils/loads.types';
@@ -150,6 +151,8 @@ export function createLoadsModule(
     deps.auditService,
     loadStageService,
     deps.assignmentComplianceService,
+    deps.driverAuthService,
+    deps.notificationsService,
     deps.onIssueReported,
     deps.onLoadEvent,
   );
@@ -175,8 +178,10 @@ export function createLoadsModule(
     deps.driverAuthService,
     deps.notificationsService,
     deps.assignmentComplianceService,
+    new LoadPostingRepository(dataSource),
     deps.onLoadEvent,
     runStageHooks,
+    (tenantId) => deps.authService.getFleetOwner(tenantId),
   );
 
   const elrService = new ElrService(
@@ -246,6 +251,7 @@ export function createLoadsModule(
     onLoadEvent: deps.onLoadEvent,
     onStageEntered: runStageHooks,
     hooks: postingHooks,
+    fleetOwnerLookup: (tenantId) => deps.authService.getFleetOwner(tenantId),
   });
   protectedRouter.use('/post', loadPosting.router);
 

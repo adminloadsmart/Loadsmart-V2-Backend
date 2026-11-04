@@ -206,7 +206,7 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.listLoads',
     ...authenticated(
       'List loads ("trips") for the tenant, paginated and optionally filtered. `group=active|' +
-        'completed|open|upcoming` is the tab filter (upcoming = created, bids_received and truck_assigned loads whose requisition pickupDate is today or later), mutually ' +
+        'completed|open|upcoming` is the tab filter (active = still being executed, so a delivered load leaves it; open = everything not yet closed, so a delivered load stays there until its E-POD is accepted and it closes; upcoming = created, bids_received and truck_assigned loads whose requisition pickupDate is today or later), mutually ' +
         'exclusive with `status`. `podStatus=pending|accepted|rejected` filters by E-POD status. ' +
         '`fromDate`/`toDate` (YYYY-MM-DD, inclusive, UTC, either optional) filter on deliveredAt ' +
         'when group=completed, otherwise on createdAt. ' +
@@ -224,8 +224,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: {
         description:
-          'Paginated trips — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
-          'counts: { active, completed } } }. `counts` is tenant-wide (scoped by any non-group ' +
+          'Paginated trips (each row carries assignedBy and fleetOwner) — { data: { items: TripListRow[], page, limit, total, totalPages, ' +
+          'counts: { active, completed, open } } }. `counts` is tenant-wide (scoped by any non-group ' +
           'filters given) and independent of which group, if any, was requested — lets the UI ' +
           'render both tab badges from one call. Each row also carries `plannedCapacityTonnes`, ' +
           '`freightValue` (market-only, null until Assignment confirms a rate), `advance`/`balance` ' +
@@ -234,6 +234,28 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
           '`nextAction.advance`/`nextAction.balance`), and `cargoItems` (`{ productId, ' +
           'productDetails, tonnesPerTruck }[]`, the product mix this load carries).',
       },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/live`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listLiveLoads',
+    ...authenticated(
+      'Home Live Loads — every load of the tenant that is not closed, newest first, ' +
+        'scroll-paginated by an opaque keyset cursor. Omit `cursor` for the first page, then ' +
+        "pass the previous page's `nextCursor`. A cursor this endpoint did not issue is a 400.",
+    ),
+    request: { query: loadValidators.listLive.shape.query },
+    responses: {
+      200: {
+        description:
+          '{ data: { items: LiveLoadRow[], nextCursor: string | null, hasMore: boolean } }. ' +
+          'LiveLoadRow is the same TripListRow as GET /loads plus `progressPercent` (0–100, how ' +
+          "far along the load's own stage path it is).",
+      },
+      400: { description: 'Invalid cursor or limit', ...errorContent },
     },
   });
 
@@ -258,8 +280,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       200: {
         description:
           '{ load (document fields are download URLs), ownerPhoneNumber, dispatchPhoneNumber, ' +
-          'documentKeys (the same document fields as raw ' +
-          'storage keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: ' +
+          'fleetOwner ({ organizationName, owner, dispatch } — each contact { name, phoneNumber, email }), ' +
+          'assignedBy ({ userId, name, role, phoneNumber, assignedAt } — who assigned the truck; null until one is, ' +
+          'or if the system did), documentKeys (the same document fields as raw ' +
+          "storage keys, plus dlFrontKey/dlBackKey — the driver's driving licence photo keys), timeline: LoadActivityWithActor[], payments, ewayBillExpiry, stepper: " +
           'TripStepperStep[] (steps ahead of a halted trip have onHold: true), nextAction: TripNextAction, ' +
           'incident: TripIncident | null (newest unresolved driver-reported issue; halted: true for ' +
           'accident/breakdown) }',
@@ -421,8 +445,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.uploadPod',
     ...manageDocuments(
-      'Record proof of delivery — POD front (podFileKey) and back (podBackFileKey), receiver ' +
-        'name/mobile, and quantity received are required; receiver designation, sealStatus, ' +
+      'Record proof of delivery — POD front (podFileKey), receiver name/mobile, and quantity ' +
+        'received are required; POD back (podBackFileKey), receiver designation, sealStatus, ' +
         'shortageOrDamage, numberOfTonnesShort, damagePhotoKey, and podRemarks are optional. ' +
         'damagePhotoKey becomes required when shortageOrDamage is `damage`, `wet` or `both`. ' +
         'Accepted once the load is In-transit for unloading (it is marked Reached unloading point ' +

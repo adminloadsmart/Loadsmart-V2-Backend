@@ -7,6 +7,7 @@ import {
   ILike,
   In,
   IsNull,
+  LessThan,
   LessThanOrEqual,
   MoreThanOrEqual,
   Not,
@@ -15,11 +16,13 @@ import {
 import { LoadEntity } from './entities/load.entity';
 import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
 import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
+import { DriverDocumentEntity } from '../driver/entities/driver-document.entity';
 import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
 import { RequisitionEntity } from './entities/requisition.entity';
 import { ListLoadsInput } from './utils/load.interface';
 import {
   ARRIVED_AT_DELIVERY_STATUSES,
+  ACTIVE_TAB_LOAD_STATUSES,
   COMPLETED_LOAD_STATUSES,
   FreightMode,
   FreightType,
@@ -27,7 +30,9 @@ import {
   LoadSourceType,
   LoadStatus,
   ON_ROAD_LOAD_STATUSES,
+  OPEN_LOAD_STATUSES,
 } from './utils/loads.types';
+import { LiveLoadsCursor } from './utils/live-loads-cursor';
 
 // A single tenant for staff, several for a driver linked to more than one fleet.
 const scopeToTenants = (tenantId: string | string[]) =>
@@ -44,6 +49,22 @@ const ORIGIN_POSTING_RELATIONS = {
   pickupLoadingPoint: true,
   dropCustomerDeliveryPoint: true,
   dropLoadingPoint: true,
+} as const;
+
+/** Everything toTripListRow reads. driverLinks is loaded so it can fall back to the vehicle's
+ *  current driver when this load's own driverId snapshot is null (e.g. planned before any driver
+ *  was linked to the vehicle) — see load.service.ts. truckType is loaded on both `vehicle`
+ *  (own-fleet) and the load itself (market — see load.entity.ts's own doc comment) so
+ *  toTripListRow can resolve a truck-type name regardless of sourcing strategy. */
+const TRIP_LIST_RELATIONS = {
+  vehicle: { driverLinks: { driver: true }, truckType: true },
+  truckType: true,
+  driver: true,
+  loadingPoint: true,
+  transporter: true,
+  requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
+  posting: ORIGIN_POSTING_RELATIONS,
+  cargoItems: { product: true },
 } as const;
 
 export interface CreateLoadData {
@@ -109,11 +130,33 @@ export class LoadRepository {
   private readonly loads: Repository<LoadEntity>;
   private readonly cargoItems: Repository<LoadCargoItemEntity>;
   private readonly loadingPoints: Repository<LoadingPointEntity>;
+  private readonly driverDocuments: Repository<DriverDocumentEntity>;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
     this.cargoItems = dataSource.getRepository(LoadCargoItemEntity);
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
+    this.driverDocuments = dataSource.getRepository(DriverDocumentEntity);
+  }
+
+  /** Storage keys of the driver's latest driving licence front/back photos (null when missing). */
+  async findDriverLicenceKeys(
+    driverId: string,
+  ): Promise<{ dlFrontKey: string | null; dlBackKey: string | null }> {
+    const documents = await this.driverDocuments.find({
+      where: {
+        driverId,
+        documentType: In(['driving_license_front', 'driving_license_back']),
+        deletedAt: IsNull(),
+      },
+      order: { createdAt: 'DESC' },
+    });
+    const latest = (type: string) =>
+      documents.find((d) => d.documentType === type)?.fileUrl ?? null;
+    return {
+      dlFrontKey: latest('driving_license_front'),
+      dlBackKey: latest('driving_license_back'),
+    };
   }
 
   findLoadingPoint(tenantId: string, id: string): Promise<LoadingPointEntity | null> {
@@ -310,24 +353,34 @@ export class LoadRepository {
 
     return this.loads.findAndCount({
       where,
-      relations: {
-        // driverLinks is loaded so toTripListRow can fall back to the vehicle's current driver
-        // when this load's own driverId snapshot is null (e.g. planned before any driver was
-        // linked to the vehicle) — see load.service.ts. truckType is loaded on both `vehicle`
-        // (own-fleet) and the load itself (market — see load.entity.ts's own doc comment) so
-        // toTripListRow can resolve a truck-type name regardless of sourcing strategy.
-        vehicle: { driverLinks: { driver: true }, truckType: true },
-        truckType: true,
-        driver: true,
-        loadingPoint: true,
-        transporter: true,
-        requisition: { customer: true, loadingPoint: true, customerDeliveryPoint: true },
-        posting: ORIGIN_POSTING_RELATIONS,
-        cargoItems: { product: true },
-      },
+      relations: TRIP_LIST_RELATIONS,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
+    });
+  }
+
+  /** Home Live Loads — every non-closed load, newest first, keyset-paginated on (createdAt, id)
+   *  past `after`. Takes `limit + 1` so the caller can tell whether another page exists. */
+  listLive(
+    tenantId: string | string[],
+    { limit, after }: { limit: number; after?: LiveLoadsCursor | null },
+  ): Promise<LoadEntity[]> {
+    const base: FindOptionsWhere<LoadEntity> = {
+      tenantId: scopeToTenants(tenantId),
+      status: In(OPEN_LOAD_STATUSES),
+    };
+    const where: FindOptionsWhere<LoadEntity>[] = after
+      ? [
+          { ...base, createdAt: LessThan(after.createdAt) },
+          { ...base, createdAt: after.createdAt, id: LessThan(after.id) },
+        ]
+      : [base];
+    return this.loads.find({
+      where,
+      relations: TRIP_LIST_RELATIONS,
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: limit + 1,
     });
   }
 
@@ -340,7 +393,7 @@ export class LoadRepository {
       ListLoadsFilters,
       'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
     >,
-  ): Promise<{ active: number; completed: number }> {
+  ): Promise<{ active: number; completed: number; open: number }> {
     const base: FindOptionsWhere<LoadEntity> = { tenantId: scopeToTenants(tenantId) };
     if (filters.requisitionId) base.requisitionId = filters.requisitionId;
     if (filters.sourceType) base.sourceType = filters.sourceType;
@@ -371,14 +424,18 @@ export class LoadRepository {
       .groupBy('load.status')
       .getRawMany<{ status: LoadStatus; count: string }>();
     const completedStatuses: readonly string[] = COMPLETED_LOAD_STATUSES;
+    const activeStatuses: readonly string[] = ACTIVE_TAB_LOAD_STATUSES;
     return rows.reduce(
       (acc, row) => {
         const count = Number(row.count);
         if (completedStatuses.includes(row.status)) acc.completed += count;
-        else acc.active += count;
+        else {
+          acc.open += count;
+          if (activeStatuses.includes(row.status)) acc.active += count;
+        }
         return acc;
       },
-      { active: 0, completed: 0 },
+      { active: 0, completed: 0, open: 0 },
     );
   }
 

@@ -23,9 +23,11 @@ import {
   MS_PER_MINUTE,
   VehicleHaltStep,
   FRONTEND_PATHS,
+  NO_TRIP_POSITION_LOCATION,
 } from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
-import { formatIndiaDateTime } from '../utils/trip-time';
+import { mapLinkOf } from '../utils/location';
+import { formatHoursSince, formatIndiaDateTime } from '../utils/trip-time';
 import type { AssignmentComplianceSubject, LoadIssueCategory } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
@@ -196,9 +198,10 @@ export interface DailyBriefContext {
   userId: string;
   orgName: string;
   tripsRunning: number;
-  /** No GPS/ETA data yet — static placeholders, marked "(static)" (see DAILY_BRIEF_STATIC). */
+  /** No GPS/ETA data yet — static placeholder, marked "(static)" (see DAILY_BRIEF_STATIC). */
   arrivingToday: string;
-  delayed: string;
+  /** Running trips already past their promised delivery time. */
+  delayed: number;
   podsPending?: number;
   approvalsPending?: number;
   vehiclesBlocked?: number;
@@ -212,7 +215,6 @@ export interface DailyBriefContext {
  *  "(static)" in the text and listed in the notification's `static_tokens` metadata. */
 export const DAILY_BRIEF_STATIC = {
   arrivingToday: '0 (static)',
-  delayed: '0 (static)',
   idleLocations: 'location unavailable (static)',
 };
 
@@ -1284,7 +1286,8 @@ export const NOTIFICATION_CATALOG = {
           record_kind: context.kind,
           record_id: context.recordId,
           cta_label: 'Review and approve',
-          cta_path: APPROVALS_PATH,
+          // Drivers are approved from the Invitations tab, which sends their invite.
+          cta_path: context.kind === 'driver' ? FRONTEND_PATHS.driverInvitations : APPROVALS_PATH,
         },
       };
     },
@@ -1923,14 +1926,14 @@ export const NOTIFICATION_CATALOG = {
           org_name: context.orgName,
           trips_running: String(context.tripsRunning),
           arriving_today: context.arrivingToday,
-          delayed: context.delayed,
+          delayed: String(context.delayed),
           needs_action: String(context.needsAction),
           pods_pending: context.podsPending?.toString() ?? '',
           approvals_pending: context.approvalsPending?.toString() ?? '',
           vehicles_blocked: context.vehiclesBlocked?.toString() ?? '',
           empty_vehicles: context.emptyVehicles?.toString() ?? '',
           idle_locations: context.idleLocations ?? '',
-          static_tokens: 'arriving_today,delayed,idle_locations',
+          static_tokens: 'arriving_today,idle_locations',
           brief: body,
           run_date: context.runDate,
           cta_label: 'Open my day',
@@ -2664,7 +2667,7 @@ export const NOTIFICATION_CATALOG = {
     buildContent: (context: RouteDeviationContext) => {
       const vehicleNo = context.vehicleNo ?? 'The vehicle';
       const distanceOff = `${Math.round(context.distanceOffKm)}`;
-      const location = context.location ?? `${context.lat.toFixed(4)}, ${context.lng.toFixed(4)}`;
+      const location = context.location ?? mapLinkOf({ lat: context.lat, lng: context.lng });
       const duration = durationOf(
         context.deviationDurationMin ??
           (Date.now() - new Date(context.deviationStartedAt).getTime()) / MS_PER_MINUTE,
@@ -2713,22 +2716,22 @@ export const NOTIFICATION_CATALOG = {
     templates: {
       whatsapp: {
         templateName: env.msg91WhatsappTemplateTrackingSignalLost,
-        variables: ['first_name', 'vehicle_no', 'hours_since', 'last_location'],
+        variables: ['first_name', 'vehicle_no', 'time_since', 'last_location'],
       },
     },
     dedupeKey: (context: TrackingSignalLostContext) =>
       `${context.loadId}-${context.lastSeenAt}-${context.step}`,
     buildContent: (context: TrackingSignalLostContext, recipient) => {
       const vehicleNo = context.vehicleNo ?? 'the vehicle';
-      const hoursSince = String(
+      const hoursSince =
         context.hoursSince ??
-          Math.floor((Date.now() - new Date(context.lastSeenAt).getTime()) / MS_PER_HOUR),
-      );
+        Math.floor((Date.now() - new Date(context.lastSeenAt).getTime()) / MS_PER_HOUR);
+      const timeSince = formatHoursSince(hoursSince);
       const lastLocation =
         context.lastLocation ??
         (context.lastLat != null && context.lastLng != null
-          ? `${context.lastLat.toFixed(4)}, ${context.lastLng.toFixed(4)}`
-          : 'no position yet on this trip');
+          ? mapLinkOf({ lat: context.lastLat, lng: context.lastLng })
+          : NO_TRIP_POSITION_LOCATION);
       const lastPingTime = formatIndiaDateTime(context.lastSeenAt);
       const loadCode = context.loadCode ?? 'the load';
       const destination = context.destination ?? 'the destination';
@@ -2738,13 +2741,14 @@ export const NOTIFICATION_CATALOG = {
       return {
         title: `No tracking signal from ${vehicleNo}`,
         body:
-          `Last position ${lastLocation} at ${lastPingTime}, ${hoursSince} hours ago, on ${loadCode} to ${destination}.` +
+          `Last position ${lastLocation} at ${lastPingTime}, ${timeSince} ago, on ${loadCode} to ${destination}.` +
           ` Call ${driver || 'the driver'} or ask ${transporter} to check the device.`,
-        highlights: [vehicleNo, `${hoursSince} hours`],
+        highlights: [vehicleNo, timeSince],
         metadata: {
           ...loadMetadataOf(context),
           first_name: firstNameOf(recipient.fullName),
-          hours_since: hoursSince,
+          hours_since: String(hoursSince),
+          time_since: timeSince,
           last_location: lastLocation,
           last_ping_time: lastPingTime,
           last_seen_at: context.lastSeenAt,

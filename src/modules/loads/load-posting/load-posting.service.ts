@@ -14,11 +14,14 @@ import { VehicleService, resolveDocumentStatus } from '../../masters/vehicle/veh
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
 import { DriverAuthService } from '../../driver/auth/driver-auth.service';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { renderDriverMessage } from '../../notifications/driver-notification-content';
+import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository, CreateLoadData } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
 import { LoadEntity } from '../entities/load.entity';
 import { formatLoadCode } from '../utils/code.util';
+import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { LoadStageHook } from '../utils/load.interface';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
@@ -120,6 +123,8 @@ export class LoadPostingService {
     /** Set by the Loadsmart ops module once built: every market posting goes to Loadsmart too
      *  ("Loadsmart is always ticked") and opens a sourcing for its Approval team. */
     private readonly hooks: LoadPostingHooks = {},
+    /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
+    private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
 
   async post(
@@ -919,18 +924,23 @@ export class LoadPostingService {
     if (!load?.driverId) return;
     try {
       const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
+      if (sessions.length === 0) return;
+
+      // Re-read with the route relations — the freshly created load carries none.
+      const detailed = (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load;
+      const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
+      const { message, metadata } = driverAssignmentMessage([detailed], owner ?? null);
       await Promise.all(
         sessions
           .filter((session) => session.fcmToken)
           .map((session) =>
             this.notificationsService.send(tenantId, {
               recipientUserId: load.driverId!,
-              type: 'load.assigned',
-              title: 'New load assigned',
-              body: `Load ${load.code} has been assigned to you`,
+              type: message.type,
+              ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
               channels: ['push'],
               destinations: { pushToken: session.fcmToken! },
-              metadata: { loadIds: [load.id] },
+              metadata,
             }),
           ),
       );

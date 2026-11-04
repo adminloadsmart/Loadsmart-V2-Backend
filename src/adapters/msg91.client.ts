@@ -14,6 +14,9 @@ interface Msg91WhatsappResponse {
   [key: string]: unknown;
 }
 
+/** A WhatsApp template's `components`, keyed by MSG91's slot name (`body_var_1`, `button_1`...). */
+type Msg91WhatsappComponents = Record<string, Record<string, string>>;
+
 /**
  * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
  * numbers, and they're stored without the country code.
@@ -41,11 +44,8 @@ export class Msg91Client {
     phoneNumber: string,
     variables: Record<string, string>,
     templateId: string | undefined = env.msg91NotificationTemplateId,
-  ): Promise<string | undefined> {
-    if (isMsg91SkippedNumber(phoneNumber)) {
-      console.info(`MSG91 SMS skipped for test number ${phoneNumber}`);
-      return undefined;
-    }
+  ): Promise<void> {
+    if (isMsg91SkippedNumber(phoneNumber)) return;
     if (!env.msg91AuthKey || !templateId) {
       throw new Error(
         'MSG91_AUTH_KEY / MSG91_NOTIFICATION_TEMPLATE_ID not configured — cannot send SMS',
@@ -65,8 +65,6 @@ export class Msg91Client {
     if (body?.type !== 'success') {
       throw new Error(`MSG91 send SMS failed: ${body?.message ?? response.status}`);
     }
-    // On success the Flow API's `message` is the request id (searchable in MSG91's SMS reports).
-    return body.message;
   }
 
   /**
@@ -87,16 +85,6 @@ export class Msg91Client {
     variables: string[],
     templateName: string | undefined = env.msg91WhatsappTemplateName,
   ): Promise<Msg91WhatsappResponse | undefined> {
-    if (isMsg91SkippedNumber(phoneNumber)) {
-      console.info(`MSG91 WhatsApp skipped for test number ${phoneNumber}`);
-      return undefined;
-    }
-    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
-      throw new Error(
-        'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',
-      );
-    }
-
     // Our templates use named variables ({{var_1}}, {{var_2}}...), which MSG91 expects as
     // `body_var_N` with a matching `parameter_name` — per the dashboard's Code (JSON) sample.
     const components = Object.fromEntries(
@@ -105,6 +93,38 @@ export class Msg91Client {
         { type: 'text', value, parameter_name: `var_${index + 1}` },
       ]),
     );
+    return this.sendWhatsappTemplate(phoneNumber, templateName, components);
+  }
+
+  /**
+   * A one-time code through a Meta Authentication-category template (LS_N_0008). Those aren't
+   * built like our other templates: there is no named {{var_1}} — the body is Meta's fixed
+   * "{{1}} is your verification code" and the template carries a Copy code button, and both take
+   * the code. Sending sendWhatsapp's `body_var_1`/`parameter_name` shape left both empty, so Meta
+   * rejected every OTP copy while utility templates (e.g. LS_N_0001) went through.
+   */
+  async sendWhatsappAuthCode(
+    phoneNumber: string,
+    code: string,
+    templateName: string | undefined,
+  ): Promise<Msg91WhatsappResponse | undefined> {
+    return this.sendWhatsappTemplate(phoneNumber, templateName, {
+      body_1: { type: 'text', value: code },
+      button_1: { subtype: 'url', type: 'text', value: code },
+    });
+  }
+
+  private async sendWhatsappTemplate(
+    phoneNumber: string,
+    templateName: string | undefined,
+    components: Msg91WhatsappComponents,
+  ): Promise<Msg91WhatsappResponse | undefined> {
+    if (isMsg91SkippedNumber(phoneNumber)) return undefined;
+    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber || !templateName) {
+      throw new Error(
+        'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_TEMPLATE_NAME not configured — cannot send WhatsApp message',
+      );
+    }
 
     const response = await fetch(
       `${env.msg91WhatsappBaseUrl}/api/v5/whatsapp/whatsapp-outbound-message/bulk/`,

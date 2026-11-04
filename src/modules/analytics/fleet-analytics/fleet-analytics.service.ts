@@ -3,6 +3,8 @@ import { startOfIstDate, toIstDateString } from '../../../shared/utils/ist-time'
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { MaintenanceJobEntity } from '../../maintenance/entities/maintenance-job.entity';
 import { LoadEntity } from '../../loads/entities/load.entity';
+import { LoadPaymentEntity } from '../../loads/entities/load-payment.entity';
+import { resolveLoadOrigin } from '../../loads/utils/load-origin';
 import { DELIVERED_LOAD_STATUSES } from '../../loads/utils/loads.types';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import { downtimeDaysInWindow, money } from '../../maintenance/calculations/downtime';
@@ -88,8 +90,9 @@ import {
   jobCost,
   jobInterval,
   kmInWindow,
+  customerIdOf,
+  hasDateOnlyDue,
   laneOf,
-  laneOfRequisition,
   lateDays,
   loadArrival,
   loadDeparture,
@@ -110,6 +113,7 @@ import {
   tyreLifeLeft,
   unloadingHours,
   vehicleAgeYears,
+  weightOf,
 } from './utils/fleet-analytics.calculations';
 
 /** One truck's figures over the period — every tab builds from these rows. */
@@ -161,11 +165,16 @@ interface FleetContext {
   unassignedSalaryCost: number;
   /** The same, a month. */
   unassignedMonthlySalary: number;
+  /** Freight paid to transporters in the period (per-trip hire, §7), after the customer / lane
+   *  filters. Market trucks aren't in My Fleet, so this is cost without km. */
+  hirePayments: LoadPaymentEntity[];
   emptyBecause: FleetEmptyBecause | null;
 }
 
 const PARTIAL_COST_NOTE =
-  'Fleet cost counts maintenance, EMI and lease, insurance, National Permit and driver salaries. ' +
+  'Fleet cost counts maintenance, EMI and lease, insurance, National Permit, driver salaries and ' +
+  'freight paid to transporters. Per-km figures leave the transporter freight out, because ' +
+  "market trucks' km aren't recorded. " +
   [
     UNAVAILABLE_REASONS.fuel,
     UNAVAILABLE_REASONS.tolls,
@@ -174,6 +183,14 @@ const PARTIAL_COST_NOTE =
     UNAVAILABLE_REASONS.hire,
     UNAVAILABLE_REASONS.truckPrice,
   ].join(' ');
+
+/** The on-time caveat, when some delivered load is judged against a date-only due or has no
+ *  promised delivery at all (and so is left out). */
+function onTimeNote(loads: LoadEntity[]): Record<string, UnavailableKey> {
+  return loads.some((load) => isDelivered(load) && (hasDateOnlyDue(load) || !dueAt(load)))
+    ? { onTime: 'promisedTime' }
+    : {};
+}
 
 const TYRE_BAND_RANK: Record<TyreConditionLabel, number> = {
   very_worn: 0,
@@ -210,15 +227,27 @@ function truckCost(s: VehicleStats): number {
   return s.maintenanceCost + s.fixed.total;
 }
 
-/** Fleet-level totals (§7): running + fixed, where fixed includes drivers with no truck. */
+function paymentAmount(payment: LoadPaymentEntity): number {
+  return Number(payment.amount ?? 0);
+}
+
+/**
+ * Fleet-level totals (§7): running + fixed, where fixed includes drivers with no truck, plus
+ * per-trip hire (freight paid to transporters), which the guide counts as running cost.
+ * `ownTotal` leaves the hire out: it is what the per-km figures divide, since only own and
+ * attached trucks have km.
+ */
 function fleetTotals(context: FleetContext) {
   const running = sum(context.stats, (s) => s.maintenanceCost);
   const fixed = sum(context.stats, (s) => s.fixed.total) + context.unassignedSalaryCost;
+  const hire = sum(context.hirePayments, paymentAmount);
   const withKm = context.stats.filter((s) => s.km.km > 0);
   return {
     running,
     fixed,
-    total: running + fixed,
+    hire,
+    ownTotal: running + fixed,
+    total: running + fixed + hire,
     km: sum(withKm, (s) => s.km.km),
     trucksWithKm: withKm.length,
     estimated: context.stats.some((s) => s.km.estimated),
@@ -253,7 +282,7 @@ function onTimeOf(delivered: ReturnType<typeof deliveredWithDue>) {
 }
 
 function tonnesOf(loads: LoadEntity[]): number {
-  return sum(loads, (load) => Number(load.plannedCapacityTonnes ?? 0));
+  return sum(loads, weightOf);
 }
 
 /** Average of a per-load measure over the loads that have it. */
@@ -379,10 +408,10 @@ export class FleetAnalyticsService {
 
   async getFilters(tenantId: string): Promise<FleetAnalyticsFilterOptions> {
     try {
-      const [customers, vehicles, requisitions] = await Promise.all([
+      const [customers, vehicles, laneLoads] = await Promise.all([
         this.repository.listCustomersWithLoads(tenantId),
         this.repository.listVehicleOptions(tenantId),
-        this.repository.listRequisitionLanes(tenantId),
+        this.repository.listLaneLoads(tenantId),
       ]);
 
       const bodyTypes = new Map<string, { name: string; sizes: Map<string, string> }>();
@@ -395,8 +424,8 @@ export class FleetAnalyticsService {
       }
 
       const lanes = new Map<string, string>();
-      for (const requisition of requisitions) {
-        const lane = laneOfRequisition(requisition);
+      for (const load of laneLoads) {
+        const lane = laneOf(load);
         if (lane) lanes.set(lane.key, lane.label);
       }
       const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
@@ -440,14 +469,14 @@ export class FleetAnalyticsService {
         period: periodView,
         vehicles: stats.length,
         costPerKm: {
-          value: perKm(totals.total, totals.km),
+          value: perKm(totals.ownTotal, totals.km),
           distanceKm: totals.km,
           vehicles: totals.trucksWithKm,
           estimated: totals.estimated,
         },
         fleetCost: {
           total: money(totals.total),
-          onRoad: money(totals.running),
+          onRoad: money(totals.running + totals.hire),
           standing: money(totals.fixed),
         },
         costPerTonneKm: {
@@ -500,8 +529,13 @@ export class FleetAnalyticsService {
           ),
         );
         const fixed = monthFixed(context, month);
+        const hire = sum(
+          context.hirePayments.filter((payment) => payment.paymentDate.startsWith(month.month)),
+          paymentAmount,
+        );
         const km = sum(stats, (s) => kmInWindow(s.points, intersect(month, context.window)).km);
-        const total = maintenance + fixed.total;
+        const ownTotal = maintenance + fixed.total;
+        const total = ownTotal + hire;
         return {
           point: {
             month: month.month,
@@ -511,11 +545,11 @@ export class FleetAnalyticsService {
             maintenance: money(maintenance),
             otherTripExpensesAndChallans: 0,
             fixedAndHire: money(
-              fixed.parts.emiAndLease + fixed.parts.insurance + fixed.parts.permit,
+              fixed.parts.emiAndLease + fixed.parts.insurance + fixed.parts.permit + hire,
             ),
             total: money(total),
           },
-          costPerKm: perKm(total, km),
+          costPerKm: perKm(ownTotal, km),
         };
       });
 
@@ -535,7 +569,7 @@ export class FleetAnalyticsService {
         },
         tonnes: {
           moved: round(tonnes, 1),
-          costPerTonne: tonnes > 0 ? money(totals.total / tonnes) : 0,
+          costPerTonne: tonnes > 0 ? money(totals.ownTotal / tonnes) : 0,
         },
         tripsPerVehicle: {
           value: stats.length ? round(loadsStarted.length / stats.length, 1) : 0,
@@ -559,22 +593,28 @@ export class FleetAnalyticsService {
         ownedVsAttached: {
           own: ownershipCost(stats.filter((s) => !isAttached(s.vehicle))),
           attached: ownershipCost(stats.filter((s) => isAttached(s.vehicle))),
-          hirePaidOut: { amount: 0, vendors: 0 },
+          hirePaidOut: {
+            amount: money(totals.hire),
+            vendors: new Set(context.hirePayments.map((payment) => payment.transporterId)).size,
+          },
           tripsOverClassRate: { count: 0, total: 0, pct: 0 },
         },
         costByLane: costByLaneOf(context).slice(0, TOP_LANES_BY_COST),
         ...unavailable(context, {
           'tonnes.moved': 'weight',
-          onTime: 'promisedTime',
+          ...onTimeNote(loadsStarted),
           'costBuildUp.fuelAndEnergy': 'fuel',
           'costBuildUp.tolls': 'tolls',
           'costBuildUp.driver': 'Driver salaries only. ' + UNAVAILABLE_REASONS.tripExpenses,
           'costBuildUp.otherTripExpensesAndChallans': 'tripExpenses',
           'costBuildUp.fixedAndHire':
-            'EMI, lease, insurance and National Permit only. ' +
+            'EMI, lease, insurance, National Permit and freight paid to transporters, by payment ' +
+            'date. ' +
             [UNAVAILABLE_REASONS.truckPrice, UNAVAILABLE_REASONS.hire].join(' '),
           'monthlyCost.costPerKm': PARTIAL_COST_NOTE,
-          'ownedVsAttached.hirePaidOut': 'hire',
+          'ownedVsAttached.hirePaidOut':
+            'Freight paid to transporters for market and indent loads, by payment date. ' +
+            UNAVAILABLE_REASONS.hire,
           'ownedVsAttached.tripsOverClassRate': 'gps',
           costByLane:
             'Fixed cost of the days each load held the truck only. ' +
@@ -702,7 +742,7 @@ export class FleetAnalyticsService {
 
       const heads: { head: FleetCostHead; label: string; amount: number }[] = [
         { head: 'fuel_and_energy', label: 'Fuel and energy', amount: 0 },
-        { head: 'hire_and_rental', label: 'Hire and rental', amount: 0 },
+        { head: 'hire_and_rental', label: 'Hire and rental', amount: money(totals.hire) },
         { head: 'emi_and_lease', label: 'EMI and lease', amount: fixedPart((p) => p.emiAndLease) },
         { head: 'depreciation', label: 'Depreciation', amount: 0 },
         {
@@ -754,7 +794,7 @@ export class FleetAnalyticsService {
 
       return {
         period: periodView,
-        costPerKm: perKm(totals.total, totals.km),
+        costPerKm: perKm(totals.ownTotal, totals.km),
         onRoadPerKm: perKm(totals.running, totals.km),
         standingPerKm: perKm(totals.fixed, totals.km),
         distanceKm: totals.km,
@@ -787,7 +827,9 @@ export class FleetAnalyticsService {
         ...unavailable(context, {
           costPerKm: PARTIAL_COST_NOTE,
           'costByHead.fuel_and_energy': 'fuel',
-          'costByHead.hire_and_rental': 'hire',
+          'costByHead.hire_and_rental':
+            'Per-trip hire: freight paid to transporters, by payment date. ' +
+            UNAVAILABLE_REASONS.hire,
           'costByHead.depreciation': 'truckPrice',
           'costByHead.tolls': 'tolls',
           'costByHead.permits': 'statePermitFee',
@@ -1067,9 +1109,9 @@ export class FleetAnalyticsService {
       const onTimeByLane: FleetLaneOnTimeRow[] = [...byLane.values()]
         .map(({ lane, rows }) => {
           const committed = rows.flatMap(({ load }) => {
-            const requisition = load.requisition;
-            return requisition?.pickupDate && requisition.expectedDeliveryDate
-              ? [daysBetween(requisition.pickupDate, requisition.expectedDeliveryDate)]
+            const origin = resolveLoadOrigin(load);
+            return origin.pickupDate && origin.expectedDeliveryDate
+              ? [daysBetween(origin.pickupDate, origin.expectedDeliveryDate)]
               : [];
           });
           const turnaround = rows.flatMap(({ load }) => {
@@ -1140,7 +1182,7 @@ export class FleetAnalyticsService {
           onTimePct: round(average(driverOnTime) ?? 0, 1),
         },
         ...unavailable(context, {
-          onTime: 'promisedTime',
+          ...onTimeNote(loadsStarted),
           detention: 'gps',
           recoverableDetention: 'tripExpenses',
           detentionByConsignor: 'freeHours',
@@ -1149,7 +1191,6 @@ export class FleetAnalyticsService {
             'Counts loads already past their delivery window; ' +
             UNAVAILABLE_REASONS.gps.charAt(0).toLowerCase() +
             UNAVAILABLE_REASONS.gps.slice(1),
-          'loadStages.running_to_loading': 'No load status marks the run to the loading point yet.',
           'loadPipeline.podInExpensesNotSettled':
             'Trip expense settlement is not recorded yet, so every load with a POD that is not closed is counted.',
           'drivers.medianSafetyScore': 'drivingEvents',
@@ -1439,8 +1480,7 @@ export class FleetAnalyticsService {
   /** Customer and lane narrow loads only (§10); truck-level numbers don't change. */
   private applyLoadFilters(loads: LoadEntity[], filters: FleetAnalyticsFilters): LoadEntity[] {
     return loads.filter((load) => {
-      const requisition = load.requisition;
-      if (filters.customerId && requisition?.customerId !== filters.customerId) return false;
+      if (filters.customerId && customerIdOf(load) !== filters.customerId) return false;
       if (filters.laneKey && laneOf(load)?.key !== filters.laneKey) return false;
       return true;
     });
@@ -1467,12 +1507,22 @@ export class FleetAnalyticsService {
         (!filters.size || sizeOf(vehicle)?.key === filters.size),
     );
     const vehicleIds = vehicles.map((vehicle) => vehicle.id);
-    const [jobs, allLoads, points, drivers] = await Promise.all([
+    const [jobs, allLoads, points, drivers, payments] = await Promise.all([
       this.repository.listJobsOverlapping(tenantId, vehicleIds, period),
-      this.repository.listLoadsInWindow(tenantId, vehicleIds, period, {}),
+      this.repository.listLoadsInWindow(tenantId, vehicleIds, period),
       this.odometerPoints(tenantId, vehicles, now),
       this.repository.listActiveDrivers(tenantId),
+      this.repository.listTransporterPayments(tenantId, {
+        fromDate: period.fromDate,
+        toDate: period.toDate < today ? period.toDate : today,
+      }),
     ]);
+    const filteredLoadIds = new Set(
+      this.applyLoadFilters(
+        payments.map((payment) => payment.load),
+        filters,
+      ).map((load) => load.id),
+    );
 
     // Driver salaries (§7): charged to the assigned truck; drivers with no truck to the fleet.
     const salaryByVehicle = new Map<string, number>();
@@ -1547,6 +1597,7 @@ export class FleetAnalyticsService {
       drivers,
       unassignedMonthlySalary,
       unassignedSalaryCost: (unassignedMonthlySalary / DAYS_PER_MONTH) * days.length,
+      hirePayments: payments.filter((payment) => filteredLoadIds.has(payment.loadId)),
       emptyBecause: null,
     };
     context.emptyBecause = await this.emptyBecause(tenantId, context, scoped);

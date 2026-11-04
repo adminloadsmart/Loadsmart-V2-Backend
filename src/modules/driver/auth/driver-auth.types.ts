@@ -2,6 +2,8 @@
  * domain from modules/auth/'s auth.types.ts (see docs/driver-auth.md). Shapes mirror auth.types.ts
  * where the concept is the same (device capture), but nothing here imports from modules/auth/. */
 
+import { Locale } from '../../../shared/i18n/locales';
+import { OtpChannel } from '../../auth/auth.constants';
 import { DriverInviteSendStatus } from '../drivers.types';
 
 export type DriverDevicePlatform = 'ios' | 'android' | 'web';
@@ -13,10 +15,37 @@ export interface DriverDeviceCaptureInput {
   deviceType?: DriverDevicePlatform;
   deviceInfo?: string;
   ipAddress?: string | null;
+  /** The app language the request sent (Accept-Language) — null/absent when it sent none. */
+  locale?: Locale | null;
+}
+
+/** A new masters.driver_sessions row (DriverSessionRepository.createSession). */
+export interface CreateDriverSessionData {
+  driverId: string;
+  tenantId: string | null;
+  driverTenantRelationId: string | null;
+  tokenHash: string;
+  expiresAt: Date;
+  fcmToken?: string | null;
+  deviceType?: DriverDevicePlatform | null;
+  deviceInfo?: string | null;
+  ipAddress?: string | null;
+  locale?: Locale | null;
+  accessJti?: string | null;
+  accessExpiresAt?: Date | null;
+}
+
+/** POST /device-token's update to the caller's session — no locale keeps the saved one. */
+export interface DriverSessionDeviceUpdate {
+  fcmToken: string;
+  deviceType: DriverDevicePlatform;
+  locale?: Locale | null;
 }
 
 export interface RequestDriverOtpInput {
   phoneNumber: string;
+  /** "Send OTP" = sms, "Get OTP on WhatsApp" = whatsapp — the code goes on that channel only. */
+  channel: OtpChannel;
   /** Server-derived (req.ip), never client-supplied — for the OTP request limit (LS_N_0008). */
   ipAddress?: string | null;
 }
@@ -43,6 +72,8 @@ export interface SelectDriverTenantInput extends DriverDeviceCaptureInput {
 
 export interface DriverRefreshInput {
   refreshToken: string;
+  /** Null/absent = the request sent no Accept-Language; the session keeps its language. */
+  locale?: Locale | null;
 }
 
 export interface DeleteDriverAccountInput {

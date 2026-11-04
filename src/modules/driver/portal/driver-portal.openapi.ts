@@ -246,7 +246,8 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         '(type driver.account.invited), where it is { invitationId, status: pending | accepted | ' +
         'declined | cancelled | expired | replaced, actionable }. Each Resend adds a card for the ' +
         'same invite; only the newest one is `actionable` (show Accept / Decline only then) — ' +
-        'older ones read `replaced`.',
+        'older ones read `replaced`. `title`/`body` follow Accept-Language (en | hi) for every ' +
+        'notification saved since translation was added; older ones keep their original English.',
     ),
     request: { query: driverPortalValidators.getMyNotifications.shape.query },
     responses: {
@@ -505,8 +506,8 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.DRIVER_PORTAL],
     operationId: 'driverPortal.uploadMyPod',
     ...authenticated(
-      'Record proof of delivery for a load assigned to the caller — POD front (podFileKey) and ' +
-        'back (podBackFileKey), receiver name, and quantity received are required. Receiver verification is optional: ' +
+      'Record proof of delivery for a load assigned to the caller — POD front (podFileKey), ' +
+        'receiver name, and quantity received are required; the back (podBackFileKey) is optional. Receiver verification is optional: ' +
         'send podReceiverMobile only after it passed POST /loads/{loadId}/receiver-code/verify ' +
         '(else 400); omit it when the receiver has no phone, and the POD photo alone is the ' +
         'proof. For drivers numberOfTonnesShort is ' +

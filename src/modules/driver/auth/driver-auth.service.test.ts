@@ -49,7 +49,10 @@ function build(
       ipAddress: null,
     })),
   };
-  const drivers = { findById: vi.fn(async () => DRIVER) };
+  const drivers = {
+    findById: vi.fn(async () => DRIVER),
+    findByPhoneNumber: vi.fn(async () => DRIVER),
+  };
   const relations = {
     listActiveByDriver: vi.fn(async () => activeRelations),
     findById: vi.fn(async () => RELATION),
@@ -59,14 +62,15 @@ function build(
   const organizations = {
     getOrganizationStatus: vi.fn(async () => ({ status: 'active', name: 'Genboot' })),
   };
+  const otp = { requestOtpCode: vi.fn(), verifyOtpCode: vi.fn() };
   const service = new DriverAuthService(
     drivers as unknown as DriverRepository,
     relations as unknown as DriverTenantRelationRepository,
     sessions as unknown as DriverSessionRepository,
     organizations as unknown as OrganizationService,
-    { requestOtpCode: vi.fn(), verifyOtpCode: vi.fn() } as unknown as OtpService,
+    otp as unknown as OtpService,
   );
-  return { service, sessions, calls };
+  return { service, sessions, calls, otp };
 }
 
 const LOGIN = { phoneNumber: '9999999999', otp: '1234', driverId: DRIVER.id, fcmToken: 'tokB' };
@@ -165,5 +169,22 @@ describe('DriverAuthService — one login per driver', () => {
     const signedClaims = vi.mocked(signToken).mock.calls.at(-1)![0] as { jti: string };
     expect(stored).toBeTruthy();
     expect(signedClaims.jti).toBe(stored);
+  });
+});
+
+describe('DriverAuthService.requestOtp — SMS or WhatsApp', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each(['sms', 'whatsapp'] as const)('sends the login OTP on %s only', async (channel) => {
+    const { service, otp } = build();
+    const result = await service.requestOtp({ phoneNumber: DRIVER.phoneNumber, channel }, 'en');
+
+    expect(otp.requestOtpCode).toHaveBeenCalledWith(expect.objectContaining({ channel }));
+    expect(result.channel).toBe(channel);
+    expect(result.message).toBe(
+      channel === 'whatsapp'
+        ? `OTP sent on WhatsApp to ${DRIVER.phoneNumber}`
+        : `OTP sent to ${DRIVER.phoneNumber}`,
+    );
   });
 });

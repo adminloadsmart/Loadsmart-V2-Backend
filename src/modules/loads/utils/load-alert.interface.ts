@@ -1,4 +1,5 @@
 import type { LoadEntity } from '../entities/load.entity';
+import type { DriverMessage } from '../../notifications/notifications.types';
 
 /** Load reminders (alerts/) — pickup/drop reminders and the POD reminder ladder. */
 
@@ -26,11 +27,5 @@ export type LoadSchedule = (load: LoadEntity) => Promise<LoadDueTimes>;
 
 /** The driver-app push the reminder goes out through — DriverPushNotifier satisfies it. */
 export interface DriverTripNotifier {
-  notifyTripReminder(
-    tenantId: string,
-    driverId: string,
-    type: string,
-    title: string,
-    body: string,
-  ): Promise<void>;
+  notifyTripReminder(tenantId: string, driverId: string, message: DriverMessage): Promise<void>;
 }

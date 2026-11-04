@@ -10,13 +10,26 @@ import { DateFilter } from '../../../shared/utils/date-filter';
 import { PaginationInput } from './admin.types';
 
 export interface ListOrganizationsInput extends PaginationInput {
-  status?: OrganizationStatus;
+  status?: OrganizationStatus[];
+  excludeDrafts?: boolean;
   journeyStage?: OrganizationJourneyStage;
   search?: string;
   filter?: DateFilter;
   from?: string;
   to?: string;
 }
+
+/** The business-registration number shown under a company in the verification queue: GST, else
+ *  CIN/Udyam/shop licence (BUSINESS_DOCUMENT_ORDER). */
+export interface OrganizationBusinessDocument {
+  documentType: OrganizationDocumentType;
+  documentNumber: string | null;
+}
+
+export type OrganizationsSummaryInput = Pick<
+  ListOrganizationsInput,
+  'search' | 'filter' | 'from' | 'to'
+>;
 
 export interface UpdateOrganizationInput {
   status: OrganizationStatus;
@@ -69,7 +82,8 @@ export type ReferralCodeParams = { referralCodeId: string };
 
 export interface UpdateReferralCodeInput {
   ownerUserId?: string;
-  validUntil?: string;
+  // null clears the expiry.
+  validUntil?: string | null;
 }
 
 export interface SetReferralCodeStatusInput {

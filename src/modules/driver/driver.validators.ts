@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { booleanString } from '../../shared/validators/boolean-string';
 import { isoDateSchema as isoDate } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { IFSC_REGEX } from '../masters/masters.constants';
@@ -51,7 +52,6 @@ const normaliseFilter = <T extends readonly [string, ...string[]]>(
     .pipe(z.array(z.enum(values)).min(1));
 
 /** Query-string yes/no: "true" | "false" → boolean. */
-const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
 /** Full timestamp, unlike `isoDate` — used where a moment rather than a day is meant. */
 const isoDateTime = z.iso.datetime();
 
@@ -232,6 +232,9 @@ const rosterFilterFields = {
 const onboardDriverBody = z.object({
   ...driverCoreFields,
   note: driverNote.optional(),
+  // "Send Driver App Invite on WhatsApp" — false leaves out the invite's WhatsApp message (the
+  // invite itself and its app push still go out). Omitted = send, as before the switch was wired.
+  sendAppInvite: z.boolean().optional(),
   verification: driverVerificationBody.optional(),
   bankDetails: driverBankDetailsBody.optional(),
   documents: z.array(driverDocumentBody).max(10).optional(),
@@ -312,7 +315,13 @@ export const driverValidators = {
       .refine((data) => Object.keys(data).length > 0, 'At least one field is required'),
   }),
   deleteDriver: z.object({ params: driverParams }),
-  approveDriver: z.object({ params: driverParams }),
+  approveDriver: z.object({
+    params: driverParams,
+    // Approving a dispatch-added driver sends their invite; `sendAppInvite: false` leaves out its
+    // WhatsApp message (Add a Driver's "Send Driver App Invite on WhatsApp"). Defaulted, as for
+    // rejectDriver: Express 5 leaves req.body undefined when there's no body.
+    body: z.object({ sendAppInvite: z.boolean().default(true) }).default({ sendAppInvite: true }),
+  }),
   rejectDriver: z.object({
     params: driverParams,
     // Optional — the "Requests to You" screen rejects in one click with no reason prompt. Defaulted
@@ -348,7 +357,12 @@ export const driverValidators = {
     body: z.object({ phoneNumber: driverCoreFields.phoneNumber }),
   }),
   getInvitation: z.object({ params: invitationParams }),
-  resendInvitation: z.object({ params: invitationParams }),
+  resendInvitation: z.object({
+    params: invitationParams,
+    // The invite drawer's "Send on WhatsApp" switch: false resends without the WhatsApp message.
+    // Defaulted, as for approveDriver: Express 5 leaves req.body undefined when there's no body.
+    body: z.object({ sendAppInvite: z.boolean().default(true) }).default({ sendAppInvite: true }),
+  }),
   cancelInvitation: z.object({ params: invitationParams }),
 
   addDriverDocument: z.object({

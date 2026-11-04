@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { respond } from '../../../shared/responses/respond';
+import { requestedLocaleOf } from '../../../shared/middleware/locale.middleware';
 import { DriverAuthService } from './driver-auth.service';
 import { DriverIdentityService } from './driver-identity.service';
 import { DriverAccountService } from './driver-account.service';
@@ -42,6 +43,7 @@ export class DriverAuthController {
       deviceType: req.body.deviceType,
       deviceInfo: req.body.deviceInfo,
       ipAddress: req.ip ?? null,
+      locale: requestedLocaleOf(req),
     });
     respond(res, result);
   };
@@ -56,6 +58,7 @@ export class DriverAuthController {
       deviceType: req.body.deviceType,
       deviceInfo: req.body.deviceInfo,
       ipAddress: req.ip ?? null,
+      locale: requestedLocaleOf(req),
     });
     respond(res, result);
   };
@@ -72,13 +75,17 @@ export class DriverAuthController {
         deviceType: req.body.deviceType,
         deviceInfo: req.body.deviceInfo,
         ipAddress: req.ip ?? null,
+        locale: requestedLocaleOf(req),
       },
     });
     respond(res, result);
   };
 
   refresh = async (req: Request, res: Response) => {
-    const result = await this.driverAuthService.refresh(req.body);
+    const result = await this.driverAuthService.refresh({
+      ...req.body,
+      locale: requestedLocaleOf(req),
+    });
     respond(res, result);
   };
 
@@ -108,6 +115,7 @@ export class DriverAuthController {
       req.driver!.sid!,
       req.body.fcmToken,
       req.body.deviceType,
+      requestedLocaleOf(req),
     );
     respond(res, { success: true });
   };
@@ -117,7 +125,11 @@ export class DriverAuthController {
   // rather than login's "this phone must already be registered". See driver-identity.service.ts.
 
   requestRegisterOtp = async (req: Request, res: Response) => {
-    const result = await this.driverIdentityService.requestOtp(req.body.phoneNumber, req.locale);
+    const result = await this.driverIdentityService.requestOtp(
+      req.body.phoneNumber,
+      req.locale,
+      req.body.channel,
+    );
     respond(res, result, 200);
   };
 
@@ -130,6 +142,7 @@ export class DriverAuthController {
       deviceType: req.body.deviceType,
       deviceInfo: req.body.deviceInfo,
       ipAddress: req.ip ?? null,
+      locale: requestedLocaleOf(req),
     });
     respond(res, result, 201);
   };

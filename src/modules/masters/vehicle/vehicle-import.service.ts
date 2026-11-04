@@ -66,6 +66,7 @@ export class VehicleImportService {
     actorId: string,
     role: string,
     source: ImportSource,
+    clientIp: string,
   ): Promise<VehicleImportReport> {
     const parsed = await this.parse(source);
     const valid: { row: number; input: OnboardVehicleInput }[] = [];
@@ -172,7 +173,9 @@ export class VehicleImportService {
         });
         continue;
       }
-      if (await this.vahanVerification.enqueue({ tenantId, recordId: vehicleId, actorId }))
+      if (
+        await this.vahanVerification.enqueue({ tenantId, recordId: vehicleId, actorId, clientIp })
+      )
         report.vahanVerificationQueued += 1;
     }
     errors.sort((a, b) => a.row - b.row);

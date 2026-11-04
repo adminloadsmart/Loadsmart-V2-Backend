@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../../shared/utils/date';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../shared/constants/pagination';
 import {
   FREIGHT_TYPES,
   LOAD_SOURCE_TYPES,
@@ -88,8 +89,9 @@ export const verifyPodReceiverCodeBody = z
 export const uploadPodBody = z
   .object({
     podFileKey: z.string().trim().min(1),
-    // The back of the POD carries the receiver's damage/shortage remarks — required with the front.
-    podBackFileKey: z.string().trim().min(1),
+    // The back of the POD carries the receiver's damage/shortage remarks — optional; the front
+    // alone is enough.
+    podBackFileKey: z.string().trim().min(1).optional(),
     podReceiverName: z.string().trim().min(1).max(150),
     // Optional: a receiver without a phone skips code verification and the POD photo alone is the
     // proof. When a driver sends it, it must already be verified via the receiver-code/verify
@@ -174,6 +176,13 @@ export const loadValidators = {
         (data) => !(data.status && data.group),
         'Provide at most one of status or group — group is the Trips tab filter (active/completed), status is an exact-value filter',
       ),
+  }),
+  // Home Live Loads — scroll pagination. `cursor` is the opaque nextCursor of the previous page.
+  listLive: z.object({
+    query: z.object({
+      limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+      cursor: z.string().min(1).optional(),
+    }),
   }),
   get: z.object({ params }),
   getActivities: z.object({ params }),

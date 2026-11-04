@@ -4,6 +4,7 @@ import {
   AssignReviewerInput,
   CreateReferralCodeInput,
   ListOrganizationsInput,
+  OrganizationsSummaryInput,
   ListReferralCodesInput,
   ListStaffInput,
   OrganizationDecisionReasonInput,
@@ -29,6 +30,14 @@ export class AdminController {
       req.validatedQuery as ListOrganizationsInput,
     );
     respond(res, organizations);
+  };
+
+  getOrganizationsSummary = async (req: Request, res: Response) => {
+    const summary = await this.adminService.getOrganizationsSummary(
+      req.user!,
+      req.validatedQuery as OrganizationsSummaryInput,
+    );
+    respond(res, summary);
   };
 
   getOrganization = async (req: Request<OrganizationParams>, res: Response) => {
@@ -159,6 +168,18 @@ export class AdminController {
   deleteStaff = async (req: Request<StaffParams>, res: Response) => {
     await this.adminService.deleteStaff(req.user!, req.params.staffId);
     respond(res, { success: true });
+  };
+
+  getReferralCodesSummary = async (_req: Request, res: Response) => {
+    respond(res, await this.adminService.getReferralCodesSummary());
+  };
+
+  getStaffSummary = async (_req: Request, res: Response) => {
+    respond(res, await this.adminService.getStaffSummary());
+  };
+
+  getStaff = async (req: Request<{ staffId: string }>, res: Response) => {
+    respond(res, await this.adminService.getStaff(req.params.staffId));
   };
 
   createReferralCode = async (req: Request, res: Response) => {

@@ -4,7 +4,7 @@ import {
   NotificationCtaStyle,
   NotificationSeverity,
 } from './notifications.types';
-import { NotificationTypeKey, QuietHoursSetting } from './notifications.interface';
+import { QuietHoursSetting } from './notifications.interface';
 import {
   UNLOADED_LOAD_STATUSES,
   type LoadIssueCategory,
@@ -60,6 +60,11 @@ export const MS_PER_MINUTE = 60 * 1000;
 export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 export const MS_PER_DAY = 24 * MS_PER_HOUR;
 
+/** Calendar units for "time since" copy (formatHoursSince) — a month is taken as 30 days. */
+export const HOURS_PER_DAY = 24;
+export const DAYS_PER_MONTH = 30;
+export const DAYS_PER_YEAR = 365;
+
 /** How long before an e-way bill's expiry its 'load.eway_bill_expiry' alert (LS_N_0025) goes out
  *  — the sheet's last (1 h) step; its 12 h / 4 h steps need a real validity (the placeholder is 2
  *  hours from generation). */
@@ -101,6 +106,10 @@ export const BANK_NAME_BY_IFSC_PREFIX: Record<string, string> = {
  *  Planning loads only a pickup date — this time of day (India time) stands in until loads
  *  capture a real reporting time (LS_N_0016/0017/0021/0022). */
 export const DEFAULT_REPORTING_TIME_IST = '10:00';
+
+/** A promised delivery date only records the day, so the promise is this time of day (India
+ *  time) on it — the end of the day, same as tracking's promised_delivery_at (LS_N_0031/0060). */
+export const PROMISED_DELIVERY_TIME_IST = '23:59';
 
 /** LS_N_0021 — minutes after the reporting time each "not reported" alert goes out (the sheet's
  *  60 min, then every 2 h, 3 alerts at most). From the second one (3 h) org admins are added. */
@@ -210,14 +219,6 @@ export const TYRE_ACTION_LABELS: Record<string, string> = {
   scrap: 'scrapping',
 };
 
-/** Notification types whose path is logged step by step (utils/notification-trace.ts) → the sheet
- *  code every log line starts with, so `grep LS_N_0006` on a server finds the whole trail. */
-export const TRACED_NOTIFICATION_TYPES: Partial<Record<NotificationTypeKey, string>> = {
-  'user.access_changed': 'LS_N_0006',
-  'user.access_removed': 'LS_N_0007',
-  'user.access_removed_confirmation': 'LS_N_0007',
-};
-
 /** Web-app routes an email's button can open — the frontend's own pages (its app/ folder). Built
  *  into the full `cta_url` link by utils/app-url.ts. */
 export const FRONTEND_PATHS = {
@@ -225,9 +226,25 @@ export const FRONTEND_PATHS = {
   home: '/home',
   login: '/auth/login',
   fleet: '/fleet',
+  /** My Drivers → Invitations, where a dispatch-added driver is approved (and invited). */
+  driverInvitations: '/drivers?view=invitations',
   vehicle: (vehicleId: string) => `/fleet/${vehicleId}`,
   load: (loadId: string) => `/loads/${loadId}`,
 } as const;
 
 /** Metadata key — and email template variable — carrying the email button's full link. */
 export const EMAIL_CTA_URL_KEY = 'cta_url';
+
+/** Metadata key on a driver-app notification holding the values its text is rebuilt from, per
+ *  language (driver-notification-content.ts). Left out of the push's FCM data. */
+export const DRIVER_MESSAGE_PARAMS_KEY = 'messageParams';
+
+/** Where a vehicle is, in notification copy (utils/location.ts): found addresses are cached in
+ *  Redis per ~110 m cell (3 decimals) for 30 days, like tracking's own resolver. */
+export const LOCATION_CACHE_KEY_PREFIX = 'notif:addr';
+export const LOCATION_CACHE_KEY_DECIMALS = 3;
+export const LOCATION_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** Last resort when no address can be found — a tappable map pin instead of bare numbers. */
+export const GOOGLE_MAPS_PIN_URL = 'https://maps.google.com/?q=';
+/** LS_N_0029's {{4}} ("last detected at …") when the trip has had no position at all. */
+export const NO_TRIP_POSITION_LOCATION = 'the start of this trip (no GPS received since)';

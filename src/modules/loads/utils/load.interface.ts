@@ -82,7 +82,7 @@ export interface ReviewPodInput {
 export interface UploadPodInput {
   podFileKey: string;
   /** The POD's back side — the receiver's remarks on damage, shortage or pilferage. */
-  podBackFileKey: string;
+  podBackFileKey?: string;
   podReceiverName: string;
   /** Absent when the receiver has no phone — the POD photo alone is then the proof. A driver
    *  sending it must have verified it first via LoadService.verifyPodReceiverCode. */
@@ -113,6 +113,12 @@ export interface ListLoadsInput extends PaginationInput {
   toDate?: string;
   /** Matches against the load's requisition's customer name (case-insensitive, partial). */
   search?: string;
+}
+
+/** GET /loads/live — `cursor` is the previous page's opaque nextCursor. */
+export interface ListLiveLoadsInput {
+  limit: number;
+  cursor?: string;
 }
 
 export type LoadParams = { loadId: string };

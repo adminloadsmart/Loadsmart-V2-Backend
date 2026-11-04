@@ -1,4 +1,4 @@
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import {
   DocumentVerificationStatus,
@@ -16,6 +16,16 @@ export class OrganizationDocumentRepository {
   async findActiveByOrganization(organizationId: string): Promise<OrganizationDocumentEntity[]> {
     return this.repo.find({
       where: { organizationId, deletedAt: IsNull() },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async findActiveByOrganizations(
+    organizationIds: string[],
+  ): Promise<OrganizationDocumentEntity[]> {
+    if (organizationIds.length === 0) return [];
+    return this.repo.find({
+      where: { organizationId: In(organizationIds), deletedAt: IsNull() },
       order: { createdAt: 'ASC' },
     });
   }

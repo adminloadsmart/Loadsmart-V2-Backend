@@ -76,6 +76,12 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
 
   // --- Loads ---
   router.get('/loads', validate(loadValidators.list), asyncHandler(controller.listLoads));
+  // Home Live Loads — registered before /loads/:loadId so "live" isn't read as a load id.
+  router.get(
+    '/loads/live',
+    validate(loadValidators.listLive),
+    asyncHandler(controller.listLiveLoads),
+  );
   router.get('/loads/:loadId', validate(loadValidators.get), asyncHandler(controller.getLoad));
   router.get(
     '/loads/:loadId/activities',

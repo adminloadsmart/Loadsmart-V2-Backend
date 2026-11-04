@@ -19,6 +19,8 @@ export class VehicleImportController {
         req.user!.id,
         req.user!.role,
         importSource(req.file!),
+        // The importer's IP is its lane on the 'vahan-verification' queue (VahanIpRateGate).
+        req.ip ?? 'unknown',
       ),
       201,
     );

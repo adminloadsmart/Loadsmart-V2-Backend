@@ -14,6 +14,11 @@ export class OrganizationDocumentService {
     return this.organizationDocumentRepository.findActiveByOrganization(organizationId);
   }
 
+  // One query for a page of orgs — the admin queue's "Gov Result" column.
+  async listByOrganizations(organizationIds: string[]): Promise<OrganizationDocumentEntity[]> {
+    return this.organizationDocumentRepository.findActiveByOrganizations(organizationIds);
+  }
+
   // Called from AuthService.createOrganization when hasOwnFleet is false and at least one
   // document was submitted — see auth.validators.ts for the "at least one required" rule.
   async upsertDocuments(

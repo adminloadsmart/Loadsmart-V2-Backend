@@ -31,6 +31,7 @@ import type { GeofenceType, HaltExpectedGeofenceType } from '../geofences/utils/
 import type { AuthRepository } from '../auth/auth.repository';
 import type { AuthService } from '../auth/auth.service';
 import type { NotificationsService } from './notifications.service';
+import type { TrackingClient } from '../../adapters/tracking.client';
 
 /** Destination the caller supplies for each requested channel — this module owns no
  *  contact/token registry of its own, so these are taken as-is (see notifications.service.ts). */
@@ -572,6 +573,8 @@ export interface VehicleDocumentAlertsDeps {
 export interface DigestsDeps {
   scheduledAlertRepository: ScheduledAlertRepository;
   triggers: NotificationTriggers;
+  /** LS_N_0060's "delayed" — trips tracking's live ETA already shows running late. */
+  tracking: Pick<TrackingClient, 'listRunningLateTripIds'>;
 }
 
 /** Job data on the 'notification-schedules' queue — `today` (YYYY-MM-DD) runs a check for a
@@ -702,6 +705,19 @@ export interface HaltGeofence extends GeofenceArea {
 /** The tenant's active HALT_CHECK_GEOFENCE_TYPES geofences. */
 export interface HaltGeofences {
   list(tenantId: string): Promise<HaltGeofence[]>;
+}
+
+/** Readable place for a point in notification copy (utils/location.ts): the address tracking
+ *  already has (`knownAddress`), else one looked up and cached, else a map link — never empty. */
+export type DescribeLocation = (point: LatLng, knownAddress?: string | null) => Promise<string>;
+
+export interface LocationDescriberDeps {
+  /** Short address at a point (PlacesService.addressAt); null when there's none. */
+  addressAt: (point: LatLng) => Promise<string | null>;
+  cache: {
+    get(key: string): Promise<string | null>;
+    set(key: string, value: string, exSeconds: number): Promise<unknown>;
+  };
 }
 
 /** A master point's pin and geofence radius (null = default). */

@@ -128,3 +128,17 @@ export interface CreatePasswordInput {
   password: string;
   confirmPassword: string;
 }
+
+/** A platform staff member's id and role name — AuthRepository.listAllStaffRoles. */
+export interface StaffMemberRole {
+  id: string;
+  role: string;
+}
+
+/** One role's card on the admin Employees screen (AuthService.getStaffSummary). */
+export interface StaffRoleSummary {
+  count: number;
+  workload: number;
+  signups: number;
+  approvedSignups: number;
+}

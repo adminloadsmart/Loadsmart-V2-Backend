@@ -36,6 +36,9 @@ export class ReferralCodeEntity {
   @Column({ name: 'total_signup', type: 'int', nullable: true })
   totalSignup!: number | null;
 
+  // Not a column — filled by ReferralCodeRepository.list (orgs that redeemed it and are active).
+  approvedSignup?: number;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;
 

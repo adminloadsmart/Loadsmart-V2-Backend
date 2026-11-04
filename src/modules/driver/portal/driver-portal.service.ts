@@ -39,6 +39,7 @@ import {
 import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
 import { DriverTenantRelationEntity } from '../entities/driver-tenant-relation.entity';
 import { NotificationEntity } from '../../notifications/notifications.entity';
+import { renderStoredDriverMessage } from '../../notifications/driver-notification-content';
 
 /** The invitationId an invite card carries; null on any other notification. */
 function invitationIdOf(notification: NotificationEntity): string | null {
@@ -125,6 +126,22 @@ function toHomeNextTrip(job: TripListRow, organizationName: string | null): Driv
       : null,
     pickupDate: job.pickupDate,
   };
+}
+
+/** Driver-facing bank details: live rows only, without IDfy's raw payload and audit columns. */
+function toBankDetailsView(rows: DriverEntity['bankDetails'] | undefined) {
+  return (rows ?? [])
+    .filter((row) => !row.deletedAt)
+    .map((row) => ({
+      id: row.id,
+      accountNumber: row.accountNumber,
+      ifsc: row.ifsc,
+      accountHolderName: row.accountHolderName,
+      upiId: row.upiId,
+      verificationStatus: row.verificationStatus,
+      verifiedAt: row.verifiedAt,
+      nameAtBank: row.nameAtBank,
+    }));
 }
 
 /**
@@ -268,6 +285,7 @@ export class DriverPortalService {
     if (tenantIds.length === 0) {
       const driver = await this.fetchGlobalProfile(driverId);
       return Object.assign(driver, {
+        bankDetails: toBankDetailsView(driver.bankDetails),
         profilePhotoUrl: await this.profilePhotoUrlOf(driver.profilePhotoKey),
       });
     }
@@ -276,6 +294,10 @@ export class DriverPortalService {
     );
     return {
       ...views[0],
+      // Trimmed view of the entity rows — the response type still names the entity.
+      bankDetails: toBankDetailsView(
+        views[0].bankDetails,
+      ) as unknown as DriverEntity['bankDetails'],
       fleets: views.flatMap((view) => view.fleets),
       profilePhotoUrl: await this.profilePhotoUrlOf(views[0].profilePhotoKey),
     };
@@ -509,12 +531,14 @@ export class DriverPortalService {
    * Each "You've been invited" card also gets its invite's live state (`invitation`): every Resend
    * adds a card for the same invite, and only the newest send's card is actionable — older ones
    * read `replaced`, and every card follows the invite once it's accepted, declined, cancelled or
-   * expired. Nothing is deleted; the cards and the invite's timeline stay as they are.
+   * expired. Nothing is deleted; the cards and the invite's timeline stay as they are. Title/body
+   * come back in `locale` (Accept-Language) for every card saved with messageParams.
    */
   async getMyNotifications(
     driverId: string,
     category: DriverNotificationCategory | undefined,
     query: ListNotificationsInput,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<Paginated<DriverNotificationItem>> {
     const page = await this.notificationsService.listForDriver(driverId, {
       ...query,
@@ -531,7 +555,12 @@ export class DriverPortalService {
 
     return {
       ...page,
-      items: page.items.map((notification) => {
+      items: page.items.map((stored) => {
+        // Cards saved with messageParams follow the app's language; older ones keep their text.
+        const notification = {
+          ...stored,
+          ...renderStoredDriverMessage(stored.type, stored.metadata, locale),
+        };
         const invitationId = invitationIdOf(notification);
         if (!invitationId) return { ...notification, invitation: null };
         const status = inviteCardStatusOf(notification, relationsById.get(invitationId));

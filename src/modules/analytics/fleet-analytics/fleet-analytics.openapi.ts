@@ -10,10 +10,13 @@ const FILTER_NOTE =
   '3_months | 6_months [default] | custom with `from`/`to`) — presets are whole calendar months ' +
   'ending last month, and days in period run to today if earlier; `bodyType` and `size` (keys ' +
   'from /fleet/filters); `heldAs` (owned_and_attached [default] | owned | financed | leased | ' +
-  'attached); `vehicleId`; `laneKey` and `customerId` narrow load figures only. Fleet cost = ' +
-  'running (maintenance) + fixed (EMI or lease, insurance, National Permit, driver salaries). ' +
-  'Every response carries `unavailable` (field → why it reads 0 or is approximated: no GPS, ' +
-  'fuel, tolls, trip expenses, e-challans, hire, truck price, state permit fee yet) and ' +
+  'attached); `vehicleId`; `laneKey` (`fromcity|tocity` from /fleet/filters) and `customerId` ' +
+  'narrow load figures only; lane, customer and due time come from the requisition or the load ' +
+  'posting. Fleet cost = running (maintenance + freight paid to transporters) + fixed (EMI or ' +
+  'lease, insurance, National Permit, driver salaries); per-km figures leave transporter ' +
+  'freight out. Every response carries `unavailable` (field → why it reads 0 or is ' +
+  'approximated: no GPS, fuel, tolls, trip expenses, e-challans, rental, truck price, state ' +
+  'permit fee yet) and ' +
   '`emptyBecause` (the filter that emptied the slice, or null). Every tab except operations ' +
   'and compliance needs maintenance.costs.view.';
 

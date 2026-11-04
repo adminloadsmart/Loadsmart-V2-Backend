@@ -1,7 +1,11 @@
 import { EntityManager } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
-import { DateFilter } from '../../shared/utils/date-filter';
 import { OrganizationRepository } from './organization.repository';
+import {
+  OrganizationListFilters,
+  OrganizationQueueSummary,
+  ReferralSignupCounts,
+} from './organization.types';
 import {
   OrganizationEntity,
   OrganizationJourneyStage,
@@ -41,22 +45,14 @@ export class OrganizationService {
     return this.organizationRepository.searchActiveByNameOrPhone(query, limit);
   }
 
-  async listOrganizations(filters: {
-    status?: OrganizationStatus;
-    journeyStage?: OrganizationJourneyStage;
-    search?: string;
-    filter?: DateFilter;
-    from?: string;
-    to?: string;
-    page: number;
-    limit: number;
-    // Role-scoping for online_kyc_desk/offline_kyc_desk — see AdminService.listOrganizations,
-    // which is the only caller that ever sets these (platform_admin's calls leave them undefined).
-    onlineKycVerifierId?: string;
-    physicalKycAgentId?: string;
-    onlineKycCompleted?: boolean;
-  }): Promise<{ items: OrganizationEntity[]; total: number }> {
+  async listOrganizations(
+    filters: OrganizationListFilters & { page: number; limit: number },
+  ): Promise<{ items: OrganizationEntity[]; total: number }> {
     return this.organizationRepository.list(filters);
+  }
+
+  summarizeOrganizations(filters: OrganizationListFilters): Promise<OrganizationQueueSummary> {
+    return this.organizationRepository.summarize(filters);
   }
 
   async updateOrganization(
@@ -100,8 +96,10 @@ export class OrganizationService {
     return this.organizationRepository.countByReferralCodeId(referralCodeId);
   }
 
-  countActiveByReferralCodeOwnerIds(ownerUserIds: string[]): Promise<Map<string, number>> {
-    return this.organizationRepository.countActiveByReferralCodeOwnerIds(ownerUserIds);
+  countSignupsByReferralCodeOwnerIds(
+    ownerUserIds: string[],
+  ): Promise<Map<string, ReferralSignupCounts>> {
+    return this.organizationRepository.countSignupsByReferralCodeOwnerIds(ownerUserIds);
   }
 
   countPendingKycAssignmentsByStaffIds(staffIds: string[]): Promise<Map<string, number>> {

@@ -1,5 +1,12 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
-import { REFERRAL_CODE_REGEX } from './organization.constants';
+import {
+  REFERRAL_CODE_FALLBACK_PREFIX,
+  REFERRAL_CODE_FALLBACK_TERRITORY,
+  REFERRAL_CODE_GENERATION_ATTEMPTS,
+  REFERRAL_CODE_PREFIX_MAX_LENGTH,
+  REFERRAL_CODE_REGEX,
+} from './organization.constants';
+import { ReferralCodeOwner, ReferralCodeSummary } from './organization.types';
 import { ReferralCodeEntity } from './entities/referral-code.entity';
 import { ReferralCodeRepository } from './referral-code.repository';
 
@@ -31,8 +38,38 @@ export interface CreateReferralCodeData {
   createdBy: string | null;
 }
 
+// Letters only from a name, so "D'Souza" or "Ravi Kumar" still give a valid code prefix.
+const codePrefixOf = (fullName: string): string =>
+  (fullName.trim().split(/\s+/)[0] ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .slice(0, REFERRAL_CODE_PREFIX_MAX_LENGTH) || REFERRAL_CODE_FALLBACK_PREFIX;
+
 export class ReferralCodeService {
   constructor(private readonly referralCodeRepository: ReferralCodeRepository) {}
+
+  /** The code a salesperson gets at hire — FIRSTNAME-<territory initial><2 digits>, e.g.
+   *  "RAVI-M42", the same pattern the admin's Generate drawer suggests. Retries a few random
+   *  suffixes if one is taken. */
+  async createForSalesperson(
+    owner: ReferralCodeOwner,
+    createdBy: string | null,
+  ): Promise<ReferralCodeEntity> {
+    const prefix = codePrefixOf(owner.fullName ?? '');
+    const territory =
+      (owner.coverage ?? '').toUpperCase().replace(/[^A-Z]/g, '')[0] ??
+      REFERRAL_CODE_FALLBACK_TERRITORY;
+    for (let attempt = 0; attempt < REFERRAL_CODE_GENERATION_ATTEMPTS; attempt += 1) {
+      const code = `${prefix}-${territory}${10 + Math.floor(Math.random() * 90)}`;
+      if (await this.referralCodeRepository.findByCode(code)) continue;
+      return this.createCode({ code, ownerUserId: owner.id, validUntil: null, createdBy });
+    }
+    throw new ConflictError(`Could not find a free referral code for ${prefix}`);
+  }
+
+  summarize(): Promise<ReferralCodeSummary> {
+    return this.referralCodeRepository.summarize(new Date().toISOString().slice(0, 10));
+  }
 
   async createCode(input: CreateReferralCodeData): Promise<ReferralCodeEntity> {
     try {

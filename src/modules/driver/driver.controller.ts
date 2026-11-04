@@ -183,6 +183,7 @@ export class DriverController {
       requireTenantId(req),
       req.user!.id,
       req.params.driverId,
+      { sendAppInvite: req.body.sendAppInvite },
     );
     respond(res, driver);
   };
@@ -273,6 +274,7 @@ export class DriverController {
       requireTenantId(req),
       req.user!.id,
       req.params.invitationId,
+      { sendAppInvite: req.body.sendAppInvite },
     );
     respond(res, invitation);
   };

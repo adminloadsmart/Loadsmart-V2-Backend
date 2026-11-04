@@ -18,8 +18,20 @@ const ownFleetLine = z
     sourceType: z.literal('own_fleet'),
     vehicleIds: z.array(uuid).min(1), // V-10
     cargoMix: z.array(cargoMixLine).min(1),
+    // A driver picked in place of a vehicle's linked primary driver.
+    drivers: z.array(z.object({ vehicleId: uuid, driverId: uuid }).strict()).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (line) => (line.drivers ?? []).every((entry) => line.vehicleIds.includes(entry.vehicleId)),
+    { message: "Each driver must be for one of this line's vehicleIds", path: ['drivers'] },
+  )
+  .refine(
+    (line) =>
+      new Set((line.drivers ?? []).map((entry) => entry.vehicleId)).size ===
+      (line.drivers ?? []).length,
+    { message: 'Pick at most one driver per vehicle', path: ['drivers'] },
+  );
 
 const marketLine = z
   .object({

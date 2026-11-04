@@ -1,10 +1,17 @@
 import { cert, getApps, initializeApp, App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { env } from '../../../config/env';
+import { DRIVER_MESSAGE_PARAMS_KEY } from '../notifications.constants';
 import { NotificationEntity } from '../notifications.entity';
 import { NotificationChannel } from './notification-channel.interface';
 
 let app: App | null = null;
+
+/** Data keys FCM rejects outright ("Invalid data payload key") — e.g. load.assigned's `from`
+ *  (pickup city). Left out of the push; the stored notification keeps them. */
+const FCM_RESERVED_DATA_KEYS = new Set(['from', 'message_type', 'collapse_key']);
+const isFcmReservedDataKey = (key: string): boolean =>
+  FCM_RESERVED_DATA_KEYS.has(key) || key.startsWith('google') || key.startsWith('gcm');
 
 function getFirebaseApp(): App {
   if (app) return app;
@@ -42,12 +49,17 @@ export class PushChannel implements NotificationChannel {
       // `severity` rides alongside metadata so the app can style/prioritize the push the same way
       // as the in-app list — an extra data key, ignored by clients that don't read it.
       data: {
+        // messageParams only rebuilds the text in another language — not for the app.
         ...(notification.metadata
           ? Object.fromEntries(
-              Object.entries(notification.metadata).map(([key, value]) => [key, String(value)]),
+              Object.entries(notification.metadata)
+                .filter(([key]) => key !== DRIVER_MESSAGE_PARAMS_KEY && !isFcmReservedDataKey(key))
+                .map(([key, value]) => [key, String(value)]),
             )
           : {}),
-        severity: notification.severity,
+        // FCM rejects a non-string data value, so an unset severity (DriverPushNotifier's ad hoc
+        // pushes carry none) is left out rather than sent as undefined.
+        ...(notification.severity && { severity: notification.severity }),
       },
     });
   }

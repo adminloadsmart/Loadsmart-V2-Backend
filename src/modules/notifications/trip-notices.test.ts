@@ -147,8 +147,35 @@ describe('LS_N_0028 / 0029 / 0030 content', () => {
       first_name: 'Priya',
       vehicle_no: 'HR55QL8450',
       hours_since: '4',
+      time_since: '4 hours',
       last_location: 'Dewas bypass',
     });
+  });
+
+  it('signal lost: a long silence reads in days, months or years', () => {
+    const timeSinceAfter = (hoursSince: number) =>
+      NOTIFICATION_CATALOG['load.tracking_signal_lost'].buildContent(
+        { ...load, step: 'day_1', lastSeenAt: AT, lastLat: null, lastLng: null, hoursSince },
+        recipient,
+      ).metadata?.time_since;
+    expect(timeSinceAfter(1)).toBe('1 hour');
+    expect(timeSinceAfter(23)).toBe('23 hours');
+    expect(timeSinceAfter(24)).toBe('1 day');
+    expect(timeSinceAfter(29 * 24 + 23)).toBe('29 days');
+    expect(timeSinceAfter(45 * 24)).toBe('1 month');
+    expect(timeSinceAfter(1428)).toBe('1 month');
+    expect(timeSinceAfter(200 * 24)).toBe('6 months');
+    expect(timeSinceAfter(800 * 24)).toBe('2 years');
+  });
+
+  it('signal lost: {{4}} is a map link without an address, and reads naturally with no GPS', () => {
+    const lastLocationOf = (lastLat: number | null, lastLng: number | null) =>
+      NOTIFICATION_CATALOG['load.tracking_signal_lost'].buildContent(
+        { ...load, step: '4h', lastSeenAt: AT, lastLat, lastLng, hoursSince: 4 },
+        recipient,
+      ).metadata?.last_location;
+    expect(lastLocationOf(22.7, 75.8)).toBe('https://maps.google.com/?q=22.70000,75.80000');
+    expect(lastLocationOf(null, null)).toBe('the start of this trip (no GPS received since)');
   });
 
   it('delivery late: personalised copy, reason and SMS/WhatsApp variables', () => {

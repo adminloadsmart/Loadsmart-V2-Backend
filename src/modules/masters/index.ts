@@ -153,6 +153,7 @@ export function createMastersModule(
   const productService = new ProductService(
     productRepository,
     deps.auditService,
+    masterUsageRepository,
     deps.masterApprovalNotifier,
   );
   const productController = new ProductController(productService);

@@ -2,6 +2,7 @@ import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { Paginated } from '../../../shared/utils/pagination';
 import { FitVerdict, FreightMode } from './loads.types';
 import { OverrideInput } from './override.interface';
+import { DriverUnavailableReason } from '../load-posting/utils/driver-availability';
 
 /** What one truck of this line carries — the "cargo mix" (Plan Dispatch v2.0 R-08), identical
  *  across every load the line spawns. */
@@ -17,6 +18,9 @@ export interface OwnFleetTruckLineInput {
   sourceType: 'own_fleet';
   vehicleIds: string[];
   cargoMix: CargoMixLineInput[];
+  /** A driver picked for a vehicle in place of its linked primary driver — must be idle, same
+   *  rule as Post a load. A vehicle not listed here gets its primary driver. */
+  drivers?: { vehicleId: string; driverId: string }[];
 }
 
 export interface MarketTruckLineInput {
@@ -73,6 +77,15 @@ export interface AvailableVehicleRow extends VehicleEntity {
   unavailableReason: 'on_active_load' | 'already_in_requisition' | null;
   /** Expired vehicle papers (LS_N_0017) — the vehicle can still be picked, with this warning. */
   complianceWarnings: string[];
+  /** The vehicle's active primary driver and whether they can take a trip now (null reason =
+   *  idle) — the picker asks for another driver when they can't. Null when none is linked. */
+  primaryDriver: {
+    id: string;
+    name: string;
+    phone: string | null;
+    available: boolean;
+    unavailableReason: DriverUnavailableReason | null;
+  } | null;
 }
 
 export type ListAvailableVehiclesResult = Paginated<AvailableVehicleRow>;

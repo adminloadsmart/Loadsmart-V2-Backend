@@ -5,6 +5,7 @@ import type { LoadAlertRepository } from './load-alert.repository';
 import { createLoadAlertResolvers } from './load-alerts';
 import type { LoadAlertSnapshot, TrackingEvent } from './notifications.interface';
 import { createTrackingEventHandlers } from './tracking-events.consumer';
+import { createLocationDescriber } from './utils/location';
 import { NotificationTriggers, HaltGeofence, HaltGeofences } from './notifications.interface';
 
 const HOUR = 60 * 60 * 1000;
@@ -69,14 +70,22 @@ function setup(
   } as unknown as LoadAlertRepository;
   const tracking: TrackingClient = {
     getTripEta: vi.fn(),
+    listRunningLateTripIds: vi.fn(),
     getTrip: vi.fn(async () => ({
       eta: overrides.eta === undefined ? lateEta : overrides.eta,
       position: overrides.position === undefined ? freshPosition : overrides.position,
     })),
   };
-  const resolvers = createLoadAlertResolvers(repository, vi.fn(), tracking, {
-    list: async () => overrides.geofences ?? [],
-  } satisfies HaltGeofences);
+  const resolvers = createLoadAlertResolvers(
+    repository,
+    vi.fn(),
+    tracking,
+    { list: async () => overrides.geofences ?? [] } satisfies HaltGeofences,
+    createLocationDescriber({
+      addressAt: async () => null,
+      cache: { get: async () => null, set: async () => 'OK' },
+    }),
+  );
   return (ctx = context) => resolvers.vehicleHalted('tenant-1', ctx);
 }
 

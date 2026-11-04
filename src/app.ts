@@ -29,6 +29,8 @@ export function createApp({
   driverRouters,
 }: Container): Express {
   const app = express();
+  // Before any middleware reads req.ip (the per-IP rate limits, the VAHAN import lanes).
+  app.set('trust proxy', env.trustProxy);
 
   app.use(helmet());
   app.use(
