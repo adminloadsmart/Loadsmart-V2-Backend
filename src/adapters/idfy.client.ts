@@ -3,7 +3,9 @@ import { env } from '../config/env';
 /** A task as returned by `GET /v3/tasks?request_id=...` — only the fields callers read. */
 export interface IdfyTask {
   status: string; // 'in_progress' | 'completed' | 'failed' | ...
-  result?: { source_output?: Record<string, unknown> };
+  // Most verify_with_source tasks nest their output under `source_output`; validate_bank_account
+  // returns the fields (account_exists, name_at_bank, status, ...) directly on `result`.
+  result?: { source_output?: Record<string, unknown> } & Record<string, unknown>;
 }
 
 /** Result of an IDfy bank-account check. `verificationStatus` uses the driver_bank_details
@@ -116,7 +118,7 @@ export class IdfyClient {
       for (let attempt = 0; attempt < BANK_POLL_MAX_ATTEMPTS; attempt++) {
         const task = await this.getTask(requestId);
         if (task && !IN_PROGRESS_STATUSES.has(task.status)) {
-          const output = task.result?.source_output;
+          const output = task.result?.source_output ?? task.result;
           if (task.status !== 'completed' || !output) {
             // Failed task (e.g. credits exhausted) is not a verdict on the account.
             return { verificationStatus: 'pending', sourceReference: requestId };
@@ -132,7 +134,7 @@ export class IdfyClient {
         await new Promise((resolve) => setTimeout(resolve, BANK_POLL_INTERVAL_MS));
       }
       return { verificationStatus: 'pending', sourceReference: requestId };
-    } catch {
+    } catch (error) {
       // Network error / non-2xx — no verdict, leave for manual review.
       return { verificationStatus: 'pending' };
     }
