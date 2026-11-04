@@ -31,6 +31,24 @@ describe('IdfyClient.verifyBankAccount', () => {
     });
   });
 
+  it('reads the flat result shape validate_bank_account actually returns', async () => {
+    const { client } = build([
+      {
+        status: 'completed',
+        result: {
+          account_exists: 'YES',
+          status: 'id_found',
+          name_at_bank: 'Mr. ABHIMANYU  .',
+          message: 'Bank Account Verified',
+        },
+      },
+    ]);
+    expect(await client.verifyBankAccount('1', 'X')).toMatchObject({
+      verificationStatus: 'verified',
+      nameAtBank: 'Mr. ABHIMANYU  .',
+    });
+  });
+
   it('returns rejected when the account does not exist', async () => {
     const { client } = build([
       { status: 'completed', result: { source_output: { account_exists: 'NO' } } },

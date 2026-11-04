@@ -128,6 +128,22 @@ function toHomeNextTrip(job: TripListRow, organizationName: string | null): Driv
   };
 }
 
+/** Driver-facing bank details: live rows only, without IDfy's raw payload and audit columns. */
+function toBankDetailsView(rows: DriverEntity['bankDetails'] | undefined) {
+  return (rows ?? [])
+    .filter((row) => !row.deletedAt)
+    .map((row) => ({
+      id: row.id,
+      accountNumber: row.accountNumber,
+      ifsc: row.ifsc,
+      accountHolderName: row.accountHolderName,
+      upiId: row.upiId,
+      verificationStatus: row.verificationStatus,
+      verifiedAt: row.verifiedAt,
+      nameAtBank: row.nameAtBank,
+    }));
+}
+
 /**
  * The service layer behind driver-portal.controller.ts — every "tenant or not" branch and every
  * cross-service aggregation lives here, not in the controller, which should only extract request
@@ -269,6 +285,7 @@ export class DriverPortalService {
     if (tenantIds.length === 0) {
       const driver = await this.fetchGlobalProfile(driverId);
       return Object.assign(driver, {
+        bankDetails: toBankDetailsView(driver.bankDetails),
         profilePhotoUrl: await this.profilePhotoUrlOf(driver.profilePhotoKey),
       });
     }
@@ -277,6 +294,10 @@ export class DriverPortalService {
     );
     return {
       ...views[0],
+      // Trimmed view of the entity rows — the response type still names the entity.
+      bankDetails: toBankDetailsView(
+        views[0].bankDetails,
+      ) as unknown as DriverEntity['bankDetails'],
       fleets: views.flatMap((view) => view.fleets),
       profilePhotoUrl: await this.profilePhotoUrlOf(views[0].profilePhotoKey),
     };

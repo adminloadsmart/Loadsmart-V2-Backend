@@ -172,6 +172,17 @@ export class StorageService {
     return { file, downloadUrl };
   }
 
+  // Signs a key straight against S3, with no storage.files lookup — for keys the caller read from
+  // its own already-authorized record (e.g. a load's driver's driver_documents.file_url), some of
+  // which have no files row to look up. Never pass a client-supplied key here.
+  async getPresignedDownloadUrlForKey(key: string): Promise<string> {
+    try {
+      return await this.s3.getPresignedDownloadUrl(key, DOWNLOAD_URL_EXPIRY_SECONDS);
+    } catch (error) {
+      rethrow(error, 'Failed to create download URL');
+    }
+  }
+
   // The one method with two lookup paths: a tenant-scoped caller is always scoped to their own
   // tenant in SQL; any platform-scope caller (PLATFORM_SCOPE_ROLES — platform_admin, sales,
   // online/offline_kyc_desk, load_console), none of which have a tenant of their own, is allowed

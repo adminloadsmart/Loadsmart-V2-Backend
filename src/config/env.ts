@@ -19,6 +19,19 @@ const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+// Express 'trust proxy': how req.ip is read behind a load balancer. Unset → false (req.ip is the
+// socket peer — right for local dev, but behind a proxy every client looks like the proxy and
+// all per-IP limits collapse into one). A number is a hop count; any other value (e.g.
+// "loopback", a CIDR list) is passed to Express as-is.
+const trustProxyRaw = process.env.TRUST_PROXY?.trim();
+const trustProxy: boolean | number | string =
+  !trustProxyRaw || trustProxyRaw === 'false'
+    ? false
+    : trustProxyRaw === 'true'
+      ? true
+      : /^\d+$/.test(trustProxyRaw)
+        ? Number(trustProxyRaw)
+        : trustProxyRaw;
 const MIN_JWT_SECRET_LENGTH = 32;
 if (jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
   const message = `JWT_SECRET is only ${jwtSecret.length} chars — should be at least ${MIN_JWT_SECRET_LENGTH} for a symmetric HMAC secret`;
@@ -33,6 +46,7 @@ export const env = {
   nodeEnv,
   port: Number(process.env.PORT ?? 4000),
   corsOrigins,
+  trustProxy,
   databaseUrl: required('DATABASE_URL'),
   jwtSecret,
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
@@ -136,9 +150,12 @@ export const env = {
   // IDfy's GST lookup allows one call per window, account-wide: the 'gst-verification' worker's
   // limiter and the drawer's Verify button share this window (modules/masters/gst/gst-rate-gate.ts).
   gstVerificationRateLimitMs: numberWithDefault('GST_VERIFICATION_RATE_LIMIT_MS', 120_000),
-  // Background VAHAN checks of bulk-imported trucks ('vahan-verification' worker limiter): one
-  // ULIP lookup per window, across every API instance.
+  // Background VAHAN checks of bulk-imported trucks ('vahan-verification' worker, VahanIpRateGate):
+  // one ULIP lookup per window per client IP, across every API instance.
   vahanVerificationRateLimitMs: numberWithDefault('VAHAN_VERIFICATION_RATE_LIMIT_MS', 120_000),
+  // Jobs the 'vahan-verification' worker runs at once — roughly how many IP lanes progress in
+  // parallel; a job whose lane is busy is re-delayed rather than holding a slot.
+  vahanVerificationConcurrency: numberWithDefault('VAHAN_VERIFICATION_CONCURRENCY', 10),
   // ULIP (DPIIT) VAHAN vehicle lookup (UlipClient). Optional: POST /vehicles/verify-vahan fails
   // loudly per-request when the credentials are unset instead of crashing boot. ULIP only accepts
   // whitelisted server IPs, so this only works from a deployed environment.

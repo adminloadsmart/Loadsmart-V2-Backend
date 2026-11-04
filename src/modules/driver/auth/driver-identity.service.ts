@@ -596,11 +596,13 @@ export class DriverIdentityService {
 
       await this.auditService.log({
         tenantId: relation.tenantId,
-        userId: driverId,
+        // Drivers aren't rows in `users`, so audit_logs.user_id's FK would reject driverId;
+        // record the driver in the payload instead (same as load-stage.service.ts).
+        userId: null,
         action: input.accept ? 'DRIVER_LINK_ACCEPTED' : 'DRIVER_LINK_DECLINED',
         resourceType: 'driver',
         oldData: { id: relationId, status: 'pending_driver_review' },
-        newData: { id: relationId, status: relation.status },
+        newData: { id: relationId, status: relation.status, driverId },
       });
 
       if (input.accept && driver) {

@@ -117,10 +117,14 @@ export interface LoadDocumentKeys {
   podBackFileKey: string | null;
   weighingSlipFileKey: string | null;
   loadingPhotoFileKeys: string[] | null;
+  /** The assigned driver's driving licence photos (masters.driver_documents). */
+  dlFrontKey: string | null;
+  dlBackKey: string | null;
 }
 
 export interface LoadDetailView {
-  load: LoadEntity;
+  /** Document fields as download URLs, plus the assigned driver's licence photo URLs. */
+  load: LoadEntity & { dlFrontKey: string | null; dlBackKey: string | null };
   ownerPhoneNumber: string | null;
   dispatchPhoneNumber: string | null;
   /** The fleet owner (org admin) and dispatch contact behind this load. */
@@ -1476,7 +1480,7 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy] =
+      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy, licenceKeys] =
         await Promise.all([
           this.loadActivityService.listByLoad(tenantId, loadId),
           this.loadPaymentRepository.listByLoad(tenantId, loadId),
@@ -1484,11 +1488,22 @@ export class LoadService {
           this.authService.getFleetOwner(tenantId),
           this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
           this.loadActivityService.assignedByLoad([load]),
+          load.driverId
+            ? this.repository.findDriverLicenceKeys(load.driverId)
+            : { dlFrontKey: null, dlBackKey: null },
         ]);
       const incident = buildIncident(openIssue);
+      // Licence keys come from the load's own driver, so they're signed directly — self-registered
+      // and imported drivers' photos can have no tenant-scoped storage.files row for getByKey.
+      const signLicenceKey = async (key: string | null) =>
+        key ? this.storageService.getPresignedDownloadUrlForKey(key) : null;
+      const [dlFrontUrl, dlBackUrl] = await Promise.all([
+        signLicenceKey(licenceKeys.dlFrontKey),
+        signLicenceKey(licenceKeys.dlBackKey),
+      ]);
 
       return {
-        load: loadWithUrls,
+        load: { ...loadWithUrls, dlFrontKey: dlFrontUrl, dlBackKey: dlBackUrl },
         ownerPhoneNumber: fleetOwner.owner?.phoneNumber ?? null,
         dispatchPhoneNumber: fleetOwner.dispatch?.phoneNumber ?? null,
         fleetOwner,
@@ -1501,6 +1516,7 @@ export class LoadService {
           podBackFileKey: load.podBackFileKey,
           weighingSlipFileKey: load.weighingSlipFileKey,
           loadingPhotoFileKeys: load.loadingPhotoFileKeys,
+          ...licenceKeys,
         },
         timeline,
         payments,
