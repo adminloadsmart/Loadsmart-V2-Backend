@@ -129,3 +129,32 @@ export interface LoadsSummary {
    *  fleet data from one call — see FleetActivityMetrics. */
   fleetActivity: FleetActivityMetrics;
 }
+
+/** Matches the Home screen's "Where Every Load Is" card — one of its 4 funnel-bar colours. */
+export type LoadPipelineTone = 'neutral' | 'brand' | 'teal' | 'warning';
+
+/** One segment of the funnel bar — every open (non-closed) load falls into exactly one of the 4
+ *  segments, so counts always sum to kpis' "Loads Open Right Now". See
+ *  DashboardsService.PIPELINE_SEGMENT_DEFS for which LoadStatus values back each segment. */
+export interface LoadPipelineSegment {
+  id: string;
+  label: string;
+  count: number;
+  /** Rounded share of `count` out of the total open-load count, 0 when there are no open loads.
+   *  Independently rounded per segment, so the 4 values are not guaranteed to sum to exactly 100. */
+  percent: number;
+  tone: LoadPipelineTone;
+}
+
+export interface LoadPipelineKpi {
+  id: string;
+  label: string;
+  value: number;
+}
+
+/** Live snapshot (not scoped to any date range) backing the Home screen's "Where Every Load Is"
+ *  card — see DashboardsService.getLoadPipeline. */
+export interface LoadPipelineSummary {
+  segments: LoadPipelineSegment[];
+  kpis: LoadPipelineKpi[];
+}

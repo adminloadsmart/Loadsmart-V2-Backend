@@ -69,4 +69,23 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
       200: { description: 'Pending approvals — { data: { items, total } }' },
     },
   });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/load-pipeline`,
+    tags: [TAGS.DASHBOARDS],
+    operationId: 'dashboards.getLoadPipeline',
+    ...authenticated(
+      'Home screen "Where Every Load Is" card: a live (not date-scoped) snapshot of every open ' +
+        '(non-closed) load for the tenant, split into 4 funnel segments (Being sourced, Truck ' +
+        'assigned, On the road, Delivered/POD or money open) plus 4 KPIs (loads open right now, ' +
+        'customer orders still short of trucks, loads open on the market fleet, and total tonnes ' +
+        'across every open load). Segment counts always sum to the "loads open right now" KPI; ' +
+        'segment percentages are independently rounded, so the 4 values are not guaranteed to sum ' +
+        'to exactly 100.',
+    ),
+    responses: {
+      200: { description: 'Load pipeline — { data: { segments, kpis } }' },
+    },
+  });
 }

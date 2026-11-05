@@ -30,4 +30,9 @@ export class DashboardsController {
     );
     respond(res, result);
   };
+
+  getLoadPipeline = async (req: Request, res: Response) => {
+    const summary = await this.dashboardsService.getLoadPipeline(requireTenantId(req));
+    respond(res, summary);
+  };
 }

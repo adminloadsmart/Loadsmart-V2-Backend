@@ -7,16 +7,64 @@ import { DriverService } from '../driver/driver.service';
 import { CustomerService } from '../customers/customer.service';
 import { DashboardsRepository } from './dashboards.repository';
 import { DEFAULT_RANGE_DAYS } from './dashboards.constants';
+import { LoadStatus } from '../loads/utils/loads.types';
 import {
   FleetActivityDateRange,
   FleetActivityMetrics,
   FleetActivityRangeInput,
   FleetActivitySummary,
   ListPendingApprovalsResult,
+  LoadPipelineKpi,
+  LoadPipelineSegment,
+  LoadPipelineSummary,
+  LoadPipelineTone,
   LoadsSummary,
   LoadsSummaryRangeInput,
   PendingApprovalItem,
 } from './utils/dashboards.interface';
+
+/** The funnel's 4 buckets, in display order — together an exhaustive, non-overlapping partition
+ *  of every open (non-closed) LoadStatus (loads/utils/loads.types.ts's OPEN_LOAD_STATUSES), so
+ *  segment counts always sum to the "Loads Open Right Now" KPI. "On the Road" is deliberately
+ *  everything between Truck assigned and Delivered — Truck assigned itself gets its own segment. */
+const PIPELINE_SEGMENT_DEFS: {
+  id: string;
+  label: string;
+  tone: LoadPipelineTone;
+  statuses: readonly LoadStatus[];
+}[] = [
+  {
+    id: 'being-sourced',
+    label: 'Being Sourced',
+    tone: 'neutral',
+    statuses: ['created', 'bids_received'],
+  },
+  { id: 'truck-assigned', label: 'Truck Assigned', tone: 'brand', statuses: ['truck_assigned'] },
+  {
+    id: 'on-the-road',
+    label: 'On the Road',
+    tone: 'teal',
+    statuses: [
+      'in_transit_loading',
+      'reached_loading',
+      'loaded',
+      'in_transit_unloading',
+      'reached_unloading',
+    ],
+  },
+  {
+    id: 'delivered-pod-or-money-open',
+    label: 'Delivered, POD or Money Open',
+    tone: 'warning',
+    statuses: [
+      'delivered_ok',
+      'delivered_with_issues',
+      'original_pod_received',
+      'invoice_generated',
+      'payment',
+    ],
+  },
+];
 
 /** Sibling default to DEFAULT_RANGE_DAYS above, expressed as a DateFilter preset for the
  *  loads-summary endpoint (which uses the shared date-filter.ts range presets rather than plain
@@ -164,6 +212,51 @@ export class DashboardsService {
       return { items, total: items.length };
     } catch (error) {
       rethrow(error, 'Failed to list pending approvals');
+    }
+  }
+
+  /** Home screen's "Where Every Load Is" card: a live (not date-scoped) funnel of every open
+   *  (non-closed) load across 4 stage buckets, plus 4 headline KPIs. */
+  async getLoadPipeline(tenantId: string): Promise<LoadPipelineSummary> {
+    try {
+      const [statusRows, openRequisitions] = await Promise.all([
+        this.dashboardsRepository.getOpenLoadsByStatus(tenantId),
+        this.dashboardsRepository.countOpenRequisitions(tenantId),
+      ]);
+
+      const totalOpen = statusRows.reduce((sum, row) => sum + row.count, 0);
+      const tonnesInPlay = statusRows.reduce((sum, row) => sum + row.tonnes, 0);
+      const openOnMarketFleet = statusRows
+        .filter((row) => row.sourceType === 'market')
+        .reduce((sum, row) => sum + row.count, 0);
+
+      const segments: LoadPipelineSegment[] = PIPELINE_SEGMENT_DEFS.map((def) => {
+        const count = statusRows
+          .filter((row) => (def.statuses as readonly string[]).includes(row.status))
+          .reduce((sum, row) => sum + row.count, 0);
+        return {
+          id: def.id,
+          label: def.label,
+          count,
+          percent: totalOpen === 0 ? 0 : Math.round((count / totalOpen) * 100),
+          tone: def.tone,
+        };
+      });
+
+      const kpis: LoadPipelineKpi[] = [
+        { id: 'loads-open', label: 'Loads Open Right Now', value: totalOpen },
+        {
+          id: 'orders-short-of-trucks',
+          label: 'Customer Orders Short of Trucks',
+          value: openRequisitions,
+        },
+        { id: 'open-on-market-fleet', label: 'Open on Market Fleet', value: openOnMarketFleet },
+        { id: 'tonnes-in-play', label: 'Tonnes in Play', value: tonnesInPlay },
+      ];
+
+      return { segments, kpis };
+    } catch (error) {
+      rethrow(error, 'Failed to fetch load pipeline');
     }
   }
 

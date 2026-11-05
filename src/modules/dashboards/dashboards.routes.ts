@@ -37,5 +37,9 @@ export function createDashboardsRoutes(controller: DashboardsController): Router
     asyncHandler(controller.listPendingApprovals),
   );
 
+  // Home screen "Where Every Load Is" card — live snapshot, no date range, no canWrite gate,
+  // same reasoning as fleet-activity/loads-summary above.
+  router.get('/load-pipeline', asyncHandler(controller.getLoadPipeline));
+
   return router;
 }

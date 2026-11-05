@@ -1,12 +1,23 @@
 import { DataSource, SelectQueryBuilder } from 'typeorm';
 import { DateRange } from '../../shared/utils/date-filter';
 import { LoadEntity } from '../loads/entities/load.entity';
+import { RequisitionEntity } from '../loads/entities/requisition.entity';
 import {
   ACTIVE_LOAD_STATUSES,
   COMPLETED_LOAD_STATUSES,
+  LoadSourceType,
   LoadStatus,
 } from '../loads/utils/loads.types';
 import { LoadsSummaryDailyRow, LoadsSummaryTripCounts } from './utils/dashboards.interface';
+
+/** One (status, sourceType) bucket of open (non-closed) loads — DashboardsRepository.getOpenLoadsByStatus's
+ *  raw row, reduced into the funnel segments/KPIs by DashboardsService.getLoadPipeline. */
+export interface OpenLoadStatusRow {
+  status: LoadStatus;
+  sourceType: LoadSourceType;
+  count: number;
+  tonnes: number;
+}
 
 // Groups load.created_at into its IST (Asia/Kolkata) calendar day, not the UTC day. `AT TIME
 // ZONE 'Asia/Kolkata'` on a timestamptz produces a plain (zone-less) timestamp already expressed
@@ -36,9 +47,11 @@ function applyTenantAndRange(
  */
 export class DashboardsRepository {
   private readonly loads;
+  private readonly requisitions;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
+    this.requisitions = dataSource.getRepository(RequisitionEntity);
   }
 
   /** Home screen trip counts — {all, active, completed} for every load in `range` regardless of
@@ -114,5 +127,41 @@ export class DashboardsRepository {
       .andWhere('load.status IN (:...activeStatuses)', { activeStatuses })
       .andWhere('load.vehicle_id IS NOT NULL')
       .getCount();
+  }
+
+  /** Live (not date-scoped) count + tonnage of every open (non-closed) load, one row per
+   *  (status, sourceType) pair — backs the Home screen's "Where Every Load Is" funnel card.
+   *  Grouping by sourceType too, rather than just status, lets getLoadPipeline derive the
+   *  "Open on Market Fleet" KPI from the same query instead of a second round trip. */
+  async getOpenLoadsByStatus(tenantId: string): Promise<OpenLoadStatusRow[]> {
+    const rows = await this.loads
+      .createQueryBuilder('load')
+      .select('load.status', 'status')
+      .addSelect('load.source_type', 'sourceType')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(load.planned_capacity_tonnes), 0)', 'tonnes')
+      .where('load.tenant_id = :tenantId', { tenantId })
+      .andWhere("load.status != 'closed'")
+      .groupBy('load.status')
+      .addGroupBy('load.source_type')
+      .getRawMany<{
+        status: LoadStatus;
+        sourceType: LoadSourceType;
+        count: string;
+        tonnes: string;
+      }>();
+
+    return rows.map((row) => ({
+      status: row.status,
+      sourceType: row.sourceType,
+      count: Number(row.count),
+      tonnes: Number(row.tonnes),
+    }));
+  }
+
+  /** Requisitions still short of trucks — status 'open' means dispatchedTonnes < quantityTonnes
+   *  (anything fully covered flips to 'fully_dispatched' atomically in dispatch-planning.service.ts). */
+  async countOpenRequisitions(tenantId: string): Promise<number> {
+    return this.requisitions.count({ where: { tenantId, status: 'open' } });
   }
 }
