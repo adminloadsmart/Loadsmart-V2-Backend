@@ -123,7 +123,8 @@ export interface LoadDocumentKeys {
 }
 
 export interface LoadDetailView {
-  load: LoadEntity;
+  /** Document fields as download URLs, plus the assigned driver's licence photo URLs. */
+  load: LoadEntity & { dlFrontKey: string | null; dlBackKey: string | null };
   ownerPhoneNumber: string | null;
   dispatchPhoneNumber: string | null;
   /** The fleet owner (org admin) and dispatch contact behind this load. */
@@ -1492,9 +1493,17 @@ export class LoadService {
             : { dlFrontKey: null, dlBackKey: null },
         ]);
       const incident = buildIncident(openIssue);
+      // Licence keys come from the load's own driver, so they're signed directly — self-registered
+      // and imported drivers' photos can have no tenant-scoped storage.files row for getByKey.
+      const signLicenceKey = async (key: string | null) =>
+        key ? this.storageService.getPresignedDownloadUrlForKey(key) : null;
+      const [dlFrontUrl, dlBackUrl] = await Promise.all([
+        signLicenceKey(licenceKeys.dlFrontKey),
+        signLicenceKey(licenceKeys.dlBackKey),
+      ]);
 
       return {
-        load: loadWithUrls,
+        load: { ...loadWithUrls, dlFrontKey: dlFrontUrl, dlBackKey: dlBackUrl },
         ownerPhoneNumber: fleetOwner.owner?.phoneNumber ?? null,
         dispatchPhoneNumber: fleetOwner.dispatch?.phoneNumber ?? null,
         fleetOwner,
