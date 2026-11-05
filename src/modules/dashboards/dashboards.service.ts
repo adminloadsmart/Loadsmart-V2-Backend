@@ -6,16 +6,18 @@ import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { DriverService } from '../driver/driver.service';
 import { CustomerService } from '../customers/customer.service';
 import { DashboardsRepository } from './dashboards.repository';
-import { DEFAULT_RANGE_DAYS } from './dashboards.constants';
+import { DEFAULT_RANGE_DAYS, LOAD_PIPELINE_STAGES } from './dashboards.constants';
 import {
   FleetActivityDateRange,
   FleetActivityMetrics,
   FleetActivityRangeInput,
   FleetActivitySummary,
   ListPendingApprovalsResult,
+  LoadPipelineRaw,
   LoadsSummary,
   LoadsSummaryRangeInput,
   PendingApprovalItem,
+  WhereEveryLoadIs,
 } from './utils/dashboards.interface';
 
 /** Sibling default to DEFAULT_RANGE_DAYS above, expressed as a DateFilter preset for the
@@ -69,10 +71,11 @@ export class DashboardsService {
         throw new InternalError('Failed to resolve loads-summary date range', { filter, input });
       }
 
-      const [tripCounts, dailyRows, fleetActivity] = await Promise.all([
+      const [tripCounts, dailyRows, fleetActivity, pipeline] = await Promise.all([
         this.dashboardsRepository.getTripCounts(tenantId, range),
         this.dashboardsRepository.getDailyAggregates(tenantId, range),
         this.getFleetActivityMetrics(tenantId),
+        this.dashboardsRepository.getLoadPipeline(tenantId),
       ]);
 
       const days = enumerateIstDates(range);
@@ -105,10 +108,34 @@ export class DashboardsService {
         freightSpendPerDay,
         freightSpendTotal,
         fleetActivity,
+        whereEveryLoadIs: this.buildWhereEveryLoadIs(pipeline),
       };
     } catch (error) {
       rethrow(error, 'Failed to fetch loads summary');
     }
+  }
+
+  private buildWhereEveryLoadIs(pipeline: LoadPipelineRaw): WhereEveryLoadIs {
+    const stages = LOAD_PIPELINE_STAGES.map((stage) => ({
+      key: stage.key,
+      label: stage.label,
+      count: stage.statuses.reduce(
+        (sum, status) => sum + (pipeline.countsByStatus[status] ?? 0),
+        0,
+      ),
+      percent: 0,
+    }));
+    const openLoads = stages.reduce((sum, stage) => sum + stage.count, 0);
+    for (const stage of stages) {
+      stage.percent = openLoads === 0 ? 0 : Math.round((stage.count / openLoads) * 100);
+    }
+    return {
+      stages,
+      openLoads,
+      customerOrdersShortOfTrucks: pipeline.customerOrdersShortOfTrucks,
+      openOnMarketFleet: pipeline.openOnMarketFleet,
+      tonnesInPlay: Math.round(pipeline.tonnesInPlay * 100) / 100,
+    };
   }
 
   /** Settings → Approvals — every pending customer/vehicle/driver for the tenant, in one list. */
