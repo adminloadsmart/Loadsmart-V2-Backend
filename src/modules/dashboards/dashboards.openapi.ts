@@ -45,7 +45,11 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
         'actually scoped by date). `filter` defaults to "last15days" when omitted; "custom" ' +
         'requires both from and to. All scoping and day-bucketing use load.created_at and IST ' +
         '(Asia/Kolkata) calendar-day boundaries, and include every load in range regardless of ' +
-        'status.',
+        'status. whereEveryLoadIs is a live (not date-scoped) Home card: every non-closed load ' +
+        'bucketed into being_sourced / truck_assigned / on_the_road / delivered_or_money_open ' +
+        '(count + percent of open loads), plus openLoads, customerOrdersShortOfTrucks (open ' +
+        'requisitions with dispatched < ordered tonnes), openOnMarketFleet (open market loads) ' +
+        'and tonnesInPlay (planned tonnes of open loads).',
     ),
     request: { query: dashboardsValidators.getLoadsSummary.shape.query },
     responses: {
