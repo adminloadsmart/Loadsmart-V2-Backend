@@ -162,6 +162,9 @@ export class LoadPostingRepository {
       where: {
         tenantId,
         status: 'active',
+        // Deleting a driver only stamps the relation's deleted_at (a plain column, not a
+        // @DeleteDateColumn), so it has to be filtered here or deleted drivers stay listed.
+        deletedAt: IsNull(),
         driver: search
           ? { deletedAt: IsNull(), fullName: contains(search) }
           : { deletedAt: IsNull() },
