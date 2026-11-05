@@ -6,7 +6,7 @@ export const DRIVER_UNAVAILABLE_REASONS = [
   'medically_unfit',
   'inactive',
   'on_trip',
-  'app_not_installed',
+  // 'app_not_installed',
 ] as const;
 export type DriverUnavailableReason = (typeof DRIVER_UNAVAILABLE_REASONS)[number];
 
@@ -28,6 +28,6 @@ export function driverUnavailableReason(
   if (status === 'medically_unfit') return 'medically_unfit';
   if (status === 'inactive') return 'inactive';
   if (status === 'on_trip' || onActiveLoad) return 'on_trip';
-  if (!hasApp) return 'app_not_installed';
+  // if (!hasApp) return 'app_not_installed';
   return null;
 }
