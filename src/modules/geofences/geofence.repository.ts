@@ -80,6 +80,11 @@ export class GeofenceRepository {
     return this.geofences.findOne({ where: { id, tenantId }, relations: WITH_CHILDREN });
   }
 
+  /** The geofence standing for a master loading point (LoadingPointGeofenceSync). */
+  findByLoadingPointId(tenantId: string, loadingPointId: string): Promise<GeofenceEntity | null> {
+    return this.geofences.findOne({ where: { tenantId, loadingPointId } });
+  }
+
   async list(tenantId: string, input: ListGeofencesInput): Promise<[GeofenceEntity[], number]> {
     const qb = this.geofences
       .createQueryBuilder('g')
