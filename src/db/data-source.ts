@@ -84,6 +84,8 @@ import { LsPartnerPaymentEntity } from '../modules/loadsmart-ops/entities/ls-par
 import { LoadClaimEntity } from '../modules/loadsmart-ops/entities/load-claim.entity';
 import { LoadRatingEntity } from '../modules/loadsmart-ops/entities/load-rating.entity';
 import { LsInvoiceEntity } from '../modules/loadsmart-ops/entities/ls-invoice.entity';
+import { LoadAwardOutcomeEntity } from '../modules/loads/entities/load-award-outcome.entity';
+import { SavedViewEntity } from '../modules/analytics/saved-views/saved-view.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -178,6 +180,9 @@ export const AppDataSource = new DataSource({
     LoadClaimEntity,
     LoadRatingEntity,
     LsInvoiceEntity,
+    LoadAwardOutcomeEntity,
+    // analytics module
+    SavedViewEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,

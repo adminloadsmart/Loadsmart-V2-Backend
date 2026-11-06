@@ -9,6 +9,8 @@ interface LoadingPointSiteFields {
   /** 'HH:mm' (24:00 allowed). */
   gateOpensAt?: string | null;
   gateClosesAt?: string | null;
+  /** Loading time the plant commits to, in hours (Shipper Analytics). */
+  declaredTurnaroundHours?: number | null;
   notes?: string | null;
 }
 
@@ -72,6 +74,7 @@ export interface CreateLoadingPointData {
   geofenceRadiusM: number;
   gateOpensAt: string | null;
   gateClosesAt: string | null;
+  declaredTurnaroundHours: string | null;
   notes: string | null;
   addressLine2: string | null;
   landmark: string | null;
@@ -99,6 +102,7 @@ export interface UpdateLoadingPointData {
   geofenceRadiusM?: number;
   gateOpensAt?: string | null;
   gateClosesAt?: string | null;
+  declaredTurnaroundHours?: string | null;
   notes?: string | null;
   addressLine2?: string | null;
   landmark?: string | null;

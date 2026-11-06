@@ -33,6 +33,7 @@ import {
   OPEN_LOAD_STATUSES,
 } from './utils/loads.types';
 import { LiveLoadsCursor } from './utils/live-loads-cursor';
+import { AwardOutcome, LoadAwardOutcomeEntity } from './entities/load-award-outcome.entity';
 
 // A single tenant for staff, several for a driver linked to more than one fleet.
 const scopeToTenants = (tenantId: string | string[]) =>
@@ -131,12 +132,27 @@ export class LoadRepository {
   private readonly cargoItems: Repository<LoadCargoItemEntity>;
   private readonly loadingPoints: Repository<LoadingPointEntity>;
   private readonly driverDocuments: Repository<DriverDocumentEntity>;
+  private readonly awardOutcomes: Repository<LoadAwardOutcomeEntity>;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
     this.cargoItems = dataSource.getRepository(LoadCargoItemEntity);
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
     this.driverDocuments = dataSource.getRepository(DriverDocumentEntity);
+    this.awardOutcomes = dataSource.getRepository(LoadAwardOutcomeEntity);
+  }
+
+  /** Appends award events for a transporter on a load (Shipper Analytics' award record). */
+  async recordAwardOutcomes(
+    tenantId: string,
+    loadId: string,
+    transporterId: string,
+    outcomes: readonly AwardOutcome[],
+    actorId: string | null,
+  ): Promise<void> {
+    await this.awardOutcomes.insert(
+      outcomes.map((outcome) => ({ tenantId, loadId, transporterId, outcome, createdBy: actorId })),
+    );
   }
 
   /** Storage keys of the driver's latest driving licence front/back photos (null when missing). */
