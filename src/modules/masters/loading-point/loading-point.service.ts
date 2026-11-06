@@ -87,6 +87,8 @@ export class LoadingPointService {
         geofenceRadiusM: input.geofenceRadiusM ?? DEFAULT_GEOFENCE_RADIUS_M,
         gateOpensAt: input.gateOpensAt ?? null,
         gateClosesAt: input.gateClosesAt ?? null,
+        declaredTurnaroundHours:
+          input.declaredTurnaroundHours == null ? null : String(input.declaredTurnaroundHours),
         notes: input.notes?.trim() || null,
         addressLine2: input.addressLine2?.trim() ?? null,
         landmark: input.landmark?.trim() ?? null,
@@ -215,6 +217,12 @@ export class LoadingPointService {
         geofenceRadiusM: input.geofenceRadiusM ?? undefined,
         gateOpensAt: input.gateOpensAt,
         gateClosesAt: input.gateClosesAt,
+        declaredTurnaroundHours:
+          input.declaredTurnaroundHours === undefined
+            ? undefined
+            : input.declaredTurnaroundHours === null
+              ? null
+              : String(input.declaredTurnaroundHours),
         notes: input.notes === undefined ? undefined : input.notes?.trim() || null,
         addressLine2:
           input.addressLine2 === undefined ? undefined : (input.addressLine2?.trim() ?? null),

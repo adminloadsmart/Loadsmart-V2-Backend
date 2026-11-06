@@ -104,6 +104,7 @@ export class ProductService {
           productDetails: input.productDetails.trim(),
           hsnCode: input.hsnCode?.trim() ?? null,
           packaging: input.packaging ?? null,
+          businessUnit: input.businessUnit?.trim() || null,
           invoiceValue: input.invoiceValue == null ? null : String(input.invoiceValue),
           standardRate: input.standardRate == null ? null : String(input.standardRate),
           billingUnit: input.billingUnit?.trim() ?? null,
@@ -223,6 +224,7 @@ export class ProductService {
         'billingUnit',
         'dimensions',
         'weightUnit',
+        'businessUnit',
       ])
         if (typeof data[key] === 'string') data[key] = data[key].trim();
       if ('invoiceValue' in data)

@@ -28,6 +28,8 @@ const fields = {
   height: z.number().positive().max(100000),
   dimensionUnit: z.enum(PRODUCT_DIMENSION_UNITS),
   conversionModel: z.enum(PRODUCT_CONVERSION_MODELS),
+  /** e.g. "Long Products" — Shipper Analytics' Business unit. */
+  businessUnit: z.string().trim().min(1).max(80),
 };
 const subItem = z.object({ name: z.string().trim().min(1).max(255) }).strict();
 const params = z.object({ productId: uuid });
@@ -65,6 +67,7 @@ export const productValidators = {
         height: fields.height.optional(),
         dimensionUnit: fields.dimensionUnit.optional(),
         conversionModel: fields.conversionModel.optional(),
+        businessUnit: fields.businessUnit.optional(),
         subItems: z.array(subItem).max(100).optional(),
       })
       .strict(),

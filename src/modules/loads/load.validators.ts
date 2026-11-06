@@ -262,8 +262,25 @@ export const loadValidators = {
         invoiceNumber: z.string().trim().min(1).max(50).optional(),
         invoiceDate: isoDateSchema.optional(),
         invoiceValue: z.number().positive().optional(),
+        // Weighbridge slip — the load's net weight is gross minus tare.
+        grossWeightTonnes: z.number().positive().max(200).optional(),
+        tareWeightTonnes: z.number().positive().max(200).optional(),
       })
-      .strict(),
+      .strict()
+      .refine(
+        (body) => (body.grossWeightTonnes === undefined) === (body.tareWeightTonnes === undefined),
+        {
+          message: 'grossWeightTonnes and tareWeightTonnes go together',
+          path: ['tareWeightTonnes'],
+        },
+      )
+      .refine(
+        (body) =>
+          body.grossWeightTonnes === undefined ||
+          body.tareWeightTonnes === undefined ||
+          body.grossWeightTonnes > body.tareWeightTonnes,
+        { message: 'Gross weight must be more than tare', path: ['grossWeightTonnes'] },
+      ),
   }),
 
   // Delivered with issues -> settled — see LoadService.settleDeliveryIssue.

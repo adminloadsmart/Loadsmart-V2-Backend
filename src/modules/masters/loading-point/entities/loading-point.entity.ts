@@ -75,6 +75,16 @@ export class LoadingPointEntity {
   @Column({ name: 'gate_closes_at', type: 'time', nullable: true })
   gateClosesAt!: string | null;
 
+  /** Loading time the plant commits to, in hours (Shipper Analytics §5 "Plant master"). */
+  @Column({
+    name: 'declared_turnaround_hours',
+    type: 'numeric',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+  })
+  declaredTurnaroundHours!: string | null;
+
   @Column({ name: 'google_place_id', type: 'varchar', length: 255, nullable: true })
   googlePlaceId!: string | null;
 
