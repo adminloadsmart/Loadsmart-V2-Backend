@@ -95,6 +95,7 @@ export interface DriverTenantMessageParams {
 }
 
 export interface DriverPodReminderMessageParams {
+  loadId: string;
   loadCode: string;
   vehicleNumber: string | null;
 }

@@ -14,7 +14,7 @@ export async function processPodReminder(
   }
   await notifier.notifyTripReminder(load.tenantId, load.driverId, {
     type: 'driver.trip.pod_reminder',
-    params: { loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
+    params: { loadId: load.id, loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
   });
   return 'sent';
 }
