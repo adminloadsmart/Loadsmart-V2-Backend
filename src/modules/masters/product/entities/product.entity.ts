@@ -32,6 +32,9 @@ export class ProductEntity {
   @Column({ name: 'hsn_code', type: 'varchar', length: 20, nullable: true }) hsnCode!:
     string | null;
   @Column({ type: 'varchar', length: 30, nullable: true }) packaging!: string | null;
+  /** e.g. "Long Products" — Shipper Analytics' Business unit filter and By commodity totals. */
+  @Column({ name: 'business_unit', type: 'varchar', length: 80, nullable: true })
+  businessUnit!: string | null;
   @Column({ name: 'invoice_value', type: 'numeric', precision: 15, scale: 2, nullable: true })
   invoiceValue!: string | null;
   @Column({ name: 'standard_rate', type: 'numeric', precision: 15, scale: 2, nullable: true })

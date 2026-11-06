@@ -86,6 +86,11 @@ export class ElrService {
         elrDocumentFileKey: file.key,
         elrGeneratedAt: now,
         elrPackages: input.packages,
+        ...(input.grossWeightTonnes !== undefined && input.tareWeightTonnes !== undefined
+          ? {
+              elrNetWeightTonnes: (input.grossWeightTonnes - input.tareWeightTonnes).toFixed(3),
+            }
+          : {}),
         elrSealNumber: input.sealNumber ?? null,
         elrShowFreight: Boolean(input.showFreight),
         invoiceNumber,

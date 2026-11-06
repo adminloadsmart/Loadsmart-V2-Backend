@@ -36,6 +36,7 @@ const loadingPointAddress = {
   geofenceRadiusM: z.number().int().min(50).max(5000).optional(),
   gateOpensAt: gateTime.optional(),
   gateClosesAt: gateTime.optional(),
+  declaredTurnaroundHours: z.number().positive().max(240).optional(),
   notes: z.string().trim().max(2000).optional(),
 };
 
@@ -73,6 +74,7 @@ export const loadingPointValidators = {
         geofenceRadiusM: loadingPointAddress.geofenceRadiusM,
         gateOpensAt: loadingPointAddress.gateOpensAt.nullable(),
         gateClosesAt: loadingPointAddress.gateClosesAt.nullable(),
+        declaredTurnaroundHours: loadingPointAddress.declaredTurnaroundHours.nullable(),
         notes: loadingPointAddress.notes.nullable(),
         addressLine2: loadingPointAddress.addressLine2.nullable().optional(),
         landmark: loadingPointAddress.landmark.nullable().optional(),
