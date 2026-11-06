@@ -10,6 +10,7 @@ import {
 } from '../driver-tenant-relation.repository';
 import {
   AddBankDetailsInput,
+  UpdateOwnLicenceInput,
   SetDriverOperationalStatusInput,
   UpdateDriverProfileData,
 } from '../drivers.interface';
@@ -396,6 +397,11 @@ export class DriverPortalService {
    *  in-request and its result stored — see DriverService.addOwnBankDetails. */
   addMyBankDetails(driverId: string, input: AddBankDetailsInput) {
     return this.driverService.addOwnBankDetails(driverId, input);
+  }
+
+  /** Renewed-licence swap — re-verified against Sarathi; see DriverService.updateOwnLicence. */
+  updateMyLicence(driverId: string, input: UpdateOwnLicenceInput) {
+    return this.driverService.updateOwnLicence(driverId, input);
   }
 
   async listMyBankDetails(driverId: string) {

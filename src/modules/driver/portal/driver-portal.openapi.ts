@@ -123,6 +123,32 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'put',
+    path: `${BASE}/me/driving-licence`,
+    tags: [TAGS.DRIVER_PORTAL],
+    operationId: 'driverPortal.updateMyLicence',
+    ...authenticated(
+      'Replace the caller’s driving licence with a renewed one. The number is re-verified against ' +
+        'Sarathi using the stored date of birth; a registry miss saves it unverified ' +
+        '(verificationStatus manual_review). `photoKey` is the storage key of a confirmed ' +
+        '`masters/driver` upload (tenant-less handshake in driver-auth) and replaces the front ' +
+        'photo. Works with an identity-access token (no tenant relation needed).',
+    ),
+    request: { body: json(driverPortalValidators.updateMyLicence.shape.body) },
+    responses: {
+      200: { description: '{ licenseNumber, licenseExpiry, licenseVerified, verificationStatus }' },
+      400: {
+        description: 'Validation failed (bad number, past expiry, no date of birth)',
+        ...errorContent,
+      },
+      409: {
+        description: 'Licence belongs to another driver, or photo not a confirmed upload',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'get',
     path: `${BASE}/me/bank-details`,
     tags: [TAGS.DRIVER_PORTAL],

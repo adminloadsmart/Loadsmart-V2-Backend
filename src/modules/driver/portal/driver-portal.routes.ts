@@ -57,6 +57,18 @@ export function createDriverPortalRoutes(
     validate(driverPortalValidators.addMyBankDetails),
     asyncHandler(controller.addMyBankDetails),
   );
+  // Renewed-licence swap — re-verified against Sarathi (paid), so rate-limited like verify-dl.
+  router.put(
+    '/me/driving-licence',
+    createIpRateLimit({
+      keyPrefix: 'driver-portal-update-dl',
+      limit: env.driverVerifyDlRateLimitMax,
+      windowSeconds: env.driverVerifyDlRateLimitWindowSeconds,
+    }),
+    driverIdentityAuth,
+    validate(driverPortalValidators.updateMyLicence),
+    asyncHandler(controller.updateMyLicence),
+  );
   router.get('/me/bank-details', driverIdentityAuth, asyncHandler(controller.listMyBankDetails));
   router.get('/me/trip-metrics', driverIdentityAuth, asyncHandler(controller.getMyTripMetrics));
   router.get(
