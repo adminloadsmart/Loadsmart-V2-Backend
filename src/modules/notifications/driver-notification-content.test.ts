@@ -76,7 +76,10 @@ describe('renderDriverMessage', () => {
   it('renders the POD reminder with and without a vehicle number', () => {
     expect(
       renderDriverMessage(
-        { type: 'driver.trip.pod_reminder', params: { loadCode: 'LOAD-1', vehicleNumber: null } },
+        {
+          type: 'driver.trip.pod_reminder',
+          params: { loadId: 'load-id-1', loadCode: 'LOAD-1', vehicleNumber: null },
+        },
         'en',
       ).body,
     ).toBe(
@@ -84,7 +87,10 @@ describe('renderDriverMessage', () => {
     );
     expect(
       renderDriverMessage(
-        { type: 'driver.trip.pod_reminder', params: { loadCode: 'LOAD-1', vehicleNumber: 'RJ14' } },
+        {
+          type: 'driver.trip.pod_reminder',
+          params: { loadId: 'load-id-1', loadCode: 'LOAD-1', vehicleNumber: 'RJ14' },
+        },
         'hi',
       ).body,
     ).toBe(

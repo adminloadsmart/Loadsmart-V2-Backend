@@ -1,5 +1,6 @@
 import { DataSource, EntityManager, In } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
+import { msg } from '../../shared/i18n/translate';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { AuditService } from '../audit/audit.service';
 import { UserEntity } from '../auth/entities/user.entity';
@@ -64,6 +65,8 @@ import {
   DriverLicenceClass,
   AddBankDetailsInput,
   AddDriverDocumentInput,
+  UpdateOwnLicenceInput,
+  UpdateOwnLicenceResult,
   CreateDriverInput,
   DriverDetailSections,
   DriverDetailView,
@@ -1308,6 +1311,110 @@ export class DriverService {
       });
     } catch (error) {
       rethrow(error, 'Failed to add bank details');
+    }
+  }
+
+  /**
+   * Driver-app "Update Driving Licence": swaps the driver's licence for a renewed one. The stored
+   * date of birth drives the Sarathi lookup (the driver can't edit it), so a licence belonging to
+   * someone else won't verify. A registry miss isn't an error — the new number is saved unverified
+   * (`manual_review`) for staff to review, same as registration. The new front photo replaces the
+   * old one; the back photo is left alone.
+   */
+  async updateOwnLicence(
+    driverId: string,
+    input: UpdateOwnLicenceInput,
+  ): Promise<UpdateOwnLicenceResult> {
+    try {
+      const driver = await this.driverRepository.findById(driverId);
+      if (!driver) throw new NotFoundError(msg('errors.driver.notFound'));
+      if (!driver.dateOfBirth) {
+        throw new ValidationError('Date of birth is required to verify a driving licence');
+      }
+
+      const licenseNumber = input.licenseNumber.toUpperCase();
+      const owner = await this.driverRepository.findByLicenseNumber(licenseNumber);
+      if (owner && owner.id !== driverId) {
+        throw new ConflictError(msg('errors.driver.licenseExists'));
+      }
+
+      const { file } = await this.storageService.getByKeyNullTenant(input.photoKey);
+      if (file.purpose !== 'masters/driver' || file.uploadedBy !== driverId) {
+        throw new ConflictError(`File ${input.photoKey} was not uploaded as your licence photo`);
+      }
+      if (file.status !== 'confirmed') {
+        throw new ConflictError(
+          `File ${input.photoKey} must be confirmed before it can be attached`,
+        );
+      }
+
+      // Outside the transaction — the registry lookup can be slow.
+      const result = await this.dlVerificationClient.lookupDrivingLicence(
+        licenseNumber,
+        driver.dateOfBirth,
+      );
+      const verified = result.status === 'verified';
+      const licenseExpiry = (verified ? result.validUntil : null) ?? input.licenseExpiry;
+
+      await this.dataSource.transaction(async (manager) => {
+        await this.driverRepository.update(
+          driverId,
+          { licenseNumber, licenseExpiry, licenseVerified: verified, updatedBy: driverId },
+          manager,
+        );
+
+        const existing = await this.driverRepository.listDocuments(driverId);
+        for (const stale of existing.filter(
+          (doc) => doc.documentType === 'driving_license_front',
+        )) {
+          await this.driverRepository.softDeleteDocument(driverId, stale.id, driverId);
+        }
+        await this.driverRepository.createDocument(
+          {
+            tenantId: null,
+            driverId,
+            documentType: 'driving_license_front',
+            fileUrl: input.photoKey,
+            documentNumber: null,
+            verificationSource: 'manual',
+            verifiedAt: null,
+            createdBy: driverId,
+          },
+          manager,
+        );
+
+        await this.driverRepository.createVerification(
+          {
+            tenantId: null,
+            driverId,
+            verificationType: 'sarathi_dl',
+            verificationStatus: verified ? 'verified' : 'manual_review',
+            sourceReference: null,
+            holderName: result.holderName ?? null,
+            licenseNumber,
+            validUntil: result.validUntil ?? null,
+            licenseClass: result.licenseClass ?? null,
+            licenseStatus: result.licenseStatus ?? null,
+            addressLine1: result.addressLine1 ?? null,
+            addressLine2: result.addressLine2 ?? null,
+            city: result.city ?? null,
+            pinCode: result.pinCode ?? null,
+            rawResponse: result.rawResponse ?? null,
+            verifiedAt: verified ? new Date() : null,
+            createdBy: driverId,
+          },
+          manager,
+        );
+      });
+
+      return {
+        licenseNumber,
+        licenseExpiry,
+        licenseVerified: verified,
+        verificationStatus: verified ? 'verified' : 'manual_review',
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to update driving licence');
     }
   }
 

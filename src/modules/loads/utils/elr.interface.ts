@@ -11,6 +11,9 @@ export interface ElrInput {
   /** YYYY-MM-DD. */
   invoiceDate?: string;
   invoiceValue?: number;
+  /** Weighbridge slip, tonnes. Both given → the load's net weight (gross − tare) is saved. */
+  grossWeightTonnes?: number;
+  tareWeightTonnes?: number;
 }
 
 export interface ElrRow {

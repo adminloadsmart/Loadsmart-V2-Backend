@@ -18,7 +18,7 @@ export async function processPodReminder(
     load.driverId,
     {
       type: DRIVER_POD_REMINDER_NOTIFICATION_TYPE,
-      params: { loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
+      params: { loadId: load.id, loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
     },
     { loadId: load.id },
   );

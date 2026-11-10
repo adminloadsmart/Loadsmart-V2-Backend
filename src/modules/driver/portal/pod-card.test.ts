@@ -94,7 +94,7 @@ describe('driver app — "Upload the E-POD" card flag', () => {
       'driver-1',
       {
         type: 'driver.trip.pod_reminder',
-        params: { loadCode: 'LOAD-1112', vehicleNumber: 'MH12AB1234' },
+        params: { loadId: 'load-1', loadCode: 'LOAD-1112', vehicleNumber: 'MH12AB1234' },
       },
       { loadId: 'load-1' },
     );

@@ -568,6 +568,21 @@ export interface RecordVerificationInput {
   rawResponse?: Record<string, unknown>;
 }
 
+/** Driver-app "Update Driving Licence" — a renewed/replacement licence, front photo included. */
+export interface UpdateOwnLicenceInput {
+  licenseNumber: string;
+  licenseExpiry: string;
+  /** Storage key of a confirmed `masters/driver` upload by this driver. */
+  photoKey: string;
+}
+
+export interface UpdateOwnLicenceResult {
+  licenseNumber: string;
+  licenseExpiry: string | null;
+  licenseVerified: boolean;
+  verificationStatus: 'verified' | 'manual_review';
+}
+
 export interface AddBankDetailsInput {
   accountNumber: string;
   ifsc: string;

@@ -6,7 +6,12 @@ import {
   COMPLETED_LOAD_STATUSES,
   LoadStatus,
 } from '../loads/utils/loads.types';
-import { LoadsSummaryDailyRow, LoadsSummaryTripCounts } from './utils/dashboards.interface';
+import { RequisitionEntity } from '../loads/entities/requisition.entity';
+import {
+  LoadPipelineRaw,
+  LoadsSummaryDailyRow,
+  LoadsSummaryTripCounts,
+} from './utils/dashboards.interface';
 
 // Groups load.created_at into its IST (Asia/Kolkata) calendar day, not the UTC day. `AT TIME
 // ZONE 'Asia/Kolkata'` on a timestamptz produces a plain (zone-less) timestamp already expressed
@@ -36,9 +41,52 @@ function applyTenantAndRange(
  */
 export class DashboardsRepository {
   private readonly loads;
+  private readonly requisitions;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
+    this.requisitions = dataSource.getRepository(RequisitionEntity);
+  }
+
+  /** Home "Where every load is" — live counts for every open (non-closed) load by status, plus
+   *  the tiles beneath the bar. Not date-scoped. */
+  async getLoadPipeline(tenantId: string): Promise<LoadPipelineRaw> {
+    const openStatuses: readonly string[] = ACTIVE_LOAD_STATUSES;
+
+    const openLoads = () =>
+      this.loads
+        .createQueryBuilder('load')
+        .where('load.tenant_id = :tenantId', { tenantId })
+        .andWhere('load.status IN (:...openStatuses)', { openStatuses });
+
+    const [statusRows, tonnesRow, openOnMarketFleet, customerOrdersShortOfTrucks] =
+      await Promise.all([
+        openLoads()
+          .select('load.status', 'status')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('load.status')
+          .getRawMany<{ status: string; count: string }>(),
+        openLoads()
+          .select('COALESCE(SUM(load.planned_capacity_tonnes), 0)', 'tonnes')
+          .getRawOne<{ tonnes: string }>(),
+        openLoads().andWhere('load.source_type = :sourceType', { sourceType: 'market' }).getCount(),
+        this.requisitions
+          .createQueryBuilder('req')
+          .where('req.tenant_id = :tenantId', { tenantId })
+          .andWhere('req.status = :status', { status: 'open' })
+          .andWhere('req.dispatched_tonnes < req.quantity_tonnes')
+          .getCount(),
+      ]);
+
+    const countsByStatus: Record<string, number> = {};
+    for (const row of statusRows) countsByStatus[row.status] = Number(row.count);
+
+    return {
+      countsByStatus,
+      customerOrdersShortOfTrucks,
+      openOnMarketFleet,
+      tonnesInPlay: Number(tonnesRow?.tonnes ?? 0),
+    };
   }
 
   /** Home screen trip counts — {all, active, completed} for every load in `range` regardless of

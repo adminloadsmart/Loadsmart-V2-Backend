@@ -1,12 +1,10 @@
 import { Router } from 'express';
-import multer, { FileFilterCallback } from 'multer';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../shared/middleware/require-permission.middleware';
 import { ORGANIZATION_PROFILE_MANAGE } from '../../shared/constants/permissions';
 import { OrganizationController } from './organization.controller';
 import { organizationValidators } from './organization.validators';
-import { ValidationError } from '../../shared/errors';
 
 // Mounted at '/auth' by composition-root.ts (see createOrganizationOnboardingRoutes in
 // index.ts), alongside modules/auth/'s own protectedRouter — the routes here keep their existing

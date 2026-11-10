@@ -240,6 +240,16 @@ export class LoadEntity {
   @Column({ name: 'elr_packages', type: 'int', nullable: true })
   elrPackages!: number | null;
 
+  /** E-LR weighbridge weight: gross minus tare, in tonnes (Shipper Analytics §5). */
+  @Column({
+    name: 'elr_net_weight_tonnes',
+    type: 'numeric',
+    precision: 10,
+    scale: 3,
+    nullable: true,
+  })
+  elrNetWeightTonnes!: string | null;
+
   @Column({ name: 'elr_seal_number', type: 'varchar', length: 50, nullable: true })
   elrSealNumber!: string | null;
 

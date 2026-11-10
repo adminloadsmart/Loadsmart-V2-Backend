@@ -105,6 +105,19 @@ export class LoadStageService {
         await this.onLoadEvent?.({ kind: 'reached_delivery_point', tenantId, loadId, at });
       }
 
+      // Award record (Shipper Analytics §5): a bought load assigned to a transporter was won by it,
+      // and putting a truck on it is its acceptance. Assignment is one step today, so both are
+      // written together; there is no flow yet for a transporter to refuse after winning.
+      if (to === 'truck_assigned' && updated.transporterId && updated.sourceType !== 'own_fleet') {
+        await this.repository.recordAwardOutcomes(
+          tenantId,
+          loadId,
+          updated.transporterId,
+          ['won', 'accepted'],
+          actorId,
+        );
+      }
+
       await this.onStageEntered?.(updated, to);
 
       const delivered = DELIVERED_LOAD_STATUSES.includes(to);

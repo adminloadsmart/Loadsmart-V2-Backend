@@ -15,7 +15,6 @@ import { NotificationsGateway } from './gateways/notifications.gateway';
 import { StorageGateway } from './gateways/storage.gateway';
 import { computeServiceDue } from './calculations/service-due';
 import { expiredDocuments, ExpiredDocument } from './calculations/papers';
-import { jobDays } from './calculations/downtime';
 import {
   DEFAULT_OVERVIEW_FILTER,
   DEFAULT_SERVICE_INTERVAL_KM,

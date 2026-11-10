@@ -4,6 +4,7 @@ import { AuditService } from '../../audit/audit.service';
 import { paginate } from '../../../shared/utils/pagination';
 import { LoadingPointRepository, LoadingPointWithCreator } from './loading-point.repository';
 import { LoadingPointEntity } from './entities/loading-point.entity';
+import { LoadingPointGeofenceSync } from './loading-point-geofence.sync';
 import { MasterApprovalNotifier } from '../../notifications/notifications.interface';
 import { MasterUsageRepository } from '../masters.usage';
 import { MasterRecordSource } from '../transporter/transporter.types';
@@ -64,6 +65,8 @@ export class LoadingPointService {
     // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
     // throws (see notifications/master-approvals.ts).
     private readonly approvalNotifier?: MasterApprovalNotifier,
+    // Keeps the linked tracking geofence in step; optional.
+    private readonly geofenceSync?: LoadingPointGeofenceSync,
   ) {}
 
   /** org_admin's own loading point lands `active` immediately; dispatch's (the only other role
@@ -87,6 +90,8 @@ export class LoadingPointService {
         geofenceRadiusM: input.geofenceRadiusM ?? DEFAULT_GEOFENCE_RADIUS_M,
         gateOpensAt: input.gateOpensAt ?? null,
         gateClosesAt: input.gateClosesAt ?? null,
+        declaredTurnaroundHours:
+          input.declaredTurnaroundHours == null ? null : String(input.declaredTurnaroundHours),
         notes: input.notes?.trim() || null,
         addressLine2: input.addressLine2?.trim() ?? null,
         landmark: input.landmark?.trim() ?? null,
@@ -105,6 +110,7 @@ export class LoadingPointService {
         rejectionReason: null,
         createdBy: actorId,
       });
+      await this.geofenceSync?.upsert(value, actorId);
       await this.approvalNotifier?.requested({
         kind: 'loading_point',
         tenantId,
@@ -215,6 +221,12 @@ export class LoadingPointService {
         geofenceRadiusM: input.geofenceRadiusM ?? undefined,
         gateOpensAt: input.gateOpensAt,
         gateClosesAt: input.gateClosesAt,
+        declaredTurnaroundHours:
+          input.declaredTurnaroundHours === undefined
+            ? undefined
+            : input.declaredTurnaroundHours === null
+              ? null
+              : String(input.declaredTurnaroundHours),
         notes: input.notes === undefined ? undefined : input.notes?.trim() || null,
         addressLine2:
           input.addressLine2 === undefined ? undefined : (input.addressLine2?.trim() ?? null),
@@ -253,6 +265,7 @@ export class LoadingPointService {
       });
 
       if (!updated) throw new NotFoundError(`Loading point ${id} not found`);
+      await this.geofenceSync?.upsert(updated, actorId);
       if (input.status && input.status !== existing.status)
         await this.auditService.log({
           tenantId,
@@ -276,6 +289,7 @@ export class LoadingPointService {
         throw new ConflictError('Only pending loading points can be approved');
       const value = await this.repository.approve(tenantId, id, actorId);
       if (!value) throw new ConflictError('Loading point approval failed');
+      await this.geofenceSync?.upsert(value, actorId);
 
       await this.auditService.log({
         tenantId,
@@ -308,6 +322,7 @@ export class LoadingPointService {
         throw new ConflictError('Only pending loading points can be rejected');
       const value = await this.repository.reject(tenantId, id, actorId, reason);
       if (!value) throw new ConflictError('Loading point rejection failed');
+      await this.geofenceSync?.upsert(value, actorId);
 
       await this.auditService.log({
         tenantId,
@@ -339,6 +354,7 @@ export class LoadingPointService {
       if (!existing) throw new NotFoundError(`Loading point ${id} not found`);
       await this.assertNotInUse(tenantId, id, 'deleted');
       await this.repository.softDelete(tenantId, id, actorId);
+      await this.geofenceSync?.remove(tenantId, id);
       await this.auditService.log({
         tenantId,
         userId: actorId,

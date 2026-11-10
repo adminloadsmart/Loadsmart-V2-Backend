@@ -195,5 +195,7 @@ export interface StageGateLoad {
 export interface TruckTrackingCapabilities {
   hasGps: boolean;
   hasDriverApp: boolean;
+  /** A usable driver mobile number — SIM tracking texts it for consent. */
+  hasDriverNumber: boolean;
   hasVehicleNumber: boolean;
 }

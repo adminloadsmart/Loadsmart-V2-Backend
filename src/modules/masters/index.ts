@@ -19,6 +19,8 @@ import { TruckTypeCatalogRepository } from './truck-type-catalog/truck-type-cata
 import { TruckTypeCatalogService } from './truck-type-catalog/truck-type-catalog.service';
 import { LoadingPointRepository } from './loading-point/loading-point.repository';
 import { LoadingPointService } from './loading-point/loading-point.service';
+import { LoadingPointGeofenceSync } from './loading-point/loading-point-geofence.sync';
+import { GeofenceRepository } from '../geofences/geofence.repository';
 import { LoadingPointController } from './loading-point/loading-point.controller';
 import { LoadingPointImportService } from './loading-point/loading-point-import.service';
 import { LoadingPointImportController } from './loading-point/loading-point-import.controller';
@@ -140,6 +142,7 @@ export function createMastersModule(
     deps.auditService,
     masterUsageRepository,
     deps.masterApprovalNotifier,
+    new LoadingPointGeofenceSync(new GeofenceRepository(dataSource)),
   );
   const loadingPointController = new LoadingPointController(loadingPointService);
   const loadingPointImportService = new LoadingPointImportService(

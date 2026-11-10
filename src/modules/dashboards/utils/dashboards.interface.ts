@@ -117,6 +117,46 @@ export interface LoadsSummaryDailyRow {
   freightAmount: number;
 }
 
+/** The four Home-screen "Where every load is" stages, in display order. */
+export const LOAD_PIPELINE_STAGE_KEYS = [
+  'being_sourced',
+  'truck_assigned',
+  'on_the_road',
+  'delivered_or_money_open',
+] as const;
+export type LoadPipelineStageKey = (typeof LOAD_PIPELINE_STAGE_KEYS)[number];
+
+export interface LoadPipelineStage {
+  key: LoadPipelineStageKey;
+  label: string;
+  count: number;
+  /** Share of all open loads, rounded to a whole percent (0 when nothing is open). Rounded
+   *  independently per stage, so the four may sum to 99 or 101. */
+  percent: number;
+}
+
+/** Live snapshot (not scoped to the summary's `range`, like fleetActivity) of every load that is
+ *  not yet 'closed', bucketed by stage, plus the four tiles under the bar. */
+export interface WhereEveryLoadIs {
+  stages: LoadPipelineStage[];
+  /** Loads in any status except 'closed' — the sum of `stages[].count`. */
+  openLoads: number;
+  /** Open requisitions whose dispatched tonnes are still below the ordered tonnes. */
+  customerOrdersShortOfTrucks: number;
+  /** Open loads sourced from the market (source_type = 'market'). */
+  openOnMarketFleet: number;
+  /** Planned tonnes summed across open loads. */
+  tonnesInPlay: number;
+}
+
+/** Repository-internal raw counts feeding WhereEveryLoadIs. */
+export interface LoadPipelineRaw {
+  countsByStatus: Record<string, number>;
+  customerOrdersShortOfTrucks: number;
+  openOnMarketFleet: number;
+  tonnesInPlay: number;
+}
+
 export interface LoadsSummary {
   range: LoadsSummaryRange;
   tripCounts: LoadsSummaryTripCounts;
@@ -128,4 +168,6 @@ export interface LoadsSummary {
   /** Live fleet operational-status snapshot, folded in so the home screen can get both loads and
    *  fleet data from one call — see FleetActivityMetrics. */
   fleetActivity: FleetActivityMetrics;
+  /** Home "Where every load is" card — live, not date-scoped. */
+  whereEveryLoadIs: WhereEveryLoadIs;
 }

@@ -20,7 +20,9 @@ import {
   bankAccountCheckBody,
   driverBankDetailsBody,
   driverCoreFields,
+  licenseNumber,
 } from '../driver.validators';
+import { isoDateSchema as isoDate } from '../../../shared/utils/date';
 
 // The storage purposes reachable through driver-portal's own upload handshake — kept as an
 // explicit allow-list (not the full UPLOAD_PURPOSES enum) so a driver can never request an
@@ -77,6 +79,20 @@ export const driverPortalValidators = {
       })
       .strict()
       .refine((data) => Object.keys(data).length > 0, 'Provide at least one field to update'),
+  }),
+  // "Update Driving Licence" — photoKey is the key of a confirmed `masters/driver` upload (the
+  // tenant-less handshake in driver-auth). Expiry must be in the future: this is a renewal.
+  updateMyLicence: z.object({
+    body: z
+      .object({
+        licenseNumber,
+        licenseExpiry: isoDate.refine(
+          (value) => value > new Date().toISOString().slice(0, 10),
+          'Licence expiry must be a future date',
+        ),
+        photoKey: z.string().trim().min(1).max(500),
+      })
+      .strict(),
   }),
   verifyMyBankAccount: z.object({ body: bankAccountCheckBody }),
   addMyBankDetails: z.object({ body: driverBankDetailsBody }),

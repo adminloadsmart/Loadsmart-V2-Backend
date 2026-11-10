@@ -123,6 +123,10 @@ export class DriverPortalController {
     respond(res, bankDetails, 201);
   };
 
+  updateMyLicence = async (req: Request, res: Response) => {
+    respond(res, await this.driverPortalService.updateMyLicence(req.driver!.id, req.body));
+  };
+
   listMyBankDetails = async (req: Request, res: Response) => {
     respond(res, await this.driverPortalService.listMyBankDetails(req.driver!.id));
   };
