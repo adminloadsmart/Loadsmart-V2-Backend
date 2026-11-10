@@ -198,7 +198,9 @@ export const UNAVAILABLE_REASONS = {
   ownFleetRunningCost:
     'Own-fleet loads carry only their fixed cost; running and empty-run cost need GPS and planned distance, which are not recorded yet.',
   missingWeight:
-    'Loads without an E-LR weighbridge weight are left out of tonne figures until it is entered.',
+    'Loads with no weight recorded at all (no E-LR, POD, posted or planned tonnes) are left out of tonne figures.',
+  weightFallback:
+    'Approximate: loads without an E-LR weighbridge weight use tonnes received at POD, else the weight on the posting, else the planned tonnage.',
   missingTurnaround:
     'Loads from plants without a declared loading turnaround are left out of this figure.',
   noPromise:

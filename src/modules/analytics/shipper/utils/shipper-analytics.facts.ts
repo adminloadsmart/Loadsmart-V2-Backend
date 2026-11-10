@@ -19,6 +19,7 @@ import {
   LoadFact,
   sum,
   TruckTypeRef,
+  weightOfLoad,
 } from './shipper-analytics.calculations';
 import { BuyMethod, EXTERNAL_ISSUE_CATEGORIES } from './shipper-analytics.constants';
 
@@ -79,6 +80,17 @@ function ownFleetFixedCost(load: LoadEntity, now: Date): number | null {
   // For an attached truck dailyFixedCost returns only our driver's salary: its hire is a running
   // cost, which is not recorded yet.
   return dailyFixedCost(vehicle, salary, toIstDateString(from)).total * days;
+}
+
+/** §1 weight, with the stand-ins Fleet Analytics uses until the E-LR weight is entered. */
+function weightOf(load: LoadEntity): Pick<LoadFact, 'weight' | 'weightSource'> {
+  const { weight, source } = weightOfLoad({
+    elr: num(load.elrNetWeightTonnes),
+    pod: num(load.podQuantityReceived),
+    posting: num(load.posting?.weightTonnes),
+    planned: num(load.plannedCapacityTonnes),
+  });
+  return { weight, weightSource: source };
 }
 
 export function buildLoadFacts(
@@ -160,7 +172,7 @@ export function buildLoadFacts(
         !bought && load.vehicle
           ? { id: load.vehicle.id, name: load.vehicle.registrationNumber }
           : null,
-      weight: num(load.elrNetWeightTonnes),
+      ...weightOf(load),
 
       orderAt: load.requisition?.createdAt ?? load.posting?.createdAt ?? null,
       pickupDate: origin.pickupDate,

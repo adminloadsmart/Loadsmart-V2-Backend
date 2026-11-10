@@ -80,8 +80,10 @@ export interface LoadFact {
   truckType: TruckTypeRef | null;
   /** Own truck of an own-fleet load. */
   vehicle: NamedRef | null;
-  /** E-LR weighbridge gross weight minus tare, tonnes. Null until entered. */
+  /** Tonnes — the E-LR weighbridge weight, else the best recorded figure (see weightOfLoad). */
   weight: number | null;
+  /** Where `weight` came from; anything but 'elr' is an approximation. */
+  weightSource: WeightSource | null;
 
   /** Order / indent raised. */
   orderAt: Date | null;
@@ -185,7 +187,31 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 // ─── Weight and cost (§1, §2) ────────────────────────────────────────────────
 
-/** Loads with an E-LR weight — the only ones tonne figures may add up. */
+export type WeightSource = 'elr' | 'pod' | 'posting' | 'planned';
+
+/**
+ * Weight of a load. §1 defines it as the E-LR weighbridge weight (gross minus tare); until that is
+ * entered, the best recorded figure stands in — tonnes received at POD, else the weight declared
+ * on the posting, else the planned tonnage — the same order Fleet Analytics uses. A figure built
+ * on a stand-in is flagged as approximate (UNAVAILABLE_REASONS.weightFallback).
+ */
+export function weightOfLoad(input: {
+  elr: number | null;
+  pod: number | null;
+  posting: number | null;
+  planned: number | null;
+}): { weight: number | null; source: WeightSource | null } {
+  const order: [WeightSource, number | null][] = [
+    ['elr', input.elr],
+    ['pod', input.pod],
+    ['posting', input.posting],
+    ['planned', input.planned],
+  ];
+  const hit = order.find(([, value]) => value !== null && value > 0);
+  return hit ? { weight: hit[1], source: hit[0] } : { weight: null, source: null };
+}
+
+/** Loads with a weight — the only ones tonne figures may add up. */
 export function weighed(facts: readonly LoadFact[]): LoadFact[] {
   return facts.filter((fact) => fact.weight !== null);
 }

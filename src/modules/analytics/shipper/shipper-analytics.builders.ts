@@ -79,14 +79,23 @@ export function costed(context: ShipperContext, facts: LoadFact[], field: string
   return withCost;
 }
 
-/** Tonnes of the loads that have an E-LR weight (null when none has); flags the rest. */
+/** Flags a tonne figure built on these loads: approximate when any weight is a stand-in for the
+ *  E-LR weight, and narrowed when a load has no weight at all. */
+export function flagWeights(context: ShipperContext, facts: LoadFact[], field: string): void {
+  if (facts.some((fact) => fact.weightSource !== null && fact.weightSource !== 'elr')) {
+    context.flag(`${field}.weightFallback`, 'weightFallback');
+  }
+  if (facts.some((fact) => fact.weight === null))
+    context.flag(`${field}.missingWeight`, 'missingWeight');
+}
+
+/** Tonnes of the loads that have a weight (null when none has), flagged as above. */
 export function tonnesWithFlag(
   context: ShipperContext,
   facts: LoadFact[],
   field: string,
 ): number | null {
-  if (facts.some((fact) => fact.weight === null))
-    context.flag(`${field}.missingWeight`, 'missingWeight');
+  flagWeights(context, facts, field);
   return knownTonnes(facts);
 }
 

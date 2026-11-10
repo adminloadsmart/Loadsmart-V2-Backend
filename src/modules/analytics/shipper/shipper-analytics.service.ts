@@ -6,6 +6,7 @@ import {
   concentrationView,
   costed,
   executionChain,
+  flagWeights,
   mainLanesOf,
   medianOnTime,
   metric,
@@ -221,6 +222,8 @@ export class ShipperAnalyticsService {
       const onTime = onTimeStats(current.delivered);
       if (onTime.measured < current.delivered.length) context.flag('tiles.onTime', 'noPromise');
       context.flag('tiles.freightPerLoad.perTonneKm', 'plannedDistance');
+      flagWeights(context, current.dispatched, 'tiles.freightSpend.perTonne');
+      flagWeights(context, current.dispatched, 'products');
       const currentHeld = heldAndClaims(current);
       const previousHeld = heldAndClaims(previous);
 
@@ -437,6 +440,9 @@ export class ShipperAnalyticsService {
       const ownShare = (slice: PeriodSlice) =>
         share(slice.dispatched.filter((fact) => !fact.bought).length, slice.dispatched.length);
       context.flag('perTonneKm', 'plannedDistance');
+      for (const field of ['tiles.freightPerTonne', 'products', 'customers', 'truckTypes']) {
+        flagWeights(context, current.dispatched, field);
+      }
 
       const own = current.dispatched.filter((fact) => !fact.bought);
       const months = groupBy(current.dispatched, (fact) =>
@@ -533,6 +539,11 @@ export class ShipperAnalyticsService {
     slice: PeriodSlice,
   ): ShipperAnalyticsFreightSpend['ownTrucks'] {
     context.flag('ownTrucks', 'ownFleetRunningCost');
+    flagWeights(
+      context,
+      slice.dispatched.filter((fact) => !fact.bought),
+      'ownTrucks',
+    );
     const own = slice.dispatched.filter((fact) => !fact.bought);
     const bought = slice.dispatched.filter((fact) => fact.bought);
     const ownLanes = new Set(own.map((fact) => fact.lane?.key).filter(Boolean));
