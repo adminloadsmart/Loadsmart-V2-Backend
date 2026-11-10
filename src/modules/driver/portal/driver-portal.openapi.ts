@@ -246,7 +246,21 @@ export function registerDriverPortalOpenApi(registry: OpenAPIRegistry): void {
         '(type driver.account.invited), where it is { invitationId, status: pending | accepted | ' +
         'declined | cancelled | expired | replaced, actionable }. Each Resend adds a card for the ' +
         'same invite; only the newest one is `actionable` (show Accept / Decline only then) — ' +
-        'older ones read `replaced`. `title`/`body` follow Accept-Language (en | hi) for every ' +
+        'older ones read `replaced`. Every item also has `pod`: null, except an "Upload the E-POD" ' +
+        'reminder (type driver.trip.pod_reminder), where it is { loadId, status: not_uploaded | ' +
+        'under_review | accepted | rejected | unavailable, actionable } — the load’s live E-POD ' +
+        'state. `actionable` is true only while the driver can upload now (at the unloading point ' +
+        'with no E-POD, or after a rejection); every reminder for the load turns off together once ' +
+        'the E-POD is in. `unavailable` = the load is gone or reassigned to another driver. ' +
+        'Every item also has `trip`: null, except a load card (load.assigned / ' +
+        'load.loading_contact_changed / load.loading_point_changed), where it is { loadIds, ' +
+        'status: active | replaced | completed | reassigned | unavailable, actionable }. ' +
+        '`replaced` = the loading contact/point was changed again (a newer card has the current ' +
+        'one); `completed` = loading is done (contact/point cards) or the truck has unloaded ' +
+        '(assigned card); `reassigned` = the load is no longer this driver’s. `actionable` (open ' +
+        'the trip, call the contact, navigate to the point) only while `active`; on a ' +
+        'several-loads card, `active` if any of its loads still is. ' +
+        '`title`/`body` follow Accept-Language (en | hi) for every ' +
         'notification saved since translation was added; older ones keep their original English.',
     ),
     request: { query: driverPortalValidators.getMyNotifications.shape.query },

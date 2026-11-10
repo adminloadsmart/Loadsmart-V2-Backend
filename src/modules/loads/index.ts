@@ -23,13 +23,11 @@ import { LoadStageService } from './load-stage.service';
 import { DispatchPlanningService } from './dispatch-planning.service';
 import { LoadsController } from './loads.controller';
 import { createLoadsProtectedRoutes } from './loads.routes';
-import { DriverAuthService } from '../driver/auth/driver-auth.service';
 import {
   LoadEventNotifier,
   NotificationTriggers,
   IssueReportedNotifier,
 } from '../notifications/notifications.interface';
-import { NotificationsService } from '../notifications/notifications.service';
 import { createLoadPostingModule } from './load-posting';
 import { LoadPostingRepository } from './load-posting/load-posting.repository';
 import { AssignmentComplianceService } from './assignment-compliance.service';
@@ -66,8 +64,6 @@ export function createLoadsModule(
     truckTypeService: TruckTypeService;
     loadingPointService: LoadingPointService;
     productService: ProductService;
-    driverAuthService: DriverAuthService;
-    notificationsService: NotificationsService;
     // LS_N_0017 — built in composition-root.ts, which also hands it to the notification resolvers.
     assignmentComplianceService: AssignmentComplianceService;
     onIssueReported?: IssueReportedNotifier;
@@ -151,8 +147,7 @@ export function createLoadsModule(
     deps.auditService,
     loadStageService,
     deps.assignmentComplianceService,
-    deps.driverAuthService,
-    deps.notificationsService,
+    deps.driverTripNotifier,
     deps.onIssueReported,
     deps.onLoadEvent,
   );
@@ -175,8 +170,7 @@ export function createLoadsModule(
     deps.truckTypeService,
     loadActivityService,
     deps.auditService,
-    deps.driverAuthService,
-    deps.notificationsService,
+    deps.driverTripNotifier,
     deps.assignmentComplianceService,
     new LoadPostingRepository(dataSource),
     deps.onLoadEvent,
@@ -244,8 +238,7 @@ export function createLoadsModule(
     loadRepository,
     codeSequenceRepository,
     loadActivityService,
-    driverAuthService: deps.driverAuthService,
-    notificationsService: deps.notificationsService,
+    driverNotifier: deps.driverTripNotifier,
     truckTypeService: deps.truckTypeService,
     assignmentComplianceService: deps.assignmentComplianceService,
     onLoadEvent: deps.onLoadEvent,

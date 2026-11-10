@@ -1,4 +1,5 @@
 import { DriverExportColumn, DriverImportColumn } from './drivers.interface';
+import type { NotificationSeverity } from '../notifications/notifications.types';
 import {
   DriverEngagementType,
   DriverLicenseEndorsement,
@@ -39,6 +40,31 @@ export const DRIVER_INVITE_COOL_OFF_DAYS = 30;
 /** The driver's "You've been invited" notification — one per send of the invite, each carrying
  *  the invitationId in its metadata. */
 export const DRIVER_INVITED_NOTIFICATION_TYPE = 'driver.account.invited';
+
+/** The driver's "Upload the E-POD" reminder (loads/alerts/pod-reminder.ts) — its inbox card
+ *  carries a live `pod` flag (portal/pod-card.ts). */
+export const DRIVER_POD_REMINDER_NOTIFICATION_TYPE = 'driver.trip.pod_reminder';
+
+/** The driver's "New load assigned" notification (loads/utils/driver-assignment-message.ts). */
+export const DRIVER_LOAD_ASSIGNED_NOTIFICATION_TYPE = 'load.assigned';
+
+/** The driver's "Loading contact changed" notification (LoadService.changeLoadingContact). */
+export const DRIVER_LOADING_CONTACT_CHANGED_NOTIFICATION_TYPE = 'load.loading_contact_changed';
+
+/** The driver's "Loading point changed" notification (LoadService.changeLoadingPoint). */
+export const DRIVER_LOADING_POINT_CHANGED_NOTIFICATION_TYPE = 'load.loading_point_changed';
+
+/** The driver's load cards whose action goes stale as the trip moves on — each carries a live
+ *  `trip` flag (portal/trip-card.ts). */
+export const DRIVER_TRIP_CARD_NOTIFICATION_TYPES: readonly string[] = [
+  DRIVER_LOAD_ASSIGNED_NOTIFICATION_TYPE,
+  DRIVER_LOADING_CONTACT_CHANGED_NOTIFICATION_TYPE,
+  DRIVER_LOADING_POINT_CHANGED_NOTIFICATION_TYPE,
+];
+
+/** Severity of the driver's load-update cards and pushes (new load assigned, loading contact or
+ *  point changed) — something for the driver to act on. */
+export const DRIVER_LOAD_UPDATE_SEVERITY: NotificationSeverity = 'p2_action';
 
 /** HMAC purpose of the invite WhatsApp's tracked-link token (utils/invite-link-token.ts) — keeps
  *  its signatures from matching any other use of the same secret. */

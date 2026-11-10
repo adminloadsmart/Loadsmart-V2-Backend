@@ -15,6 +15,12 @@ import { redisManager } from '../../db/redis';
 import { MAX_OTP_ATTEMPTS } from '../auth/auth.constants';
 import { paginate, Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
+import type {
+  PodCardLoad,
+  PodCardLoadRef,
+  TripCardLoad,
+  TripCardRef,
+} from '../driver/portal/driver-portal.types';
 import { LoadPaymentRepository } from './load-payment.repository';
 import { LoadIssueRepository } from './load-issue.repository';
 import { LoadActivityService } from './load-activity.service';
@@ -46,10 +52,6 @@ import {
   UploadPodInput,
 } from './utils/load.interface';
 import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
-import { DriverAuthService } from '../driver/auth/driver-auth.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { renderDriverMessage } from '../notifications/driver-notification-content';
-import { DRIVER_MESSAGE_PARAMS_KEY } from '../notifications/notifications.constants';
 import { DriverMessage } from '../notifications/notifications.types';
 import {
   AssignmentComplianceService,
@@ -73,6 +75,11 @@ import {
   buildIncident,
 } from './utils/trip-view';
 import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
+import { DriverTripNotifier } from './utils/load-alert.interface';
+import {
+  DRIVER_LOADING_CONTACT_CHANGED_NOTIFICATION_TYPE,
+  DRIVER_LOADING_POINT_CHANGED_NOTIFICATION_TYPE,
+} from '../driver/driver.constants';
 
 const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 
@@ -172,10 +179,9 @@ export class LoadService {
     private readonly stageService: LoadStageService,
     // LS_N_0017 — refuses a vehicle or driver with an expired document at Load Assignment.
     private readonly assignmentComplianceService: AssignmentComplianceService,
-    // Driver push + in-app when the loading point or its contact changes — same shape as the
-    // 'load.assigned' push (DispatchPlanningService.notifyAssignedDrivers).
-    private readonly driverAuthService: DriverAuthService,
-    private readonly notificationsService: NotificationsService,
+    // Driver card + push when the loading point or its contact changes — same as "New load
+    // assigned" (DriverPushNotifier.notifyLoadUpdate).
+    private readonly driverNotifier: DriverTripNotifier,
     // LS_N_0054 — optional; only queues a notification after the existing logic and never throws
     // (see notifications/breakdown-alerts.ts).
     private readonly onIssueReported?: IssueReportedNotifier,
@@ -183,6 +189,16 @@ export class LoadService {
     // optional; only queues a notification and never throws (see notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
   ) {}
+
+  /** For the driver app's E-POD reminder cards (DriverPortalService.getMyNotifications). */
+  findPodCardLoads(refs: PodCardLoadRef[]): Promise<PodCardLoad[]> {
+    return this.repository.findPodCardLoads(refs);
+  }
+
+  /** For the driver app's load cards (DriverPortalService.getMyNotifications). */
+  findTripCardLoads(refs: TripCardRef[]): Promise<TripCardLoad[]> {
+    return this.repository.findTripCardLoads(refs);
+  }
 
   async assertExists(tenantId: string, id: string): Promise<LoadEntity> {
     try {
@@ -1104,7 +1120,7 @@ export class LoadService {
         newData: { id: loadId, loadingContactName: input.name, loadingContactPhone: input.phone },
       });
       await this.notifyDriver(tenantId, load, {
-        type: 'load.loading_contact_changed',
+        type: DRIVER_LOADING_CONTACT_CHANGED_NOTIFICATION_TYPE,
         params: { loadCode: load.code, name: input.name, phoneNumber: input.phone },
       });
       return updated;
@@ -1155,45 +1171,36 @@ export class LoadService {
         oldData: { id: loadId, loadingPointId: load.loadingPointId },
         newData: { id: loadId, loadingPointId: point.id },
       });
-      await this.notifyDriver(tenantId, load, {
-        type: 'load.loading_point_changed',
-        params: { loadCode: load.code, pointTitle: point.title, city: point.city },
-      });
+      await this.notifyDriver(
+        tenantId,
+        load,
+        {
+          type: DRIVER_LOADING_POINT_CHANGED_NOTIFICATION_TYPE,
+          params: { loadCode: load.code, pointTitle: point.title, city: point.city },
+        },
+        // The card's `trip` flag tells a later change apart by the point's id.
+        { loadingPointId: point.id },
+      );
       return (await this.repository.findById(tenantId, loadId)) ?? updated;
     } catch (error) {
       rethrow(error, 'Failed to change the loading point');
     }
   }
 
-  /** Best-effort push + in-app to the load's driver, one per active device session — same as the
-   *  'load.assigned' push. Each row is written in its device's language; the in-app list
-   *  re-renders it from messageParams. Logged, never thrown: the change itself is already saved. */
+  /** Loading point or contact changed — to the load's driver, same as "New load assigned": one
+   *  in-app card always (signed in or not), plus a push to each signed-in device. Never throws:
+   *  the change itself is already saved. */
   private async notifyDriver(
     tenantId: string,
     load: LoadEntity,
     message: DriverMessage,
+    extraMetadata: Record<string, unknown> = {},
   ): Promise<void> {
     if (!load.driverId) return;
-    try {
-      const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
-      await Promise.all(
-        sessions
-          .filter((session) => session.fcmToken)
-          .map((session) =>
-            this.notificationsService.send(tenantId, {
-              recipientUserId: load.driverId!,
-              type: message.type,
-              ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
-              channels: ['push'],
-              destinations: { pushToken: session.fcmToken! },
-              metadata: { loadIds: [load.id], [DRIVER_MESSAGE_PARAMS_KEY]: message.params },
-              severity: 'p2_action',
-            }),
-          ),
-      );
-    } catch (error) {
-      console.error(`Failed to notify driver ${load.driverId} of ${message.type}`, error);
-    }
+    await this.driverNotifier.notifyLoadUpdate(tenantId, load.driverId, message, {
+      ...extraMetadata,
+      loadIds: [load.id],
+    });
   }
 
   /** The loading point and its contact can change only until the truck gets there. */

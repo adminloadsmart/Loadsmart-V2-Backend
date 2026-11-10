@@ -202,6 +202,13 @@ export const ON_ROAD_LOAD_STATUSES: readonly LoadStatus[] = [
   'in_transit_unloading',
   'reached_unloading',
 ];
+/** A truck is assigned but not yet loaded — the loading contact and loading point still matter
+ *  (the driver app's "Loading contact/point changed" cards stay actionable). */
+export const PRE_LOADED_LOAD_STATUSES: readonly LoadStatus[] = [
+  'truck_assigned',
+  'in_transit_loading',
+  'reached_loading',
+];
 /** The truck is at or past the delivery point — trip-execution alerts (LS_N_0025/0026) no longer
  *  apply. */
 export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [

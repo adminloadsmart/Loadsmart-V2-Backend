@@ -40,6 +40,8 @@ import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
 import { DriverTenantRelationEntity } from '../entities/driver-tenant-relation.entity';
 import { NotificationEntity } from '../../notifications/notifications.entity';
 import { renderStoredDriverMessage } from '../../notifications/driver-notification-content';
+import { podCardLoadOf, podCardLoadRefOf, podCardStateOf } from './pod-card';
+import { tripCardRefOf, tripCardStateOf } from './trip-card';
 
 /** The invitationId an invite card carries; null on any other notification. */
 function invitationIdOf(notification: NotificationEntity): string | null {
@@ -552,6 +554,25 @@ export class DriverPortalService {
       invitationIds,
     );
     const relationsById = new Map(relations.map((relation) => [relation.id, relation]));
+    // E-POD reminders follow their load — one lookup for every reminder on the page.
+    const podRefs = new Map(
+      page.items.flatMap((stored) => {
+        const ref = podCardLoadRefOf(stored);
+        return ref ? [[stored.id, ref] as const] : [];
+      }),
+    );
+    // Load cards (assigned / loading contact or point changed) follow their loads the same way.
+    const tripRefs = new Map(
+      page.items.flatMap((stored) => {
+        const ref = tripCardRefOf(stored);
+        return ref ? [[stored.id, ref] as const] : [];
+      }),
+    );
+    const [podLoads, tripLoads] = await Promise.all([
+      this.loadService.findPodCardLoads([...podRefs.values()]),
+      this.loadService.findTripCardLoads([...tripRefs.values()]),
+    ]);
+    const tripLoadsById = new Map(tripLoads.map((load) => [load.id, load]));
 
     return {
       ...page,
@@ -561,12 +582,20 @@ export class DriverPortalService {
           ...stored,
           ...renderStoredDriverMessage(stored.type, stored.metadata, locale),
         };
+        const podRef = podRefs.get(stored.id);
+        const pod = podRef
+          ? podCardStateOf(podRef, podCardLoadOf(podRef, podLoads), driverId)
+          : null;
+        const tripRef = tripRefs.get(stored.id);
+        const trip = tripRef ? tripCardStateOf(stored, tripRef, tripLoadsById, driverId) : null;
         const invitationId = invitationIdOf(notification);
-        if (!invitationId) return { ...notification, invitation: null };
+        if (!invitationId) return { ...notification, invitation: null, pod, trip };
         const status = inviteCardStatusOf(notification, relationsById.get(invitationId));
         return {
           ...notification,
           invitation: { invitationId, status, actionable: status === 'pending' },
+          pod,
+          trip,
         };
       }),
     };

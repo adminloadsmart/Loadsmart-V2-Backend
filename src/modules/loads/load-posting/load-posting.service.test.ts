@@ -2,15 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DataSource } from 'typeorm';
 import type { AuditService } from '../../audit/audit.service';
 import type { CustomerService } from '../../customers/customer.service';
-import type { DriverAuthService } from '../../driver/auth/driver-auth.service';
 import type { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import type { VehicleService } from '../../masters/vehicle/vehicle.service';
-import type { NotificationsService } from '../../notifications/notifications.service';
 import type { AssignmentComplianceService } from '../assignment-compliance.service';
 import type { CodeSequenceRepository } from '../code-sequence.repository';
 import type { LoadActivityService } from '../load-activity.service';
 import type { LoadRepository } from '../load.repository';
 import type { AssignmentCompliance } from '../utils/load.interface';
+import type { DriverTripNotifier } from '../utils/load-alert.interface';
 import type { LoadDispatchNotifier } from './load-dispatch-notifier';
 import type { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingService } from './load-posting.service';
@@ -94,8 +93,7 @@ function setup(compliance: Partial<AssignmentCompliance>, licenseExpiry = '2030-
     {} as LoadActivityService,
     {} as AuditService,
     {} as LoadDispatchNotifier,
-    {} as DriverAuthService,
-    {} as NotificationsService,
+    {} as DriverTripNotifier,
     {} as TruckTypeService,
     complianceService,
     onLoadEvent,

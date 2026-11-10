@@ -2545,9 +2545,10 @@ export const NOTIFICATION_CATALOG = {
   },
 
   // LS_N_0026 — fired by tracking's `trip.departed_pickup` event (the vehicle left the loading
-  // point's geofence), read off the `tracking.events` stream by tracking-events.consumer.ts. ETA
-  // and km to run come from tracking's API at send time and are left out when it has none yet.
-  // In-app only, P3, to trip.track holders. Nothing sends this until tracking publishes the event.
+  // point's geofence, read off the `tracking.events` stream by tracking-events.consumer.ts), or by
+  // the load being moved to In transit by hand / from the driver app (loads with no GPS) — once
+  // per load, whichever comes first. ETA and km to run come from tracking's API at send time and
+  // are left out when it has none yet. In-app only, P3, to trip.track holders.
   'load.vehicle_in_transit': {
     label: 'Vehicle in transit',
     category: 'trip_execution',
@@ -2951,6 +2952,7 @@ export const NOTIFICATION_CATALOG = {
           driver_phone: context.driverPhone ?? '',
           pod_rejected: context.rejected ? 'true' : 'false',
           pending_since: context.since,
+          ladder_step: String(context.step),
           cta_label: 'Chase POD',
         },
       };
