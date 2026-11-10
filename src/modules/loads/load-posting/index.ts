@@ -2,9 +2,7 @@ import { DataSource } from 'typeorm';
 import { AuditService } from '../../audit/audit.service';
 import { CustomerService } from '../../customers/customer.service';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
-import { DriverAuthService } from '../../driver/auth/driver-auth.service';
 import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
-import { NotificationsService } from '../../notifications/notifications.service';
 import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
@@ -20,6 +18,7 @@ import type { FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { AssignmentComplianceService } from '../assignment-compliance.service';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import { LoadStageHook } from '../utils/load.interface';
+import { DriverTripNotifier } from '../utils/load-alert.interface';
 import { LoadPostingHooks } from './utils/load-posting.interface';
 
 export function createLoadPostingModule(
@@ -31,8 +30,7 @@ export function createLoadPostingModule(
     loadRepository: LoadRepository;
     codeSequenceRepository: CodeSequenceRepository;
     loadActivityService: LoadActivityService;
-    driverAuthService: DriverAuthService;
-    notificationsService: NotificationsService;
+    driverNotifier: DriverTripNotifier;
     truckTypeService: TruckTypeService;
     assignmentComplianceService: AssignmentComplianceService;
     /** LS_N_0016/0017 — truck assigned / blocked on an expired document. */
@@ -56,8 +54,7 @@ export function createLoadPostingModule(
     deps.loadActivityService,
     deps.auditService,
     deps.notifier ?? new LoggingLoadDispatchNotifier(),
-    deps.driverAuthService,
-    deps.notificationsService,
+    deps.driverNotifier,
     deps.truckTypeService,
     deps.assignmentComplianceService,
     deps.onLoadEvent,

@@ -1,3 +1,4 @@
+import { DRIVER_POD_REMINDER_NOTIFICATION_TYPE } from '../../driver/driver.constants';
 import { LoadRepository } from '../load.repository';
 import { PodReminderJobPayload, DriverTripNotifier } from '../utils/load-alert.interface';
 
@@ -12,9 +13,14 @@ export async function processPodReminder(
   if (!load || load.status !== 'reached_unloading' || load.podFileKey || !load.driverId) {
     return 'skipped';
   }
-  await notifier.notifyTripReminder(load.tenantId, load.driverId, {
-    type: 'driver.trip.pod_reminder',
-    params: { loadId: load.id, loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
-  });
+  await notifier.notifyTripReminder(
+    load.tenantId,
+    load.driverId,
+    {
+      type: DRIVER_POD_REMINDER_NOTIFICATION_TYPE,
+      params: { loadId: load.id, loadCode: load.code, vehicleNumber: load.vehicleNumber ?? null },
+    },
+    { loadId: load.id },
+  );
   return 'sent';
 }

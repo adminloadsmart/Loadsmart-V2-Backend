@@ -509,9 +509,6 @@ export function buildContainer(dataSource: DataSource): Container {
     truckTypeService: masters.truckTypeService,
     loadingPointService: masters.loadingPointService,
     productService: masters.productService,
-    // Push-notification payoff for driver_sessions.fcm_token — see docs/driver-auth.md.
-    driverAuthService: driverAuth.service,
-    notificationsService: notifications.service,
     assignmentComplianceService,
     // LS_N_0054 — a driver-reported breakdown alerts maintenance holders and org admins.
     onIssueReported: createIssueReportedNotifier(notifications.triggers),
@@ -522,6 +519,8 @@ export function buildContainer(dataSource: DataSource): Container {
     vehicleRegistry: ulipClient,
     dlVerificationClient: driver.dlVerificationClient,
     notificationTriggers: notifications.triggers,
+    // E-POD reminders and load updates (new load, loading contact/point changed) to the driver
+    // app — one in-app card always, plus a push to each signed-in device.
     driverTripNotifier: driver.driverPushNotifier,
   });
 

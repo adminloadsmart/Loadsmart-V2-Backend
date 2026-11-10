@@ -12,10 +12,7 @@ import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
 import { VehicleService, resolveDocumentStatus } from '../../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
-import { DriverAuthService } from '../../driver/auth/driver-auth.service';
-import { NotificationsService } from '../../notifications/notifications.service';
-import { renderDriverMessage } from '../../notifications/driver-notification-content';
-import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
+import { DriverTripNotifier } from '../utils/load-alert.interface';
 import { CodeSequenceRepository } from '../code-sequence.repository';
 import { LoadRepository, CreateLoadData } from '../load.repository';
 import { LoadActivityService } from '../load-activity.service';
@@ -110,8 +107,8 @@ export class LoadPostingService {
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
     private readonly notifier: LoadDispatchNotifier,
-    private readonly driverAuthService: DriverAuthService,
-    private readonly notificationsService: NotificationsService,
+    // "New load assigned" to the driver app — in-app card + push (DriverPushNotifier).
+    private readonly driverNotifier: DriverTripNotifier,
     private readonly truckTypeService: TruckTypeService,
     // LS_N_0017 — refuses a truck or driver with an expired document.
     private readonly assignmentComplianceService: AssignmentComplianceService,
@@ -918,32 +915,17 @@ export class LoadPostingService {
     return recipients;
   }
 
-  /** Same best-effort push as DispatchPlanningService.notifyAssignedDrivers. */
+  /** "New load assigned" to the driver — same as DispatchPlanningService.notifyAssignedDrivers:
+   *  one in-app card always, plus a push to each signed-in device. */
   private async notifyDriver(tenantId: string, loads: LoadEntity[]): Promise<void> {
     const load = loads[0];
     if (!load?.driverId) return;
     try {
-      const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(load.driverId);
-      if (sessions.length === 0) return;
-
       // Re-read with the route relations — the freshly created load carries none.
       const detailed = (await this.loadRepository.findDetailById(tenantId, load.id)) ?? load;
       const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
       const { message, metadata } = driverAssignmentMessage([detailed], owner ?? null);
-      await Promise.all(
-        sessions
-          .filter((session) => session.fcmToken)
-          .map((session) =>
-            this.notificationsService.send(tenantId, {
-              recipientUserId: load.driverId!,
-              type: message.type,
-              ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
-              channels: ['push'],
-              destinations: { pushToken: session.fcmToken! },
-              metadata,
-            }),
-          ),
-      );
+      await this.driverNotifier.notifyLoadUpdate(tenantId, load.driverId, message, metadata);
     } catch (error) {
       console.error(`Failed to notify driver ${load.driverId} of load ${load.code}`, error);
     }

@@ -5,12 +5,12 @@ import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { renderDriverMessage } from '../../notifications/driver-notification-content';
 import { DRIVER_MESSAGE_PARAMS_KEY } from '../../notifications/notifications.constants';
 import { NotificationEntity } from '../../notifications/notifications.entity';
-import { DriverMessage } from '../../notifications/notifications.types';
+import { DriverMessage, NotificationSeverity } from '../../notifications/notifications.types';
 import { PushChannel } from '../../notifications/channels/push.channel';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { DriverSessionRepository } from './driver-auth.repository';
 import { DriverInviteNotifyResult, DriverInviteWhatsAppResult } from './driver-auth.types';
-import { DRIVER_INVITED_NOTIFICATION_TYPE } from '../driver.constants';
+import { DRIVER_INVITED_NOTIFICATION_TYPE, DRIVER_LOAD_UPDATE_SEVERITY } from '../driver.constants';
 
 /**
  * Ad hoc push delivery for driver-side link events ("you've been invited", "your join request
@@ -73,7 +73,8 @@ export class DriverPushNotifier {
   private async push(
     driverId: string,
     message: DriverMessage,
-    data?: Record<string, string>,
+    data?: Record<string, unknown>,
+    severity?: NotificationSeverity,
   ): Promise<boolean> {
     try {
       const sessions = await this.driverSessionRepository.findActiveByDriverId(driverId);
@@ -82,7 +83,13 @@ export class DriverPushNotifier {
           .filter((session) => session.fcmToken)
           .map((session) => {
             const { title, body } = renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE);
-            const notification = { title, body, metadata: data } as unknown as NotificationEntity;
+            // PushChannel turns the data into FCM's string-only form (objects as JSON).
+            const notification = {
+              title,
+              body,
+              metadata: data,
+              severity,
+            } as unknown as NotificationEntity;
             return this.pushChannel.send(notification, session.fcmToken!);
           }),
       );
@@ -100,6 +107,7 @@ export class DriverPushNotifier {
     driverId: string,
     message: DriverMessage,
     metadata?: Record<string, unknown>,
+    severity?: NotificationSeverity,
   ): Promise<NotificationEntity | null> {
     try {
       const { title, body } = renderDriverMessage(message, DEFAULT_LOCALE);
@@ -110,6 +118,7 @@ export class DriverPushNotifier {
         body,
         channels: [],
         metadata: { ...metadata, [DRIVER_MESSAGE_PARAMS_KEY]: message.params },
+        severity,
       });
     } catch {
       // Best-effort, same reasoning as push() above.
@@ -145,9 +154,48 @@ export class DriverPushNotifier {
     return { pushed, notificationId: notification?.id ?? null };
   }
 
-  /** A trip reminder to the driver's app (e.g. upload the E-POD) — push plus an in-app row. */
-  notifyTripReminder(tenantId: string, driverId: string, message: DriverMessage): Promise<void> {
-    return this.send(tenantId, driverId, message);
+  /** A trip reminder to the driver's app (e.g. upload the E-POD) — push plus an in-app row, both
+   *  carrying the load's id when given (the inbox's `pod` flag follows that load). */
+  async notifyTripReminder(
+    tenantId: string,
+    driverId: string,
+    message: DriverMessage,
+    load?: { loadId: string },
+  ): Promise<void> {
+    if (!load) return this.send(tenantId, driverId, message);
+    const notification = await this.persist(tenantId, driverId, message, { loadId: load.loadId });
+    await this.push(driverId, message, {
+      type: message.type,
+      loadId: load.loadId,
+      ...(notification && { notificationId: notification.id }),
+    });
+  }
+
+  /**
+   * A load update to the driver's app — new load assigned, loading contact or point changed. The
+   * in-app card is saved once, whether or not the driver is signed in right now (a load assigned
+   * while they're logged out is still in their inbox when they sign in), then pushed to every
+   * signed-in device with the card's id. Best-effort like the rest: never throws.
+   */
+  async notifyLoadUpdate(
+    tenantId: string,
+    driverId: string,
+    message: DriverMessage,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const notification = await this.persist(
+      tenantId,
+      driverId,
+      message,
+      metadata,
+      DRIVER_LOAD_UPDATE_SEVERITY,
+    );
+    await this.push(
+      driverId,
+      message,
+      { ...metadata, type: message.type, ...(notification && { notificationId: notification.id }) },
+      DRIVER_LOAD_UPDATE_SEVERITY,
+    );
   }
 
   notifyJoinRequestApproved(tenantId: string, driverId: string, tenantName: string): Promise<void> {

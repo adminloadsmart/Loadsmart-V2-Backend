@@ -36,10 +36,23 @@ const snapshot = {
   reachedDeliveryPointAt: arrivedAt,
 } as unknown as LoadAlertSnapshot;
 
-function setup(overrides: Partial<LoadAlertSnapshot> = {}) {
+/** Stands in for the notifications table: metadata of what already went out, matched the way
+ *  hasSentNotification's jsonb `@>` does (every queried key equal). */
+function setup(
+  overrides: Partial<LoadAlertSnapshot> = {},
+  sent: { type: string; metadata: Record<string, string> }[] = [],
+) {
   const repository = {
     findSnapshot: vi.fn(async () => ({ ...snapshot, ...overrides })),
     findPersonName: vi.fn(async () => 'Anita Sharma'),
+    hasSentNotification: vi.fn(
+      async (_tenantId: string, type: string, metadata: Record<string, string>) =>
+        sent.some(
+          (row) =>
+            row.type === type &&
+            Object.entries(metadata).every(([key, value]) => row.metadata[key] === value),
+        ),
+    ),
   } as unknown as LoadAlertRepository;
   return createLoadAlertResolvers(
     repository,
@@ -100,6 +113,40 @@ describe('LS_N_0039 POD still pending', () => {
     expect(
       await setup({ reachedDeliveryPointAt: new Date() }).podPending('tenant-1', context),
     ).toBeNull();
+  });
+
+  it('sends each step once, though the 5-minute sweep re-queues it all through the grace window', async () => {
+    const sent: { type: string; metadata: Record<string, string> }[] = [];
+    const resolvers = setup({}, sent);
+    // Twelve sweeps = one hour of the step being "due".
+    for (let run = 0; run < 12; run++) {
+      const resolved = await resolvers.podPending('tenant-1', context);
+      if (resolved) {
+        sent.push({
+          type: 'load.pod_pending',
+          metadata: definition.buildContent(resolved, recipient).metadata!,
+        });
+      }
+    }
+    expect(sent).toHaveLength(1);
+    expect(sent[0].metadata).toMatchObject({ load_id: 'load-1', ladder_step: '0' });
+
+    // The 48 h step is a new occurrence, so it still goes out.
+    expect(await resolvers.podPending('tenant-1', { ...context, step: 1 })).not.toBeNull();
+  });
+
+  it('still alerts again for a new wait (a later rejection) on the same load and step', async () => {
+    const sent = [
+      {
+        type: 'load.pod_pending',
+        metadata: {
+          load_id: 'load-1',
+          pending_since: '2026-01-01T00:00:00.000Z',
+          ladder_step: '0',
+        },
+      },
+    ];
+    expect(await setup({}, sent).podPending('tenant-1', context)).not.toBeNull();
   });
 });
 

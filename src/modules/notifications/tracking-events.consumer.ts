@@ -81,7 +81,8 @@ export function createTrackingEventHandlers(
     },
     // LS_N_0026 — the loaded vehicle left the loading point's geofence (tracking sends this only
     // once loading is confirmed). A "Loaded" load moves to "In transit to unloading" at that time;
-    // one already marked in transit by hand stays as it is. The card goes out either way.
+    // one already marked in transit by hand stays as it is. The card is queued either way — the
+    // resolver drops it if the manual move already sent it (once per load).
     'trip.departed_pickup': async (event) => {
       const loadId = stringOf(event.payload.loadId);
       if (!loadId || !event.tenantId) {

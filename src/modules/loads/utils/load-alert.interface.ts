@@ -25,7 +25,22 @@ export interface LoadDueTimes {
 /** When the load is due at each end — the posting's pickup time and deliver-by (drop ETA). */
 export type LoadSchedule = (load: LoadEntity) => Promise<LoadDueTimes>;
 
-/** The driver-app push the reminder goes out through — DriverPushNotifier satisfies it. */
+/** The driver-app notifications the loads module sends (E-POD reminders, load updates) —
+ *  DriverPushNotifier satisfies it. */
 export interface DriverTripNotifier {
-  notifyTripReminder(tenantId: string, driverId: string, message: DriverMessage): Promise<void>;
+  /** `loadId` is saved on the in-app row (and rides on the push) so the card can follow the load. */
+  notifyTripReminder(
+    tenantId: string,
+    driverId: string,
+    message: DriverMessage,
+    load?: { loadId: string },
+  ): Promise<void>;
+  /** New load assigned / loading contact or point changed: one in-app card always (signed in or
+   *  not), plus a push to each signed-in device. Never throws. */
+  notifyLoadUpdate(
+    tenantId: string,
+    driverId: string,
+    message: DriverMessage,
+    metadata: Record<string, unknown>,
+  ): Promise<void>;
 }

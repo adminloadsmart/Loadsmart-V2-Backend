@@ -62,7 +62,8 @@ export type NotificationCategoryOrGeneral = NotificationCategory | 'general';
 export const NOTIFICATION_CTA_STYLES = ['danger', 'warning', 'primary', 'secondary'] as const;
 export type NotificationCtaStyle = (typeof NOTIFICATION_CTA_STYLES)[number];
 
-// Trip stages LoadService reports to load-alerts.ts: 'in_transit' queues the advance-due card,
+// Trip stages LoadService reports to load-alerts.ts: 'in_transit' queues the advance-due card and
+// LS_N_0026 ('load.vehicle_in_transit'),
 // 'reached_delivery_point' LS_N_0031 ('load.vehicle_reached_drop').
 export const LOAD_STAGE_HANDOFF_STAGES = ['in_transit', 'reached_delivery_point'] as const;
 export type LoadStageHandoffStage = (typeof LOAD_STAGE_HANDOFF_STAGES)[number];

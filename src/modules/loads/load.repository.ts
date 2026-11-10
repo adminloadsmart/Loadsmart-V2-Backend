@@ -33,6 +33,12 @@ import {
   OPEN_LOAD_STATUSES,
 } from './utils/loads.types';
 import { LiveLoadsCursor } from './utils/live-loads-cursor';
+import type {
+  PodCardLoad,
+  PodCardLoadRef,
+  TripCardLoad,
+  TripCardRef,
+} from '../driver/portal/driver-portal.types';
 import { AwardOutcome, LoadAwardOutcomeEntity } from './entities/load-award-outcome.entity';
 
 // A single tenant for staff, several for a driver linked to more than one fleet.
@@ -177,6 +183,52 @@ export class LoadRepository {
 
   findLoadingPoint(tenantId: string, id: string): Promise<LoadingPointEntity | null> {
     return this.loadingPoints.findOne({ where: { id, tenantId } });
+  }
+
+  /** The loads behind the driver's E-POD reminder cards — by id, or (older cards) by tenant + code.
+   *  Only the POD fields the card's flag needs (driver/portal/pod-card.ts). */
+  findPodCardLoads(refs: PodCardLoadRef[]): Promise<PodCardLoad[]> {
+    if (!refs.length) return Promise.resolve([]);
+    const where: FindOptionsWhere<LoadEntity>[] = refs.map((ref) =>
+      ref.loadId
+        ? { id: ref.loadId, tenantId: ref.tenantId }
+        : { code: ref.loadCode!, tenantId: ref.tenantId },
+    );
+    return this.loads.find({
+      where,
+      select: {
+        id: true,
+        tenantId: true,
+        code: true,
+        driverId: true,
+        status: true,
+        podStatus: true,
+        podFileKey: true,
+      },
+    });
+  }
+
+  /** The loads behind the driver's load cards (driver/portal/trip-card.ts) — only the fields the
+   *  card's flag needs, plus the loading point's title. */
+  findTripCardLoads(refs: TripCardRef[]): Promise<TripCardLoad[]> {
+    const where: FindOptionsWhere<LoadEntity>[] = refs.flatMap((ref) =>
+      ref.loadIds.map((id) => ({ id, tenantId: ref.tenantId })),
+    );
+    if (!where.length) return Promise.resolve([]);
+    return this.loads.find({
+      where,
+      relations: { loadingPoint: true },
+      select: {
+        id: true,
+        tenantId: true,
+        driverId: true,
+        status: true,
+        loadingContactName: true,
+        loadingContactPhone: true,
+        loadingPointId: true,
+        loadingPoint: { id: true, title: true },
+      },
+    });
   }
 
   findById(tenantId: string, id: string, manager?: EntityManager): Promise<LoadEntity | null> {

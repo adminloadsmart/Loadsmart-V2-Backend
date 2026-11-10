@@ -3,10 +3,7 @@ import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../sh
 import { humanizeStatus } from '../../shared/utils/humanize';
 import { AuditService } from '../audit/audit.service';
 import { driverAssignmentMessage, FleetOwnerLookup } from './utils/driver-assignment-message';
-import { DriverAuthService } from '../driver/auth/driver-auth.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { renderDriverMessage } from '../notifications/driver-notification-content';
-import { DEFAULT_LOCALE } from '../../shared/i18n/locales';
+import { DriverTripNotifier } from './utils/load-alert.interface';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
 import { TruckTypeService } from '../masters/truck-type/truck-type.service';
@@ -91,11 +88,8 @@ export class DispatchPlanningService {
     private readonly truckTypeService: TruckTypeService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
-    // Push-notification payoff for masters.driver_sessions.fcm_token — see docs/driver-auth.md.
-    // A separate identity domain from the staff/org one everything else here reads: only
-    // getActiveDeviceTokensForDriver is used, never anything RBAC-shaped.
-    private readonly driverAuthService: DriverAuthService,
-    private readonly notificationsService: NotificationsService,
+    // "New load assigned" to the driver app — in-app card + push (DriverPushNotifier).
+    private readonly driverNotifier: DriverTripNotifier,
     // LS_N_0017 — refuses a vehicle or driver with an expired document.
     private readonly assignmentComplianceService: AssignmentComplianceService,
     // A driver picked for an own-fleet vehicle must be idle — same rule as Post a load.
@@ -304,12 +298,10 @@ export class DispatchPlanningService {
     }
   }
 
-  /** One push per unique driver assigned a load in this dispatch batch (own-fleet lines only —
-   *  market lines never carry a driverId), fanned out to every one of that driver's active
-   *  sessions with a registered FCM token. Establishes the driver_sessions.fcm_token → PushChannel
-   *  pattern with one concrete event; see docs/driver-auth.md for the general shape other
-   *  driver-facing events (trip status changes, etc.) should follow. Best-effort: a delivery
-   *  failure for one driver never affects another, or the dispatch itself. */
+  /** One "New load assigned" per unique driver assigned a load in this dispatch batch (own-fleet
+   *  lines only — market lines never carry a driverId): one in-app card always, plus a push to each
+   *  signed-in device (DriverPushNotifier.notifyLoadUpdate). Best-effort: a failure for one driver
+   *  never affects another, or the dispatch itself. */
   private async notifyAssignedDrivers(tenantId: string, loads: LoadEntity[]): Promise<void> {
     const driverIds = [
       ...new Set(loads.map((load) => load.driverId).filter((id): id is string => Boolean(id))),
@@ -318,9 +310,6 @@ export class DispatchPlanningService {
     await Promise.all(
       driverIds.map(async (driverId) => {
         try {
-          const sessions = await this.driverAuthService.getActiveDeviceTokensForDriver(driverId);
-          if (sessions.length === 0) return;
-
           // Re-read with the route relations — the loads from planning carry none.
           const assignedLoads = (
             await Promise.all(
@@ -335,19 +324,7 @@ export class DispatchPlanningService {
           const owner = await this.fleetOwnerLookup?.(tenantId).catch(() => null);
           const { message, metadata } = driverAssignmentMessage(assignedLoads, owner ?? null);
 
-          await Promise.all(
-            sessions.map((session) =>
-              this.notificationsService.send(tenantId, {
-                recipientUserId: driverId,
-                type: message.type,
-                ...renderDriverMessage(message, session.locale ?? DEFAULT_LOCALE),
-                channels: ['push'],
-                destinations: { pushToken: session.fcmToken! },
-                metadata,
-                severity: 'p2_action',
-              }),
-            ),
-          );
+          await this.driverNotifier.notifyLoadUpdate(tenantId, driverId, message, metadata);
         } catch (error) {
           // Logged, not rethrown — letting this propagate would mischaracterize an otherwise-
           // successful dispatch as "Failed to plan dispatch" (the outer catch's message).

@@ -65,11 +65,11 @@ import {
 /**
  * Load-event notifications: reached the delivery point (LS_N_0031), trip completed (LS_N_0033, with
  * the E-POD), e-way bill expiry (LS_N_0025), E-POD uploaded, advance due, truck assigned (LS_N_0016), assignment blocked on compliance (LS_N_0017)
- * and vehicle loaded (LS_N_0024). LoadService calls the notifier after its own writes — it only
+ * vehicle loaded (LS_N_0024) and vehicle in transit (LS_N_0026). LoadService calls the notifier after its own writes — it only
  * queues ids and never throws (same contract as breakdown-alerts.ts); the trigger worker's
  * resolvers below then read everything the message needs, and return null (nothing sent) once it
- * no longer applies. LS_N_0026 (vehicle in transit) comes from tracking instead — see
- * tracking-events.consumer.ts.
+ * no longer applies. LS_N_0026 is also queued by tracking's geofence exit (see
+ * tracking-events.consumer.ts); its resolver sends it once per load, whichever comes first.
  */
 export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEventNotifier {
   return async (event) => {
@@ -79,9 +79,14 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
       switch (event.kind) {
         case 'in_transit':
           // Loading confirmed is when an advance can first be recorded; the resolver drops it
-          // for own-fleet loads, no advance share, or an advance already paid. The "left the
-          // loading point" card is LS_N_0026, triggered by tracking's geofence exit instead.
+          // for own-fleet loads, no advance share, or an advance already paid.
           await triggers.enqueue('load.advance_due', tenantId, { loadId });
+          // LS_N_0026 — "left the loading point" on any move to In transit: tracking's geofence
+          // exit, or marked by hand / from the driver app for a load with no GPS. Once per load.
+          await triggers.enqueue('load.vehicle_in_transit', tenantId, {
+            loadId,
+            departedAt: event.at.toISOString(),
+          });
           return;
         case 'at_plant':
           await triggers.enqueue('load.vehicle_reached_pickup', tenantId, {
@@ -524,7 +529,9 @@ export function createLoadAlertResolvers(
     },
 
     /** LS_N_0026 — null once the truck has already reached the delivery point (a late or
-     *  replayed tracking event). ETA and km left come from tracking when it has them. */
+     *  replayed tracking event), or once the card already went out for this load (it's queued
+     *  both on the move to In transit and on tracking's geofence exit, which can each come
+     *  first). ETA and km left come from tracking when it has them. */
     vehicleInTransit: async (
       tenantId: string,
       context: VehicleInTransitContext,
@@ -532,6 +539,13 @@ export function createLoadAlertResolvers(
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot || ARRIVED_AT_DELIVERY_STATUSES.includes(snapshot.status as LoadStatus))
         return null;
+      if (
+        await loadAlertRepository.hasSentNotification(tenantId, 'load.vehicle_in_transit', {
+          load_id: context.loadId,
+        })
+      ) {
+        return null;
+      }
       const eta = await tracking.getTripEta(tenantId, context.loadId);
       return {
         ...context,
@@ -772,6 +786,17 @@ export function createLoadAlertResolvers(
             ? snapshot.podReviewedAt
             : null;
       if (since?.toISOString() !== context.since) return null;
+      // The sweep re-queues a due step on every run inside TRIP_TIMING_GRACE_MINUTES, and BullMQ's
+      // dedupe id is released once a job completes — so drop a step that already went out.
+      if (
+        await loadAlertRepository.hasSentNotification(tenantId, 'load.pod_pending', {
+          load_id: context.loadId,
+          pending_since: context.since,
+          ladder_step: String(context.step),
+        })
+      ) {
+        return null;
+      }
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
