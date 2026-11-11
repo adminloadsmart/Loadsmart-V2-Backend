@@ -1,23 +1,23 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { requisitionValidators } from './requisition.validators';
-import { dispatchPlanningValidators } from './dispatch-planning.validators';
+import { requisitionValidators } from '../requisitions/requisition.validators';
+import { dispatchPlanningValidators } from '../dispatch-planning/dispatch-planning.validators';
 import { loadValidators } from './load.validators';
-import { loadPaymentValidators } from './load-payment.validators';
-import { loadIssueValidators } from './load-issue.validators';
+import { loadPaymentValidators } from '../payments/load-payment.validators';
+import { loadIssueValidators } from '../issues/load-issue.validators';
 import {
   REQUISITIONS_MANAGE,
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
   PAYMENTS_MANAGE,
-} from '../../shared/constants/permissions';
-import { API_VERSION_PREFIX } from '../../shared/constants/api';
+} from '../../../shared/constants/permissions';
+import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
   authenticated,
   permissionGated,
   errorContent,
   json,
-} from '../../shared/openapi/core';
+} from '../../../shared/openapi/core';
 
 /**
  * OpenAPI docs for the loads module: registers every route in loads.routes.ts, in the same

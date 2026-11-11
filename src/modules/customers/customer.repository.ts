@@ -264,16 +264,23 @@ export class CustomerRepository {
         gstVerificationStatus,
       });
     // "Name, GSTIN or city" — city via EXISTS, so a match doesn't trim the joined points list.
-    if (search)
+    if (search) {
+      const pointInCity = query
+        .subQuery()
+        .select('1')
+        .from(CustomerDeliveryPointEntity, 'sp')
+        .where('sp.customerId = customer.id')
+        .andWhere('sp.deletedAt IS NULL')
+        .andWhere('sp.city ILIKE :search')
+        .getQuery();
       query.andWhere(
         `(customer.name ILIKE :search OR customer.code ILIKE :search OR customer.mobile ILIKE :search
           OR customer.email ILIKE :search OR customer.gstin ILIKE :search
           OR customer.registered_city ILIKE :search OR customer.place_of_supply ILIKE :search
-          OR EXISTS (SELECT 1 FROM customers.customer_delivery_points sp
-                     WHERE sp.customer_id = customer.id AND sp.deleted_at IS NULL
-                       AND sp.city ILIKE :search))`,
+          OR EXISTS ${pointInCity})`,
         { search: `%${search}%` },
       );
+    }
     return query.orderBy('customer.created_at', 'DESC').addOrderBy('contact.sort_order', 'ASC');
   }
 

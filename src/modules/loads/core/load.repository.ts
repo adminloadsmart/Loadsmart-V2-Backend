@@ -13,13 +13,13 @@ import {
   Not,
   Repository,
 } from 'typeorm';
-import { LoadEntity } from './entities/load.entity';
-import { LoadCargoItemEntity } from './entities/load-cargo-item.entity';
-import { LoadingPointEntity } from '../masters/loading-point/entities/loading-point.entity';
-import { DriverDocumentEntity } from '../driver/entities/driver-document.entity';
-import { LoadPostingEntity } from './load-posting/entities/load-posting.entity';
-import { RequisitionEntity } from './entities/requisition.entity';
-import { ListLoadsInput } from './utils/load.interface';
+import { LoadEntity } from '../entities/load.entity';
+import { LoadCargoItemEntity } from '../entities/load-cargo-item.entity';
+import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
+import { DriverDocumentEntity } from '../../driver/entities/driver-document.entity';
+import { LoadPostingEntity } from '../load-posting/entities/load-posting.entity';
+import { RequisitionEntity } from '../entities/requisition.entity';
+import { ListLoadsInput } from '../utils/load.interface';
 import {
   ARRIVED_AT_DELIVERY_STATUSES,
   ACTIVE_TAB_LOAD_STATUSES,
@@ -31,15 +31,15 @@ import {
   LoadStatus,
   ON_ROAD_LOAD_STATUSES,
   OPEN_LOAD_STATUSES,
-} from './utils/loads.types';
-import { LiveLoadsCursor } from './utils/live-loads-cursor';
+} from '../utils/loads.types';
+import { LiveLoadsCursor } from '../utils/live-loads-cursor';
 import type {
   PodCardLoad,
   PodCardLoadRef,
   TripCardLoad,
   TripCardRef,
-} from '../driver/portal/driver-portal.types';
-import { AwardOutcome, LoadAwardOutcomeEntity } from './entities/load-award-outcome.entity';
+} from '../../driver/portal/driver-portal.types';
+import { AwardOutcome, LoadAwardOutcomeEntity } from '../entities/load-award-outcome.entity';
 
 // A single tenant for staff, several for a driver linked to more than one fleet.
 const scopeToTenants = (tenantId: string | string[]) =>

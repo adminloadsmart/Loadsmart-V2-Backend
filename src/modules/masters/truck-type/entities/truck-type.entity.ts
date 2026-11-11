@@ -35,7 +35,7 @@ export class TruckTypeEntity {
   // --- Structured picker fields (Plan Dispatch v2.0 §6.6) — nullable: rows created via the
   // "Add from catalog" bulk-by-name flow (truck-type.service.ts's addFromCatalog) have none of
   // these set until an org_admin edits them; only the direct 3-step-picker POST /truck-types
-  // requires all four. Dispatch Planning's market-line capacity check (loads/dispatch-planning.
+  // requires all four. Dispatch Planning's market-line capacity check (loads/dispatch-planning/dispatch-planning.
   // service.ts) rejects a truck type with no capacityTons set, rather than the DB enforcing NOT
   // NULL — see masters.validators.ts's createTruckType for where these are actually required.
 

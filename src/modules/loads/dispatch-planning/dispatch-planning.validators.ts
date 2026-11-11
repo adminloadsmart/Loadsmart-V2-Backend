@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { paginationQuery as pagination } from '../../shared/validators/pagination';
-import { VEHICLE_OPERATIONAL_STATUSES } from '../masters/vehicle/vehicle.type';
-import { FREIGHT_MODES } from './utils/loads.types';
+import { paginationQuery as pagination } from '../../../shared/validators/pagination';
+import { VEHICLE_OPERATIONAL_STATUSES } from '../../masters/vehicle/vehicle.type';
+import { FREIGHT_MODES } from '../utils/loads.types';
 
 const uuid = z.string().uuid();
 const params = z.object({ requisitionId: uuid });

@@ -3,9 +3,11 @@ import { LoadEntity } from '../loads/entities/load.entity';
 import { RequisitionEntity } from '../loads/entities/requisition.entity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
 import { CustomerEntity } from '../customers/entities/customer.entity';
+import { LoadCargoItemEntity } from '../loads/entities/load-cargo-item.entity';
+import { RequisitionItemEntity } from '../loads/entities/requisition-item.entity';
 import { ACTIVE_LOAD_STATUSES } from '../loads/utils/loads.types';
 import { buildNextAction } from '../loads/utils/trip-view';
-import { computeShareAmount } from '../loads/load-payment.service';
+import { computeShareAmount } from '../loads/payments/load-payment.service';
 
 /** Which master record a usage / load-history lookup is about. A load reaches a customer or a
  *  loading point either through its requisition (dispatch flow) or its posting (Post a load). */
@@ -77,20 +79,27 @@ export class MasterUsageRepository {
           ),
           { targetId: target.id },
         );
-      case 'product':
+      case 'product': {
         // Products ride on a load's cargo mix, or on the requisition it was planned from.
+        const inCargo = query
+          .subQuery()
+          .select('1')
+          .from(LoadCargoItemEntity, 'usageCargo')
+          .where('usageCargo.loadId = load.id')
+          .andWhere('usageCargo.productId = :targetId')
+          .getQuery();
+        const inRequisition = query
+          .subQuery()
+          .select('1')
+          .from(RequisitionItemEntity, 'usageReqItem')
+          .where('usageReqItem.requisitionId = load.requisition_id')
+          .andWhere('usageReqItem.productId = :targetId')
+          .getQuery();
         return query.andWhere(
-          new Brackets((qb) =>
-            qb
-              .where(
-                'EXISTS (SELECT 1 FROM loads.load_cargo_items usage_cargo WHERE usage_cargo.load_id = load.id AND usage_cargo.product_id = :targetId)',
-              )
-              .orWhere(
-                'EXISTS (SELECT 1 FROM loads.requisition_items usage_req_item WHERE usage_req_item.requisition_id = load.requisition_id AND usage_req_item.product_id = :targetId)',
-              ),
-          ),
+          new Brackets((qb) => qb.where(`EXISTS ${inCargo}`).orWhere(`EXISTS ${inRequisition}`)),
           { targetId: target.id },
         );
+      }
       case 'delivery_points':
         return query.andWhere(
           new Brackets((qb) =>

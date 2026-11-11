@@ -18,7 +18,7 @@ import { StorageService } from '../../storage/storage.service';
 import { DriverEntity } from '../entities/driver.entity';
 import { DriverOperationalStatusEntity } from '../entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from '../entities/driver-trip-metrics.entity';
-import { LoadService, TripsDoneResult } from '../../loads/load.service';
+import { LoadService, TripsDoneResult } from '../../loads/core/load.service';
 import { ListLoadsInput } from '../../loads/utils/load.interface';
 import { TripListRow } from '../../loads/utils/trip-view';
 import { UPCOMING_LOAD_STATUSES } from '../../loads/utils/loads.types';

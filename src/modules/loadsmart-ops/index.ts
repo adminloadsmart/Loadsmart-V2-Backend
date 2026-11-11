@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
-import { CodeSequenceRepository } from '../loads/code-sequence.repository';
+import { CodeSequenceRepository } from '../loads/code-sequence/code-sequence.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
-import { LoadPaymentRepository } from '../loads/load-payment.repository';
+import { LoadPaymentRepository } from '../loads/payments/load-payment.repository';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';

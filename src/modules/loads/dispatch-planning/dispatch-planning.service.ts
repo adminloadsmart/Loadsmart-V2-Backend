@@ -1,21 +1,21 @@
 import { DataSource, EntityManager } from 'typeorm';
-import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
-import { humanizeStatus } from '../../shared/utils/humanize';
-import { AuditService } from '../audit/audit.service';
-import { driverAssignmentMessage, FleetOwnerLookup } from './utils/driver-assignment-message';
-import { DriverTripNotifier } from './utils/load-alert.interface';
-import { VehicleService } from '../masters/vehicle/vehicle.service';
-import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
-import { TruckTypeService } from '../masters/truck-type/truck-type.service';
-import { TruckTypeEntity } from '../masters/truck-type/entities/truck-type.entity';
-import { RequisitionRepository } from './requisition.repository';
-import { LoadRepository, CreateLoadData } from './load.repository';
-import { CodeSequenceRepository } from './code-sequence.repository';
-import { LoadActivityService } from './load-activity.service';
-import { RequisitionEntity } from './entities/requisition.entity';
-import { LoadEntity } from './entities/load.entity';
-import { computeFitVerdict, FitResult } from './utils/fit-engine';
-import { formatLoadCode } from './utils/code.util';
+import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../../shared/errors';
+import { humanizeStatus } from '../../../shared/utils/humanize';
+import { AuditService } from '../../audit/audit.service';
+import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
+import { DriverTripNotifier } from '../utils/load-alert.interface';
+import { VehicleService } from '../../masters/vehicle/vehicle.service';
+import { ListVehiclesInput } from '../../masters/vehicle/vehicle.interface';
+import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
+import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.entity';
+import { RequisitionRepository } from '../requisitions/requisition.repository';
+import { LoadRepository, CreateLoadData } from '../core/load.repository';
+import { CodeSequenceRepository } from '../code-sequence/code-sequence.repository';
+import { LoadActivityService } from '../activity/load-activity.service';
+import { RequisitionEntity } from '../entities/requisition.entity';
+import { LoadEntity } from '../entities/load.entity';
+import { computeFitVerdict, FitResult } from '../utils/fit-engine';
+import { formatLoadCode } from '../utils/code.util';
 import {
   AvailableVehicleRow,
   CapacitySummary,
@@ -26,26 +26,26 @@ import {
   ProductAllocation,
   TruckLineFitVerdict,
   TruckLineInput,
-} from './utils/dispatch-planning.interface';
-import { LoadEventNotifier } from '../notifications/notifications.interface';
+} from '../utils/dispatch-planning.interface';
+import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
   expiredVehicleDocuments,
   vehicleDocumentWarning,
   assignmentBlockedEvent,
-} from './assignment-compliance.service';
+} from '../compliance/assignment-compliance.service';
 import {
   AssignmentCompliance,
   AssignmentComplianceFailure,
   LoadStageHook,
-} from './utils/load.interface';
-import type { LoadPostingRepository } from './load-posting/load-posting.repository';
+} from '../utils/load.interface';
+import type { LoadPostingRepository } from '../load-posting/load-posting.repository';
 import {
   DriverUnavailableReason,
   driverUnavailableReason,
-} from './load-posting/utils/driver-availability';
-import { DriverTenantRelationEntity } from '../driver/entities/driver-tenant-relation.entity';
+} from '../load-posting/utils/driver-availability';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 
 /** The driver reads Post a load's idle-driver rule is built on — LoadPostingRepository has them. */
 export type DriverAvailabilityReader = Pick<

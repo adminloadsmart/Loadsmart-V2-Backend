@@ -4,30 +4,30 @@ import {
   NotFoundError,
   ValidationError,
   rethrow,
-} from '../../shared/errors';
-import { humanizeStatus } from '../../shared/utils/humanize';
-import { AuditService } from '../audit/audit.service';
-import { AuthService, FleetOwnerDetails } from '../auth/auth.service';
-import { TransporterService } from '../masters/transporter/transporter.service';
-import { StorageService } from '../storage/storage.service';
-import { msg } from '../../shared/i18n/translate';
-import { redisManager } from '../../db/redis';
-import { MAX_OTP_ATTEMPTS } from '../auth/auth.constants';
-import { paginate, Paginated, PaginationInput } from '../../shared/utils/pagination';
+} from '../../../shared/errors';
+import { humanizeStatus } from '../../../shared/utils/humanize';
+import { AuditService } from '../../audit/audit.service';
+import { AuthService, FleetOwnerDetails } from '../../auth/auth.service';
+import { TransporterService } from '../../masters/transporter/transporter.service';
+import { StorageService } from '../../storage/storage.service';
+import { msg } from '../../../shared/i18n/translate';
+import { redisManager } from '../../../db/redis';
+import { MAX_OTP_ATTEMPTS } from '../../auth/auth.constants';
+import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagination';
 import { LoadRepository, UpdateLoadData } from './load.repository';
 import type {
   PodCardLoad,
   PodCardLoadRef,
   TripCardLoad,
   TripCardRef,
-} from '../driver/portal/driver-portal.types';
-import { LoadPaymentRepository } from './load-payment.repository';
-import { LoadIssueRepository } from './load-issue.repository';
-import { LoadActivityService } from './load-activity.service';
+} from '../../driver/portal/driver-portal.types';
+import { LoadPaymentRepository } from '../payments/load-payment.repository';
+import { LoadIssueRepository } from '../issues/load-issue.repository';
+import { LoadActivityService } from '../activity/load-activity.service';
 import { LoadStageService } from './load-stage.service';
-import { LoadEntity } from './entities/load.entity';
-import { LoadPaymentEntity } from './entities/load-payment.entity';
-import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
+import { LoadEntity } from '../entities/load.entity';
+import { LoadPaymentEntity } from '../entities/load-payment.entity';
+import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
 import {
   COMPLETED_LOAD_STATUSES,
   DELIVERED_LOAD_STATUSES,
@@ -36,11 +36,11 @@ import {
   ManualTrackingStatus,
   PodReviewDecision,
   LoadStatus,
-} from './utils/loads.types';
-import { hasLoadingPapers, progressPercentFor } from './utils/load-stages';
-import { decodeLiveLoadsCursor, encodeLiveLoadsCursor } from './utils/live-loads-cursor';
-import { LoadActivityWithActor, LoadAssignedBy } from './utils/load-activity.interface';
-import { ReportLoadIssueInput } from './utils/load-issue.interface';
+} from '../utils/loads.types';
+import { hasLoadingPapers, progressPercentFor } from '../utils/load-stages';
+import { decodeLiveLoadsCursor, encodeLiveLoadsCursor } from '../utils/live-loads-cursor';
+import { LoadActivityWithActor, LoadAssignedBy } from '../utils/load-activity.interface';
+import { ReportLoadIssueInput } from '../utils/load-issue.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
@@ -50,15 +50,18 @@ import {
   SetLoadingContactInput,
   SetLoadingPointInput,
   UploadPodInput,
-} from './utils/load.interface';
-import { LoadEventNotifier, IssueReportedNotifier } from '../notifications/notifications.interface';
-import { DriverMessage } from '../notifications/notifications.types';
+} from '../utils/load.interface';
+import {
+  LoadEventNotifier,
+  IssueReportedNotifier,
+} from '../../notifications/notifications.interface';
+import { DriverMessage } from '../../notifications/notifications.types';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
   vehicleDocumentWarning,
   assignmentBlockedEvent,
-} from './assignment-compliance.service';
+} from '../compliance/assignment-compliance.service';
 import {
   buildNextAction,
   buildStepper,
@@ -73,13 +76,13 @@ import {
   TripStepperStep,
   TripIncident,
   buildIncident,
-} from './utils/trip-view';
-import { DEFAULT_LOCALE, Locale } from '../../shared/i18n/locales';
-import { DriverTripNotifier } from './utils/load-alert.interface';
+} from '../utils/trip-view';
+import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
+import { DriverTripNotifier } from '../utils/load-alert.interface';
 import {
   DRIVER_LOADING_CONTACT_CHANGED_NOTIFICATION_TYPE,
   DRIVER_LOADING_POINT_CHANGED_NOTIFICATION_TYPE,
-} from '../driver/driver.constants';
+} from '../../driver/driver.constants';
 
 const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 

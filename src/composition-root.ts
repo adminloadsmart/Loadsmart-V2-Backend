@@ -82,7 +82,7 @@ import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
 import { createPlacesModule } from './modules/places';
 import { createLoadsModule } from './modules/loads';
-import { AssignmentComplianceService } from './modules/loads/assignment-compliance.service';
+import { AssignmentComplianceService } from './modules/loads/compliance/assignment-compliance.service';
 import { HttpTrackingClient } from './adapters/tracking.client';
 import {
   createTrackingEventHandlers,

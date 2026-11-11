@@ -366,7 +366,7 @@ export class NotificationRepository {
    * Records one channel's dispatch outcome and recomputes the parent notification's overall
    * status. Runs inside a transaction with a pessimistic write lock on the parent row so two
    * channels' jobs finishing at nearly the same time serialize their recompute instead of one
-   * clobbering the other's (same row-lock idiom as loads/code-sequence.repository.ts).
+   * clobbering the other's (same row-lock idiom as loads/code-sequence/code-sequence.repository.ts).
    */
   async recordDeliveryResult(
     notificationId: string,

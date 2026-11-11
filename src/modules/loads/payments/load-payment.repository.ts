@@ -1,6 +1,6 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { LoadPaymentEntity } from './entities/load-payment.entity';
-import { LoadPaymentType } from './utils/loads.types';
+import { LoadPaymentEntity } from '../entities/load-payment.entity';
+import { LoadPaymentType } from '../utils/loads.types';
 
 export interface CreateLoadPaymentData {
   tenantId: string;

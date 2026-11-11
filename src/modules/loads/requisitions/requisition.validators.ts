@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { paginationQuery as pagination } from '../../shared/validators/pagination';
-import { isoDateSchema } from '../../shared/utils/date';
+import { paginationQuery as pagination } from '../../../shared/validators/pagination';
+import { isoDateSchema } from '../../../shared/utils/date';
 import {
   MAX_CARGO_VALUE_PER_TONNE,
   REQUISITION_ITEM_UNITS,
   REQUISITION_STATUSES,
-} from './utils/loads.types';
+} from '../utils/loads.types';
 
 const uuid = z.string().uuid();
 const params = z.object({ requisitionId: uuid });

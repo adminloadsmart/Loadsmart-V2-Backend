@@ -4,7 +4,7 @@ import { ORG_ADMIN_ROLE, SALES_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/c
 import { paginate } from '../admin/utils/admin.types';
 import { CustomerColumns, CustomerRepository, CustomerWithCreator } from './customer.repository';
 import { MasterApprovalNotifier } from '../notifications/notifications.interface';
-import { CodeSequenceRepository } from '../loads/code-sequence.repository';
+import { CodeSequenceRepository } from '../loads/code-sequence/code-sequence.repository';
 import { formatCustomerCode } from '../loads/utils/code.util';
 import { GstVerificationService, gstNameMatches } from '../masters/gst/gst.service';
 import { GstVerificationEntity } from '../masters/gst/entities/gst-verification.entity';
@@ -313,7 +313,7 @@ export class CustomerService {
    * reference from another module before using it, the same "any authenticated org member can
    * read master data, only writes are gated" convention masters/loading-point.service.ts's get()
    * and masters/truck-type.service.ts's assertTruckTypeExists() already follow. Used by
-   * loads/requisition.service.ts
+   * loads/requisitions/requisition.service.ts
    * returns `deliveryPoints` loaded so the caller can
    * validate a delivery point belongs to this customer without a second query.
    */

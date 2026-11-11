@@ -1,9 +1,9 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { AuditService } from '../../audit/audit.service';
 import { TransporterService } from '../../masters/transporter/transporter.service';
-import { LoadActivityService } from '../load-activity.service';
-import { LoadRepository } from '../load.repository';
-import { LoadStageService } from '../load-stage.service';
+import { LoadActivityService } from '../activity/load-activity.service';
+import { LoadRepository } from '../core/load.repository';
+import { LoadStageService } from '../core/load-stage.service';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadBidEntity } from './load-bid.entity';
 import { LoadBidRepository } from './load-bid.repository';

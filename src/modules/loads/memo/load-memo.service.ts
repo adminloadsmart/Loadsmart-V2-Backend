@@ -1,7 +1,7 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { AuditService } from '../../audit/audit.service';
-import { LoadActivityService } from '../load-activity.service';
-import { LoadRepository } from '../load.repository';
+import { LoadActivityService } from '../activity/load-activity.service';
+import { LoadRepository } from '../core/load.repository';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadBidRepository } from '../bids/load-bid.repository';
 import { MEMO_TTL_MS } from '../bids/bid-rules';

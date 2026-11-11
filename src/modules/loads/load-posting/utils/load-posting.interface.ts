@@ -7,7 +7,7 @@ import {
   PriceMode,
 } from './load-posting.types';
 import type { LoadEntity } from '../../entities/load.entity';
-import type { CreateLoadData } from '../../load.repository';
+import type { CreateLoadData } from '../../core/load.repository';
 import type { DriverTenantRelationEntity } from '../../../driver/entities/driver-tenant-relation.entity';
 
 /** A new (not yet in any master) address, picked from Google Maps or the pincode lookup. Saved to

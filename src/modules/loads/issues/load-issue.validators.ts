@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LOAD_ISSUE_CATEGORIES, MAX_ISSUE_ETA_IMPACT_MINUTES } from './utils/loads.types';
+import { LOAD_ISSUE_CATEGORIES, MAX_ISSUE_ETA_IMPACT_MINUTES } from '../utils/loads.types';
 
 const uuid = z.string().uuid();
 const params = z.object({ loadId: uuid });

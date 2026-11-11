@@ -2,7 +2,7 @@ import { DataSource } from 'typeorm';
 import { NotFoundError, rethrow } from '../../../shared/errors';
 import { CustomerService } from '../../customers/customer.service';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
-import { LoadRepository } from '../load.repository';
+import { LoadRepository } from '../core/load.repository';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadPostingService } from './load-posting.service';

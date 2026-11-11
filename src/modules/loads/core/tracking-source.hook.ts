@@ -1,11 +1,11 @@
 import { DataSource } from 'typeorm';
-import { DriverSessionEntity } from '../driver/entities/driver-session.entity';
-import { VehicleTelemetryMetaEntity } from '../masters/vehicle/entities/vehicle-telemetry-meta.entity';
-import { normalizePhoneNumber } from '../../shared/utils/phone-number';
-import { LoadEntity } from './entities/load.entity';
+import { DriverSessionEntity } from '../../driver/entities/driver-session.entity';
+import { VehicleTelemetryMetaEntity } from '../../masters/vehicle/entities/vehicle-telemetry-meta.entity';
+import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
+import { LoadEntity } from '../entities/load.entity';
 import { LoadRepository } from './load.repository';
-import { LoadStatus } from './utils/loads.types';
-import { initialTrackingSource } from './utils/tracking-source';
+import { LoadStatus } from '../utils/loads.types';
+import { initialTrackingSource } from '../utils/tracking-source';
 
 /** A 10-digit Indian mobile number (a leading 91 / 0 is dropped) — the form the SIM provider accepts. */
 function hasMobileNumber(value: string | null): boolean {

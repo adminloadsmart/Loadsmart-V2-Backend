@@ -1,5 +1,5 @@
 import { DRIVER_POD_REMINDER_NOTIFICATION_TYPE } from '../../driver/driver.constants';
-import { LoadRepository } from '../load.repository';
+import { LoadRepository } from '../core/load.repository';
 import { PodReminderJobPayload, DriverTripNotifier } from '../utils/load-alert.interface';
 
 /** Runs one queued E-POD reminder: sent only while the truck is still at the unloading point with

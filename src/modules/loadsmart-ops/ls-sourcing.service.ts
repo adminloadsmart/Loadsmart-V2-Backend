@@ -1,13 +1,13 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { SALES_ROLE } from '../../shared/constants/roles';
-import { LoadActivityService } from '../loads/load-activity.service';
+import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { LoadBidEntity } from '../loads/bids/load-bid.entity';
 import { LoadBidService } from '../loads/bids/load-bid.service';
 import { LoadMemoService } from '../loads/memo/load-memo.service';
-import { LoadService } from '../loads/load.service';
-import { LoadStageService } from '../loads/load-stage.service';
+import { LoadService } from '../loads/core/load.service';
+import { LoadStageService } from '../loads/core/load-stage.service';
 import { hasLoadingPapers } from '../loads/utils/load-stages';
 import {
   LoadVerificationService,

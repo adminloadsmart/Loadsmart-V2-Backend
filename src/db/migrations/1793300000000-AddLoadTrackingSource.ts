@@ -2,7 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 // loads.tracking_source — how the load's truck is tracked (gps | driver_app | sim | fastag), the
 // key the tracking service reads and updates. Set when a truck is assigned
-// (modules/loads/tracking-source.hook.ts); loads that already have a truck are backfilled with the
+// (modules/loads/core/tracking-source.hook.ts); loads that already have a truck are backfilled with the
 // same rule: GPS on the vehicle master → gps, a driver-app driver → driver_app, else a truck
 // number → fastag.
 export class AddLoadTrackingSource1793300000000 implements MigrationInterface {

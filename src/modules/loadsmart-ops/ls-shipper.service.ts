@@ -1,10 +1,10 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
-import { LoadActivityService } from '../loads/load-activity.service';
+import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
-import { LoadPaymentRepository } from '../loads/load-payment.repository';
-import { LoadRepository } from '../loads/load.repository';
+import { LoadPaymentRepository } from '../loads/payments/load-payment.repository';
+import { LoadRepository } from '../loads/core/load.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
 import { LoadChargeEntity } from './entities/load-charge.entity';
 import { LoadClaimEntity } from './entities/load-claim.entity';

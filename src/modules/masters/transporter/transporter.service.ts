@@ -6,7 +6,7 @@ import { paginate } from '../../../shared/utils/pagination';
 import { IdfyClient, toBankVerificationColumns } from '../../../adapters/idfy.client';
 import { panFromGstin } from '../../../shared/constants/gst-state-codes';
 import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../../shared/utils/csv';
-import { CodeSequenceRepository } from '../../loads/code-sequence.repository';
+import { CodeSequenceRepository } from '../../loads/code-sequence/code-sequence.repository';
 import { formatTransporterCode } from '../../loads/utils/code.util';
 import { GstVerificationService, gstNameMatches } from '../gst/gst.service';
 import { MasterUsageRepository } from '../masters.usage';

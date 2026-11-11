@@ -9,20 +9,20 @@ import { TruckTypeService } from '../masters/truck-type/truck-type.service';
 import { LoadingPointService } from '../masters/loading-point/loading-point.service';
 import { ProductService } from '../masters/product/product.service';
 
-import { RequisitionRepository } from './requisition.repository';
-import { RequisitionService } from './requisition.service';
-import { CodeSequenceRepository } from './code-sequence.repository';
-import { LoadRepository } from './load.repository';
-import { LoadService } from './load.service';
-import { LoadPaymentRepository } from './load-payment.repository';
-import { LoadPaymentService } from './load-payment.service';
-import { LoadIssueRepository } from './load-issue.repository';
-import { LoadActivityRepository } from './load-activity.repository';
-import { LoadActivityService } from './load-activity.service';
-import { LoadStageService } from './load-stage.service';
-import { DispatchPlanningService } from './dispatch-planning.service';
-import { LoadsController } from './loads.controller';
-import { createLoadsProtectedRoutes } from './loads.routes';
+import { RequisitionRepository } from './requisitions/requisition.repository';
+import { RequisitionService } from './requisitions/requisition.service';
+import { CodeSequenceRepository } from './code-sequence/code-sequence.repository';
+import { LoadRepository } from './core/load.repository';
+import { LoadService } from './core/load.service';
+import { LoadPaymentRepository } from './payments/load-payment.repository';
+import { LoadPaymentService } from './payments/load-payment.service';
+import { LoadIssueRepository } from './issues/load-issue.repository';
+import { LoadActivityRepository } from './activity/load-activity.repository';
+import { LoadActivityService } from './activity/load-activity.service';
+import { LoadStageService } from './core/load-stage.service';
+import { DispatchPlanningService } from './dispatch-planning/dispatch-planning.service';
+import { LoadsController } from './core/loads.controller';
+import { createLoadsProtectedRoutes } from './core/loads.routes';
 import {
   LoadEventNotifier,
   NotificationTriggers,
@@ -30,19 +30,19 @@ import {
 } from '../notifications/notifications.interface';
 import { createLoadPostingModule } from './load-posting';
 import { LoadPostingRepository } from './load-posting/load-posting.repository';
-import { AssignmentComplianceService } from './assignment-compliance.service';
+import { AssignmentComplianceService } from './compliance/assignment-compliance.service';
 import { LoadEntity } from './entities/load.entity';
 import { LoadStatus } from './utils/loads.types';
 import { LoadBidRepository } from './bids/load-bid.repository';
 import { LoadBidService } from './bids/load-bid.service';
 import { LoadMemoRepository } from './memo/load-memo.repository';
 import { LoadMemoService } from './memo/load-memo.service';
-import { LoadSourcingController } from './load-sourcing.controller';
-import { createLoadSourcingRoutes } from './load-sourcing.routes';
+import { LoadSourcingController } from './sourcing/load-sourcing.controller';
+import { createLoadSourcingRoutes } from './sourcing/load-sourcing.routes';
 import { ElrService } from './elr/elr.service';
 import { createJobQueue } from '../../jobs/queue-registry';
 import { LoadAlertScheduler, LOAD_REMINDERS_QUEUE } from './alerts/load-alert-scheduler';
-import { createTrackingSourceHook } from './tracking-source.hook';
+import { createTrackingSourceHook } from './core/tracking-source.hook';
 import { createLoadRemindersWorker } from './workers/load-reminders.worker';
 import { LoadVerificationRepository } from './verification/load-verification.repository';
 import { LoadVerificationService } from './verification/load-verification.service';

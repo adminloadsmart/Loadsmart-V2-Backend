@@ -1,6 +1,6 @@
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
-import { LoadActivityEntity } from './entities/load-activity.entity';
-import { CreateLoadActivityData } from './utils/load-activity.interface';
+import { LoadActivityEntity } from '../entities/load-activity.entity';
+import { CreateLoadActivityData } from '../utils/load-activity.interface';
 
 export class LoadActivityRepository {
   private readonly activities: Repository<LoadActivityEntity>;

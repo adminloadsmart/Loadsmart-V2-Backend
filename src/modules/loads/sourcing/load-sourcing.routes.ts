@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../shared/middleware/async-handler';
-import { validate } from '../../shared/middleware/validate.middleware';
-import { requirePermission } from '../../shared/middleware/require-permission.middleware';
-import { DISPATCH_PLANNING_MANAGE } from '../../shared/constants/permissions';
+import { asyncHandler } from '../../../shared/middleware/async-handler';
+import { validate } from '../../../shared/middleware/validate.middleware';
+import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
+import { DISPATCH_PLANNING_MANAGE } from '../../../shared/constants/permissions';
 import { LoadSourcingController } from './load-sourcing.controller';
 import { loadSourcingValidators as v } from './load-sourcing.validators';
 

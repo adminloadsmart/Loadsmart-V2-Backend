@@ -1,18 +1,18 @@
 import { DataSource, Repository } from 'typeorm';
-import { ConflictError } from '../../shared/errors';
-import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
-import { VehicleDocumentEntity } from '../masters/vehicle/entities/vehicle-document.entity';
-import { resolveDocumentStatus } from '../masters/vehicle/vehicle.service';
-import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../masters/vehicle/vehicle.type';
-import { DOCUMENT_TYPE_LABELS } from '../masters/vehicle/vehicle.constants';
-import { DriverTenantRelationEntity } from '../driver/entities/driver-tenant-relation.entity';
-import type { AssignmentBlockedEvent } from '../notifications/notifications.interface';
+import { ConflictError } from '../../../shared/errors';
+import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
+import { VehicleDocumentEntity } from '../../masters/vehicle/entities/vehicle-document.entity';
+import { resolveDocumentStatus } from '../../masters/vehicle/vehicle.service';
+import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
+import { DOCUMENT_TYPE_LABELS } from '../../masters/vehicle/vehicle.constants';
+import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import type { AssignmentBlockedEvent } from '../../notifications/notifications.interface';
 import {
   AssignmentCompliance,
   AssignmentComplianceFailure,
   AssignmentTarget,
-} from './utils/load.interface';
-import { DRIVING_LICENCE_DOC_LABEL } from './utils/loads.types';
+} from '../utils/load.interface';
+import { DRIVING_LICENCE_DOC_LABEL } from '../utils/loads.types';
 
 const DATED_DOCUMENT_TYPES: readonly string[] = VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY;
 

@@ -12,7 +12,7 @@ import {
   ShortageOrDamageStatus,
 } from './loads.types';
 import type { AuditAction } from '../../audit/audit.types';
-import type { UpdateLoadData } from '../load.repository';
+import type { UpdateLoadData } from '../core/load.repository';
 import type { LoadEntity } from '../entities/load.entity';
 
 /** Runs after a load enters a stage (LoadStageService.transition) — e.g. queue the no-tracking

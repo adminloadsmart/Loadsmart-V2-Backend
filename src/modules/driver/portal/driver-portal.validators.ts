@@ -7,8 +7,8 @@ import {
   verifyPodReceiverCodeBody,
   updateStatusBody,
   uploadPodBody,
-} from '../../loads/load.validators';
-import { reportLoadIssueBody } from '../../loads/load-issue.validators';
+} from '../../loads/core/load.validators';
+import { reportLoadIssueBody } from '../../loads/issues/load-issue.validators';
 import {
   LOAD_SOURCE_TYPES,
   LOAD_STATUS_GROUPS,

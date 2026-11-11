@@ -1,19 +1,19 @@
 import { Request, Response } from 'express';
-import { respond } from '../../shared/responses/respond';
-import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
-import { RequisitionService } from './requisition.service';
-import { DispatchPlanningService } from './dispatch-planning.service';
+import { respond } from '../../../shared/responses/respond';
+import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
+import { RequisitionService } from '../requisitions/requisition.service';
+import { DispatchPlanningService } from '../dispatch-planning/dispatch-planning.service';
 import { LoadService } from './load.service';
-import { LoadPaymentService } from './load-payment.service';
-import { LoadActivityService } from './load-activity.service';
-import { ElrService } from './elr/elr.service';
+import { LoadPaymentService } from '../payments/load-payment.service';
+import { LoadActivityService } from '../activity/load-activity.service';
+import { ElrService } from '../elr/elr.service';
 import {
   CreateRequisitionInput,
   ListRequisitionsInput,
   RequisitionParams,
-} from './utils/requisition.interface';
-import { ListVehiclesInput } from '../masters/vehicle/vehicle.interface';
-import { PlanDispatchInput } from './utils/dispatch-planning.interface';
+} from '../utils/requisition.interface';
+import { ListVehiclesInput } from '../../masters/vehicle/vehicle.interface';
+import { PlanDispatchInput } from '../utils/dispatch-planning.interface';
 import {
   AssignLoadInput,
   ConfirmLoadingInput,
@@ -26,9 +26,9 @@ import {
   SettleDeliveryIssueInput,
   UpdateLoadStatusInput,
   UploadPodInput,
-} from './utils/load.interface';
-import { RecordAdvanceInput, RecordBalanceInput } from './utils/load-payment.interface';
-import { ElrInput } from './utils/elr.interface';
+} from '../utils/load.interface';
+import { RecordAdvanceInput, RecordBalanceInput } from '../utils/load-payment.interface';
+import { ElrInput } from '../utils/elr.interface';
 
 export class LoadsController {
   constructor(

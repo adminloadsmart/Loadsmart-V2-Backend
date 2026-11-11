@@ -1,18 +1,18 @@
-import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
-import { AuditService } from '../audit/audit.service';
-import { TransporterService } from '../masters/transporter/transporter.service';
-import { toDateString } from '../../shared/utils/date';
+import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
+import { AuditService } from '../../audit/audit.service';
+import { TransporterService } from '../../masters/transporter/transporter.service';
+import { toDateString } from '../../../shared/utils/date';
 import { LoadPaymentRepository } from './load-payment.repository';
-import { LoadRepository } from './load.repository';
-import { LoadActivityService } from './load-activity.service';
-import { LoadStageService } from './load-stage.service';
-import { LoadEntity } from './entities/load.entity';
-import { LoadPaymentEntity } from './entities/load-payment.entity';
+import { LoadRepository } from '../core/load.repository';
+import { LoadActivityService } from '../activity/load-activity.service';
+import { LoadStageService } from '../core/load-stage.service';
+import { LoadEntity } from '../entities/load.entity';
+import { LoadPaymentEntity } from '../entities/load-payment.entity';
 import {
   RecordAdvanceInput,
   RecordBalanceInput,
   LoadsmartBilling,
-} from './utils/load-payment.interface';
+} from '../utils/load-payment.interface';
 
 export function computeShareAmount(load: LoadEntity, percentage: string): string {
   const pct = Number(percentage) / 100;

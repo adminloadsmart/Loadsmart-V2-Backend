@@ -52,7 +52,7 @@ import { GstVerificationRepository } from './gst/gst.repository';
 import { GstVerificationService } from './gst/gst.service';
 import { GstController } from './gst/gst.controller';
 import { MasterUsageRepository } from './masters.usage';
-import { CodeSequenceRepository } from '../loads/code-sequence.repository';
+import { CodeSequenceRepository } from '../loads/code-sequence/code-sequence.repository';
 import { ContractRepository } from './contract/contract.repository';
 import { ContractService } from './contract/contract.service';
 import { ContractImportService } from './contract/contract-import.service';

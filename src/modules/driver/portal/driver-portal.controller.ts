@@ -3,7 +3,7 @@ import { ValidationError } from '../../../shared/errors';
 import { respond } from '../../../shared/responses/respond';
 import { PaginationInput } from '../../../shared/utils/pagination';
 import { DriverService } from '../driver.service';
-import { LoadService } from '../../loads/load.service';
+import { LoadService } from '../../loads/core/load.service';
 import {
   ConfirmLoadingInput,
   ListLoadsInput,

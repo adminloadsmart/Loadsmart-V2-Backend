@@ -13,9 +13,9 @@ import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.en
 import { VehicleService, resolveDocumentStatus } from '../../masters/vehicle/vehicle.service';
 import { VEHICLE_DOCUMENT_TYPES_WITH_EXPIRY } from '../../masters/vehicle/vehicle.type';
 import { DriverTripNotifier } from '../utils/load-alert.interface';
-import { CodeSequenceRepository } from '../code-sequence.repository';
-import { LoadRepository, CreateLoadData } from '../load.repository';
-import { LoadActivityService } from '../load-activity.service';
+import { CodeSequenceRepository } from '../code-sequence/code-sequence.repository';
+import { LoadRepository, CreateLoadData } from '../core/load.repository';
+import { LoadActivityService } from '../activity/load-activity.service';
 import { LoadEntity } from '../entities/load.entity';
 import { formatLoadCode } from '../utils/code.util';
 import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
@@ -46,7 +46,7 @@ import {
   assignmentBlockedError,
   vehicleDocumentWarning,
   assignmentBlockedEvent,
-} from '../assignment-compliance.service';
+} from '../compliance/assignment-compliance.service';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
 import {
   istDateOf,

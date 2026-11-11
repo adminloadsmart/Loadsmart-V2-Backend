@@ -1,6 +1,6 @@
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
-import { LoadIssueReportEntity } from './entities/load-issue-report.entity';
-import { LoadIssueCategory } from './utils/loads.types';
+import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
+import { LoadIssueCategory } from '../utils/loads.types';
 
 export interface CreateLoadIssueReportData {
   tenantId: string;

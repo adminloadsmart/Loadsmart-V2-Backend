@@ -434,14 +434,18 @@ export class AuthRepository {
   // never declared uuid like users.id is), so the subquery's id needs an explicit ::text cast to
   // match it — without it Postgres has no `varchar = uuid` operator and throws 42883 on the IN.
   async revokeAllRefreshTokensForTenant(tenantId: string): Promise<void> {
+    // refresh_tokens.user_id is varchar while users.id is uuid, hence the cast.
+    const tenantUserIds = this.users
+      .createQueryBuilder('u')
+      .select('CAST(u.id AS text)')
+      .where('u.tenantId = :tenantId')
+      .getQuery();
     await this.refreshTokens
       .createQueryBuilder()
       .update(RefreshTokenEntity)
       .set({ revokedAt: () => 'now()' })
       .where('revoked_at IS NULL')
-      .andWhere('user_id IN (SELECT id::text FROM auth.users WHERE tenant_id = :tenantId)', {
-        tenantId,
-      })
+      .andWhere(`user_id IN (${tenantUserIds})`, { tenantId })
       .execute();
   }
 

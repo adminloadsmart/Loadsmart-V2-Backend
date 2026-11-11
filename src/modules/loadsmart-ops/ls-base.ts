@@ -1,7 +1,7 @@
 import { ConflictError, NotFoundError } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
-import { LoadActivityService } from '../loads/load-activity.service';
+import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';

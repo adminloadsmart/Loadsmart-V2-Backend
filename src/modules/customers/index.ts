@@ -2,7 +2,7 @@ import { MasterApprovalNotifier } from '../notifications/notifications.interface
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { CustomerRepository } from './customer.repository';
-import { CodeSequenceRepository } from '../loads/code-sequence.repository';
+import { CodeSequenceRepository } from '../loads/code-sequence/code-sequence.repository';
 import { CustomerService } from './customer.service';
 import { CustomerController } from './customer.controller';
 import { createCustomerRoutes } from './customer.routes';

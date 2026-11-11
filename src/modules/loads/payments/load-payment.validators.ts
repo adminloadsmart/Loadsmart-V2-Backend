@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateSchema } from '../../shared/utils/date';
+import { isoDateSchema } from '../../../shared/utils/date';
 
 const uuid = z.string().uuid();
 const params = z.object({ loadId: uuid });

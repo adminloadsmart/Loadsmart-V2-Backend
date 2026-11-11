@@ -269,6 +269,9 @@ export type LoadPaymentType = (typeof LOAD_PAYMENT_TYPES)[number];
  *  acted on automatically. */
 export const LOAD_ISSUE_CATEGORIES = [
   'breakdown',
+  'flat_tyre',
+  'no_entry',
+  'feeling_unwell',
   'halt_rest_stop',
   'traffic_jam',
   'accident',

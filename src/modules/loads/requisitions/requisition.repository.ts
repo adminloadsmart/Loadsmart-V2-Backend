@@ -1,8 +1,8 @@
 import { DataSource, EntityManager, FindOptionsWhere, ILike, Not, Repository } from 'typeorm';
-import { RequisitionEntity } from './entities/requisition.entity';
-import { RequisitionItemEntity } from './entities/requisition-item.entity';
-import { CreateRequisitionData, ListRequisitionsFilters } from './utils/requisition.interface';
-import { RequisitionItemUnit, RequisitionStatus } from './utils/loads.types';
+import { RequisitionEntity } from '../entities/requisition.entity';
+import { RequisitionItemEntity } from '../entities/requisition-item.entity';
+import { CreateRequisitionData, ListRequisitionsFilters } from '../utils/requisition.interface';
+import { RequisitionItemUnit, RequisitionStatus } from '../utils/loads.types';
 
 export interface CreateRequisitionItemData {
   tenantId: string;

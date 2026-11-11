@@ -1,4 +1,4 @@
-import { computeShareAmount } from '../load-payment.service';
+import { computeShareAmount } from '../payments/load-payment.service';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadIssueReportEntity } from '../entities/load-issue-report.entity';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';

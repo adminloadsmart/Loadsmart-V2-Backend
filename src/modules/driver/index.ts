@@ -15,7 +15,7 @@ import { StorageService } from '../storage/storage.service';
 import { SarathiClient, DlVerificationClient } from '../../adapters/sarathi.client';
 import { OtpService } from '../../shared/services/otp.service';
 import { OrganizationService } from '../organization/organization.service';
-import { LoadService } from '../loads/load.service';
+import { LoadService } from '../loads/core/load.service';
 import { DriverSessionRepository } from './auth/driver-auth.repository';
 import { DriverPushNotifier } from './auth/driver-push-notifier';
 import { DriverAuthService } from './auth/driver-auth.service';

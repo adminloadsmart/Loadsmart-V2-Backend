@@ -888,6 +888,9 @@ const DRIVER_PROBLEM_LABELS: Record<LoadIssueCategory, string> = {
   breakdown: 'a breakdown',
   traffic_jam: 'a traffic jam',
   halt_rest_stop: 'a halt',
+  flat_tyre: 'a flat tyre',
+  no_entry: 'a no-entry stop',
+  feeling_unwell: 'a health issue',
 };
 
 /** LS_N_0031's "{{early_late}}": "2 h early" / "1 day 3 h late" / "on time" against `due`. */

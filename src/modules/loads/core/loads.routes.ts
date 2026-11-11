@@ -1,20 +1,20 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../shared/middleware/async-handler';
-import { validate } from '../../shared/middleware/validate.middleware';
-import { requirePermission } from '../../shared/middleware/require-permission.middleware';
-import { requireTenant } from '../../shared/middleware/require-tenant.middleware';
+import { asyncHandler } from '../../../shared/middleware/async-handler';
+import { validate } from '../../../shared/middleware/validate.middleware';
+import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
+import { requireTenant } from '../../../shared/middleware/require-tenant.middleware';
 import {
   REQUISITIONS_MANAGE,
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
   PAYMENTS_MANAGE,
-} from '../../shared/constants/permissions';
+} from '../../../shared/constants/permissions';
 import { LoadsController } from './loads.controller';
-import { requisitionValidators } from './requisition.validators';
-import { dispatchPlanningValidators } from './dispatch-planning.validators';
+import { requisitionValidators } from '../requisitions/requisition.validators';
+import { dispatchPlanningValidators } from '../dispatch-planning/dispatch-planning.validators';
 import { loadValidators } from './load.validators';
-import { loadPaymentValidators } from './load-payment.validators';
-import { loadIssueValidators } from './load-issue.validators';
+import { loadPaymentValidators } from '../payments/load-payment.validators';
+import { loadIssueValidators } from '../issues/load-issue.validators';
 
 export function createLoadsProtectedRoutes(controller: LoadsController): Router {
   const router = Router();

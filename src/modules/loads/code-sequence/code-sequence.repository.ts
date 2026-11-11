@@ -1,6 +1,6 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { CodeSequenceEntity } from './entities/code-sequence.entity';
-import { CodeSequenceEntityKind } from './utils/loads.types';
+import { CodeSequenceEntity } from '../entities/code-sequence.entity';
+import { CodeSequenceEntityKind } from '../utils/loads.types';
 
 export class CodeSequenceRepository {
   private readonly sequences: Repository<CodeSequenceEntity>;

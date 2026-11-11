@@ -1,11 +1,11 @@
 import { EntityManager } from 'typeorm';
-import { rethrow } from '../../shared/errors';
-import { AuthService } from '../auth/auth.service';
+import { rethrow } from '../../../shared/errors';
+import { AuthService } from '../../auth/auth.service';
 import { LoadActivityRepository } from './load-activity.repository';
-import { LoadActivityEntity } from './entities/load-activity.entity';
-import { LoadEntity } from './entities/load.entity';
-import { LoadActivityAction } from './utils/loads.types';
-import { LoadActivityWithActor, LoadAssignedBy } from './utils/load-activity.interface';
+import { LoadActivityEntity } from '../entities/load-activity.entity';
+import { LoadEntity } from '../entities/load.entity';
+import { LoadActivityAction } from '../utils/loads.types';
+import { LoadActivityWithActor, LoadAssignedBy } from '../utils/load-activity.interface';
 
 /**
  * Thin wrapper around LoadActivityRepository — see load-activity.entity.ts's doc comment for why
