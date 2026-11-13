@@ -60,7 +60,7 @@ export class LoadingPointController {
     const loadingPoint = await this.loadingPointService.create(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
+      req.user!,
       req.body as CreateLoadingPointInput,
     );
     respond(res, loadingPoint, 201);

@@ -1,4 +1,5 @@
 import { ValidationError } from '../../../shared/errors';
+import { PermissionHolder } from '../../../shared/middleware/require-permission.middleware';
 import { ImportReport } from '../../../shared/import/report';
 import { importRows } from '../../../shared/import/run';
 import { ImportSource } from '../../../shared/import/upload';
@@ -25,7 +26,7 @@ export class LoadingPointImportService {
   async import(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     source: ImportSource,
   ): Promise<ImportReport> {
     const parsed = await this.parse(source);
@@ -44,7 +45,7 @@ export class LoadingPointImportService {
               message: `A loading point "${input.title}" with PIN ${input.pinCode} already exists`,
             }
           : null,
-      create: (input) => this.loadingPoints.create(tenantId, actorId, actorRole, input),
+      create: (input) => this.loadingPoints.create(tenantId, actorId, actor, input),
     });
 
     await this.audit.log({

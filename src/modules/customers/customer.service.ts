@@ -1,6 +1,10 @@
-import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../shared/errors';
+import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
-import { ORG_ADMIN_ROLE, SALES_ROLE, ORG_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { CUSTOMERS_APPROVE } from '../../shared/constants/permissions';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../shared/middleware/require-permission.middleware';
 import { paginate } from '../admin/utils/admin.types';
 import { CustomerColumns, CustomerRepository, CustomerWithCreator } from './customer.repository';
 import { MasterApprovalNotifier } from '../notifications/notifications.interface';
@@ -17,10 +21,6 @@ import {
   ListCustomersInput,
   UpdateCustomerInput,
 } from './customer.types';
-
-// Anyone invited into the org (sales_cs/dispatch/documents_ops/finance_accounts) can request a
-// new customer, same as SALES_ROLE; only org_admin's request auto-approves.
-const CUSTOMER_CREATOR_ROLES = [ORG_ADMIN_ROLE, SALES_ROLE, ...ORG_ASSIGNABLE_ROLES];
 
 /**
  * The customer as Settings → Customers reads it: every entity column (so existing consumers keep
@@ -123,10 +123,6 @@ export class CustomerService {
     // throws (see notifications/master-approvals.ts).
     private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
-  private assertRole(role: string, allowed: string[]) {
-    if (!allowed.includes(role)) throw new AuthorizationError('Not authorized to manage customers');
-  }
-
   /** GST bookkeeping columns for a GSTIN + optional verification id. Verified only when backed by
    *  a verified lookup row (GstVerificationService.resolveVerified); otherwise a manual entry. */
   private async gstColumns(
@@ -167,7 +163,7 @@ export class CustomerService {
   async create(
     tenantId: string,
     actorId: string,
-    role: string,
+    actor: PermissionHolder,
     input: CreateCustomerInput,
     source: 'manual' | 'csv_import' = 'manual',
     // Bulk import: an unverified GSTIN is saved as 'pending' — the caller enqueues the
@@ -175,7 +171,6 @@ export class CustomerService {
     options: { queueGstVerification?: boolean } = {},
   ) {
     try {
-      this.assertRole(role, CUSTOMER_CREATOR_ROLES);
       if (input.mobile && (await this.repository.findByMobile(tenantId, input.mobile)))
         throw new ConflictError(`A customer with mobile "${input.mobile}" already exists`);
       await this.assertGstinFree(tenantId, input.gstin);
@@ -188,7 +183,8 @@ export class CustomerService {
       };
       if (options.queueGstVerification && input.gstin && extra.gstVerificationStatus !== 'verified')
         extra.gstVerificationStatus = 'pending';
-      const status = role === ORG_ADMIN_ROLE ? 'active' : 'pending';
+      // Whoever could approve the customer themselves skips the approval queue.
+      const status = hasPermission(actor, CUSTOMERS_APPROVE) ? 'active' : 'pending';
       const customer = await this.dataSource.transaction(async (manager) => {
         const code = formatCustomerCode(
           await this.codeSequences.next('customer', tenantId, manager),
@@ -235,13 +231,12 @@ export class CustomerService {
     }
   }
   /** Name-only add from Post a load — mobile, GSTIN and contacts are completed later in the
-   *  Customer master. Same role gate and approval split as `create`. */
-  quickAdd(tenantId: string, actorId: string, role: string, name: string) {
-    return this.create(tenantId, actorId, role, { name });
+   *  Customer master. Same approval split as `create`. */
+  quickAdd(tenantId: string, actorId: string, actor: PermissionHolder, name: string) {
+    return this.create(tenantId, actorId, actor, { name });
   }
-  async list(tenantId: string, role: string, input: ListCustomersInput) {
+  async list(tenantId: string, input: ListCustomersInput) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const result = await this.repository.list(tenantId, input);
       return paginate(result.items.map(toCustomerView), result.total, input);
     } catch (error) {
@@ -250,20 +245,17 @@ export class CustomerService {
   }
   async export(
     tenantId: string,
-    role: string,
     filters: Omit<ListCustomersInput, 'page' | 'limit'>,
   ): Promise<string> {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const items = await this.repository.listForExport(tenantId, filters, CSV_EXPORT_MAX_ROWS);
       return buildCsv(CUSTOMER_EXPORT_COLUMNS, items.map(toCustomerView));
     } catch (error) {
       rethrow(error, 'Failed to export customers');
     }
   }
-  async get(tenantId: string, role: string, id: string) {
+  async get(tenantId: string, id: string) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const value = await this.repository.findById(tenantId, id);
       if (!value) throw new NotFoundError(`Customer ${id} not found`);
       return toCustomerView(value);
@@ -273,14 +265,8 @@ export class CustomerService {
   }
 
   /** Detail drawer "LOADS" — newest first, with stage label + progress per load. */
-  async listLoads(
-    tenantId: string,
-    role: string,
-    id: string,
-    pagination: { page: number; limit: number },
-  ) {
+  async listLoads(tenantId: string, id: string, pagination: { page: number; limit: number }) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       if (!(await this.repository.findById(tenantId, id)))
         throw new NotFoundError(`Customer ${id} not found`);
       const result = await this.usage.loadHistory(
@@ -296,9 +282,8 @@ export class CustomerService {
   }
 
   /** "In use right now. LOAD-1049 is still running." — checked before Make inactive / delete. */
-  async usageOf(tenantId: string, role: string, id: string) {
+  async usageOf(tenantId: string, id: string) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       if (!(await this.repository.findById(tenantId, id)))
         throw new NotFoundError(`Customer ${id} not found`);
       const activeLoads = await this.usage.activeLoads(tenantId, { kind: 'customer', id });
@@ -309,7 +294,7 @@ export class CustomerService {
   }
 
   /**
-   * Open read (no role gate, unlike get() above) — for validating a customerId/deliveryPointId
+   * Open read (no route permission behind it, unlike get() above) — for validating a customerId/deliveryPointId
    * reference from another module before using it, the same "any authenticated org member can
    * read master data, only writes are gated" convention masters/loading-point.service.ts's get()
    * and masters/truck-type.service.ts's assertTruckTypeExists() already follow. Used by
@@ -327,15 +312,8 @@ export class CustomerService {
       rethrow(error, 'Failed to verify customer is active');
     }
   }
-  async update(
-    tenantId: string,
-    actorId: string,
-    role: string,
-    id: string,
-    input: UpdateCustomerInput,
-  ) {
+  async update(tenantId: string, actorId: string, id: string, input: UpdateCustomerInput) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Customer ${id} not found`);
       if (
@@ -415,9 +393,8 @@ export class CustomerService {
       rethrow(error, 'Failed to update customer');
     }
   }
-  async approve(tenantId: string, actorId: string, role: string, id: string) {
+  async approve(tenantId: string, actorId: string, id: string) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Customer ${id} not found`);
       if (existing.status !== 'pending')
@@ -445,9 +422,8 @@ export class CustomerService {
       rethrow(error, 'Failed to approve customer');
     }
   }
-  async reject(tenantId: string, actorId: string, role: string, id: string, reason: string) {
+  async reject(tenantId: string, actorId: string, id: string, reason: string) {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Customer ${id} not found`);
       if (existing.status !== 'pending')
@@ -477,15 +453,8 @@ export class CustomerService {
     }
   }
 
-  async updateStatus(
-    tenantId: string,
-    actorId: string,
-    role: string,
-    id: string,
-    status: 'active' | 'inactive',
-  ) {
+  async updateStatus(tenantId: string, actorId: string, id: string, status: 'active' | 'inactive') {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Customer ${id} not found`);
       if (existing.status !== 'active' && existing.status !== 'inactive')
@@ -508,9 +477,8 @@ export class CustomerService {
     }
   }
 
-  async delete(tenantId: string, actorId: string, role: string, id: string): Promise<void> {
+  async delete(tenantId: string, actorId: string, id: string): Promise<void> {
     try {
-      this.assertRole(role, [ORG_ADMIN_ROLE]);
       await this.assertNotInUse(tenantId, id, 'deleted');
       const deleted = await this.dataSource.transaction((manager) =>
         this.repository.softDelete(tenantId, id, actorId, manager),

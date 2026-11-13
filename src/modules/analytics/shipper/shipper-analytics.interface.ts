@@ -181,6 +181,43 @@ export interface ShipperAnalyticsOverview {
   };
 }
 
+/**
+ * The Overview as a viewer without payments.manage sees it (see withoutOverviewMoney): every
+ * rupee figure is dropped — the spend/freight/detention tiles, rupee attention findings, product
+ * freight, the spend and rate series, the transporter plot's rate/spend/share and the spend
+ * concentration table, and goDeeper's spend/leakage. Counts, tonnes and service figures stay.
+ * `meta.moneyHidden` tells the frontend to render "hidden" rather than 0.
+ */
+export interface ShipperAnalyticsOverviewResponse {
+  meta: ShipperAnalyticsMeta & { moneyHidden: boolean };
+  tiles: Omit<
+    ShipperAnalyticsOverview['tiles'],
+    'freightSpend' | 'freightPerLoad' | 'detentionAndClaims'
+  > &
+    Partial<
+      Pick<
+        ShipperAnalyticsOverview['tiles'],
+        'freightSpend' | 'freightPerLoad' | 'detentionAndClaims'
+      >
+    >;
+  attention: AttentionFinding[];
+  products: {
+    rows: (Omit<ProductRow, 'freight' | 'perTonne'> &
+      Partial<Pick<ProductRow, 'freight' | 'perTonne'>>)[];
+    topTwoShare: number | null;
+  };
+  spendByMonth: ShipperAnalyticsOverview['spendByMonth'];
+  ratePerTonneKm: ShipperAnalyticsOverview['ratePerTonneKm'];
+  transporters: {
+    plot: (Omit<RateServicePoint, 'perTonneKm' | 'spend' | 'sharePct'> &
+      Partial<Pick<RateServicePoint, 'perTonneKm' | 'spend' | 'sharePct'>>)[];
+    concentration?: ConcentrationView;
+  };
+  execution: ExecutionStage[];
+  goDeeper: Omit<ShipperAnalyticsOverview['goDeeper'], 'freightSpend' | 'leakage'> &
+    Partial<Pick<ShipperAnalyticsOverview['goDeeper'], 'freightSpend' | 'leakage'>>;
+}
+
 // ─── Freight Spend (§8) ──────────────────────────────────────────────────────
 
 export interface ShipperAnalyticsFreightSpend {

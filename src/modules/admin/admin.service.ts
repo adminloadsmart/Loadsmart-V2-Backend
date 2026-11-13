@@ -1,3 +1,4 @@
+import { isPlatformAdministrator } from '../../shared/middleware/require-permission.middleware';
 import { DataSource, In, IsNull } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
@@ -32,7 +33,6 @@ import { StorageService } from '../storage/storage.service';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
-  PLATFORM_ADMIN_ROLE,
   ORG_ADMIN_ROLE,
   ONLINE_KYC_DESK_ROLE,
   OFFLINE_KYC_DESK_ROLE,
@@ -226,18 +226,20 @@ export class AdminService {
     physicalKycAgentId?: string;
     onlineKycCompleted?: boolean;
   } {
-    if (actingUser.role === ONLINE_KYC_DESK_ROLE) {
-      return { onlineKycVerifierId: actingUser.id };
-    }
+    if (isPlatformAdministrator(actingUser)) return {};
     if (actingUser.role === OFFLINE_KYC_DESK_ROLE) {
       return { physicalKycAgentId: actingUser.id, onlineKycCompleted: true };
     }
-    return {}; // platform_admin (or anything else that made it past the route's requirePermission)
+    // An online desk sees its own assignments. Anyone else who reached a reviewer route (e.g. a
+    // staff member directly granted a KYC review key) gets the same "assigned to me" filter —
+    // which matches nothing, since only desk roles can be assigned (see assignReviewer). Never
+    // an unscoped list.
+    return { onlineKycVerifierId: actingUser.id };
   }
 
   /** The per-organization counterpart to reviewerScopeFilter above — used everywhere a single
-   *  already-fetched org needs an ownership/visibility check. platform_admin is exempt. Throws
-   *  NotFoundError (not AuthorizationError) so an org outside a reviewer's scope reads as "doesn't
+   *  already-fetched org needs an ownership/visibility check. Platform administrators
+   *  (isPlatformAdministrator) are exempt. Throws NotFoundError (not AuthorizationError) so an org outside a reviewer's scope reads as "doesn't
    *  exist" rather than "exists but you can't touch it" — deliberate for offline_kyc_desk, whose
    *  orgs must be genuinely hidden until onlineKycCompletedAt is set, not just un-actionable. */
   private assertOrgAccessible(
@@ -247,7 +249,7 @@ export class AdminService {
       'id' | 'onlineKycVerifierId' | 'physicalKycAgentId' | 'onlineKycCompletedAt'
     >,
   ) {
-    if (actingUser.role === PLATFORM_ADMIN_ROLE) return;
+    if (isPlatformAdministrator(actingUser)) return;
     if (
       actingUser.role === ONLINE_KYC_DESK_ROLE &&
       organization.onlineKycVerifierId === actingUser.id
@@ -519,7 +521,12 @@ export class AdminService {
    *  doesn't exist at all, this adds the 'was it actually confirmed' check on top. */
   private async assertUploadedFile(actingUser: AuthenticatedUser, fileKey: string): Promise<void> {
     const { file } = await this.storageService.getByKey(
-      { tenantId: null, role: actingUser.role },
+      {
+        tenantId: null,
+        role: actingUser.role,
+        userId: actingUser.id,
+        permissions: actingUser.permissions,
+      },
       fileKey,
     );
     if (file.status !== 'confirmed') {
@@ -904,9 +911,23 @@ export class AdminService {
     }
   }
 
-  async listStaff(input: ListStaffInput) {
+  /** Platform administrators get the full Employees list. A KYC reviewer reaches this route only
+   *  to pick an assignee, so it gets names, roles, coverage and workload — not staff phone
+   *  numbers, emails or referral data. */
+  async listStaff(actingUser: AuthenticatedUser, input: ListStaffInput) {
     try {
-      return await this.authService.listStaffUsers(input);
+      const page = await this.authService.listStaffUsers(input);
+      if (isPlatformAdministrator(actingUser)) return page;
+      return {
+        ...page,
+        items: page.items.map(({ id, fullName, role, coverage, workload }) => ({
+          id,
+          fullName,
+          role,
+          coverage,
+          workload,
+        })),
+      };
     } catch (error) {
       rethrow(error, 'Failed to list staff');
     }

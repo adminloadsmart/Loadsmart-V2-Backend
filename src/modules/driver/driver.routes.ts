@@ -4,7 +4,11 @@ import { validate } from '../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../shared/middleware/require-permission.middleware';
 import { createIpRateLimit } from '../../shared/middleware/rate-limit.middleware';
 import { env } from '../../config/env';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
+import {
+  MASTERS_WRITE,
+  MASTERS_APPROVE,
+  PAYMENTS_MANAGE,
+} from '../../shared/constants/permissions';
 import { mastersExcelUpload, requireMastersExcelFile } from '../masters/masters.upload';
 import { DriverController } from './driver.controller';
 import { DriverImportController } from './driver-import.controller';
@@ -18,6 +22,8 @@ export function createDriverRoutes(
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending driver — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
+  // Driver bank accounts — read and verified only by whoever pays drivers.
+  const canPay = requirePermission(PAYMENTS_MANAGE);
   // Throttles POST /drivers/verify-dl — it fans out to IDfy's paid Sarathi lookup. Same
   // createIpRateLimit + env-driven limit/window pattern as auth.routes.ts.
   const verifyDriverDlRateLimit = createIpRateLimit({
@@ -84,6 +90,7 @@ export function createDriverRoutes(
   // '/drivers/:driverId' so "export" isn't parsed as a driverId.
   router.get(
     '/drivers/export',
+    canWrite,
     validate(driverValidators.exportDrivers),
     asyncHandler(controller.exportDrivers),
   );
@@ -183,6 +190,7 @@ export function createDriverRoutes(
   );
   router.get(
     '/drivers/:driverId/documents',
+    canWrite,
     validate(driverValidators.listDriverDocuments),
     asyncHandler(controller.listDriverDocuments),
   );
@@ -201,6 +209,7 @@ export function createDriverRoutes(
   );
   router.get(
     '/drivers/:driverId/verifications',
+    canWrite,
     validate(driverValidators.listDriverVerifications),
     asyncHandler(controller.listDriverVerifications),
   );
@@ -213,12 +222,14 @@ export function createDriverRoutes(
   );
   router.get(
     '/drivers/:driverId/bank-details',
+    canPay,
     validate(driverValidators.listDriverBankDetails),
     asyncHandler(controller.listDriverBankDetails),
   );
+  // Marking a bank account verified is a payments control, not a fleet edit.
   router.patch(
     '/drivers/:driverId/bank-details/:bankDetailsId/verification',
-    canWrite,
+    canPay,
     validate(driverValidators.setDriverBankDetailsVerification),
     asyncHandler(controller.setDriverBankDetailsVerification),
   );
@@ -251,6 +262,7 @@ export function createDriverRoutes(
   );
   router.get(
     '/drivers/:driverId/trip-metrics',
+    canWrite,
     validate(driverValidators.listDriverTripMetrics),
     asyncHandler(controller.listDriverTripMetrics),
   );

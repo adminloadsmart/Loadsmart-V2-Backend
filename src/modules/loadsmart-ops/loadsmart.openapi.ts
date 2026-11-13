@@ -253,6 +253,7 @@ const ROWS: Row[] = [
     path: `${LOADS}/loads/{loadId}/charges`,
     op: 'loads.listCharges',
     schema: v.load,
+    permissions: [PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE],
     description: 'Charges on a Loadsmart load.',
   },
   {
@@ -294,6 +295,7 @@ const ROWS: Row[] = [
     path: `${LOADS}/loads/{loadId}/claim`,
     op: 'loads.getClaim',
     schema: v.load,
+    permissions: [PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE],
     description: 'The claim on a Loadsmart load delivered with issues.',
   },
   {
@@ -318,6 +320,7 @@ const ROWS: Row[] = [
     path: `${LOADS}/loads/{loadId}/invoice`,
     op: 'loads.getLoadsmartInvoice',
     schema: v.load,
+    permissions: [PAYMENTS_MANAGE],
     description:
       "Loadsmart's invoice and its PDF. Pay it with POST /loads/{loadId}/payments/balance (with the UTR) — the payment counts as verified at once.",
   },

@@ -1,7 +1,7 @@
 import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { loadingPointValidators } from './loading-point.validators';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import { MASTERS_APPROVE, MASTERS_WRITE } from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
@@ -65,7 +65,7 @@ export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.createLoadingPoint',
     ...write(
-      'Create a loading point (warehouse/factory origin). New records start pending and need org_admin approval before they go live.',
+      'Create a loading point (warehouse/factory origin). New records start pending unless the caller holds masters.approve, and need approval before they go live.',
     ),
     request: { body: json(loadingPointValidators.create.shape.body) },
     responses: {
@@ -136,7 +136,7 @@ export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/loading-points/{loadingPointId}/approve`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.approveLoadingPoint',
-    ...approve('Approve a pending loading point. org_admin only.'),
+    ...approve('Approve a pending loading point. Requires masters.approve.'),
     request: { params: loadingPointValidators.approve.shape.params },
     responses: {
       200: { description: 'Approved loading point' },
@@ -150,7 +150,7 @@ export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/loading-points/{loadingPointId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectLoadingPoint',
-    ...approve('Reject a pending loading point with a mandatory reason. org_admin only.'),
+    ...approve('Reject a pending loading point with a mandatory reason. Requires masters.approve.'),
     request: {
       params: loadingPointValidators.reject.shape.params,
       body: json(loadingPointValidators.reject.shape.body),
@@ -180,7 +180,10 @@ export function registerLoadingPointOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/loading-points/export`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.exportLoadingPoints',
-    ...authenticated('Loading points "Export CSV" — same filters as the list, up to 5000 rows.'),
+    ...permissionGated(
+      [MASTERS_WRITE],
+      'Loading points "Export CSV" — same filters as the list, up to 5000 rows.',
+    ),
     request: { query: loadingPointValidators.export.shape.query },
     responses: { 200: { description: 'text/csv file' } },
   });

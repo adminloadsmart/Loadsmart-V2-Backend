@@ -109,20 +109,16 @@ export function createVahanStillUnverifiedCheck(
   };
 }
 
-/** Records still pending of the kinds a user with these permissions/role can approve — LS_N_0010's
+/** Records still pending of the kinds a user with these permissions can approve — LS_N_0010's
  *  "N waiting" and LS_N_0060's morning-brief approvals count. */
 export async function countPendingApprovals(
   scheduledAlertRepository: ScheduledAlertRepository,
   tenantId: string,
   permissions: string[],
-  role: string | null,
 ): Promise<number> {
-  const approvableKinds = (Object.keys(MASTER_KIND_LABELS) as MasterKind[]).filter((kind) => {
-    const approvers = masterApprovers(kind);
-    return (
-      permissions.includes(approvers.permission) && (!approvers.role || approvers.role === role)
-    );
-  });
+  const approvableKinds = (Object.keys(MASTER_KIND_LABELS) as MasterKind[]).filter((kind) =>
+    permissions.includes(masterApprovers(kind).permission),
+  );
   const pendingCounts = await Promise.all(
     approvableKinds.map((kind) => scheduledAlertRepository.countPendingMasters(tenantId, kind)),
   );
@@ -162,15 +158,13 @@ export function createMasterApprovalResolvers(deps: MasterApprovalResolverDeps) 
       tenantId: string,
       context: MasterApprovalsWaitingContext,
     ): Promise<MasterApprovalsWaitingContext | null> => {
-      const [permissions, role] = await Promise.all([
-        deps.getEffectivePermissions(context.userId).catch(() => [] as string[]),
-        deps.getUserRoleName(context.userId),
-      ]);
+      const permissions = await deps
+        .getEffectivePermissions(context.userId)
+        .catch(() => [] as string[]);
       const waitingCount = await countPendingApprovals(
         deps.scheduledAlertRepository,
         tenantId,
         permissions,
-        role,
       );
       return waitingCount > 0 ? { ...context, waitingCount } : null;
     },

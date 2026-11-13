@@ -40,6 +40,7 @@ export class VehicleController {
   getVehicle = async (req: Request<VehicleParams>, res: Response) => {
     const vehicle = await this.vehicleService.getVehicleWithTyres(
       requireTenantId(req),
+      req.user!,
       req.params.vehicleId,
     );
     respond(res, vehicle);
@@ -107,7 +108,7 @@ export class VehicleController {
     const vehicle = await this.vehicleService.onboardVehicle(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
+      req.user!,
       req.body,
     );
     respond(res, vehicle, 201);

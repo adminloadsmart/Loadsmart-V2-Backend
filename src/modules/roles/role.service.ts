@@ -1,10 +1,12 @@
 import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
+import { isPlatformAdministrator } from '../../shared/middleware/require-permission.middleware';
 import {
   PLATFORM_ADMIN_ROLE,
   ORG_ADMIN_ROLE,
   ORG_ASSIGNABLE_ROLES,
+  STAFF_ASSIGNABLE_ROLES,
 } from '../../shared/constants/roles';
 import { setCachedPermissionsVersion } from '../../shared/utils/permissions-version-cache';
 import { RoleEntity, RoleScope } from './entities/role.entity';
@@ -148,7 +150,7 @@ export class RoleService {
    *  ordinary staff account (sales/KYC desk/load console) has a reason to enumerate this, only
    *  the two roles that actually manage roles/permissions elsewhere in this file. */
   private assertCanViewCatalog(actingUser: AuthenticatedUser): void {
-    if (actingUser.role !== PLATFORM_ADMIN_ROLE && actingUser.role !== ORG_ADMIN_ROLE) {
+    if (!isPlatformAdministrator(actingUser) && actingUser.role !== ORG_ADMIN_ROLE) {
       throw new AuthorizationError('Not authorized to view roles/permissions');
     }
   }
@@ -201,7 +203,7 @@ export class RoleService {
    *  their own org's users, and anyone can view their own permissions. */
   private assertCanView(actingUser: AuthenticatedUser, targetUser: UserEntity): void {
     if (actingUser.id === targetUser.id) return;
-    if (actingUser.role === PLATFORM_ADMIN_ROLE) return;
+    if (isPlatformAdministrator(actingUser)) return;
     if (actingUser.role === ORG_ADMIN_ROLE && targetUser.tenantId === actingUser.tenantId) return;
     throw new AuthorizationError("Not authorized to view this user's permissions");
   }
@@ -216,11 +218,20 @@ export class RoleService {
     if (actingUser.id === targetUser.id) {
       throw new AuthorizationError('Cannot manage your own role or permissions');
     }
-    if (actingUser.role === PLATFORM_ADMIN_ROLE) {
+    if (isPlatformAdministrator(actingUser)) {
       if (thingScope !== 'platform') {
         throw new AuthorizationError(
           'Platform admin can only manage platform-scope roles/permissions',
         );
+      }
+      // The TARGET must be staff too — never an org user (who'd keep their tenantId and become a
+      // hybrid that skips createTenantScope's org-status checks) — and never a platform_admin:
+      // those accounts come only from the seed script, so no API path edits or demotes one.
+      if (targetUser.tenantId !== null || targetUser.role.scope !== 'platform') {
+        throw new AuthorizationError('Platform admin can only manage staff accounts');
+      }
+      if (targetUser.role.name === PLATFORM_ADMIN_ROLE) {
+        throw new AuthorizationError('Platform admin accounts are managed by the seed script only');
       }
       return;
     }
@@ -238,8 +249,8 @@ export class RoleService {
     throw new AuthorizationError('Not authorized to manage roles or permissions');
   }
 
-  /** Extra guard for grantPermission specifically (not assignRole — already scope-safe since
-   *  actor authority alone confines it to same-tier role changes; not revokePermission — so a
+  /** Extra guard for grantPermission specifically (assignRole is covered by assertCanManage's
+   *  target checks plus its own assignable-role check; not revokePermission — so a
    *  grant that predates this check can still be cleaned up through the API instead of needing
    *  direct DB access): the permission being handed to a user must match that user's own role
    *  scope, or a platform_admin could grant a platform-scope permission to an org_admin, giving
@@ -251,6 +262,21 @@ export class RoleService {
       throw new AuthorizationError(
         `Cannot grant a ${thingScope}-scope permission to a ${targetUser.role.scope}-scope user`,
       );
+    }
+  }
+
+  /** Pre-flight for creating a staff account with direct grants: every id must be a real
+   *  platform-scope permission, checked BEFORE the user row exists so a bad id can't leave a
+   *  half-created account behind (the grants themselves still go through grantPermission). */
+  async assertPlatformPermissionIds(permissionIds: readonly string[]): Promise<void> {
+    for (const permissionId of new Set(permissionIds)) {
+      const permission = await this.roleRepository.findPermissionById(permissionId);
+      if (!permission) throw new NotFoundError(`Permission ${permissionId} not found`);
+      if (permission.scope !== 'platform') {
+        throw new AuthorizationError(
+          `Permission "${permission.key}" is organization-scope and cannot be granted to staff`,
+        );
+      }
     }
   }
 
@@ -266,6 +292,11 @@ export class RoleService {
       if (!role) throw new NotFoundError(`Role ${roleId} not found`);
 
       this.assertCanManage(actingUser, targetUser, role.scope);
+      // A platform-side change may only move staff between the staff roles: platform_admin is
+      // never assignable through the API (seed script only), and nor is org_admin to staff.
+      if (role.scope === 'platform' && !STAFF_ASSIGNABLE_ROLES.includes(role.name)) {
+        throw new AuthorizationError(`Role "${role.name}" cannot be assigned through the API`);
+      }
       const before = await this.capabilitiesBeforeChange(actingUser, targetUser);
 
       const oldRole = { id: targetUser.role.id, name: targetUser.role.name };

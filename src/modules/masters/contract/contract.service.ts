@@ -1,5 +1,4 @@
-import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
+import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { paginate } from '../../../shared/utils/pagination';
 import { toIstDateString } from '../../../shared/utils/ist-time';
 import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../../shared/utils/csv';
@@ -98,11 +97,6 @@ export class ContractService {
     private readonly audit: AuditService,
   ) {}
 
-  private assertAdmin(role: string) {
-    if (role !== ORG_ADMIN_ROLE)
-      throw new AuthorizationError('Only organization admins can manage contracts');
-  }
-
   private async assertTransporterUsable(tenantId: string, transporterId: string) {
     const transporter = await this.transporterService.getTransporter(tenantId, transporterId);
     if (transporter.status !== 'active')
@@ -145,9 +139,8 @@ export class ContractService {
       );
   }
 
-  async create(tenantId: string, actorId: string, role: string, input: CreateContractInput) {
+  async create(tenantId: string, actorId: string, input: CreateContractInput) {
     try {
-      this.assertAdmin(role);
       await this.assertTransporterUsable(tenantId, input.transporterId);
       await this.assertLaneRules(tenantId, input);
       const created = await this.repository.create({
@@ -236,15 +229,8 @@ export class ContractService {
     }
   }
 
-  async update(
-    tenantId: string,
-    actorId: string,
-    role: string,
-    id: string,
-    input: UpdateContractInput,
-  ) {
+  async update(tenantId: string, actorId: string, id: string, input: UpdateContractInput) {
     try {
-      this.assertAdmin(role);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Contract ${id} not found`);
       const merged: CreateContractInput = {
@@ -299,9 +285,8 @@ export class ContractService {
   }
 
   /** "Delete contract — remove this agreed rate and priority from active indenting". */
-  async delete(tenantId: string, actorId: string, role: string, id: string) {
+  async delete(tenantId: string, actorId: string, id: string) {
     try {
-      this.assertAdmin(role);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Contract ${id} not found`);
       await this.repository.softDelete(tenantId, id, actorId);

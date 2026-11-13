@@ -1,4 +1,5 @@
 import { ValidationError } from '../../../shared/errors';
+import { PermissionHolder } from '../../../shared/middleware/require-permission.middleware';
 import { ImportSource } from '../../../shared/import/upload';
 import { AuditService } from '../../audit/audit.service';
 import { DriverTenantRelationRepository } from '../../driver/driver-tenant-relation.repository';
@@ -64,7 +65,7 @@ export class VehicleImportService {
   async import(
     tenantId: string,
     actorId: string,
-    role: string,
+    actor: PermissionHolder,
     source: ImportSource,
     clientIp: string,
   ): Promise<VehicleImportReport> {
@@ -159,7 +160,7 @@ export class VehicleImportService {
     for (const item of valid) {
       let vehicleId: string;
       try {
-        const vehicle = await this.vehicles.onboardVehicle(tenantId, actorId, role, item.input, {
+        const vehicle = await this.vehicles.onboardVehicle(tenantId, actorId, actor, item.input, {
           queueVahanVerification: true,
         });
         vehicleId = vehicle.id;

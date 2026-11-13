@@ -2,7 +2,7 @@ import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { vehicleValidators } from './vehicle.validators';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import { MASTERS_APPROVE, MASTERS_WRITE } from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
@@ -49,7 +49,8 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/export`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.exportVehicles',
-    ...authenticated(
+    ...permissionGated(
+      [MASTERS_WRITE],
       'Download the fleet as an Excel file (.xlsx), optionally filtered like the list. ' +
         'Columns match the vehicle import, so the file can be edited and re-uploaded. Up to 5000 vehicles.',
     ),
@@ -120,7 +121,7 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.approveVehicle',
     ...approve(
       'Approve a pending vehicle (added by dispatch — see onboardVehicle). Settings → Approvals. ' +
-        'org_admin only.',
+        'Requires masters.approve.',
     ),
     request: { params: vehicleValidators.approveVehicle.shape.params },
     responses: {
@@ -134,7 +135,7 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectVehicle',
-    ...approve('Reject a pending vehicle with a mandatory reason. org_admin only.'),
+    ...approve('Reject a pending vehicle with a mandatory reason. Requires masters.approve.'),
     request: {
       params: vehicleValidators.rejectVehicle.shape.params,
       body: json(vehicleValidators.rejectVehicle.shape.body),
@@ -174,7 +175,7 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/documents`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listVehicleDocuments',
-    ...authenticated("List a vehicle's documents."),
+    ...permissionGated([MASTERS_WRITE], "List a vehicle's documents."),
     request: { params: vehicleValidators.listVehicleDocuments.shape.params },
     responses: {
       200: { description: 'Vehicle documents' },
@@ -327,7 +328,7 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/telemetry`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getVehicleTelemetryMeta',
-    ...authenticated('Get the GPS and EMI metadata for a vehicle.'),
+    ...permissionGated([MASTERS_WRITE], 'Get the GPS and EMI metadata for a vehicle.'),
     request: { params: vehicleValidators.getVehicleTelemetryMeta.shape.params },
     responses: {
       200: { description: 'Telemetry metadata' },
@@ -441,7 +442,10 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/vehicles/{vehicleId}/verifications`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listVehicleVerifications',
-    ...authenticated('List the VAHAN check history for a vehicle, most recent first.'),
+    ...permissionGated(
+      [MASTERS_WRITE],
+      'List the VAHAN check history for a vehicle, most recent first.',
+    ),
     request: { params: vehicleValidators.listVehicleVerifications.shape.params },
     responses: {
       200: { description: 'Verification snapshots' },

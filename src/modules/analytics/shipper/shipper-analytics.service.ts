@@ -1,4 +1,9 @@
 import { rethrow } from '../../../shared/errors';
+import { PAYMENTS_MANAGE } from '../../../shared/constants/permissions';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../../shared/middleware/require-permission.middleware';
 import { round, daysBetween } from '../../maintenance/calculations/dates';
 import { money } from '../../maintenance/calculations/downtime';
 import {
@@ -35,6 +40,7 @@ import {
   ShipperAnalyticsFilters,
   ShipperAnalyticsFreightSpend,
   ShipperAnalyticsOverview,
+  ShipperAnalyticsOverviewResponse,
   ShipperAnalyticsService as ServiceTab,
   ShipperAnalyticsTransporters,
   TurnaroundView,
@@ -124,6 +130,37 @@ function histogramOf(values: number[]): TurnaroundView['histogram'] {
   return bins;
 }
 
+/** The Overview without any rupee figure — see ShipperAnalyticsOverviewResponse. */
+export function withoutOverviewMoney(
+  overview: ShipperAnalyticsOverview,
+): ShipperAnalyticsOverviewResponse {
+  const {
+    freightSpend: _freightSpend,
+    freightPerLoad: _freightPerLoad,
+    detentionAndClaims: _detentionAndClaims,
+    ...tiles
+  } = overview.tiles;
+  const { freightSpend: _spend, leakage: _leakage, ...goDeeper } = overview.goDeeper;
+  return {
+    meta: { ...overview.meta, moneyHidden: true },
+    tiles,
+    attention: overview.attention.filter((finding) => finding.unit !== 'rupees'),
+    products: {
+      rows: overview.products.rows.map(({ freight: _freight, perTonne: _perTonne, ...row }) => row),
+      topTwoShare: overview.products.topTwoShare,
+    },
+    spendByMonth: [],
+    ratePerTonneKm: [],
+    transporters: {
+      plot: overview.transporters.plot.map(
+        ({ perTonneKm: _perTonneKm, spend: _plotSpend, sharePct: _sharePct, ...point }) => point,
+      ),
+    },
+    execution: overview.execution,
+    goDeeper,
+  };
+}
+
 export class ShipperAnalyticsService {
   constructor(private readonly repository: ShipperAnalyticsRepository) {}
 
@@ -199,7 +236,20 @@ export class ShipperAnalyticsService {
 
   // ─── §7 Overview ───────────────────────────────────────────────────────────
 
+  /** Overview tab. Open to every tenant seat, but its rupee figures only go to payments.manage
+   *  holders — everyone else gets withoutOverviewMoney's view. */
   async getOverview(
+    tenantId: string,
+    viewer: PermissionHolder,
+    filters: ShipperAnalyticsFilters,
+  ): Promise<ShipperAnalyticsOverviewResponse> {
+    const overview = await this.buildOverview(tenantId, filters);
+    return hasPermission(viewer, PAYMENTS_MANAGE)
+      ? { ...overview, meta: { ...overview.meta, moneyHidden: false } }
+      : withoutOverviewMoney(overview);
+  }
+
+  private async buildOverview(
     tenantId: string,
     filters: ShipperAnalyticsFilters,
   ): Promise<ShipperAnalyticsOverview> {

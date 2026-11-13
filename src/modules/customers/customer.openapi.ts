@@ -107,8 +107,8 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'customers.create',
     ...permissionGated(
       [CUSTOMERS_CREATE],
-      'Create a customer. org_admin creates an active customer; sales/sales_cs/dispatch/' +
-        'documents_ops/finance_accounts create a pending one awaiting org_admin approval. ' +
+      'Create a customer. A caller holding customers.approve creates an active customer; anyone ' +
+        'else creates a pending one awaiting approval. ' +
         'Requires gstin, name (legal business name), registeredAddress and at least one contact ' +
         '(phone + email). Send `gstVerificationId` from POST /masters/gst/verify to store the ' +
         'customer as GST-verified; without it the GSTIN is saved as an unverified manual entry. ' +
@@ -126,10 +126,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     path: BASE,
     tags: [TAGS.CUSTOMERS],
     operationId: 'customers.list',
-    ...permissionGated(
-      [CUSTOMERS_READ],
-      'List customers for the authenticated tenant. ORG_ADMIN only.',
-    ),
+    ...permissionGated([CUSTOMERS_READ], 'List customers for the authenticated tenant.'),
     request: { query: customerValidators.list.shape.query },
     responses: {
       200: { description: 'Paginated customers with delivery points' },
@@ -141,7 +138,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/{customerId}`,
     tags: [TAGS.CUSTOMERS],
     operationId: 'customers.get',
-    ...permissionGated([CUSTOMERS_READ], 'Get a tenant-scoped customer. ORG_ADMIN only.'),
+    ...permissionGated([CUSTOMERS_READ], 'Get a tenant-scoped customer.'),
     request: { params: customerValidators.get.shape.params },
     responses: {
       200: { description: 'Customer details' },
@@ -153,7 +150,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/{customerId}`,
     tags: [TAGS.CUSTOMERS],
     operationId: 'customers.update',
-    ...permissionGated([CUSTOMERS_WRITE], 'Update a tenant-scoped customer. ORG_ADMIN only.'),
+    ...permissionGated([CUSTOMERS_WRITE], 'Update a tenant-scoped customer.'),
     request: {
       params: customerValidators.update.shape.params,
       body: json(customerValidators.update.shape.body),
@@ -168,7 +165,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/{customerId}/approve`,
     tags: [TAGS.CUSTOMERS],
     operationId: 'customers.approve',
-    ...permissionGated([CUSTOMERS_APPROVE], 'Approve a pending customer. ORG_ADMIN only.'),
+    ...permissionGated([CUSTOMERS_APPROVE], 'Approve a pending customer.'),
     request: { params: customerValidators.approve.shape.params },
     responses: {
       200: { description: 'Approved customer' },
@@ -181,10 +178,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/{customerId}/reject`,
     tags: [TAGS.CUSTOMERS],
     operationId: 'customers.reject',
-    ...permissionGated(
-      [CUSTOMERS_APPROVE],
-      'Reject a pending customer with a mandatory reason. ORG_ADMIN only.',
-    ),
+    ...permissionGated([CUSTOMERS_APPROVE], 'Reject a pending customer with a mandatory reason.'),
     request: {
       params: customerValidators.reject.shape.params,
       body: json(customerValidators.reject.shape.body),
@@ -204,7 +198,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     ...permissionGated(
       [CUSTOMERS_WRITE],
       "Toggle a customer between 'active' and 'inactive'. Separate from the pending-review " +
-        'approve/reject flow. ORG_ADMIN only.',
+        'approve/reject flow.',
     ),
     request: {
       params: customerValidators.updateStatus.shape.params,
@@ -222,7 +216,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/delete/{customer_id}`,
     tags: [TAGS.CUSTOMERS],
     operationId: 'customers.delete',
-    ...permissionGated([CUSTOMERS_WRITE], 'Soft-delete a tenant-scoped customer. ORG_ADMIN only.'),
+    ...permissionGated([CUSTOMERS_WRITE], 'Soft-delete a tenant-scoped customer.'),
     request: { params: customerValidators.delete.shape.params },
     responses: {
       200: { description: 'Customer deleted', ...json(SuccessResponseSchema) },
@@ -236,8 +230,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'customers.export',
     ...permissionGated(
       [CUSTOMERS_READ],
-      'Settings → Customers "Export CSV" — same filters as the list (no paging), up to 5000 rows. ' +
-        'ORG_ADMIN only.',
+      'Settings → Customers "Export CSV" — same filters as the list (no paging), up to 5000 rows. ',
     ),
     request: { query: customerValidators.export.shape.query },
     responses: {
@@ -253,7 +246,7 @@ export function registerCustomersOpenApi(registry: OpenAPIRegistry): void {
     ...permissionGated(
       [CUSTOMERS_READ],
       'Customer detail drawer "LOADS": the customer\'s loads newest first (via requisition or ' +
-        'posting) with tonnes, fleet type, stage label and progress (0–1). ORG_ADMIN only.',
+        'posting) with tonnes, fleet type, stage label and progress (0–1).',
     ),
     request: {
       params: customerValidators.loads.shape.params,

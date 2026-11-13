@@ -32,6 +32,7 @@ import {
 } from './drivers.types';
 import { Paginated, PaginationInput } from '../../shared/utils/pagination';
 import { DriverEntity } from './entities/driver.entity';
+import { DriverBankDetailsEntity } from './entities/driver-bank-details.entity';
 import { SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { DriverOperationalStatusEntity } from './entities/driver-operational-status.entity';
 import { DriverTripMetricsEntity } from './entities/driver-trip-metrics.entity';
@@ -433,7 +434,12 @@ export interface DriverDetailSections {
  * `driverTenantRelationId` is the new row backing the approval fields, exposed for callers that
  * need it (e.g. accept/reject an invite).
  */
-export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations'> {
+/** A bank account as the API returns it — the raw IDfy penny-drop payload never leaves the
+ *  server (see DriverService's toBankDetailsView). */
+export type DriverBankDetailsView = Omit<DriverBankDetailsEntity, 'rawResponse'>;
+
+export interface DriverWithRelation extends Omit<DriverEntity, 'tenantRelations' | 'bankDetails'> {
+  bankDetails: DriverBankDetailsView[];
   driverTenantRelationId: string;
   tenantId: string;
   status: DriverTenantRelationStatus;
@@ -486,6 +492,12 @@ export interface DriverDetailOnlySections {
 
 /** GET /drivers/{id} — the flattened driver plus every section of the driver detail screen. */
 export type DriverDetailView = DriverWithRelation & DriverDetailSections & DriverDetailOnlySections;
+
+/** Sections of the driver detail a viewer may not be allowed to see — see DriverService.getDriver:
+ *  bank accounts need payments.manage, documents and verifications need masters.write. */
+type ViewerGatedDriverSections = 'bankDetails' | 'documents' | 'verifications';
+export type DriverDetailResponse = Omit<DriverDetailView, ViewerGatedDriverSections> &
+  Partial<Pick<DriverDetailView, ViewerGatedDriverSections>>;
 
 /** One My Drivers roster row — the list's driver plus the detail sections its columns read. */
 export type DriverRosterRow = DriverWithRelation &

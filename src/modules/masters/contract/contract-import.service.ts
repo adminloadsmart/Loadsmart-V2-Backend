@@ -94,12 +94,7 @@ export class ContractImportService {
     });
   }
 
-  async import(
-    tenantId: string,
-    actorId: string,
-    role: string,
-    source: ImportSource,
-  ): Promise<ImportReport> {
+  async import(tenantId: string, actorId: string, source: ImportSource): Promise<ImportReport> {
     const parsed = await this.parse(source);
     const resolve = this.transporterResolver(tenantId);
     const report = await importRows(parsed, {
@@ -108,12 +103,7 @@ export class ContractImportService {
       check: async (row) =>
         (await resolve(row)) ? null : { field: 'Transporter', message: 'Transporter not found' },
       create: async (row) =>
-        this.contracts.create(
-          tenantId,
-          actorId,
-          role,
-          toContractInput(row, (await resolve(row))!.id),
-        ),
+        this.contracts.create(tenantId, actorId, toContractInput(row, (await resolve(row))!.id)),
     });
     await this.audit.log({
       tenantId,

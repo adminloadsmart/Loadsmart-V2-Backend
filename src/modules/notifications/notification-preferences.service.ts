@@ -1,5 +1,4 @@
-import { AuthorizationError, NotFoundError, rethrow } from '../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import { NotFoundError, rethrow } from '../../shared/errors';
 import {
   NotificationCategoryOrGeneral,
   NotificationChannelName,
@@ -56,12 +55,6 @@ function toChannelFlags(channels: NotificationChannelName[]): {
  *  in the catalog (retired, or not yet removed by a seed run) never reaches the settings screen. */
 function isImplementedType(key: string): boolean {
   return key in NOTIFICATION_CATALOG;
-}
-
-function assertOrgAdmin(role: string): void {
-  if (role !== ORG_ADMIN_ROLE) {
-    throw new AuthorizationError('Only an org admin can manage notification preferences');
-  }
 }
 
 export class NotificationPreferencesService {
@@ -191,12 +184,9 @@ export class NotificationPreferencesService {
    *  actually be persisted as enabled, whatever the request body says. */
   async updatePreferences(
     tenantId: string,
-    actorRole: string,
     items: UpdateNotificationPreferenceInput[],
   ): Promise<void> {
     try {
-      assertOrgAdmin(actorRole);
-
       const upserts = await Promise.all(
         items.map(async (item) => {
           const type = await this.repository.findTypeByKey(item.key);
@@ -221,9 +211,8 @@ export class NotificationPreferencesService {
     }
   }
 
-  async resetToDefault(tenantId: string, actorRole: string): Promise<void> {
+  async resetToDefault(tenantId: string): Promise<void> {
     try {
-      assertOrgAdmin(actorRole);
       await this.repository.resetToDefault(tenantId);
     } catch (error) {
       rethrow(error, 'Failed to reset notification preferences');
@@ -245,11 +234,9 @@ export class NotificationPreferencesService {
   async updateQuietHours(
     tenantId: string,
     actorId: string,
-    actorRole: string,
     setting: QuietHoursSetting,
   ): Promise<QuietHoursSetting> {
     try {
-      assertOrgAdmin(actorRole);
       await this.repository.upsertQuietHours(tenantId, setting, actorId);
       return this.getQuietHours(tenantId);
     } catch (error) {

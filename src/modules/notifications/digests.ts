@@ -9,7 +9,6 @@ import {
   LOADS_DOCUMENTS_MANAGE,
   MASTERS_APPROVE,
 } from '../../shared/constants/permissions';
-import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import {
   DAILY_BRIEF_STATIC,
   DailyBriefContext,
@@ -95,15 +94,13 @@ export function createDigests(deps: DigestsDeps) {
         ).length;
         for (const user of await scheduledAlertRepository.listOrganizationUsers(organization.id)) {
           const can = (permission: string) => user.permissions.includes(permission);
-          const canApprove =
-            can(MASTERS_APPROVE) || (can(CUSTOMERS_APPROVE) && user.role === ORG_ADMIN_ROLE);
+          const canApprove = can(MASTERS_APPROVE) || can(CUSTOMERS_APPROVE);
           const podsPending = can(LOADS_DOCUMENTS_MANAGE) ? counts.pods : undefined;
           const approvalsPending = canApprove
             ? await countPendingApprovals(
                 scheduledAlertRepository,
                 organization.id,
                 user.permissions,
-                user.role,
               )
             : undefined;
           const vehiclesBlocked =

@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { customerValidators } from './customer.validators';
 import { CustomerService } from './customer.service';
+import { PermissionHolder } from '../../shared/middleware/require-permission.middleware';
 import { parseCustomerSheet, ParsedCustomerSheet } from './customer-import.mapper';
 import { IMPORT_COLUMNS } from './customer-import.columns';
 import { CreateCustomerInput } from './customer.types';
@@ -116,7 +117,7 @@ export class CustomerImportService {
   async import(
     tenantId: string,
     actorId: string,
-    role: string,
+    actor: PermissionHolder,
     source: ImportSource,
   ): Promise<ImportReport> {
     const parsed = await this.parse(source);
@@ -129,7 +130,7 @@ export class CustomerImportService {
     for (const item of inspected.valid) {
       let customer: Awaited<ReturnType<CustomerService['create']>>;
       try {
-        customer = await this.customers.create(tenantId, actorId, role, item.input, 'csv_import', {
+        customer = await this.customers.create(tenantId, actorId, actor, item.input, 'csv_import', {
           queueGstVerification: true,
         });
         report.created += 1;

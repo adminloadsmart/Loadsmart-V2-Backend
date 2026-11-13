@@ -74,14 +74,14 @@ export function registerNotificationPreferencesOpenApi(registry: OpenAPIRegistry
     operationId: 'notifications.updateOrganizationPreferences',
     ...authenticated(
       'Bulk-save the org’s channel preferences for one or more notification types ("Save ' +
-        'Changes"). Org_admin only — any other caller gets 403. A channel not supported by a given ' +
+        'Changes"). Requires notifications.preferences.manage — any other caller gets 403. A channel not supported by a given ' +
         'type is silently clamped to disabled server-side, regardless of what’s sent.',
     ),
     request: { body: json(notificationPreferencesValidators.update.shape.body) },
     responses: {
       200: { description: 'Updated preferences, same shape as GET' },
       400: { description: 'Validation failed', ...errorContent },
-      403: { description: 'Caller is not an org admin', ...errorContent },
+      403: { description: 'Caller lacks notifications.preferences.manage', ...errorContent },
       404: {
         description: 'One of the given notification type keys does not exist',
         ...errorContent,
@@ -96,11 +96,11 @@ export function registerNotificationPreferencesOpenApi(registry: OpenAPIRegistry
     operationId: 'notifications.resetOrganizationPreferences',
     ...authenticated(
       'Reset the org’s notification preferences back to each type’s product-intended defaults ' +
-        '("Reset to Default"). Org_admin only — any other caller gets 403.',
+        '("Reset to Default"). Requires notifications.preferences.manage — any other caller gets 403.',
     ),
     responses: {
       200: { description: 'Preferences reset to defaults, same shape as GET' },
-      403: { description: 'Caller is not an org admin', ...errorContent },
+      403: { description: 'Caller lacks notifications.preferences.manage', ...errorContent },
     },
   });
 
@@ -121,12 +121,14 @@ export function registerNotificationPreferencesOpenApi(registry: OpenAPIRegistry
     path: `${BASE}/quiet-hours`,
     tags: [TAGS.NOTIFICATIONS],
     operationId: 'notifications.updateQuietHours',
-    ...authenticated('Save the org’s quiet hours. Org_admin only — any other caller gets 403.'),
+    ...authenticated(
+      'Save the org’s quiet hours. Requires notifications.preferences.manage — any other caller gets 403.',
+    ),
     request: { body: json(notificationPreferencesValidators.updateQuietHours.shape.body) },
     responses: {
       200: { description: 'Saved quiet hours, same shape as GET' },
       400: { description: 'Validation failed', ...errorContent },
-      403: { description: 'Caller is not an org admin', ...errorContent },
+      403: { description: 'Caller lacks notifications.preferences.manage', ...errorContent },
     },
   });
 }

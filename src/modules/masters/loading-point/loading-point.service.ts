@@ -1,5 +1,9 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../../shared/middleware/require-permission.middleware';
+import { MASTERS_APPROVE } from '../../../shared/constants/permissions';
 import { AuditService } from '../../audit/audit.service';
 import { paginate } from '../../../shared/utils/pagination';
 import { LoadingPointRepository, LoadingPointWithCreator } from './loading-point.repository';
@@ -69,17 +73,18 @@ export class LoadingPointService {
     private readonly geofenceSync?: LoadingPointGeofenceSync,
   ) {}
 
-  /** org_admin's own loading point lands `active` immediately; dispatch's (the only other role
-   * masters.routes.ts's canWrite gate admits) lands `pending` until an org_admin reviews it via
-   * approve/reject — same split as VehicleService.createVehicle / DriverService.createDriver. */
+  /** A loading point created by someone holding MASTERS_APPROVE (org_admin by default) lands
+   * `active` immediately; anyone else's (e.g. dispatch, via canWrite) lands `pending` until an
+   * approver reviews it via approve/reject — same split as VehicleService.createVehicle /
+   * DriverService.createDriver. */
   async create(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     input: CreateLoadingPointInput,
   ): Promise<LoadingPointEntity> {
     try {
-      const autoApproved = actorRole === ORG_ADMIN_ROLE;
+      const autoApproved = hasPermission(actor, MASTERS_APPROVE);
 
       const value = await this.repository.create({
         tenantId,

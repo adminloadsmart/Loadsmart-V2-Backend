@@ -1,5 +1,9 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../../shared/middleware/require-permission.middleware';
+import { MASTERS_APPROVE } from '../../../shared/constants/permissions';
 import { AuditService } from '../../audit/audit.service';
 import { ProductRepository, ProductWithCreator } from './product.repository';
 import { MasterUsageRepository } from '../masters.usage';
@@ -94,9 +98,15 @@ export class ProductService {
     // throws (see notifications/master-approvals.ts).
     private readonly approvalNotifier?: MasterApprovalNotifier,
   ) {}
-  async create(tenantId: string, actorId: string, role: string, input: CreateProductInput) {
+  async create(
+    tenantId: string,
+    actorId: string,
+    actor: PermissionHolder,
+    input: CreateProductInput,
+  ) {
     try {
-      const autoApproved = role === ORG_ADMIN_ROLE;
+      // Whoever could approve it themselves skips the approval queue.
+      const autoApproved = hasPermission(actor, MASTERS_APPROVE);
       const now = autoApproved ? new Date() : null;
       const product = await this.repository.create(
         {

@@ -1,6 +1,10 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
+import { MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../../shared/middleware/require-permission.middleware';
 import { AuditService } from '../../audit/audit.service';
 import { CustomerService } from '../../customers/customer.service';
 import { CustomerEntity } from '../../customers/entities/customer.entity';
@@ -127,7 +131,7 @@ export class LoadPostingService {
   async post(
     tenantId: string,
     actorId: string,
-    role: string,
+    actor: PermissionHolder,
     input: PostLoadInput,
     idempotencyKey?: string,
   ): Promise<PostLoadResult> {
@@ -208,7 +212,7 @@ export class LoadPostingService {
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
-        const pickupMasterId = await this.savePickup(tenantId, actorId, role, pickup, manager);
+        const pickupMasterId = await this.savePickup(tenantId, actorId, actor, pickup, manager);
         const drop2 = await this.saveDrop(tenantId, actorId, customer, drop, manager);
         const commodity = await this.resolveCommodity(tenantId, actorId, input, manager);
         // Picked from the fixed picker table; matched to (or added to) the Truck master here so a
@@ -753,10 +757,9 @@ export class LoadPostingService {
   private newLoadingPoint(
     tenantId: string,
     actorId: string,
-    role: string,
+    autoApproved: boolean,
     address: NewAddressInput,
   ): Partial<LoadingPointEntity> {
-    const autoApproved = role === ORG_ADMIN_ROLE;
     return {
       tenantId,
       title: address.label.slice(0, 150),
@@ -777,7 +780,7 @@ export class LoadPostingService {
   private async savePickup(
     tenantId: string,
     actorId: string,
-    role: string,
+    actor: PermissionHolder,
     pickup: ResolvedPlace,
     manager: EntityManager,
   ): Promise<string | null> {
@@ -785,7 +788,14 @@ export class LoadPostingService {
     const repo = manager.getRepository(LoadingPointEntity);
     const saved = await repo.save(
       repo.create({
-        ...this.newLoadingPoint(tenantId, actorId, role, pickup.newAddress),
+        ...this.newLoadingPoint(
+          tenantId,
+          actorId,
+          // A new pickup follows the Loading Point master's rule: whoever could approve it
+          // themselves skips the approval queue.
+          hasPermission(actor, MASTERS_APPROVE),
+          pickup.newAddress,
+        ),
         deletedAt: null,
       }),
     );
@@ -826,7 +836,14 @@ export class LoadPostingService {
     const repo = manager.getRepository(LoadingPointEntity);
     const saved = await repo.save(
       repo.create({
-        ...this.newLoadingPoint(tenantId, actorId, ORG_ADMIN_ROLE, drop.newAddress),
+        ...this.newLoadingPoint(
+          tenantId,
+          actorId,
+          // Deliberately always approved, whoever posts: a drop typed on Post a load must be
+          // usable straight away so posting a load is never blocked on a pending address.
+          true,
+          drop.newAddress,
+        ),
         deletedAt: null,
       }),
     );

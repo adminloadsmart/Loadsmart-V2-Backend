@@ -1,4 +1,5 @@
 import { ValidationError } from '../../shared/errors';
+import { PermissionHolder } from '../../shared/middleware/require-permission.middleware';
 import { SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -247,7 +248,7 @@ export class DriverImportService {
   async import(
     tenantId: string,
     actorId: string,
-    role: string,
+    actor: PermissionHolder,
     drivers: OnboardDriverInput[],
   ): Promise<DriverImportReport> {
     // Two rows for the same person would race each other into createDriver — fail the later one
@@ -275,7 +276,7 @@ export class DriverImportService {
             message: `Duplicate entry — same driver as drivers[${earlier}]`,
           };
         try {
-          const created = await this.drivers.onboardDriver(tenantId, actorId, role, driver);
+          const created = await this.drivers.onboardDriver(tenantId, actorId, actor, driver);
           return { ...base, status: 'created', driverId: created.id };
         } catch (error) {
           return { ...base, status: 'failed', ...describeServiceError(error) };

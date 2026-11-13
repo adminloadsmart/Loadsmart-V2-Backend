@@ -36,7 +36,12 @@ export class StorageController {
     respond(
       res,
       await this.service.get(
-        { tenantId: req.user!.tenantId, role: req.user!.role },
+        {
+          tenantId: req.user!.tenantId,
+          role: req.user!.role,
+          userId: req.user!.id,
+          permissions: req.user!.permissions,
+        },
         (req.params as unknown as FileParams).fileId,
       ),
     );
@@ -47,7 +52,12 @@ export class StorageController {
     respond(
       res,
       await this.service.getByKey(
-        { tenantId: req.user!.tenantId, role: req.user!.role },
+        {
+          tenantId: req.user!.tenantId,
+          role: req.user!.role,
+          userId: req.user!.id,
+          permissions: req.user!.permissions,
+        },
         (req.validatedQuery as GetByKeyQuery).key,
       ),
     );

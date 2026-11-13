@@ -20,7 +20,7 @@ export class LoadingPointImportController {
       await this.service.import(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
+        req.user!,
         importSource(req.file!),
       ),
       201,

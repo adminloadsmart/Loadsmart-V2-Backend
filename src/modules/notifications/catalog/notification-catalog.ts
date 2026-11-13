@@ -340,13 +340,10 @@ const MASTER_RECORD_PATHS: Record<MasterKind, string> = {
 };
 const APPROVALS_PATH = '/settings/approvals';
 
-/** Who can approve a kind — mirrors the code that gates approval: masters.approve for the four
- *  masters; customers.approve AND org_admin for customers (CustomerService.approve also asserts
- *  the org_admin role). */
-export function masterApprovers(kind: MasterKind): { permission: string; role?: string } {
-  return kind === 'customer'
-    ? { permission: CUSTOMERS_APPROVE, role: ORG_ADMIN_ROLE }
-    : { permission: MASTERS_APPROVE };
+/** Who can approve a kind — mirrors the route gates on approve/reject: masters.approve for the
+ *  four masters, customers.approve for customers. */
+export function masterApprovers(kind: MasterKind): { permission: string } {
+  return { permission: kind === 'customer' ? CUSTOMERS_APPROVE : MASTERS_APPROVE };
 }
 
 export interface MasterApprovalRequestedContext {

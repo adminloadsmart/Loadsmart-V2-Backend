@@ -1,6 +1,5 @@
 import { GstVerificationEntity } from '../gst/entities/gst-verification.entity';
-import { AuthorizationError, ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
+import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { AuditService } from '../../audit/audit.service';
 import { paginate } from '../../../shared/utils/pagination';
 import { IdfyClient, toBankVerificationColumns } from '../../../adapters/idfy.client';
@@ -10,6 +9,11 @@ import { CodeSequenceRepository } from '../../loads/code-sequence/code-sequence.
 import { formatTransporterCode } from '../../loads/utils/code.util';
 import { GstVerificationService, gstNameMatches } from '../gst/gst.service';
 import { MasterUsageRepository } from '../masters.usage';
+import { PAYMENTS_MANAGE } from '../../../shared/constants/permissions';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../../shared/middleware/require-permission.middleware';
 import { TransporterEntity } from './entities/transporter.entity';
 import {
   TransporterColumns,
@@ -55,11 +59,72 @@ function truckTypeColumns(
  * A transporter as Settings → Transporters reads it: every entity column plus the list/drawer's
  * derived fields. `rating` stays null until a rating source exists (settings redesign plan).
  */
-export function toTransporterView(transporter: TransporterEntity, stats?: TransporterStats) {
+/** A transporter embedded in another screen (e.g. load detail) — never carries the bank account
+ *  or the raw IDfy response; those screens never need them. */
+export function withoutTransporterBank<T extends Partial<TransporterEntity>>(
+  transporter: T,
+): Omit<
+  T,
+  | 'bankRawResponse'
+  | 'bankVerificationReference'
+  | 'bankAccountNumber'
+  | 'bankIfsc'
+  | 'bankAccountHolderName'
+  | 'bankNameBranch'
+  | 'bankNameAtBank'
+> {
+  const {
+    bankRawResponse: _bankRawResponse,
+    bankVerificationReference: _bankVerificationReference,
+    bankAccountNumber: _bankAccountNumber,
+    bankIfsc: _bankIfsc,
+    bankAccountHolderName: _bankAccountHolderName,
+    bankNameBranch: _bankNameBranch,
+    bankNameAtBank: _bankNameAtBank,
+    ...rest
+  } = transporter;
+  return rest;
+}
+
+/** Whether this viewer may see a transporter's money — the bank account (number, IFSC, holder,
+ *  branch) and the freight still owed to it. Only whoever pays transporters (PAYMENTS_MANAGE:
+ *  org_admin, finance_accounts by default). */
+export function canSeeTransporterMoney(viewer: PermissionHolder): boolean {
+  return hasPermission(viewer, PAYMENTS_MANAGE);
+}
+
+/** The transporter as the API returns it. The raw IDfy bank response and its reference never
+ *  leave the server; the bank account and freightOwed only go to canSeeTransporterMoney viewers. The
+ *  verification status/date stay for everyone — they only drive the "verified" badge. */
+export function toTransporterView(
+  transporter: TransporterEntity,
+  stats: TransporterStats | undefined,
+  viewer: PermissionHolder,
+) {
+  const {
+    bankRawResponse: _bankRawResponse,
+    bankVerificationReference: _bankVerificationReference,
+    bankAccountNumber,
+    bankIfsc,
+    bankAccountHolderName,
+    bankNameBranch,
+    bankNameAtBank,
+    ...rest
+  } = transporter;
   const recordSource: MasterRecordSource =
     transporter.gstVerificationStatus === 'verified' ? 'shared_master' : 'own_record';
   return {
-    ...transporter,
+    ...rest,
+    ...(canSeeTransporterMoney(viewer)
+      ? {
+          bankAccountNumber,
+          bankIfsc,
+          bankAccountHolderName,
+          bankNameBranch,
+          bankNameAtBank,
+          freightOwed: stats?.freightOwed ?? '0.00',
+        }
+      : {}),
     recordSource,
     truckType: {
       bodyType: transporter.truckBodyType,
@@ -69,7 +134,6 @@ export function toTransporterView(transporter: TransporterEntity, stats?: Transp
     },
     rating: null as number | null,
     tripsDone: stats?.tripsDone ?? 0,
-    freightOwed: stats?.freightOwed ?? '0.00',
   };
 }
 
@@ -92,13 +156,17 @@ const TRANSPORTER_EXPORT_COLUMNS: CsvColumn<TransporterView>[] = [
   { header: 'pocPhone', value: (t) => t.contacts?.[0]?.phone },
   { header: 'pocEmail', value: (t) => t.contacts?.[0]?.email },
   { header: 'upiVpa', value: (t) => t.upiVpa },
+  { header: 'tripsDone', value: (t) => t.tripsDone },
+  { header: 'status', value: (t) => t.status },
+];
+
+// Only added to the export for canSeeTransporterMoney viewers.
+const TRANSPORTER_MONEY_EXPORT_COLUMNS: CsvColumn<TransporterView>[] = [
+  { header: 'freightOwed', value: (t) => t.freightOwed },
   { header: 'bankAccountHolderName', value: (t) => t.bankAccountHolderName },
   { header: 'bankIfsc', value: (t) => t.bankIfsc },
   { header: 'bankAccountNumber', value: (t) => t.bankAccountNumber },
   { header: 'bankNameBranch', value: (t) => t.bankNameBranch },
-  { header: 'tripsDone', value: (t) => t.tripsDone },
-  { header: 'freightOwed', value: (t) => t.freightOwed },
-  { header: 'status', value: (t) => t.status },
 ];
 
 /** GST columns for a verified register lookup — shared by the save path (a lookup attached from
@@ -139,11 +207,6 @@ export class TransporterService {
     private readonly usage: MasterUsageRepository,
     private readonly idfyClient: IdfyClient,
   ) {}
-  private assertAdmin(role: string) {
-    if (role !== ORG_ADMIN_ROLE)
-      throw new AuthorizationError('Only organization admins can manage transporters');
-  }
-
   /** GST bookkeeping: verified only when backed by a verified lookup row. A verified lookup also
    *  fills PAN/constitution/company type and, where the form left them blank, the base address. */
   private async gstColumns(
@@ -192,14 +255,13 @@ export class TransporterService {
   async create(
     tenantId: string,
     actorId: string,
-    role: string,
+    viewer: PermissionHolder,
     input: CreateTransporterInput,
     // Bulk import: no per-row penny drop, and an unverified GSTIN is saved as 'pending' — the
     // caller enqueues the 'verify-transporter' job (TransporterGstVerificationService).
     options: { verifyBank?: boolean; queueGstVerification?: boolean } = {},
   ) {
     try {
-      this.assertAdmin(role);
       const name = input.name.trim();
       if (await this.repository.findByPhone(tenantId, input.phone))
         throw new ConflictError(`A transporter with phone "${input.phone}" already exists`);
@@ -237,17 +299,22 @@ export class TransporterService {
         resourceType: 'transporter',
         newData: this.snapshot(transporter),
       });
-      return toTransporterView(transporter);
+      return toTransporterView(transporter, undefined, viewer);
     } catch (error) {
       rethrow(error, 'Failed to create transporter');
     }
   }
-  async list(tenantId: string, role: string, input: ListTransportersInput) {
+  async list(tenantId: string, viewer: PermissionHolder, input: ListTransportersInput) {
     try {
-      this.assertAdmin(role);
-      const result = await this.repository.list(tenantId, input);
+      // Sorting by freightOwed would leak the ranking to someone who can't see the amounts.
+      const result = await this.repository.list(
+        tenantId,
+        input.sortBy === 'freightOwed' && !canSeeTransporterMoney(viewer)
+          ? { ...input, sortBy: undefined }
+          : input,
+      );
       return paginate(
-        result.items.map((item) => toTransporterView(item.transporter, item.stats)),
+        result.items.map((item) => toTransporterView(item.transporter, item.stats, viewer)),
         result.total,
         input,
       );
@@ -257,26 +324,33 @@ export class TransporterService {
   }
   async export(
     tenantId: string,
-    role: string,
+    viewer: PermissionHolder,
     filters: Omit<ListTransportersInput, 'page' | 'limit'>,
   ): Promise<string> {
     try {
-      this.assertAdmin(role);
-      const result = await this.repository.listForExport(tenantId, filters, CSV_EXPORT_MAX_ROWS);
+      const result = await this.repository.listForExport(
+        tenantId,
+        filters.sortBy === 'freightOwed' && !canSeeTransporterMoney(viewer)
+          ? { ...filters, sortBy: undefined }
+          : filters,
+        CSV_EXPORT_MAX_ROWS,
+      );
+      const columns = canSeeTransporterMoney(viewer)
+        ? [...TRANSPORTER_EXPORT_COLUMNS, ...TRANSPORTER_MONEY_EXPORT_COLUMNS]
+        : TRANSPORTER_EXPORT_COLUMNS;
       return buildCsv(
-        TRANSPORTER_EXPORT_COLUMNS,
-        result.items.map((item) => toTransporterView(item.transporter, item.stats)),
+        columns,
+        result.items.map((item) => toTransporterView(item.transporter, item.stats, viewer)),
       );
     } catch (error) {
       rethrow(error, 'Failed to export transporters');
     }
   }
-  async get(tenantId: string, role: string, id: string) {
+  async get(tenantId: string, viewer: PermissionHolder, id: string) {
     try {
-      this.assertAdmin(role);
       const transporter = await this.repository.findById(tenantId, id);
       if (!transporter) throw new NotFoundError(`Transporter ${id} not found`);
-      return toTransporterView(transporter, await this.repository.statsFor(tenantId, id));
+      return toTransporterView(transporter, await this.repository.statsFor(tenantId, id), viewer);
     } catch (error) {
       rethrow(error, 'Failed to fetch transporter');
     }
@@ -293,14 +367,8 @@ export class TransporterService {
   }
 
   /** Transporter detail drawer "LOADS MOVED", newest first. */
-  async listLoads(
-    tenantId: string,
-    role: string,
-    id: string,
-    pagination: { page: number; limit: number },
-  ) {
+  async listLoads(tenantId: string, id: string, pagination: { page: number; limit: number }) {
     try {
-      this.assertAdmin(role);
       if (!(await this.repository.findById(tenantId, id)))
         throw new NotFoundError(`Transporter ${id} not found`);
       const result = await this.usage.loadHistory(
@@ -316,9 +384,8 @@ export class TransporterService {
   }
 
   /** Running loads (block inactivate/delete) plus live contracts (warned about, not blocking). */
-  async usageOf(tenantId: string, role: string, id: string) {
+  async usageOf(tenantId: string, id: string) {
     try {
-      this.assertAdmin(role);
       if (!(await this.repository.findById(tenantId, id)))
         throw new NotFoundError(`Transporter ${id} not found`);
       const [activeLoads, liveContracts] = await Promise.all([
@@ -343,12 +410,11 @@ export class TransporterService {
   async update(
     tenantId: string,
     actorId: string,
-    role: string,
+    viewer: PermissionHolder,
     id: string,
     input: UpdateTransporterInput,
   ) {
     try {
-      this.assertAdmin(role);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Transporter ${id} not found`);
       const name = input.name?.trim();
@@ -435,7 +501,7 @@ export class TransporterService {
         oldData: this.snapshot(existing),
         newData: this.snapshot(updated),
       });
-      return toTransporterView(updated, await this.repository.statsFor(tenantId, id));
+      return toTransporterView(updated, await this.repository.statsFor(tenantId, id), viewer);
     } catch (error) {
       rethrow(error, 'Failed to update transporter');
     }
@@ -444,12 +510,11 @@ export class TransporterService {
   async updateStatus(
     tenantId: string,
     actorId: string,
-    role: string,
+    viewer: PermissionHolder,
     id: string,
     status: TransporterStatus,
   ) {
     try {
-      this.assertAdmin(role);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Transporter ${id} not found`);
       if (existing.status === status) throw new ConflictError(`Transporter is already ${status}`);
@@ -464,15 +529,14 @@ export class TransporterService {
         oldData: { id, status: existing.status },
         newData: { id, status },
       });
-      return toTransporterView(updated, await this.repository.statsFor(tenantId, id));
+      return toTransporterView(updated, await this.repository.statsFor(tenantId, id), viewer);
     } catch (error) {
       rethrow(error, 'Failed to update transporter status');
     }
   }
 
-  async delete(tenantId: string, actorId: string, role: string, id: string) {
+  async delete(tenantId: string, actorId: string, id: string) {
     try {
-      this.assertAdmin(role);
       const existing = await this.repository.findById(tenantId, id);
       if (!existing) throw new NotFoundError(`Transporter ${id} not found`);
       await this.assertNotInUse(tenantId, id, 'deleted');

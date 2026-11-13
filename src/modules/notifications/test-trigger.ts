@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { asyncHandler } from '../../shared/middleware/async-handler';
 import { validate } from '../../shared/middleware/validate.middleware';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
+import { requirePermission } from '../../shared/middleware/require-permission.middleware';
+import { NOTIFICATION_PREFERENCES_MANAGE } from '../../shared/constants/permissions';
 import { respond } from '../../shared/responses/respond';
 import { NotFoundError } from '../../shared/errors';
 import {
@@ -592,6 +594,9 @@ export function allSampleContexts(
 
 export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Router {
   const router = Router();
+  // Fires every notification type at the org — org admins only (see composition-root: also behind
+  // requireTenant as a 'tenant' router).
+  const canFireTests = requirePermission(NOTIFICATION_PREFERENCES_MANAGE);
   const body = z.object({
     body: z
       .object({ types: z.array(z.string()).optional() })
@@ -601,6 +606,7 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
 
   router.post(
     '/trigger-all',
+    canFireTests,
     validate(body),
     asyncHandler(async (req: Request, res: Response) => {
       const tenantId = requireTenantId(req);
@@ -701,6 +707,7 @@ export function createNotificationsTestRoutes(deps: NotificationsTestDeps): Rout
 
   router.post(
     '/in-app-all',
+    canFireTests,
     validate(inAppBody),
     asyncHandler(async (req: Request, res: Response) => {
       const tenantId = requireTenantId(req);

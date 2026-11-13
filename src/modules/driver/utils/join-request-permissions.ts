@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { PLATFORM_ADMIN_ROLE } from '../../../shared/constants/roles';
+import { hasPermission } from '../../../shared/middleware/require-permission.middleware';
 import { MASTERS_APPROVE } from '../../../shared/constants/permissions';
 
 /**
@@ -8,7 +8,5 @@ import { MASTERS_APPROVE } from '../../../shared/constants/permissions';
  * Recently Rejected's `canRestore`.
  */
 export function canApproveJoinRequests(req: Request): boolean {
-  const user = req.user;
-  if (!user) return false;
-  return user.role === PLATFORM_ADMIN_ROLE || user.permissions.includes(MASTERS_APPROVE);
+  return hasPermission(req.user, MASTERS_APPROVE);
 }

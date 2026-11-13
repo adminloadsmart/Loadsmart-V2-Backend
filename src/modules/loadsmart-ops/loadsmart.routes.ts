@@ -142,8 +142,15 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
   const canDispatch = requirePermission(DISPATCH_PLANNING_MANAGE);
   const canDocuments = requirePermission(LOADS_DOCUMENTS_MANAGE);
   const canPayments = requirePermission(PAYMENTS_MANAGE);
+  // Charges and claims are money, but dispatch decides them — so either key reads them.
+  const canSeeChargesAndClaims = requirePermission(PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE);
 
-  router.get('/loads/:loadId/charges', validate(v.load), asyncHandler(c.listCharges));
+  router.get(
+    '/loads/:loadId/charges',
+    canSeeChargesAndClaims,
+    validate(v.load),
+    asyncHandler(c.listCharges),
+  );
   router.post(
     '/loads/:loadId/charges/:chargeId/decision',
     canDispatch,
@@ -168,7 +175,12 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     validate(v.unloadingContact),
     asyncHandler(c.unloadingContact),
   );
-  router.get('/loads/:loadId/claim', validate(v.load), asyncHandler(c.getClaim));
+  router.get(
+    '/loads/:loadId/claim',
+    canSeeChargesAndClaims,
+    validate(v.load),
+    asyncHandler(c.getClaim),
+  );
   router.post(
     '/loads/:loadId/claim',
     canDispatch,
@@ -181,7 +193,7 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     validate(v.settleClaim),
     asyncHandler(c.settleClaim),
   );
-  router.get('/loads/:loadId/invoice', validate(v.load), asyncHandler(c.invoice));
+  router.get('/loads/:loadId/invoice', canPayments, validate(v.load), asyncHandler(c.invoice));
   router.post(
     '/loads/:loadId/invoice',
     canPayments,

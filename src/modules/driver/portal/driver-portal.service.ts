@@ -1,3 +1,4 @@
+import type { DriverBankDetailsView } from '../drivers.interface';
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { msg } from '../../../shared/i18n/translate';
@@ -132,7 +133,7 @@ function toHomeNextTrip(job: TripListRow, organizationName: string | null): Driv
 }
 
 /** Driver-facing bank details: live rows only, without IDfy's raw payload and audit columns. */
-function toBankDetailsView(rows: DriverEntity['bankDetails'] | undefined) {
+function toBankDetailsView(rows: readonly DriverBankDetailsView[] | undefined) {
   return (rows ?? [])
     .filter((row) => !row.deletedAt)
     .map((row) => ({

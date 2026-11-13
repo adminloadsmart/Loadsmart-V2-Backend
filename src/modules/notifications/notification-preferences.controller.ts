@@ -35,13 +35,13 @@ export class NotificationPreferencesController {
   updatePreferences = async (req: Request, res: Response) => {
     const tenantId = requireTenantId(req);
     const { items } = req.body as { items: UpdateNotificationPreferenceInput[] };
-    await this.service.updatePreferences(tenantId, req.user!.role, items);
+    await this.service.updatePreferences(tenantId, items);
     respond(res, await this.service.getPreferences(tenantId));
   };
 
   resetToDefault = async (req: Request, res: Response) => {
     const tenantId = requireTenantId(req);
-    await this.service.resetToDefault(tenantId, req.user!.role);
+    await this.service.resetToDefault(tenantId);
     respond(res, await this.service.getPreferences(tenantId));
   };
 
@@ -54,7 +54,6 @@ export class NotificationPreferencesController {
       await this.service.updateQuietHours(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         req.body as QuietHoursSetting,
       ),
     );

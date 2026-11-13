@@ -9,6 +9,7 @@ import { errorHandler } from './shared/middleware/error-handler.middleware';
 import { localeMiddleware } from './shared/middleware/locale.middleware';
 import { requestId } from './shared/middleware/request-id.middleware';
 import { createTenantScope } from './shared/middleware/tenant-scope.middleware';
+import { requireTenant } from './shared/middleware/require-tenant.middleware';
 import { createDocsRouter } from './shared/openapi/docs';
 
 /** Outside production, any localhost / 127.0.0.1 port (Vite, Next, a second frontend…) so local
@@ -102,8 +103,12 @@ export function createApp({
   app.use(createTenantScope(tenancyGateway));
   // require-permission.middleware's requirePermission(...) is applied per-route by each module, not globally.
 
-  for (const { path, router } of routers) {
-    app.use(`${API_VERSION_PREFIX}${path}`, router);
+  // Tenant routers get requireTenant at the mount — tenant scoping is the default, not something
+  // each router has to remember. Cross-tenant ones enforce their own scope (see Container.routers).
+  for (const mounted of routers) {
+    const path = `${API_VERSION_PREFIX}${mounted.path}`;
+    if (mounted.scope === 'tenant') app.use(path, requireTenant, mounted.router);
+    else app.use(path, mounted.router);
   }
 
   app.use(errorHandler);

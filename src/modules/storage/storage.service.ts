@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
-import { PLATFORM_SCOPE_ROLES } from '../../shared/constants/roles';
+import { PLATFORM_ADMIN_ROLE, PLATFORM_SCOPE_ROLES } from '../../shared/constants/roles';
 import { S3Adapter } from '../../adapters/s3.adapter';
 import { StorageRepository } from './storage.repository';
 import { sanitizeFileName } from './utils/sanitize-filename';
@@ -8,6 +8,7 @@ import {
   DOWNLOAD_URL_EXPIRY_SECONDS,
   PRESIGNED_POST_EXPIRY_SECONDS,
   STALE_PENDING_MINUTES,
+  STAFF_CROSS_TENANT_READS,
   UPLOAD_POLICIES,
 } from './storage.constants';
 import {
@@ -17,6 +18,22 @@ import {
   UploadUrlResult,
 } from './storage.types';
 import { FileEntity } from './entities/file.entity';
+
+/** The staff branch of get/getByKey: platform_admin reads any file; other staff read the file
+ *  purposes their permissions cover (STAFF_CROSS_TENANT_READS), plus whatever they uploaded
+ *  themselves. Anything else is answered as a miss (null → NotFoundError). */
+export function staffMayRead(actor: FileAccessActor, file: FileEntity | null): FileEntity | null {
+  if (!file) return null;
+  if (actor.role === PLATFORM_ADMIN_ROLE) return file;
+  const permissions = actor.permissions ?? [];
+  const coveredByRole = STAFF_CROSS_TENANT_READS.some(
+    (rule) =>
+      rule.purposes.includes(file.purpose) &&
+      rule.permissions.some((permission) => permissions.includes(permission)),
+  );
+  if (coveredByRole) return file;
+  return actor.userId && file.uploadedBy === actor.userId ? file : null;
+}
 
 export class StorageService {
   constructor(
@@ -184,16 +201,15 @@ export class StorageService {
   }
 
   // The one method with two lookup paths: a tenant-scoped caller is always scoped to their own
-  // tenant in SQL; any platform-scope caller (PLATFORM_SCOPE_ROLES — platform_admin, sales,
-  // online/offline_kyc_desk, load_console), none of which have a tenant of their own, is allowed
-  // to look up any file by id (KYC review, etc.). Any other tenant-less caller is denied, same
+  // tenant in SQL; a platform-scope caller (PLATFORM_SCOPE_ROLES), which has no tenant of its own,
+  // may read another tenant's file only as STAFF_CROSS_TENANT_READS allows (see staffMayRead). Any other tenant-less caller is denied, same
   // as a genuine miss. See storage.routes.ts for why this route isn't gated by requireTenant.
   async get(actor: FileAccessActor, fileId: string): Promise<FileWithUrlResult> {
     try {
       const file = actor.tenantId
         ? await this.repository.findById(actor.tenantId, fileId)
         : PLATFORM_SCOPE_ROLES.includes(actor.role)
-          ? await this.repository.findByIdAny(fileId)
+          ? staffMayRead(actor, await this.repository.findByIdAny(fileId))
           : null;
       if (!file) throw new NotFoundError(`File ${fileId} not found`);
       return await this.withDownloadUrl(file);
@@ -210,7 +226,7 @@ export class StorageService {
       const file = actor.tenantId
         ? await this.repository.findByKey(actor.tenantId, key)
         : PLATFORM_SCOPE_ROLES.includes(actor.role)
-          ? await this.repository.findByKeyAny(key)
+          ? staffMayRead(actor, await this.repository.findByKeyAny(key))
           : null;
       if (!file) throw new NotFoundError(`File with key ${key} not found`);
       return await this.withDownloadUrl(file);

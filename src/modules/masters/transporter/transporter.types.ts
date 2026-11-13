@@ -18,8 +18,8 @@ export const TRANSPORTER_COMPANY_TYPES = [
 ] as const;
 export type TransporterCompanyType = (typeof TRANSPORTER_COMPANY_TYPES)[number];
 
-/** Transporter creation is org_admin-only (unlike customers/drivers), so there's no pending-
- *  approval state to model here — just a simple active/inactive toggle. */
+/** Transporters have no pending-approval state (unlike customers/drivers): anyone holding
+ *  masters.write creates them live — just a simple active/inactive toggle. */
 export const TRANSPORTER_STATUSES = ['active', 'inactive'] as const;
 export type TransporterStatus = (typeof TRANSPORTER_STATUSES)[number];
 

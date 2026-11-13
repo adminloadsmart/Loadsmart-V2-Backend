@@ -415,6 +415,11 @@ export interface VehicleTyreSummary {
 /** A vehicle row/detail with its fitted tyres attached. */
 export type VehicleWithTyres = VehicleEntity & { tyres: VehicleTyreSummary[] };
 
+/** Vehicle detail as a given viewer sees it — see VehicleService.getVehicleWithTyres. */
+type ViewerGatedVehicleSections = 'documents' | 'verificationSnapshots' | 'telemetryMeta';
+export type VehicleDetailResponse = Omit<VehicleWithTyres, ViewerGatedVehicleSections> &
+  Partial<Pick<VehicleWithTyres, ViewerGatedVehicleSections>>;
+
 /** A later fix to one position — any of depth, fitted date, brand. */
 export interface TyrePositionUpdateInput {
   position: string;

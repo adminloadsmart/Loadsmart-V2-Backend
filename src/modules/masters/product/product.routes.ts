@@ -34,6 +34,7 @@ export function createProductRoutes(
   router.get('/products', validate(productValidators.list), asyncHandler(controller.listProducts));
   router.get(
     '/products/export',
+    canWrite,
     validate(productValidators.export),
     asyncHandler(controller.exportProducts),
   );

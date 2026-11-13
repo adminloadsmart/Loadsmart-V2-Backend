@@ -1,3 +1,4 @@
+import { withoutDriverPay } from '../../driver/driver.service';
 import { DataSource, EntityManager } from 'typeorm';
 import {
   ConflictError,
@@ -7,7 +8,11 @@ import {
   ValidationError,
 } from '../../../shared/errors';
 import { UlipClient, UlipError, UlipVahanResult } from '../../../adapters/ulip.client';
-import { ORG_ADMIN_ROLE } from '../../../shared/constants/roles';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../../shared/middleware/require-permission.middleware';
+import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
 import { toDateString } from '../../../shared/utils/date';
 import { toIstDateString } from '../../../shared/utils/ist-time';
 import { AuditService } from '../../audit/audit.service';
@@ -49,6 +54,7 @@ import {
   UpdateVehicleInput,
   VehicleTyreSummary,
   VehicleVerificationPapersInput,
+  VehicleDetailResponse,
   VehicleWithTyres,
 } from './vehicle.interface';
 
@@ -140,14 +146,14 @@ export class VehicleService {
 
   /**
    * Only called internally, by onboardVehicle — there is no standalone create-vehicle route.
-   * org_admin's own vehicle lands `active` immediately; dispatch's (the only other role
-   * masters.routes.ts's canWrite gate admits) lands `pending` until an org_admin reviews it via
-   * approveVehicle/rejectVehicle.
+   * A vehicle created by someone holding MASTERS_APPROVE (org_admin by default) lands `active`
+   * immediately; anyone else's (e.g. dispatch, via canWrite) lands `pending` until an approver
+   * reviews it via approveVehicle/rejectVehicle.
    */
   private async createVehicle(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     input: CreateVehicleInput & { truckType?: TruckTypePickInput },
     manager?: EntityManager,
   ): Promise<VehicleEntity> {
@@ -189,7 +195,7 @@ export class VehicleService {
         await this.truckTypeService.assertTruckTypeExists(tenantId, fields.truckTypeId);
       }
 
-      const autoApproved = actorRole === ORG_ADMIN_ROLE;
+      const autoApproved = hasPermission(actor, MASTERS_APPROVE);
 
       return await this.vehicleRepository.create(
         {
@@ -294,14 +300,39 @@ export class VehicleService {
   }
 
   /** `getVehicle` plus the vehicle's fitted tyres — the detail and onboarding response. */
-  async getVehicleWithTyres(tenantId: string, vehicleId: string): Promise<VehicleWithTyres> {
+  /** Vehicle detail screen. Documents, verification snapshots and telemetry go only to whoever
+   *  manages the fleet (masters.write) — same gate as their own GET sub-routes. */
+  async getVehicleWithTyres(
+    tenantId: string,
+    viewer: PermissionHolder,
+    vehicleId: string,
+  ): Promise<VehicleDetailResponse> {
     try {
-      const vehicle = await this.getVehicle(tenantId, vehicleId);
-      const tyres = await this.fetchTyres(tenantId, [vehicle]);
-      return { ...vehicle, tyres: tyres.get(vehicle.id) ?? [] };
+      const { documents, verificationSnapshots, telemetryMeta, ...rest } =
+        await this.loadVehicleWithTyres(tenantId, vehicleId);
+      return {
+        ...rest,
+        // The linked drivers are shown by name/phone only — never their pay.
+        driverLinks: rest.driverLinks?.map((link) =>
+          link.driver ? { ...link, driver: withoutDriverPay(link.driver) } : link,
+        ),
+        ...(hasPermission(viewer, MASTERS_WRITE)
+          ? { documents, verificationSnapshots, telemetryMeta }
+          : {}),
+      };
     } catch (error) {
       rethrow(error, 'Failed to fetch vehicle');
     }
+  }
+
+  /** The unredacted vehicle + tyres — for write paths, whose caller already holds masters.write. */
+  private async loadVehicleWithTyres(
+    tenantId: string,
+    vehicleId: string,
+  ): Promise<VehicleWithTyres> {
+    const vehicle = await this.getVehicle(tenantId, vehicleId);
+    const tyres = await this.fetchTyres(tenantId, [vehicle]);
+    return { ...vehicle, tyres: tyres.get(vehicle.id) ?? [] };
   }
 
   // Not wired (e.g. a test container without maintenance) degrades to "no tyres" rather than failing a read.
@@ -925,7 +956,7 @@ export class VehicleService {
   async onboardVehicle(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     input: OnboardVehicleInput,
     // Bulk import: a truck saved without a VAHAN result gets a 'pending' snapshot — the caller
     // then enqueues the 'vahan-verification' job (VehicleVahanVerificationService.enqueue).
@@ -950,13 +981,7 @@ export class VehicleService {
       }
 
       const vehicleId = await this.dataSource.transaction(async (manager) => {
-        const vehicle = await this.createVehicle(
-          tenantId,
-          actorId,
-          actorRole,
-          vehicleInput,
-          manager,
-        );
+        const vehicle = await this.createVehicle(tenantId, actorId, actor, vehicleInput, manager);
 
         if (verification) {
           await this.recordVerification(tenantId, actorId, vehicle.id, verification, manager);
@@ -1064,7 +1089,7 @@ export class VehicleService {
         return vehicle.id;
       });
 
-      const vehicle = await this.getVehicleWithTyres(tenantId, vehicleId);
+      const vehicle = await this.loadVehicleWithTyres(tenantId, vehicleId);
       await this.approvalNotifier?.requested({
         kind: 'vehicle',
         tenantId,

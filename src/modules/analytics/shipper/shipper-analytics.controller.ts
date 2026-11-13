@@ -23,6 +23,7 @@ export class ShipperAnalyticsController {
       res,
       await this.service.getOverview(
         requireTenantId(req),
+        req.user!,
         req.validatedQuery as ShipperAnalyticsFilters,
       ),
     );

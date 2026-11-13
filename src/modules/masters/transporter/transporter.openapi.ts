@@ -28,12 +28,12 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.createTransporter',
-    ...authenticated('Create a transporter. Available only to the organization admin.'),
+    ...write('Create a transporter.'),
     request: { body: json(transporterValidators.createTransporter.shape.body) },
     responses: {
       201: { description: 'Created transporter' },
       400: { description: 'Validation failed', ...errorContent },
-      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      403: { description: 'Caller lacks masters.write', ...errorContent },
       409: { description: 'A transporter with this name already exists', ...errorContent },
     },
   });
@@ -43,15 +43,12 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listTransporters',
-    ...authenticated(
-      'List the organization transporters. Available only to the organization admin.',
-    ),
+    ...authenticated('List the organization transporters.'),
     request: { query: transporterValidators.listTransporters.shape.query },
     responses: {
       200: {
         description: 'Paginated transporters — { data: { items, page, limit, total, totalPages } }',
       },
-      403: { description: 'Only organization admins can manage transporters', ...errorContent },
     },
   });
 
@@ -60,11 +57,10 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters/{transporterId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.getTransporter',
-    ...authenticated('Get a single transporter. Available only to the organization admin.'),
+    ...authenticated('Get a single transporter.'),
     request: { params: transporterValidators.getTransporter.shape.params },
     responses: {
       200: { description: 'Transporter detail' },
-      403: { description: 'Only organization admins can manage transporters', ...errorContent },
       404: { description: 'Transporter not found', ...errorContent },
     },
   });
@@ -103,7 +99,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       201: { description: 'Import completed with a row-level result report' },
       400: { description: 'Invalid Excel file or missing file', ...errorContent },
-      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      403: { description: 'Caller lacks masters.write', ...errorContent },
     },
   });
 
@@ -112,7 +108,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters/{transporterId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.updateTransporter',
-    ...authenticated('Update a transporter. Available only to the organization admin.'),
+    ...write('Update a transporter.'),
     request: {
       params: transporterValidators.updateTransporter.shape.params,
       body: json(transporterValidators.updateTransporter.shape.body),
@@ -120,7 +116,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       200: { description: 'Updated transporter' },
       400: { description: 'Validation failed', ...errorContent },
-      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      403: { description: 'Caller lacks masters.write', ...errorContent },
       404: { description: 'Transporter not found', ...errorContent },
       409: { description: 'A transporter with this name already exists', ...errorContent },
     },
@@ -131,11 +127,11 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters/{transporterId}`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.deleteTransporter',
-    ...authenticated('Soft-delete a transporter. Available only to the organization admin.'),
+    ...write('Soft-delete a transporter.'),
     request: { params: transporterValidators.deleteTransporter.shape.params },
     responses: {
       200: { description: 'Deleted', ...json(SuccessResponseSchema) },
-      403: { description: 'Only organization admins can manage transporters', ...errorContent },
+      403: { description: 'Caller lacks masters.write', ...errorContent },
       404: { description: 'Transporter not found', ...errorContent },
     },
   });
@@ -144,7 +140,10 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters/export`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.exportTransporters',
-    ...authenticated('Transporters "Export CSV" — same filters/sort as the list. org_admin only.'),
+    ...permissionGated(
+      [MASTERS_WRITE],
+      'Transporters "Export CSV" — same filters/sort as the list.',
+    ),
     request: { query: transporterValidators.exportTransporters.shape.query },
     responses: { 200: { description: 'text/csv file' } },
   });
@@ -155,7 +154,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.listTransporterLoads',
     ...authenticated(
       'Transporter drawer "LOADS MOVED": code, customer, loading point → drop city, tonnes, trip ' +
-        'freight, stage label and progress. org_admin only.',
+        'freight, stage label and progress.',
     ),
     request: {
       params: transporterValidators.transporterLoads.shape.params,
@@ -170,7 +169,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.transporterUsage',
     ...authenticated(
       '`{ inUse, activeLoads, liveContracts }` — running loads block Make inactive / delete (409); ' +
-        'liveContracts is informational. org_admin only.',
+        'liveContracts is informational.',
     ),
     request: { params: transporterValidators.getTransporter.shape.params },
     responses: { 200: { description: 'Usage' } },
@@ -180,7 +179,7 @@ export function registerTransporterOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/transporters/{transporterId}/status`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.updateTransporterStatus',
-    ...authenticated('Make a transporter active/inactive. 409 while it has running loads.'),
+    ...write('Make a transporter active/inactive. 409 while it has running loads.'),
     request: {
       params: transporterValidators.updateStatus.shape.params,
       body: json(transporterValidators.updateStatus.shape.body),

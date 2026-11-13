@@ -51,6 +51,10 @@ export const MAINTENANCE_COSTS_VIEW = 'maintenance.costs.view';
 // Reads are open to every tenant seat, same as maintenance.
 export const GEOFENCES_MANAGE = 'geofences.manage';
 
+// Settings → Notifications, organization tab: change or reset the org-wide notification
+// preferences and quiet hours. A user's own preferences need no key.
+export const NOTIFICATION_PREFERENCES_MANAGE = 'notifications.preferences.manage';
+
 // LS_N_0012 — receives "vehicle could not be verified on Vahan" alerts. Assigned to no role by
 // default (db/seed-roles.ts); an org admin grants it to specific teammates via the existing
 // POST /roles/users/:userId/permissions.

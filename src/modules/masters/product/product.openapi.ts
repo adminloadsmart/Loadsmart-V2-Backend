@@ -1,7 +1,7 @@
 import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { productValidators } from './product.validators';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import { MASTERS_APPROVE, MASTERS_WRITE } from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
@@ -113,7 +113,7 @@ export function registerProductOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/products/{productId}/approve`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.approveProduct',
-    ...approve('Approve a pending product. org_admin only.'),
+    ...approve('Approve a pending product. Requires masters.approve.'),
     request: { params: productValidators.approve.shape.params },
     responses: {
       200: { description: 'Approved product' },
@@ -125,7 +125,7 @@ export function registerProductOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/products/{productId}/reject`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.rejectProduct',
-    ...approve('Reject a pending product with a mandatory reason. org_admin only.'),
+    ...approve('Reject a pending product with a mandatory reason. Requires masters.approve.'),
     request: {
       params: productValidators.reject.shape.params,
       body: json(productValidators.reject.shape.body),
@@ -165,7 +165,8 @@ export function registerProductOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/products/export`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.exportProducts',
-    ...authenticated(
+    ...permissionGated(
+      [MASTERS_WRITE],
       'Products "Export CSV" — classification, dimensions, computed volume/volumetric weight and ' +
         'moved (6 mo) tonnes. Same filters as the list.',
     ),

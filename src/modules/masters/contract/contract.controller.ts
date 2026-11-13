@@ -24,7 +24,6 @@ export class ContractController {
       await this.service.create(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         req.body as CreateContractInput,
       ),
       201,
@@ -60,12 +59,7 @@ export class ContractController {
   import = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.importService.import(
-        requireTenantId(req),
-        req.user!.id,
-        req.user!.role,
-        importSource(req.file!),
-      ),
+      await this.importService.import(requireTenantId(req), req.user!.id, importSource(req.file!)),
       201,
     );
   get = async (req: Request, res: Response) =>
@@ -76,18 +70,12 @@ export class ContractController {
       await this.service.update(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         String(req.params.contractId),
         req.body as UpdateContractInput,
       ),
     );
   delete = async (req: Request, res: Response) => {
-    await this.service.delete(
-      requireTenantId(req),
-      req.user!.id,
-      req.user!.role,
-      String(req.params.contractId),
-    );
+    await this.service.delete(requireTenantId(req), req.user!.id, String(req.params.contractId));
     respond(res, { success: true });
   };
 }

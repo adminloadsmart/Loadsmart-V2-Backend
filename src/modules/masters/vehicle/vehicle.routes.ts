@@ -56,6 +56,7 @@ export function createVehicleRoutes(
   router.get('/vehicles/import/sample', canWrite, asyncHandler(vehicleImportController.sample));
   router.get(
     '/vehicles/export',
+    canWrite,
     validate(vehicleValidators.exportVehicles),
     asyncHandler(controller.exportVehicles),
   );
@@ -105,6 +106,7 @@ export function createVehicleRoutes(
   );
   router.get(
     '/vehicles/:vehicleId/documents',
+    canWrite,
     validate(vehicleValidators.listVehicleDocuments),
     asyncHandler(controller.listVehicleDocuments),
   );
@@ -135,6 +137,7 @@ export function createVehicleRoutes(
 
   router.get(
     '/vehicles/:vehicleId/telemetry',
+    canWrite,
     validate(vehicleValidators.getVehicleTelemetryMeta),
     asyncHandler(controller.getVehicleTelemetryMeta),
   );
@@ -165,6 +168,7 @@ export function createVehicleRoutes(
   );
   router.get(
     '/vehicles/:vehicleId/verifications',
+    canWrite,
     validate(vehicleValidators.listVehicleVerifications),
     asyncHandler(controller.listVehicleVerifications),
   );

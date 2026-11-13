@@ -2,4 +2,6 @@ node_modules/
 dist/
 .env
 *.log
-docs/
+# Local notes stay untracked; the RBAC reference is shared.
+docs/*
+!docs/rbac.md

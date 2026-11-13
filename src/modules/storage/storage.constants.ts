@@ -1,3 +1,19 @@
+import {
+  KYC_OFFLINE_REJECT,
+  KYC_OFFLINE_VERIFY,
+  KYC_ONLINE_REJECT,
+  KYC_ONLINE_VERIFY,
+  LOADS_CONSOLE_ACCESS,
+  LS_APPROVAL,
+  LS_CS,
+  LS_PAYABLES,
+  LS_PLACEMENT,
+  LS_POD,
+  LS_RECEIVABLES,
+  LS_TRACKING,
+  LS_VERIFICATION,
+} from '../../shared/constants/permissions';
+
 // Each purpose maps to exactly one S3 key prefix and its own size/mime-type policy — the module's
 // single source of truth for what's allowed to be uploaded and where it lands in the bucket.
 export const UPLOAD_PURPOSES = [
@@ -125,3 +141,36 @@ export const DOWNLOAD_URL_EXPIRY_SECONDS = 5 * 60;
 // Default threshold for purgeStalePending — not enforced by any scheduler yet (see
 // storage.service.ts), just the intended value for whenever one gets built.
 export const STALE_PENDING_MINUTES = 24 * 60;
+
+/**
+ * Which other tenants' files a tenant-less platform-scope caller may read, by what it does
+ * (any of `permissions`) and what the file is (`purposes`). platform_admin reads everything; any
+ * other staff caller not matched here reads only files it uploaded itself.
+ */
+export const STAFF_CROSS_TENANT_READS: readonly {
+  permissions: readonly string[];
+  purposes: readonly UploadPurpose[];
+}[] = [
+  // KYC desks review organization onboarding documents.
+  {
+    permissions: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT],
+    purposes: ['kyc', 'organizations/shopboard-premises', 'profile'],
+  },
+  // The Loadsmart ops console works shippers' loads and trips.
+  {
+    permissions: [
+      LOADS_CONSOLE_ACCESS,
+      LS_APPROVAL,
+      LS_PLACEMENT,
+      LS_VERIFICATION,
+      LS_TRACKING,
+      LS_POD,
+      LS_CS,
+      LS_RECEIVABLES,
+      LS_PAYABLES,
+    ],
+    purposes: UPLOAD_PURPOSES.filter(
+      (purpose) => purpose.startsWith('loads/') || purpose.startsWith('trips/'),
+    ),
+  },
+];

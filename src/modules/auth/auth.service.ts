@@ -393,6 +393,8 @@ export class AuthService {
         `Role "${role.name}" cannot be assigned through staff creation — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
       );
     }
+    // Before the user row exists — a rejected grant must not leave a half-created account.
+    await this.roleService.assertPlatformPermissionIds(permissionIds ?? []);
     const normalizedPhone = this.normalizePhone(phoneNumber);
     const [existingByPhone, existingByEmail] = await Promise.all([
       this.authRepository.findUserByPhone(normalizedPhone),
@@ -1020,7 +1022,10 @@ export class AuthService {
   async updateStaff(actingUser: AuthenticatedUser, staffId: string, input: UpdateStaffInput) {
     const { fullName, phoneNumber, email, roleId, coverage, permissionIds } = input;
 
-    const existing = await this.authRepository.findUserById(staffId);
+    // Staff accounts only (tenant-less, a STAFF_ASSIGNABLE_ROLES role) — the same scope
+    // getStaffUser reads. Without this, this route could repoint the phone/email (the login
+    // identity) of an org user or a platform_admin, i.e. take the account over.
+    const existing = await this.authRepository.findStaffUserById(staffId);
     if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
 
     // Checked before any mutation below: role assignment and permission grants/revokes each

@@ -49,6 +49,7 @@ export function createLoadingPointRoutes(
   );
   router.get(
     '/loading-points/export',
+    canWrite,
     validate(loadingPointValidators.export),
     asyncHandler(controller.exportLoadingPoints),
   );

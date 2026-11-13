@@ -27,6 +27,8 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   const canManageDispatch = requirePermission(DISPATCH_PLANNING_MANAGE);
   const canManageDocuments = requirePermission(LOADS_DOCUMENTS_MANAGE);
   const canManagePayments = requirePermission(PAYMENTS_MANAGE);
+  // Requisition reads — whoever raises them (sales_cs) or plans them (dispatch).
+  const canSeeRequisitions = requirePermission(REQUISITIONS_MANAGE, DISPATCH_PLANNING_MANAGE);
 
   // --- Requisitions ---
   router.post(
@@ -37,11 +39,13 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   );
   router.get(
     '/requisitions',
+    canSeeRequisitions,
     validate(requisitionValidators.list),
     asyncHandler(controller.listRequisitions),
   );
   router.get(
     '/requisitions/:requisitionId',
+    canSeeRequisitions,
     validate(requisitionValidators.get),
     asyncHandler(controller.getRequisition),
   );
@@ -70,6 +74,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   // Vehicle picker for the plan above — flags each vehicle with why it can't be assigned here.
   router.get(
     '/requisitions/:requisitionId/available-vehicles',
+    canSeeRequisitions,
     validate(dispatchPlanningValidators.availableVehicles),
     asyncHandler(controller.listAvailableVehicles),
   );
@@ -176,6 +181,7 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   );
   router.get(
     '/loads/:loadId/payments',
+    canManagePayments,
     validate(loadPaymentValidators.list),
     asyncHandler(controller.listLoadPayments),
   );

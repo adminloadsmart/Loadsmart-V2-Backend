@@ -1,7 +1,21 @@
 import { DataSource, EntityManager, In } from 'typeorm';
-import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
+import {
+  AuthorizationError,
+  ConflictError,
+  NotFoundError,
+  rethrow,
+  ValidationError,
+} from '../../shared/errors';
 import { msg } from '../../shared/i18n/translate';
-import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
+import {
+  MASTERS_APPROVE,
+  MASTERS_WRITE,
+  PAYMENTS_MANAGE,
+} from '../../shared/constants/permissions';
+import {
+  hasPermission,
+  PermissionHolder,
+} from '../../shared/middleware/require-permission.middleware';
 import { AuditService } from '../audit/audit.service';
 import { UserEntity } from '../auth/entities/user.entity';
 import { DriverEntity } from './entities/driver.entity';
@@ -34,7 +48,6 @@ import { invitationIdFromLinkToken, inviteTrackedLink } from './utils/invite-lin
 import { parseMsg91WhatsappReports } from '../../adapters/msg91-whatsapp-report';
 import { env } from '../../config/env';
 import { Paginated, paginate } from '../../shared/utils/pagination';
-import { humanizeStatus } from '../../shared/utils/humanize';
 import { DlVerificationClient, SarathiDrivingLicenceResult } from '../../adapters/sarathi.client';
 import { StorageService } from '../storage/storage.service';
 import { OrganizationService } from '../organization/organization.service';
@@ -69,7 +82,8 @@ import {
   UpdateOwnLicenceResult,
   CreateDriverInput,
   DriverDetailSections,
-  DriverDetailView,
+  DriverBankDetailsView,
+  DriverDetailResponse,
   DriverRegistryCheck,
   DriverRosterPage,
   DriverRosterRow,
@@ -277,16 +291,17 @@ function toInvitationView(
 }
 
 /**
- * Who a new tenant–driver link starts with, by the adding role: org_admin's driver is invited
- * right away (`pending_driver_review`, invite stamped); dispatch's (the only other role the canWrite
- * gate admits) waits at `pending_staff_review` until an org_admin approves it via approveDriver,
- * which is what sends the invite. Shared by onboarding and invite-by-mobile.
+ * Who a new tenant–driver link starts with, by what the adder can do: someone holding
+ * MASTERS_APPROVE (org_admin by default) invites the driver right away (`pending_driver_review`,
+ * invite stamped); anyone else (e.g. dispatch, via canWrite) waits at `pending_staff_review` until
+ * an approver approves it via approveDriver, which is what sends the invite. Shared by onboarding
+ * and invite-by-mobile.
  */
 function newRelationColumns(
   actorId: string,
-  actorRole: string,
+  actor: PermissionHolder,
 ): Omit<CreateDriverTenantRelationData, 'tenantId' | 'driverId' | 'createdBy'> {
-  const isAdmin = actorRole === ORG_ADMIN_ROLE;
+  const isAdmin = hasPermission(actor, MASTERS_APPROVE);
   const now = new Date();
   return {
     status: isAdmin ? 'pending_driver_review' : 'pending_staff_review',
@@ -347,12 +362,77 @@ function assertCanResend(invite: DriverTenantRelationEntity & { driver: DriverEn
 
 /** Fleet-operational writes (availability, trip metrics) need a driver who has actually joined —
  *  same rule as linking to a vehicle (fleet-driver-link.service.ts). */
-function assertRelationActive(relation: DriverTenantRelationEntity, action: string): void {
-  if (relation.status !== 'active') {
-    throw new ValidationError(
-      `Driver is ${humanizeStatus(relation.status)} for this tenant and ${action}`,
-    );
+/** Documents and bank accounts hang off the shared profile; only the fleet that added one may
+ *  delete it or change its verification. The driver's own uploads (tenantId null) and another
+ *  fleet's rows are off-limits. */
+function assertAddedByTenant(
+  row: { tenantId: string | null },
+  tenantId: string,
+  what: 'document' | 'bank account',
+): void {
+  if (row.tenantId !== tenantId) {
+    throw new AuthorizationError(`Only the fleet that added this ${what} can change it`, {
+      reason: 'NOT_ADDED_BY_THIS_FLEET',
+    });
   }
+}
+
+/** Shared-profile fields a fleet can no longer edit once the licence is verified. */
+const VERIFIED_IDENTITY_FIELDS = [
+  'fullName',
+  'licenseNumber',
+  'licenseExpiry',
+  'licenseEndorsements',
+  'dateOfBirth',
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'pinCode',
+] as const satisfies readonly (keyof UpdateDriverInput)[];
+
+/** Full read standing: an active link, or a pending join request the driver started themselves.
+ *  A pending link this fleet started (an invite the driver hasn't accepted) only gets
+ *  toLimitedPendingDriver's view. */
+/** What a fleet sees of a driver it invited who hasn't accepted yet: who it asked, and the state
+ *  of the ask — the same facts the invitations list already shows. Nothing from the profile. */
+export interface LimitedPendingDriver {
+  id: string;
+  driverTenantRelationId: string;
+  fullName: string;
+  phoneNumber: string;
+  status: DriverWithRelation['status'];
+  initiatedBy: DriverWithRelation['initiatedBy'];
+  requestedAt: Date;
+  limited: true;
+}
+
+export function toLimitedPendingDriver(
+  driver: Pick<
+    DriverWithRelation,
+    'id' | 'driverTenantRelationId' | 'fullName' | 'phoneNumber' | 'status' | 'initiatedBy'
+  > & { requestedAt: Date },
+): LimitedPendingDriver {
+  return {
+    id: driver.id,
+    driverTenantRelationId: driver.driverTenantRelationId,
+    fullName: driver.fullName,
+    phoneNumber: driver.phoneNumber,
+    status: driver.status,
+    initiatedBy: driver.initiatedBy,
+    requestedAt: driver.requestedAt,
+    limited: true,
+  };
+}
+
+/** A driver row as this fleet may see it: in full with full standing, else the limited view. */
+export function forStanding<T extends DriverWithRelation>(row: T): T | LimitedPendingDriver {
+  return hasFullStanding(row) ? row : toLimitedPendingDriver(row);
+}
+
+export function hasFullStanding(
+  relation: Pick<DriverTenantRelationEntity, 'status' | 'initiatedBy'>,
+): boolean {
+  return relation.status === 'active' || relation.initiatedBy === 'driver';
 }
 
 /** Sequential invite number → the drawer's "Req ID", e.g. 42 → INV-00042. */
@@ -411,10 +491,54 @@ function joinRequestRestorableUntil(rejectedAt: Date): Date {
   return new Date(rejectedAt.getTime() + DRIVER_JOIN_REQUEST_RESTORE_DAYS * MS_PER_DAY);
 }
 
+/** Driver pay on the shared profile — salary, daily bhatta and advances not yet recovered. */
+export const DRIVER_PAY_FIELDS = [
+  'salaryType',
+  'salaryAmount',
+  'bhattaPerDay',
+  'advanceOutstanding',
+] as const;
+
+/** Who may see a driver's pay: whoever pays drivers (payments.manage) or manages the fleet and
+ *  enters it (masters.write) — org_admin, finance_accounts, dispatch by default. */
+export function canSeeDriverPay(viewer: PermissionHolder): boolean {
+  return hasPermission(viewer, PAYMENTS_MANAGE) || hasPermission(viewer, MASTERS_WRITE);
+}
+
+/** A driver response without pay: drops the profile's pay columns and, on a detail/roster row,
+ *  the `contact` section's advanceOutstanding and compensation. Use driverPayForViewer on reads open to
+ *  every tenant seat; call it bare where a driver is embedded in another screen (vehicle, load)
+ *  that never needs pay. */
+export function withoutDriverPay<T extends object>(row: T): T {
+  const copy = { ...row } as Record<string, unknown>;
+  for (const field of DRIVER_PAY_FIELDS) delete copy[field];
+  const contact = copy.contact;
+  if (contact && typeof contact === 'object') {
+    const {
+      advanceOutstanding: _advanceOutstanding,
+      compensation: _compensation,
+      ...rest
+    } = contact as Record<string, unknown>;
+    copy.contact = rest;
+  }
+  return copy as T;
+}
+
+export function driverPayForViewer<T extends object>(row: T, viewer: PermissionHolder): T {
+  return canSeeDriverPay(viewer) ? row : withoutDriverPay(row);
+}
+
+/** Strips the raw IDfy penny-drop payload from a bank account before it is returned. */
+export function toBankDetailsView(bankDetails: DriverBankDetailsEntity): DriverBankDetailsView {
+  const { rawResponse: _rawResponse, ...view } = bankDetails;
+  return view;
+}
+
 export function flattenRelation(relation: DriverTenantRelationEntity): DriverWithRelation {
   const { driver } = relation;
   return {
     ...driver,
+    ...(driver.bankDetails ? { bankDetails: driver.bankDetails.map(toBankDetailsView) } : {}),
     driverTenantRelationId: relation.id,
     tenantId: relation.tenantId,
     status: relation.status,
@@ -746,9 +870,9 @@ export class DriverService {
     actorId: string,
     input: CreateDriverInput,
     manager: EntityManager,
-  ): Promise<DriverEntity> {
+  ): Promise<{ driver: DriverEntity; created: boolean }> {
     const existingByPhone = await this.driverRepository.findByPhoneNumber(input.phoneNumber);
-    if (existingByPhone) return existingByPhone;
+    if (existingByPhone) return { driver: existingByPhone, created: false };
 
     if (input.licenseNumber) {
       const licenseOwner = await this.driverRepository.findByLicenseNumber(
@@ -766,7 +890,7 @@ export class DriverService {
       );
     }
 
-    return await this.driverRepository.create(
+    const created = await this.driverRepository.create(
       {
         fullName: input.fullName,
         phoneNumber: input.phoneNumber,
@@ -799,6 +923,7 @@ export class DriverService {
       },
       manager,
     );
+    return { driver: created, created: true };
   }
 
   /**
@@ -811,13 +936,21 @@ export class DriverService {
   private async createDriver(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     input: CreateDriverInput,
     manager?: EntityManager,
-  ): Promise<{ driver: DriverEntity; relation: DriverTenantRelationEntity }> {
+  ): Promise<{
+    driver: DriverEntity;
+    relation: DriverTenantRelationEntity;
+    profileCreated: boolean;
+  }> {
     try {
       const run = async (txManager: EntityManager) => {
-        const driver = await this.findOrCreateDriverProfile(actorId, input, txManager);
+        const { driver, created: profileCreated } = await this.findOrCreateDriverProfile(
+          actorId,
+          input,
+          txManager,
+        );
 
         const existingRelation = await this.driverTenantRelationRepository.findByTenantAndDriver(
           tenantId,
@@ -833,7 +966,7 @@ export class DriverService {
           {
             tenantId,
             driverId: driver.id,
-            ...newRelationColumns(actorId, actorRole),
+            ...newRelationColumns(actorId, actor),
             note: input.note ?? null,
             ...(input.note ? { noteUpdatedBy: actorId, noteUpdatedAt: new Date() } : {}),
             createdBy: actorId,
@@ -841,7 +974,7 @@ export class DriverService {
           txManager,
         );
 
-        return { driver, relation };
+        return { driver, relation, profileCreated };
       };
 
       return manager ? await run(manager) : await this.dataSource.transaction(run);
@@ -967,9 +1100,16 @@ export class DriverService {
   }
 
   /** Driver detail screen — the flattened driver plus every screen section in one call. */
-  async getDriver(tenantId: string, driverId: string): Promise<DriverDetailView> {
+  async getDriver(
+    tenantId: string,
+    viewer: PermissionHolder,
+    driverId: string,
+  ): Promise<DriverDetailResponse | LimitedPendingDriver> {
     try {
       const relation = await this.findRelationWithFullRelations(tenantId, driverId);
+      // An invite the driver hasn't accepted (or a link that was declined/cancelled) shows only
+      // who was asked — never the shared profile, its documents or bank accounts.
+      if (!hasFullStanding(relation)) return toLimitedPendingDriver(flattenRelation(relation));
       const noteAuthorId = relation.note ? relation.noteUpdatedBy : null;
       const [{ stats }, activeLoad, appActivity, latestSession, noteAuthor] = await Promise.all([
         this.driverAnalyticsRepository.getTripStatsAndTrend(tenantId, driverId, {}),
@@ -983,20 +1123,28 @@ export class DriverService {
             })
           : null,
       ]);
-      return {
-        ...flattenRelation(relation),
-        ...toDriverDetailSections(relation, stats, activeLoad, appActivity.get(driverId) ?? null),
-        appDevice: latestSession
-          ? { deviceType: latestSession.deviceType, deviceInfo: latestSession.deviceInfo }
-          : null,
-        teamNote: relation.note
-          ? {
-              text: relation.note,
-              updatedAt: relation.noteUpdatedAt,
-              updatedBy: noteAuthor ? { id: noteAuthor.id, name: noteAuthor.fullName } : null,
-            }
-          : null,
-      };
+      const { bankDetails, documents, verifications, ...driver } = flattenRelation(relation);
+      return driverPayForViewer(
+        {
+          ...driver,
+          // Bank accounts only go to whoever pays drivers; documents and verifications only to
+          // whoever manages the fleet. The derived licence/status sections below stay for everyone.
+          ...(hasPermission(viewer, PAYMENTS_MANAGE) ? { bankDetails } : {}),
+          ...(hasPermission(viewer, MASTERS_WRITE) ? { documents, verifications } : {}),
+          ...toDriverDetailSections(relation, stats, activeLoad, appActivity.get(driverId) ?? null),
+          appDevice: latestSession
+            ? { deviceType: latestSession.deviceType, deviceInfo: latestSession.deviceInfo }
+            : null,
+          teamNote: relation.note
+            ? {
+                text: relation.note,
+                updatedAt: relation.noteUpdatedAt,
+                updatedBy: noteAuthor ? { id: noteAuthor.id, name: noteAuthor.fullName } : null,
+              }
+            : null,
+        },
+        viewer,
+      );
     } catch (error) {
       rethrow(error, 'Failed to fetch driver');
     }
@@ -1030,7 +1178,19 @@ export class DriverService {
     input: UpdateDriverInput,
   ): Promise<DriverWithRelation> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId);
+      const relation = await this.assertDriverEditable(tenantId, driverId);
+      // A verified profile's identity is the driver's (driver app) or a real re-verification's to
+      // change — never a fleet edit, since every fleet linked to this driver shares it.
+      if (relation.driver.licenseVerified) {
+        const touched = VERIFIED_IDENTITY_FIELDS.filter((field) => input[field] !== undefined);
+        if (touched.length > 0) {
+          throw new ConflictError(
+            "This driver's identity is verified; it can only be changed by the driver in the app " +
+              `or by re-verifying the licence (${touched.join(', ')})`,
+            { reason: 'DRIVER_IDENTITY_VERIFIED', fields: touched },
+          );
+        }
+      }
       const licenseNumber = input.licenseNumber?.toUpperCase();
       const licenseChanged =
         licenseNumber !== undefined && licenseNumber !== relation.driver.licenseNumber;
@@ -1111,7 +1271,7 @@ export class DriverService {
    * driver may still be linked to other tenants. */
   async deleteDriver(tenantId: string, actorId: string, driverId: string): Promise<void> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverVisible(tenantId, driverId);
       await this.driverTenantRelationRepository.softDelete(tenantId, driverId, actorId);
     } catch (error) {
       rethrow(error, 'Failed to delete driver');
@@ -1126,7 +1286,7 @@ export class DriverService {
     input: AddDriverDocumentInput,
   ): Promise<DriverDocumentEntity> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverEditable(tenantId, driverId);
       await this.assertDriverDlUpload(tenantId, actorRole, input.fileUrl);
 
       const verificationSource = input.verificationSource ?? 'manual';
@@ -1152,7 +1312,7 @@ export class DriverService {
     driverId: string,
   ): Promise<DriverDocumentEntity[]> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverReadable(tenantId, driverId);
       const documents = await this.driverRepository.listDocuments(driverId);
       return await Promise.all(
         documents.map((document) => this.withDocumentDownloadUrl(tenantId, actorRole, document)),
@@ -1169,24 +1329,46 @@ export class DriverService {
     documentId: string,
   ): Promise<void> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverEditable(tenantId, driverId);
       const existing = await this.driverRepository.findDocumentById(driverId, documentId);
       if (!existing) throw new NotFoundError(`Driver document ${documentId} not found`);
+      assertAddedByTenant(existing, tenantId, 'document');
       await this.driverRepository.softDeleteDocument(driverId, documentId, actorId);
     } catch (error) {
       rethrow(error, 'Failed to delete driver document');
     }
   }
 
+  /** Staff route (POST /drivers/:id/verifications) — needs an active link. Once the profile's
+   *  licence is verified, a staff-recorded check is kept as history only: it never rewrites the
+   *  shared licence fields (identity is then the driver's, or a real re-verification's, to change). */
   async recordVerification(
     tenantId: string,
     actorId: string,
     driverId: string,
     input: RecordVerificationInput,
-    outerManager?: EntityManager,
   ): Promise<DriverVerificationEntity> {
     try {
-      await this.assertDriverExists(tenantId, driverId, outerManager);
+      const { driver } = await this.assertDriverEditable(tenantId, driverId);
+      return await this.writeVerification(tenantId, actorId, driverId, input, {
+        updateProfile: !driver.licenseVerified,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to record driver verification');
+    }
+  }
+
+  /** Stores a verification row and, when `updateProfile`, lets a successful check set the shared
+   *  licence fields. No standing check — onboarding calls it for the profile it just created. */
+  private async writeVerification(
+    tenantId: string,
+    actorId: string,
+    driverId: string,
+    input: RecordVerificationInput,
+    options: { updateProfile: boolean; manager?: EntityManager },
+  ): Promise<DriverVerificationEntity> {
+    const outerManager = options.manager;
+    try {
       const verified = input.verificationStatus === 'verified';
       const licenseNumber = input.licenseNumber?.toUpperCase() ?? null;
 
@@ -1215,7 +1397,7 @@ export class DriverService {
         );
 
         // A successful check is the source of truth for the driver's licence fields.
-        if (verified) {
+        if (verified && options.updateProfile) {
           await this.driverRepository.update(
             driverId,
             {
@@ -1239,7 +1421,7 @@ export class DriverService {
 
   async listVerifications(tenantId: string, driverId: string): Promise<DriverVerificationEntity[]> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverReadable(tenantId, driverId);
       return await this.driverRepository.listVerifications(driverId);
     } catch (error) {
       rethrow(error, 'Failed to list driver verifications');
@@ -1251,9 +1433,9 @@ export class DriverService {
     actorId: string,
     driverId: string,
     input: AddBankDetailsInput,
-  ): Promise<DriverBankDetailsEntity> {
+  ): Promise<DriverBankDetailsView> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverEditable(tenantId, driverId);
       const ifsc = input.ifsc.toUpperCase();
       const existing = await this.driverRepository.findBankDetailsByAccount(
         driverId,
@@ -1264,7 +1446,7 @@ export class DriverService {
         throw new ConflictError('This bank account is already on file for the driver');
       }
 
-      return await this.driverRepository.createBankDetails({
+      const created = await this.driverRepository.createBankDetails({
         tenantId,
         driverId,
         accountNumber: input.accountNumber,
@@ -1274,6 +1456,7 @@ export class DriverService {
         ...(await this.verifyBankAccountFields(input.accountNumber, ifsc)),
         createdBy: actorId,
       });
+      return toBankDetailsView(created);
     } catch (error) {
       rethrow(error, 'Failed to add driver bank details');
     }
@@ -1418,10 +1601,10 @@ export class DriverService {
     }
   }
 
-  async listBankDetails(tenantId: string, driverId: string): Promise<DriverBankDetailsEntity[]> {
+  async listBankDetails(tenantId: string, driverId: string): Promise<DriverBankDetailsView[]> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
-      return await this.driverRepository.listBankDetails(driverId);
+      await this.assertDriverReadable(tenantId, driverId);
+      return (await this.driverRepository.listBankDetails(driverId)).map(toBankDetailsView);
     } catch (error) {
       rethrow(error, 'Failed to list driver bank details');
     }
@@ -1433,11 +1616,12 @@ export class DriverService {
     driverId: string,
     bankDetailsId: string,
     verificationStatus: DriverBankVerificationStatus,
-  ): Promise<DriverBankDetailsEntity> {
+  ): Promise<DriverBankDetailsView> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverEditable(tenantId, driverId);
       const existing = await this.driverRepository.findBankDetailsById(driverId, bankDetailsId);
       if (!existing) throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
+      assertAddedByTenant(existing, tenantId, 'bank account');
 
       const bankDetails = await this.driverRepository.updateBankDetailsVerification(
         driverId,
@@ -1449,7 +1633,7 @@ export class DriverService {
         },
       );
       if (!bankDetails) throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
-      return bankDetails;
+      return toBankDetailsView(bankDetails);
     } catch (error) {
       rethrow(error, 'Failed to update driver bank details verification');
     }
@@ -1462,9 +1646,10 @@ export class DriverService {
     bankDetailsId: string,
   ): Promise<void> {
     try {
-      await this.assertDriverExists(tenantId, driverId);
+      await this.assertDriverEditable(tenantId, driverId);
       const existing = await this.driverRepository.findBankDetailsById(driverId, bankDetailsId);
       if (!existing) throw new NotFoundError(`Bank details ${bankDetailsId} not found`);
+      assertAddedByTenant(existing, tenantId, 'bank account');
       await this.driverRepository.softDeleteBankDetails(driverId, bankDetailsId, actorId);
     } catch (error) {
       rethrow(error, 'Failed to delete driver bank details');
@@ -1476,7 +1661,7 @@ export class DriverService {
     driverId: string,
   ): Promise<DriverOperationalStatusEntity> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId);
+      const relation = await this.assertDriverReadable(tenantId, driverId);
       const status = await this.driverRepository.findOperationalStatus(relation.id);
       if (!status) throw new NotFoundError(`Driver ${driverId} has no operational status yet`);
       return status;
@@ -1495,8 +1680,7 @@ export class DriverService {
     input: SetDriverOperationalStatusInput,
   ): Promise<DriverOperationalStatusEntity> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId);
-      assertRelationActive(relation, 'cannot have its availability changed');
+      const relation = await this.assertDriverEditable(tenantId, driverId);
       return await this.writeOperationalStatus(tenantId, actorId, relation.id, input);
     } catch (error) {
       rethrow(error, 'Failed to set driver operational status');
@@ -1555,8 +1739,7 @@ export class DriverService {
     input: RecordDriverTripMetricsInput,
   ): Promise<DriverTripMetricsEntity> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId);
-      assertRelationActive(relation, 'cannot have trip metrics recorded');
+      const relation = await this.assertDriverEditable(tenantId, driverId);
 
       if (input.periodEnd < input.periodStart) {
         throw new ValidationError('periodEnd must not be earlier than periodStart');
@@ -1595,7 +1778,7 @@ export class DriverService {
 
   async listTripMetrics(tenantId: string, driverId: string): Promise<DriverTripMetricsEntity[]> {
     try {
-      const relation = await this.assertDriverExists(tenantId, driverId);
+      const relation = await this.assertDriverReadable(tenantId, driverId);
       return await this.driverRepository.listTripMetrics(relation.id);
     } catch (error) {
       rethrow(error, 'Failed to list driver trip metrics');
@@ -1610,9 +1793,9 @@ export class DriverService {
   async onboardDriver(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     input: OnboardDriverInput,
-  ): Promise<DriverWithRelation> {
+  ): Promise<(DriverWithRelation | LimitedPendingDriver) & { profileReused: boolean }> {
     try {
       const {
         verification,
@@ -1659,11 +1842,12 @@ export class DriverService {
         : null;
 
       let invitationId: string | null = null;
+      let profileReused = false;
       const driverId = await this.dataSource.transaction(async (manager) => {
-        const { driver, relation } = await this.createDriver(
+        const { driver, relation, profileCreated } = await this.createDriver(
           tenantId,
           actorId,
-          actorRole,
+          actor,
           {
             ...driverInput,
             // Sarathi's name wins over a typed one; the typed one only covers a nameless lookup.
@@ -1674,39 +1858,48 @@ export class DriverService {
         );
         if (relation.status === 'pending_driver_review') invitationId = relation.id;
 
-        await this.recordVerification(tenantId, actorId, driver.id, licenceVerification, manager);
-
-        for (const document of documents ?? []) {
-          await this.assertDriverDlUpload(tenantId, actorRole, document.fileUrl);
-          await this.driverRepository.createDocument(
-            {
-              tenantId,
-              driverId: driver.id,
-              documentType: document.documentType,
-              fileUrl: document.fileUrl,
-              documentNumber: document.documentNumber ?? null,
-              verificationSource: document.verificationSource ?? 'manual',
-              verifiedAt: null,
-              createdBy: actorId,
-            },
+        // This phone already has a profile, shared with other fleets. The new link is only
+        // pending until the driver accepts it, so it must not attach documents, bank details or a
+        // verification to someone else's profile. Only the link is created.
+        profileReused = !profileCreated;
+        if (profileCreated) {
+          await this.writeVerification(tenantId, actorId, driver.id, licenceVerification, {
+            updateProfile: true,
             manager,
-          );
-        }
+          });
 
-        if (bankDetails) {
-          await this.driverRepository.createBankDetails(
-            {
-              tenantId,
-              driverId: driver.id,
-              accountNumber: bankDetails.accountNumber,
-              ifsc: bankDetails.ifsc.toUpperCase(),
-              accountHolderName: bankDetails.accountHolderName ?? null,
-              upiId: bankDetails.upiId ?? null,
-              ...bankVerification,
-              createdBy: actorId,
-            },
-            manager,
-          );
+          for (const document of documents ?? []) {
+            await this.assertDriverDlUpload(tenantId, actor.role, document.fileUrl);
+            await this.driverRepository.createDocument(
+              {
+                tenantId,
+                driverId: driver.id,
+                documentType: document.documentType,
+                fileUrl: document.fileUrl,
+                documentNumber: document.documentNumber ?? null,
+                verificationSource: document.verificationSource ?? 'manual',
+                verifiedAt: null,
+                createdBy: actorId,
+              },
+              manager,
+            );
+          }
+
+          if (bankDetails) {
+            await this.driverRepository.createBankDetails(
+              {
+                tenantId,
+                driverId: driver.id,
+                accountNumber: bankDetails.accountNumber,
+                ifsc: bankDetails.ifsc.toUpperCase(),
+                accountHolderName: bankDetails.accountHolderName ?? null,
+                upiId: bankDetails.upiId ?? null,
+                ...bankVerification,
+                createdBy: actorId,
+              },
+              manager,
+            );
+          }
         }
 
         await this.writeOperationalStatus(
@@ -1738,7 +1931,11 @@ export class DriverService {
         await this.deliverInvite(tenantId, invitationId, driverId, undefined, { sendAppInvite });
       }
 
-      return driver;
+      // A reused profile belongs to a driver who hasn't accepted this fleet yet — answer with the
+      // limited view, not their profile.
+      return profileReused
+        ? { ...toLimitedPendingDriver(driver), profileReused }
+        : { ...driver, profileReused };
     } catch (error) {
       rethrow(error, 'Failed to onboard driver');
     }
@@ -2036,7 +2233,7 @@ export class DriverService {
   async inviteDriverByPhone(
     tenantId: string,
     actorId: string,
-    actorRole: string,
+    actor: PermissionHolder,
     input: InviteDriverByPhoneInput,
   ): Promise<InviteDriverByPhoneResult> {
     try {
@@ -2051,7 +2248,7 @@ export class DriverService {
             driver.id,
             manager,
           );
-        const columns = newRelationColumns(actorId, actorRole);
+        const columns = newRelationColumns(actorId, actor);
 
         if (!latestRelation) {
           const relation = await this.driverTenantRelationRepository.create(
@@ -2074,7 +2271,7 @@ export class DriverService {
         return relation.id;
       });
 
-      const awaitingApproval = actorRole !== ORG_ADMIN_ROLE;
+      const awaitingApproval = !hasPermission(actor, MASTERS_APPROVE);
       await this.auditService.log({
         tenantId,
         userId: actorId,
@@ -2235,13 +2432,18 @@ export class DriverService {
   }
 
   /**
-   * Shared by this service and the fleet-link service, which needs the relation to exist before
-   * linking. A relation in `rejected` status is treated as not found — a rejected driver has no
-   * standing with this tenant. Callers inside a transaction must pass the manager, or the read runs
-   * on another connection and cannot see a relation created moments earlier in the same
-   * uncommitted transaction.
+   * How much standing this tenant has over a driver — the profile is shared by every fleet, so a
+   * link's status decides what this fleet may do with it:
+   *  - visible  — any link except rejected/cancelled: the invite lifecycle (approve, reject,
+   *    cancel/remove its own link) and the limited pending view.
+   *  - readable — an active link, or a pending one the DRIVER started (a join request they chose
+   *    to share): full detail, documents, verifications, bank accounts.
+   *  - editable — an active link only: every write to the shared profile and its rows.
+   * All three answer a missing standing with the same NotFoundError, so a fleet can't probe which
+   * drivers exist. Callers inside a transaction must pass the manager, or the read runs on another
+   * connection and cannot see a relation created moments earlier in the same transaction.
    */
-  async assertDriverExists(
+  async assertDriverVisible(
     tenantId: string,
     driverId: string,
     manager?: EntityManager,
@@ -2264,6 +2466,26 @@ export class DriverService {
     }
   }
 
+  async assertDriverReadable(
+    tenantId: string,
+    driverId: string,
+    manager?: EntityManager,
+  ): Promise<DriverTenantRelationEntity & { driver: DriverEntity }> {
+    const standing = await this.assertDriverVisible(tenantId, driverId, manager);
+    if (!hasFullStanding(standing)) throw new NotFoundError(`Driver ${driverId} not found`);
+    return standing;
+  }
+
+  async assertDriverEditable(
+    tenantId: string,
+    driverId: string,
+    manager?: EntityManager,
+  ): Promise<DriverTenantRelationEntity & { driver: DriverEntity }> {
+    const standing = await this.assertDriverVisible(tenantId, driverId, manager);
+    if (standing.status !== 'active') throw new NotFoundError(`Driver ${driverId} not found`);
+    return standing;
+  }
+
   /**
    * Approves a `pending_staff_review` relation. A dispatch-added driver (initiatedBy: 'staff') is
    * only now sent the join request (`pending_driver_review`); a driver's own join request
@@ -2276,7 +2498,7 @@ export class DriverService {
     { sendAppInvite = true }: DriverInviteSendOptions = {},
   ): Promise<DriverWithRelation> {
     try {
-      const existing = await this.assertDriverExists(tenantId, driverId);
+      const existing = await this.assertDriverVisible(tenantId, driverId);
       if (existing.status !== 'pending_staff_review') {
         throw new ConflictError('Only a pending driver can be approved');
       }
@@ -2335,7 +2557,7 @@ export class DriverService {
   ): Promise<DriverWithRelation> {
     const { reason, notifyDriver } = input;
     try {
-      const existing = await this.assertDriverExists(tenantId, driverId);
+      const existing = await this.assertDriverVisible(tenantId, driverId);
       if (existing.status !== 'pending_staff_review') {
         throw new ConflictError('Only a pending driver can be rejected');
       }

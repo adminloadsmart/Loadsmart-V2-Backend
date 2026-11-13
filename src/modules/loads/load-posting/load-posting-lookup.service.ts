@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { NotFoundError, rethrow } from '../../../shared/errors';
 import { CustomerService } from '../../customers/customer.service';
+import { PermissionHolder } from '../../../shared/middleware/require-permission.middleware';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
 import { LoadRepository } from '../core/load.repository';
 import { LoadPostingRepository } from './load-posting.repository';
@@ -80,11 +81,11 @@ export class LoadPostingLookupService {
   }
 
   /** PL-03/04 — add by typed name; an exact (case-insensitive) existing name is reused. */
-  async quickAddCustomer(tenantId: string, actorId: string, role: string, name: string) {
+  async quickAddCustomer(tenantId: string, actorId: string, actor: PermissionHolder, name: string) {
     try {
       const existing = await this.repository.findCustomerByExactName(tenantId, name);
       const customer =
-        existing ?? (await this.customerService.quickAdd(tenantId, actorId, role, name));
+        existing ?? (await this.customerService.quickAdd(tenantId, actorId, actor, name));
       return { id: customer.id, code: customer.code, name: customer.name, status: customer.status };
     } catch (error) {
       rethrow(error, 'Failed to add customer');

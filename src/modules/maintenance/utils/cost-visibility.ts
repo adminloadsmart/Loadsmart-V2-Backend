@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { PLATFORM_ADMIN_ROLE } from '../../../shared/constants/roles';
+import { hasPermission } from '../../../shared/middleware/require-permission.middleware';
 import { MAINTENANCE_COSTS_VIEW } from '../../../shared/constants/permissions';
 
 /**
@@ -9,7 +9,5 @@ import { MAINTENANCE_COSTS_VIEW } from '../../../shared/constants/permissions';
  * person booking the jobs is usually not the person who sees what they cost.
  */
 export function canSeeMaintenanceCosts(req: Request): boolean {
-  const user = req.user;
-  if (!user) return false;
-  return user.role === PLATFORM_ADMIN_ROLE || user.permissions.includes(MAINTENANCE_COSTS_VIEW);
+  return hasPermission(req.user, MAINTENANCE_COSTS_VIEW);
 }

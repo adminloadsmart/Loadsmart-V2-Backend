@@ -15,6 +15,8 @@ import type { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingService } from './load-posting.service';
 import type { PostLoadInput } from './utils/load-posting.interface';
 
+const orgAdmin = { role: 'org_admin', permissions: [] as string[] };
+
 const HOUR_MS = 60 * 60 * 1000;
 
 const vehicle = {
@@ -110,9 +112,9 @@ describe('Own-fleet post — driver licence checks', () => {
       '2026-10-26',
     );
 
-    await expect(
-      service.post('tenant-1', 'user-1', 'org_admin', ownFleetPostInput),
-    ).rejects.toThrow(/driving licence expired on 2026-10-26/);
+    await expect(service.post('tenant-1', 'user-1', orgAdmin, ownFleetPostInput)).rejects.toThrow(
+      /driving licence expired on 2026-10-26/,
+    );
     expect(onLoadEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'assignment_blocked',
@@ -126,9 +128,9 @@ describe('Own-fleet post — driver licence checks', () => {
   it('a licence class that does not cover the truck is still refused, without an alert', async () => {
     const { service, onLoadEvent } = setup({ failure: null });
 
-    await expect(
-      service.post('tenant-1', 'user-1', 'org_admin', ownFleetPostInput),
-    ).rejects.toThrow(/can't drive this truck/);
+    await expect(service.post('tenant-1', 'user-1', orgAdmin, ownFleetPostInput)).rejects.toThrow(
+      /can't drive this truck/,
+    );
     expect(onLoadEvent).not.toHaveBeenCalled();
   });
 });

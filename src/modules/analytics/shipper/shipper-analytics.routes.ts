@@ -2,12 +2,16 @@ import { Router } from 'express';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { requireTenant } from '../../../shared/middleware/require-tenant.middleware';
 import { validate } from '../../../shared/middleware/validate.middleware';
+import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
+import { PAYMENTS_MANAGE } from '../../../shared/constants/permissions';
 import { ShipperAnalyticsController } from './shipper-analytics.controller';
 import { shipperAnalyticsValidators as validators } from './shipper-analytics.validators';
 
 /** Shipper Analytics (Metric Guide v1.0): the filter options and one endpoint per tab. */
 export function createShipperAnalyticsRoutes(controller: ShipperAnalyticsController): Router {
   const router = Router();
+  // Money tabs — only whoever handles payments (org_admin, finance_accounts by default).
+  const canSeeMoney = requirePermission(PAYMENTS_MANAGE);
   router.use(requireTenant);
   router.get(
     '/shipper/filters',
@@ -21,6 +25,7 @@ export function createShipperAnalyticsRoutes(controller: ShipperAnalyticsControl
   );
   router.get(
     '/shipper/freight-spend',
+    canSeeMoney,
     validate(validators.getFreightSpend),
     asyncHandler(controller.getFreightSpend),
   );
@@ -36,6 +41,7 @@ export function createShipperAnalyticsRoutes(controller: ShipperAnalyticsControl
   );
   router.get(
     '/shipper/billing',
+    canSeeMoney,
     validate(validators.getBilling),
     asyncHandler(controller.getBilling),
   );

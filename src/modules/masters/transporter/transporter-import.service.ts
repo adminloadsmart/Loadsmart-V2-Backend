@@ -9,6 +9,7 @@ import {
 import { ImportSource } from '../../../shared/import/upload';
 import { AuditService } from '../../audit/audit.service';
 import { transporterValidators } from './transporter.validators';
+import { PermissionHolder } from '../../../shared/middleware/require-permission.middleware';
 import { TransporterService } from './transporter.service';
 import { CreateTransporterInput } from './transporter.interface';
 import { TransporterRepository } from './transporter.repository';
@@ -77,7 +78,7 @@ export class TransporterImportService {
   async import(
     tenantId: string,
     actorId: string,
-    role: string,
+    viewer: PermissionHolder,
     source: ImportSource,
   ): Promise<ImportReport> {
     const parsed = await this.parse(source);
@@ -92,7 +93,7 @@ export class TransporterImportService {
       try {
         // No per-row penny drop: each IDfy bank check can take ~15s. Imported accounts stay
         // unverified until the transporter is next edited.
-        transporter = await this.transporters.create(tenantId, actorId, role, item.input, {
+        transporter = await this.transporters.create(tenantId, actorId, viewer, item.input, {
           verifyBank: false,
           queueGstVerification: true,
         });

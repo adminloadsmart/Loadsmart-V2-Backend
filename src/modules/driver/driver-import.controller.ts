@@ -12,12 +12,7 @@ export class DriverImportController {
   import = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.service.import(
-        requireTenantId(req),
-        req.user!.id,
-        req.user!.role,
-        req.body.drivers,
-      ),
+      await this.service.import(requireTenantId(req), req.user!.id, req.user!, req.body.drivers),
       201,
     );
 }

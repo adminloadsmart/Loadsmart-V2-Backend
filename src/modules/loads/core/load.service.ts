@@ -1,3 +1,4 @@
+import { withoutDriverPay } from '../../driver/driver.service';
 import {
   AuthenticationError,
   ConflictError,
@@ -8,7 +9,10 @@ import {
 import { humanizeStatus } from '../../../shared/utils/humanize';
 import { AuditService } from '../../audit/audit.service';
 import { AuthService, FleetOwnerDetails } from '../../auth/auth.service';
-import { TransporterService } from '../../masters/transporter/transporter.service';
+import {
+  TransporterService,
+  withoutTransporterBank,
+} from '../../masters/transporter/transporter.service';
 import { StorageService } from '../../storage/storage.service';
 import { msg } from '../../../shared/i18n/translate';
 import { redisManager } from '../../../db/redis';
@@ -1513,7 +1517,17 @@ export class LoadService {
       ]);
 
       return {
-        load: { ...loadWithUrls, dlFrontKey: dlFrontUrl, dlBackKey: dlBackUrl },
+        load: {
+          ...loadWithUrls,
+          // Load detail is open to every tenant seat — the embedded driver and transporter rows
+          // never carry pay or bank data here (those have their own gated screens).
+          driver: loadWithUrls.driver ? withoutDriverPay(loadWithUrls.driver) : loadWithUrls.driver,
+          transporter: loadWithUrls.transporter
+            ? (withoutTransporterBank(loadWithUrls.transporter) as typeof loadWithUrls.transporter)
+            : loadWithUrls.transporter,
+          dlFrontKey: dlFrontUrl,
+          dlBackKey: dlBackUrl,
+        },
         ownerPhoneNumber: fleetOwner.owner?.phoneNumber ?? null,
         dispatchPhoneNumber: fleetOwner.dispatch?.phoneNumber ?? null,
         fleetOwner,

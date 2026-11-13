@@ -12,12 +12,7 @@ export class TransporterController {
   createTransporter = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.transporterService.create(
-        requireTenantId(req),
-        req.user!.id,
-        req.user!.role,
-        req.body,
-      ),
+      await this.transporterService.create(requireTenantId(req), req.user!.id, req.user!, req.body),
       201,
     );
   listTransporters = async (req: Request, res: Response) =>
@@ -25,7 +20,7 @@ export class TransporterController {
       res,
       await this.transporterService.list(
         requireTenantId(req),
-        req.user!.role,
+        req.user!,
         req.validatedQuery as ListTransportersInput,
       ),
     );
@@ -35,7 +30,7 @@ export class TransporterController {
       'transporters',
       await this.transporterService.export(
         requireTenantId(req),
-        req.user!.role,
+        req.user!,
         req.validatedQuery as Omit<ListTransportersInput, 'page' | 'limit'>,
       ),
     );
@@ -44,7 +39,6 @@ export class TransporterController {
       res,
       await this.transporterService.listLoads(
         requireTenantId(req),
-        req.user!.role,
         String(req.params.transporterId),
         req.validatedQuery as { page: number; limit: number },
       ),
@@ -52,11 +46,7 @@ export class TransporterController {
   transporterUsage = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.transporterService.usageOf(
-        requireTenantId(req),
-        req.user!.role,
-        String(req.params.transporterId),
-      ),
+      await this.transporterService.usageOf(requireTenantId(req), String(req.params.transporterId)),
     );
   updateTransporterStatus = async (req: Request, res: Response) =>
     respond(
@@ -64,7 +54,7 @@ export class TransporterController {
       await this.transporterService.updateStatus(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
+        req.user!,
         String(req.params.transporterId),
         (req.body as { status: TransporterStatus }).status,
       ),
@@ -74,7 +64,7 @@ export class TransporterController {
       res,
       await this.transporterService.get(
         requireTenantId(req),
-        req.user!.role,
+        req.user!,
         String(req.params.transporterId),
       ),
     );
@@ -84,7 +74,7 @@ export class TransporterController {
       await this.transporterService.update(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
+        req.user!,
         String(req.params.transporterId),
         req.body,
       ),
@@ -93,7 +83,6 @@ export class TransporterController {
     await this.transporterService.delete(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
       String(req.params.transporterId),
     );
     respond(res, { success: true });

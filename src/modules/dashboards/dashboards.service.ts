@@ -2,6 +2,8 @@ import { InternalError, rethrow } from '../../shared/errors';
 import { toDateString } from '../../shared/utils/date';
 import { DateFilter, enumerateIstDates, resolveDateRange } from '../../shared/utils/date-filter';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
+import { hasPermission } from '../../shared/middleware/require-permission.middleware';
+import { CUSTOMERS_APPROVE, MASTERS_APPROVE } from '../../shared/constants/permissions';
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { DriverService } from '../driver/driver.service';
 import { CustomerService } from '../customers/customer.service';
@@ -144,40 +146,49 @@ export class DashboardsService {
     actingUser: AuthenticatedUser,
   ): Promise<ListPendingApprovalsResult> {
     try {
+      const canApproveMasters = hasPermission(actingUser, MASTERS_APPROVE);
       const [customers, vehicles, drivers] = await Promise.all([
-        this.customerService.list(tenantId, actingUser.role, {
-          page: 1,
-          limit: MAX_PENDING_PER_TYPE,
-          status: 'pending',
-        }),
-        this.vehicleService.listVehicles(tenantId, {
-          page: 1,
-          limit: MAX_PENDING_PER_TYPE,
-          status: 'pending',
-        }),
-        this.driverService.listDrivers(tenantId, {
-          page: 1,
-          limit: MAX_PENDING_PER_TYPE,
-          status: 'pending_staff_review',
-        }),
+        // The route admits CUSTOMERS_APPROVE or MASTERS_APPROVE — each type is only listed to a
+        // caller who can act on it.
+        hasPermission(actingUser, CUSTOMERS_APPROVE)
+          ? this.customerService.list(tenantId, {
+              page: 1,
+              limit: MAX_PENDING_PER_TYPE,
+              status: 'pending',
+            })
+          : null,
+        canApproveMasters
+          ? this.vehicleService.listVehicles(tenantId, {
+              page: 1,
+              limit: MAX_PENDING_PER_TYPE,
+              status: 'pending',
+            })
+          : null,
+        canApproveMasters
+          ? this.driverService.listDrivers(tenantId, {
+              page: 1,
+              limit: MAX_PENDING_PER_TYPE,
+              status: 'pending_staff_review',
+            })
+          : null,
       ]);
 
       const items: PendingApprovalItem[] = [
-        ...customers.items.map((customer) => ({
+        ...(customers?.items ?? []).map((customer) => ({
           type: 'customer' as const,
           id: customer.id,
           label: customer.name,
           requestedBy: customer.createdBy,
           requestedAt: customer.createdAt,
         })),
-        ...vehicles.items.map((vehicle) => ({
+        ...(vehicles?.items ?? []).map((vehicle) => ({
           type: 'vehicle' as const,
           id: vehicle.id,
           label: vehicle.registrationNumber,
           requestedBy: vehicle.createdBy,
           requestedAt: vehicle.createdAt,
         })),
-        ...drivers.items.map((driver) => ({
+        ...(drivers?.items ?? []).map((driver) => ({
           type: 'driver' as const,
           id: driver.id,
           label: driver.fullName,

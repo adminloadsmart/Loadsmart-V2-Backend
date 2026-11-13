@@ -5,10 +5,10 @@ import { loadValidators } from './load.validators';
 import { loadPaymentValidators } from '../payments/load-payment.validators';
 import { loadIssueValidators } from '../issues/load-issue.validators';
 import {
-  REQUISITIONS_MANAGE,
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
   PAYMENTS_MANAGE,
+  REQUISITIONS_MANAGE,
 } from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
@@ -68,7 +68,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/requisitions`,
     tags: [TAGS.LOADS],
     operationId: 'loads.listRequisitions',
-    ...authenticated('List requisitions for the tenant, paginated and optionally filtered.'),
+    ...permissionGated(
+      [REQUISITIONS_MANAGE, DISPATCH_PLANNING_MANAGE],
+      'List requisitions for the tenant, paginated and optionally filtered.',
+    ),
     request: { query: requisitionValidators.list.shape.query },
     responses: {
       200: {
@@ -82,7 +85,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/requisitions/{requisitionId}`,
     tags: [TAGS.LOADS],
     operationId: 'loads.getRequisition',
-    ...authenticated(
+    ...permissionGated(
+      [REQUISITIONS_MANAGE, DISPATCH_PLANNING_MANAGE],
       "Requisition detail — dispatched-vs-remaining tonnage plus every child load's current status.",
     ),
     request: { params: requisitionValidators.get.shape.params },
@@ -175,7 +179,8 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/requisitions/{requisitionId}/available-vehicles`,
     tags: [TAGS.LOADS],
     operationId: 'loads.listAvailableVehicles',
-    ...authenticated(
+    ...permissionGated(
+      [REQUISITIONS_MANAGE, DISPATCH_PLANNING_MANAGE],
       "Vehicle picker for the own-fleet truck lines above — only status: 'active' vehicles " +
         '(never inactive/under_maintenance/pending/rejected), not on_trip, and not blocked by ' +
         'the same checks POST .../dispatch-plan enforces at submit time: "on_active_load" (on a ' +
@@ -668,7 +673,10 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/loads/{loadId}/payments`,
     tags: [TAGS.LOADS],
     operationId: 'loads.listLoadPayments',
-    ...authenticated('List the advance/balance payments recorded against a load.'),
+    ...permissionGated(
+      [PAYMENTS_MANAGE],
+      'List the advance/balance payments recorded against a load.',
+    ),
     request: { params: loadPaymentValidators.list.shape.params },
     responses: {
       200: { description: 'Load payments' },

@@ -104,6 +104,10 @@ import { FleetGatewayLocal as MaintenanceFleetGatewayLocal } from './modules/mai
 import { TyreSetupGatewayLocal } from './modules/maintenance/gateways/tyre-setup.gateway.local';
 import { StorageGatewayLocal as MaintenanceStorageGatewayLocal } from './modules/maintenance/gateways/storage.gateway.local';
 
+export type MountedRouter =
+  | { path: string; router: Router; scope: 'tenant' }
+  | { path: string; router: Router; scope: 'crossTenant'; reason: string };
+
 export interface Container {
   tenancyGateway: TenancyGateway;
   authMiddleware: RequestHandler;
@@ -112,7 +116,14 @@ export interface Container {
   // Authenticated but not yet tenant-scoped — routes that manage tenant existence itself
   // (or never needed a tenant at all) can't sit behind createTenantScope. See app.ts.
   authenticatedRouters: { path: string; router: Router }[];
-  routers: { path: string; router: Router }[];
+  // Everything behind createTenantScope, in mount order. Every entry must say whether it serves
+  // one tenant's data or is genuinely cross-tenant:
+  //  - 'tenant' — app.ts mounts it behind requireTenant, so a platform-scope caller (tenantId null)
+  //    gets a clean 403 instead of reaching tenant queries with a null tenant. The default for
+  //    anything new.
+  //  - 'crossTenant' — platform staff legitimately use it; it must enforce its own scope (permission
+  //    gates and/or service-level tenant checks), and `reason` says how.
+  routers: MountedRouter[];
   // Driver-app routers — mounted in app.ts AHEAD of the staff authMiddleware entirely, not in
   // authenticatedRouters/routers above. A driver's bearer token has purpose 'driver-access',
   // which the staff authMiddleware (createAuth) hard-rejects — each router here applies its own
@@ -293,8 +304,6 @@ export function buildContainer(dataSource: DataSource): Container {
     scheduledAlertRepository: notifications.scheduledAlertRepository,
     getUserFullName: async (userId) =>
       (await auth.authRepository.findUserById(userId))?.fullName ?? null,
-    getUserRoleName: async (userId) =>
-      (await auth.authRepository.findUserById(userId))?.role.name ?? null,
     getEffectivePermissions: (userId) => roles.service.getEffectivePermissions(userId),
   });
   // LS_N_0047/0048 — the daily 9:00 IST vehicle-document check and the Monday roll-up (see
@@ -609,10 +618,16 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '/places', router: places.router },
     ],
     routers: [
-      { path: '/roles', router: roles.router },
-      { path: '/masters', router: masters.protectedRouter },
-      { path: '/tracking', router: tracking.router },
-      { path: '/geofences', router: geofences.router },
+      {
+        path: '/roles',
+        router: roles.router,
+        scope: 'crossTenant',
+        reason:
+          'Shared by platform_admin and org_admin; role.service assertCanManage/assertCanView enforce scope and own-tenant.',
+      },
+      { path: '/masters', router: masters.protectedRouter, scope: 'tenant' },
+      { path: '/tracking', router: tracking.router, scope: 'tenant' },
+      { path: '/geofences', router: geofences.router, scope: 'tenant' },
       // TEMPORARY QA endpoint — mounted ahead of the main router; non-production + flag only.
       ...(env.notificationsTestEndpoint
         ? [
@@ -623,21 +638,40 @@ export function buildContainer(dataSource: DataSource): Container {
                 authRepository: auth.authRepository,
                 authService: auth.service,
               }),
+              scope: 'tenant' as const,
             },
           ]
         : []),
-      { path: '/notifications', router: notifications.router },
-      { path: '/payments', router: payments.router },
-      { path: '/maintenance', router: maintenance.router },
-      { path: '/admin', router: admin.router },
-      { path: '/dashboards', router: dashboards.router },
-      { path: '/analytics', router: analytics.router },
-      { path: '/fleet-analytics', router: fleetAnalytics.router },
-      { path: '/driver-analytics', router: driverAnalytics.router },
-      { path: '/customers', router: customers.router },
-      { path: '/loads', router: loads.protectedRouter },
-      { path: '/loadsmart-ops', router: loadsmart.opsRouter },
-      { path: '/files', router: storage.router },
+      { path: '/notifications', router: notifications.router, scope: 'tenant' },
+      { path: '/payments', router: payments.router, scope: 'tenant' },
+      { path: '/maintenance', router: maintenance.router, scope: 'tenant' },
+      {
+        path: '/admin',
+        router: admin.router,
+        scope: 'crossTenant',
+        reason:
+          'Platform console; every route requires a platform permission (admin / KYC review).',
+      },
+      { path: '/dashboards', router: dashboards.router, scope: 'tenant' },
+      { path: '/analytics', router: analytics.router, scope: 'tenant' },
+      { path: '/fleet-analytics', router: fleetAnalytics.router, scope: 'tenant' },
+      { path: '/driver-analytics', router: driverAnalytics.router, scope: 'tenant' },
+      { path: '/customers', router: customers.router, scope: 'tenant' },
+      { path: '/loads', router: loads.protectedRouter, scope: 'tenant' },
+      {
+        path: '/loadsmart-ops',
+        router: loadsmart.opsRouter,
+        scope: 'crossTenant',
+        reason:
+          'Loadsmart ops console across shippers; every route requires an ls_* team permission.',
+      },
+      {
+        path: '/files',
+        router: storage.router,
+        scope: 'crossTenant',
+        reason:
+          'Tenant and staff uploads (KYC review, ops); StorageService scopes reads by tenant, or for staff by permission + purpose; DELETE requires a tenant.',
+      },
     ],
     driverRouters: [
       { path: '/driver-auth', router: driverIdentity.authPublicRouter },

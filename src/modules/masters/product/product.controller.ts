@@ -30,7 +30,7 @@ export class ProductController {
       await this.productService.create(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
+        req.user!,
         req.body as CreateProductInput,
       ),
       201,

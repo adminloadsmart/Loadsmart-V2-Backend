@@ -152,7 +152,10 @@ export class AdminController {
   };
 
   listStaff = async (req: Request, res: Response) => {
-    const staff = await this.adminService.listStaff(req.validatedQuery as ListStaffInput);
+    const staff = await this.adminService.listStaff(
+      req.user!,
+      req.validatedQuery as ListStaffInput,
+    );
     respond(res, staff);
   };
 

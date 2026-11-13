@@ -29,7 +29,7 @@ export function registerContractOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.createContract',
     ...permissionGated(
       [MASTERS_WRITE],
-      'Add a transporter contract on a lane. org_admin only. Rules across live contracts on the ' +
+      'Add a transporter contract on a lane. Requires masters.write. Rules across live contracts on the ' +
         'same lane (case-insensitive city + state) with overlapping validity: one per ' +
         'transporter, unique priority (P1, P2…), total sharePercentage ≤ 100. Violations → 409.',
     ),
@@ -70,7 +70,10 @@ export function registerContractOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/export`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.exportContracts',
-    ...authenticated('Contracts "Export CSV" — same filters as the list, up to 5000 rows.'),
+    ...permissionGated(
+      [MASTERS_WRITE],
+      'Contracts "Export CSV" — same filters as the list, up to 5000 rows.',
+    ),
     request: { query: contractValidators.export.shape.query },
     responses: { 200: { description: 'text/csv file' } },
   });
@@ -123,7 +126,7 @@ export function registerContractOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'masters.updateContract',
     ...permissionGated(
       [MASTERS_WRITE],
-      'Edit a contract. org_admin only. Same lane rules as POST.',
+      'Edit a contract. Requires masters.write. Same lane rules as POST.',
     ),
     request: {
       params: contractValidators.update.shape.params,

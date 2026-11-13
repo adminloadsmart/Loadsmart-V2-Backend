@@ -13,15 +13,18 @@ export function createTransporterRoutes(
   transporterImportController: TransporterImportController,
 ): Router {
   const router = Router();
+  // Writes need MASTERS_WRITE like every other master; reads are open to every tenant seat.
+  const canWrite = requirePermission(MASTERS_WRITE);
 
   router.post(
     '/transporters',
+    canWrite,
     validate(transporterValidators.createTransporter),
     asyncHandler(controller.createTransporter),
   );
   router.post(
     '/transporters/import',
-    requirePermission(MASTERS_WRITE),
+    canWrite,
     importUpload,
     requireImportFile,
     asyncHandler(transporterImportController.import),
@@ -29,7 +32,7 @@ export function createTransporterRoutes(
   // Literal segment — declared before '/transporters/:transporterId'.
   router.get(
     '/transporters/import/sample',
-    requirePermission(MASTERS_WRITE),
+    canWrite,
     asyncHandler(transporterImportController.sample),
   );
   router.get(
@@ -40,6 +43,7 @@ export function createTransporterRoutes(
   // Literal segment — declared before '/transporters/:transporterId'.
   router.get(
     '/transporters/export',
+    canWrite,
     validate(transporterValidators.exportTransporters),
     asyncHandler(controller.exportTransporters),
   );
@@ -55,6 +59,7 @@ export function createTransporterRoutes(
   );
   router.patch(
     '/transporters/:transporterId/status',
+    canWrite,
     validate(transporterValidators.updateStatus),
     asyncHandler(controller.updateTransporterStatus),
   );
@@ -65,11 +70,13 @@ export function createTransporterRoutes(
   );
   router.patch(
     '/transporters/:transporterId',
+    canWrite,
     validate(transporterValidators.updateTransporter),
     asyncHandler(controller.updateTransporter),
   );
   router.delete(
     '/transporters/:transporterId',
+    canWrite,
     validate(transporterValidators.deleteTransporter),
     asyncHandler(controller.deleteTransporter),
   );

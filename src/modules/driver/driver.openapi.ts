@@ -1,6 +1,10 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { driverValidators } from './driver.validators';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../shared/constants/permissions';
+import {
+  MASTERS_APPROVE,
+  MASTERS_WRITE,
+  PAYMENTS_MANAGE,
+} from '../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import {
   TAGS,
@@ -62,7 +66,8 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/export`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.exportDrivers',
-    ...authenticated(
+    ...permissionGated(
+      [MASTERS_WRITE],
       'Download the Active Roster as an Excel file (.xlsx) — every driver who joined, including ' +
         'those who left the company; pending and declined links are never included. Optionally ' +
         'filtered like GET /drivers (search, segment, filter panel); no paging. One column per ' +
@@ -426,7 +431,7 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/documents`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDriverDocuments',
-    ...authenticated("List a driver's documents."),
+    ...permissionGated([MASTERS_WRITE], "List a driver's documents."),
     request: { params: driverValidators.listDriverDocuments.shape.params },
     responses: {
       200: { description: 'Driver documents' },
@@ -470,7 +475,7 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/verifications`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDriverVerifications',
-    ...authenticated("List a driver's recorded verifications."),
+    ...permissionGated([MASTERS_WRITE], "List a driver's recorded verifications."),
     request: { params: driverValidators.listDriverVerifications.shape.params },
     responses: {
       200: { description: 'Driver verifications' },
@@ -501,7 +506,7 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/bank-details`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDriverBankDetails',
-    ...authenticated("List a driver's bank details."),
+    ...permissionGated([PAYMENTS_MANAGE], "List a driver's bank details."),
     request: { params: driverValidators.listDriverBankDetails.shape.params },
     responses: {
       200: { description: 'Driver bank details' },
@@ -514,7 +519,7 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/bank-details/{bankDetailsId}/verification`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.setDriverBankDetailsVerification',
-    ...write('Set the verification status of a bank details record.'),
+    ...permissionGated([PAYMENTS_MANAGE], 'Set the verification status of a bank details record.'),
     request: {
       params: driverValidators.setDriverBankDetailsVerification.shape.params,
       body: json(driverValidators.setDriverBankDetailsVerification.shape.body),
@@ -770,7 +775,10 @@ export function registerDriverOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/drivers/{driverId}/trip-metrics`,
     tags: [TAGS.MASTERS],
     operationId: 'masters.listDriverTripMetrics',
-    ...authenticated('List trip metrics for a driver, most recent period first.'),
+    ...permissionGated(
+      [MASTERS_WRITE],
+      'List trip metrics for a driver, most recent period first.',
+    ),
     request: { params: driverValidators.listDriverTripMetrics.shape.params },
     responses: {
       200: { description: 'Trip metrics' },

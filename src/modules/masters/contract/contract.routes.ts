@@ -8,7 +8,7 @@ import { ContractController } from './contract.controller';
 import { contractValidators } from './contract.validators';
 
 // Settings → Masters → Contracts. Reads are open to every tenant seat (dispatch needs the
-// rankings); writes need masters.write and the service further restricts them to org_admin.
+// rankings); writes need masters.write.
 export function createContractRoutes(controller: ContractController): Router {
   const router = Router();
   const canWrite = requirePermission(MASTERS_WRITE);
@@ -28,6 +28,7 @@ export function createContractRoutes(controller: ContractController): Router {
   );
   router.get(
     '/contracts/export',
+    canWrite,
     validate(contractValidators.export),
     asyncHandler(controller.export),
   );

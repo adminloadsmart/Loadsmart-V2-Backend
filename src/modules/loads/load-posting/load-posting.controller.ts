@@ -25,7 +25,7 @@ export class LoadPostingController {
     const result = await this.postingService.post(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
+      req.user!,
       req.body as PostLoadInput,
       key,
     );
@@ -61,7 +61,7 @@ export class LoadPostingController {
       await this.lookupService.quickAddCustomer(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
+        req.user!,
         (req.body as { name: string }).name,
       ),
       201,

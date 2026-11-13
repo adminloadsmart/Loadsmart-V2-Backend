@@ -624,7 +624,6 @@ export interface MasterApprovalNotifier {
 export interface MasterApprovalResolverDeps {
   scheduledAlertRepository: ScheduledAlertRepository;
   getUserFullName(userId: string): Promise<string | null>;
-  getUserRoleName(userId: string): Promise<string | null>;
   getEffectivePermissions(userId: string): Promise<string[]>;
 }
 

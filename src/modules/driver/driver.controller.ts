@@ -11,7 +11,7 @@ import {
   ListInvitationsInput,
   InvitationParams,
 } from './drivers.interface';
-import { DriverService } from './driver.service';
+import { DriverService, driverPayForViewer, forStanding } from './driver.service';
 import { canApproveJoinRequests } from './utils/join-request-permissions';
 
 export class DriverController {
@@ -25,7 +25,13 @@ export class DriverController {
       requireTenantId(req),
       req.validatedQuery as ListDriversInput,
     );
-    respond(res, drivers);
+    respond(res, {
+      ...drivers,
+      items: drivers.items.map((row) => {
+        const visible = forStanding(row);
+        return 'limited' in visible ? visible : driverPayForViewer(visible, req.user!);
+      }),
+    });
   };
 
   exportDrivers = async (req: Request, res: Response) => {
@@ -45,7 +51,11 @@ export class DriverController {
   };
 
   getDriver = async (req: Request<DriverParams>, res: Response) => {
-    const driver = await this.driverService.getDriver(requireTenantId(req), req.params.driverId);
+    const driver = await this.driverService.getDriver(
+      requireTenantId(req),
+      req.user!,
+      req.params.driverId,
+    );
     respond(res, driver);
   };
 
@@ -172,7 +182,7 @@ export class DriverController {
     const driver = await this.driverService.onboardDriver(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
+      req.user!,
       req.body,
     );
     respond(res, driver, 201);
@@ -255,7 +265,7 @@ export class DriverController {
     const result = await this.driverService.inviteDriverByPhone(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
+      req.user!,
       req.body,
     );
     respond(res, result, 201);
@@ -299,6 +309,12 @@ export class DriverController {
             canApproveJoinRequests(req),
           )
         : await this.driverService.listJoinRequests(requireTenantId(req), input);
-    respond(res, requests);
+    respond(res, {
+      ...requests,
+      items: requests.items.map((row) => {
+        const visible = forStanding(row);
+        return 'limited' in visible ? visible : driverPayForViewer(visible, req.user!);
+      }),
+    });
   };
 }

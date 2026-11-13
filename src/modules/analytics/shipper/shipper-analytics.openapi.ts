@@ -1,6 +1,7 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
-import { TAGS, authenticated, errorContent } from '../../../shared/openapi/core';
+import { PAYMENTS_MANAGE } from '../../../shared/constants/permissions';
+import { TAGS, authenticated, errorContent, permissionGated } from '../../../shared/openapi/core';
 import { shipperAnalyticsValidators as validators } from './shipper-analytics.validators';
 
 const BASE = `${API_VERSION_PREFIX}/analytics/shipper`;
@@ -20,7 +21,8 @@ const ENDPOINTS = [
   {
     path: 'overview',
     id: 'getShipperOverview',
-    summary: 'Overview tab (§7)',
+    summary:
+      'Overview tab (§7). Rupee figures are omitted (meta.moneyHidden: true) unless the caller holds payments.manage',
     schema: validators.getOverview,
   },
   {
@@ -28,6 +30,7 @@ const ENDPOINTS = [
     id: 'getShipperFreightSpend',
     summary: 'Freight Spend tab (§8)',
     schema: validators.getFreightSpend,
+    permissions: [PAYMENTS_MANAGE],
   },
   {
     path: 'transporters',
@@ -46,6 +49,7 @@ const ENDPOINTS = [
     id: 'getShipperBilling',
     summary: 'Billing tab (§11)',
     schema: validators.getBilling,
+    permissions: [PAYMENTS_MANAGE],
   },
 ] as const;
 
@@ -56,7 +60,9 @@ export function registerShipperAnalyticsOpenApi(registry: OpenAPIRegistry): void
       path: `${BASE}/${endpoint.path}`,
       tags: [TAGS.ANALYTICS],
       operationId: `analytics.${endpoint.id}`,
-      ...authenticated(`${endpoint.summary}. ${NOTE}`),
+      ...('permissions' in endpoint
+        ? permissionGated([...endpoint.permissions], `${endpoint.summary}. ${NOTE}`)
+        : authenticated(`${endpoint.summary}. ${NOTE}`)),
       request: { query: endpoint.schema.shape.query as never },
       responses: {
         200: { description: endpoint.summary },

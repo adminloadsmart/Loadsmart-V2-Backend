@@ -10,17 +10,13 @@ export class CustomerController {
   create = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.service.create(requireTenantId(req), req.user!.id, req.user!.role, req.body),
+      await this.service.create(requireTenantId(req), req.user!.id, req.user!, req.body),
       201,
     );
   list = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.service.list(
-        requireTenantId(req),
-        req.user!.role,
-        req.validatedQuery as ListCustomersInput,
-      ),
+      await this.service.list(requireTenantId(req), req.validatedQuery as ListCustomersInput),
     );
   export = async (req: Request, res: Response) =>
     sendCsv(
@@ -28,7 +24,6 @@ export class CustomerController {
       'customers',
       await this.service.export(
         requireTenantId(req),
-        req.user!.role,
         req.validatedQuery as Omit<ListCustomersInput, 'page' | 'limit'>,
       ),
     );
@@ -37,7 +32,6 @@ export class CustomerController {
       res,
       await this.service.listLoads(
         requireTenantId(req),
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
         req.validatedQuery as { page: number; limit: number },
       ),
@@ -47,7 +41,6 @@ export class CustomerController {
       res,
       await this.service.usageOf(
         requireTenantId(req),
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
       ),
     );
@@ -56,7 +49,6 @@ export class CustomerController {
       res,
       await this.service.get(
         requireTenantId(req),
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
       ),
     );
@@ -66,7 +58,6 @@ export class CustomerController {
       await this.service.update(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
         req.body,
       ),
@@ -77,7 +68,6 @@ export class CustomerController {
       await this.service.approve(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
       ),
     );
@@ -87,7 +77,6 @@ export class CustomerController {
       await this.service.reject(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
         (req.body as { reason: string }).reason,
       ),
@@ -99,7 +88,6 @@ export class CustomerController {
       await this.service.updateStatus(
         requireTenantId(req),
         req.user!.id,
-        req.user!.role,
         (req.params as unknown as CustomerParams).customerId,
         (req.body as { status: 'active' | 'inactive' }).status,
       ),
@@ -109,7 +97,6 @@ export class CustomerController {
     await this.service.delete(
       requireTenantId(req),
       req.user!.id,
-      req.user!.role,
       (req.params as unknown as DeleteCustomerParams).customer_id,
     );
     respond(res, { success: true });
