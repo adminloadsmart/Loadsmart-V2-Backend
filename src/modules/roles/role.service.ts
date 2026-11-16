@@ -7,7 +7,13 @@ import {
   ORG_ADMIN_ROLE,
   ORG_ASSIGNABLE_ROLES,
   STAFF_ASSIGNABLE_ROLES,
+  STAFF_TEAMS,
+  TEAM_ROLES,
+  isStaffTeam,
+  isTeamPermissionKey,
+  type StaffTeam,
 } from '../../shared/constants/roles';
+import { ADMIN_ORGANIZATIONS_MANAGE } from '../../shared/constants/permissions';
 import { setCachedPermissionsVersion } from '../../shared/utils/permissions-version-cache';
 import { RoleEntity, RoleScope } from './entities/role.entity';
 import { PermissionEntity, PermissionScope } from './entities/permission.entity';
@@ -85,7 +91,10 @@ export class RoleService {
    *  re-auth — see auth.middleware.ts), actively pushes the new value into the version cache
    *  rather than waiting for its TTL to lapse, and revokes their refresh tokens so a fully
    *  logged-out session can't silently renew either. */
-  private async invalidateSession(targetUserId: string): Promise<void> {
+  /** Ends every session of this user now: bumps permissions_version (rejects the live access
+   *  token on its next request — auth.middleware.ts) and revokes refresh tokens. Also used by
+   *  AuthService.updateStaff when a team member's phone (their OTP login identity) changes. */
+  async invalidateUserSession(targetUserId: string): Promise<void> {
     const newVersion = await this.roleRepository.bumpPermissionsVersion(targetUserId);
     await setCachedPermissionsVersion(targetUserId, newVersion);
     await this.revokeRefreshTokensForUser(targetUserId);
@@ -133,6 +142,25 @@ export class RoleService {
     }
   }
 
+  /** The teams a platform admin can put a team member in (STAFF_TEAMS), each with its job titles
+   *  (TEAM_ROLES) and what the team can do (permission descriptions) — backs the Team members
+   *  form's team/role pickers and its "this team can…" summary. Route-gated to the platform admin. */
+  async listStaffTeams() {
+    try {
+      const roles = await this.roleRepository.listRolesWithPermissionsByNames([...STAFF_TEAMS]);
+      return roles.map((role) => ({
+        id: role.id,
+        name: role.name,
+        teamRoles: TEAM_ROLES[role.name as StaffTeam] ?? [],
+        capabilities: (role.permissions ?? [])
+          .map((permission) => permission.description ?? permission.key)
+          .sort(),
+      }));
+    } catch (error) {
+      rethrow(error, 'Failed to list staff teams');
+    }
+  }
+
   async listPermissions(
     actingUser: AuthenticatedUser,
     filters: { scope?: PermissionScope },
@@ -147,7 +175,7 @@ export class RoleService {
 
   /** Neither role names nor permission keys/descriptions are customer data, but they do reveal
    *  internal authorization structure (e.g. that ADMIN_ORGANIZATIONS_MANAGE exists) — no
-   *  ordinary staff account (sales/KYC desk/load console) has a reason to enumerate this, only
+   *  ordinary team member (any STAFF_TEAMS team) has a reason to enumerate this, only
    *  the two roles that actually manage roles/permissions elsewhere in this file. */
   private assertCanViewCatalog(actingUser: AuthenticatedUser): void {
     if (!isPlatformAdministrator(actingUser) && actingUser.role !== ORG_ADMIN_ROLE) {
@@ -265,21 +293,6 @@ export class RoleService {
     }
   }
 
-  /** Pre-flight for creating a staff account with direct grants: every id must be a real
-   *  platform-scope permission, checked BEFORE the user row exists so a bad id can't leave a
-   *  half-created account behind (the grants themselves still go through grantPermission). */
-  async assertPlatformPermissionIds(permissionIds: readonly string[]): Promise<void> {
-    for (const permissionId of new Set(permissionIds)) {
-      const permission = await this.roleRepository.findPermissionById(permissionId);
-      if (!permission) throw new NotFoundError(`Permission ${permissionId} not found`);
-      if (permission.scope !== 'platform') {
-        throw new AuthorizationError(
-          `Permission "${permission.key}" is organization-scope and cannot be granted to staff`,
-        );
-      }
-    }
-  }
-
   async assignRole(
     actingUser: AuthenticatedUser,
     targetUserId: string,
@@ -301,7 +314,7 @@ export class RoleService {
 
       const oldRole = { id: targetUser.role.id, name: targetUser.role.name };
       await this.roleRepository.updateUserRole(targetUserId, roleId);
-      await this.invalidateSession(targetUserId);
+      await this.invalidateUserSession(targetUserId);
 
       await this.auditService.log({
         tenantId: targetUser.tenantId,
@@ -332,6 +345,20 @@ export class RoleService {
 
       this.assertCanManage(actingUser, targetUser, permission.scope);
       this.assertTargetScopeMatches(targetUser, permission.scope);
+      // A team member's access is their team (strictly one team per person, notes §4): another
+      // team's keys can't be bolted on directly — move them to that team instead. And
+      // admin.organizations.manage is the owner's key (isPlatformAdministrator treats any holder
+      // as platform admin) — there is exactly one platform admin, made by the seed script.
+      if (permission.key === ADMIN_ORGANIZATIONS_MANAGE) {
+        throw new AuthorizationError(
+          `"${permission.key}" makes its holder a platform admin and cannot be granted`,
+        );
+      }
+      if (isStaffTeam(targetUser.role.name) && isTeamPermissionKey(permission.key)) {
+        throw new AuthorizationError(
+          `"${permission.key}" belongs to a team — move the member to that team instead of granting it`,
+        );
+      }
 
       const existing = await this.roleRepository.findUserPermissionGrant(
         targetUserId,
@@ -342,7 +369,7 @@ export class RoleService {
       const before = await this.capabilitiesBeforeChange(actingUser, targetUser);
 
       await this.roleRepository.grantPermission(targetUserId, permissionId, actingUser.id);
-      await this.invalidateSession(targetUserId);
+      await this.invalidateUserSession(targetUserId);
 
       await this.auditService.log({
         tenantId: targetUser.tenantId,
@@ -383,7 +410,7 @@ export class RoleService {
       const before = await this.capabilitiesBeforeChange(actingUser, targetUser);
 
       await this.roleRepository.revokePermission(targetUserId, permissionId);
-      await this.invalidateSession(targetUserId);
+      await this.invalidateUserSession(targetUserId);
 
       await this.auditService.log({
         tenantId: targetUser.tenantId,

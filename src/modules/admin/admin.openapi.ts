@@ -6,6 +6,7 @@ import {
   KYC_ONLINE_REJECT,
   KYC_OFFLINE_VERIFY,
   KYC_OFFLINE_REJECT,
+  KYC_OVERSEE,
 } from '../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../shared/constants/api';
 import { TAGS, permissionGated, errorContent, json } from '../../shared/openapi/core';
@@ -14,8 +15,9 @@ import { TAGS, permissionGated, errorContent, json } from '../../shared/openapi/
  * OpenAPI docs for the admin module: registers every route in admin.routes.ts, in the same
  * order, under the `admin` tag. Permission groups here mirror admin.routes.ts's exactly — staff/
  * referral-code/assignment/status-edit routes stay platform_admin-only, while the KYC review
- * routes also admit online_kyc_desk/offline_kyc_desk (role-level only; the per-organization
- * ownership check isn't expressible in OpenAPI, see AdminService.assertOrgAccessible).
+ * routes also admit KYC reviewers — Approval/Admin team members (role-level only; the
+ * per-organization ownership and capacity check isn't expressible in OpenAPI, see
+ * AdminService.assertOrgAccessible).
  */
 
 const BASE = `${API_VERSION_PREFIX}/admin`; // absolute path — must match its mount in app.ts
@@ -40,6 +42,8 @@ const onlineDeny = (description: string) =>
   permissionGated([ADMIN_ORGANIZATIONS_MANAGE, KYC_ONLINE_REJECT], description);
 const offlineVerify = (description: string) =>
   permissionGated([ADMIN_ORGANIZATIONS_MANAGE, KYC_OFFLINE_VERIFY], description);
+const kycAssign = (description: string) =>
+  permissionGated([ADMIN_ORGANIZATIONS_MANAGE, KYC_OVERSEE], description);
 const eitherReject = (description: string) =>
   permissionGated([ADMIN_ORGANIZATIONS_MANAGE, KYC_ONLINE_REJECT, KYC_OFFLINE_REJECT], description);
 
@@ -51,9 +55,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.listOrganizations',
     ...anyReviewer(
       'List organizations, paginated and optionally filtered. platform_admin sees every ' +
-        'organization; online_kyc_desk/offline_kyc_desk only see those assigned to them as ' +
-        'onlineKycVerifierId/physicalKycAgentId respectively, and offline_kyc_desk additionally ' +
-        'only once onlineKycCompletedAt is set (see POST .../online-kyc/complete).',
+        'organization, and so does the Admin team (kyc.oversee); an Approval reviewer only sees those where they are the ' +
+        'onlineKycVerifierId, or the physicalKycAgentId once onlineKycCompletedAt is set.',
     ),
     request: { query: adminValidators.listOrganizations.shape.query },
     responses: {
@@ -168,11 +171,11 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       "Verify or reject one of an organization's submitted documents (gst_certificate, udyam, cin, " +
         'or shop_establishment) — separate from PATCH /v1/admin/organizations/{organizationId}, ' +
         "which only touches the organization's own status. Callable by platform_admin or the org's " +
-        'assigned online_kyc_desk reviewer only. If this call is the one that makes every ' +
+        'assigned online verifier only. If this call is the one that makes every ' +
         "submitted document verified, it also completes the organization's online KYC as a side " +
         'effect (onlineKycCompletedAt gets set, journeyStage advances to online_kyc_completed) — ' +
         'there is no separate completion call; this is what makes the org visible to its assigned ' +
-        'offline_kyc_desk agent and unblocks POST .../physical-kyc/approve.',
+        'physical agent and unblocks POST .../physical-kyc/approve.',
     ),
     request: {
       params: adminValidators.verifyOrganizationDocument.shape.params,
@@ -222,11 +225,11 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/organizations/{organizationId}/online-verifier`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.assignOnlineVerifier',
-    ...adminOnly(
-      "Assign a staff member (must hold the online_kyc_desk role) as this organization's online " +
-        'KYC reviewer — platform_admin only; dispatch/routing stays an admin function. This is ' +
-        "also what scopes the assignee's own access: once assigned, they can act on this " +
-        'organization via the online_kyc_desk-accessible routes below.',
+    ...kycAssign(
+      "Assign an active Approval or Admin team member as this organization's online KYC " +
+        'reviewer — platform_admin or the Admin team (kyc.oversee). This is also ' +
+        "what scopes the assignee's own access: once assigned, they can act on this organization " +
+        'as its online verifier via the reviewer routes below.',
     ),
     request: {
       params: adminValidators.assignOnlineVerifier.shape.params,
@@ -234,7 +237,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Updated organization' },
-      400: { description: "userId doesn't hold the online_kyc_desk role", ...errorContent },
+      400: { description: 'userId is not an active Approval/Admin team member', ...errorContent },
       404: { description: 'Organization or user not found', ...errorContent },
     },
   });
@@ -245,8 +248,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.assignPhysicalAgent',
     ...adminOnly(
-      "Assign a staff member (must hold the offline_kyc_desk role) as this organization's physical " +
-        'KYC field agent — platform_admin only, same as the online-verifier endpoint above. The ' +
+      "Assign an active Approval or Admin team member as this organization's physical KYC field " +
+        "agent — platform_admin or the org's online verifier (the hand-off). The " +
         "assignee still can't see this organization until its online KYC is completed, which " +
         'happens automatically once every submitted document is verified (see PATCH ' +
         '.../documents/{documentId}).',
@@ -257,7 +260,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       200: { description: 'Updated organization' },
-      400: { description: "userId doesn't hold the offline_kyc_desk role", ...errorContent },
+      400: { description: 'userId is not an active Approval/Admin team member', ...errorContent },
       404: { description: 'Organization or user not found', ...errorContent },
     },
   });
@@ -271,7 +274,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       'Approve physical/offline KYC — unconditionally blocked until online KYC has been completed ' +
         '(POST .../online-kyc/complete), even for platform_admin. Once set, this is what ' +
         'POST .../approve is waiting on to grant platform access. Callable by platform_admin or ' +
-        "the org's assigned offline_kyc_desk agent only.",
+        "the org's assigned physical agent only.",
     ),
     request: { params: adminValidators.approvePhysicalKyc.shape.params },
     responses: {
@@ -290,8 +293,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       'Approve the organization and grant platform access (status → active). Blocked until every ' +
         'submitted document is verified via PATCH .../documents/{documentId} AND physical KYC has ' +
         'been approved via POST .../physical-kyc/approve. Callable by the "source verifier" — the ' +
-        "org's assigned online_kyc_desk reviewer — or platform_admin; offline_kyc_desk never reaches " +
-        'this endpoint.',
+        "org's assigned online verifier — or platform_admin; the physical agent can't (403).",
     ),
     request: { params: adminValidators.approveOrganization.shape.params },
     responses: {
@@ -315,8 +317,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
         'caller\'s own canned template reasons (e.g. "document expired"), but any non-empty string ' +
         'is accepted server-side. Distinguished from POST .../deny only by which audit action is ' +
         'recorded and by convention, not by a different status value. Callable by platform_admin, ' +
-        "or by the org's assigned online_kyc_desk reviewer or offline_kyc_desk agent (whichever role " +
-        'the caller holds).',
+        "or by the org's assigned online verifier or physical agent.",
     ),
     request: {
       params: adminValidators.rejectOrganization.shape.params,
@@ -337,8 +338,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     ...onlineDeny(
       'Deny platform access (status → rejected) with a mandatory free-text reason. Same status ' +
         'change as POST .../reject — see that endpoint for how the two are distinguished. Callable ' +
-        "by platform_admin or the org's assigned online_kyc_desk reviewer only (unlike reject, " +
-        "offline_kyc_desk can't deny).",
+        "by platform_admin or the org's assigned online verifier only (unlike reject, the " +
+        "physical agent can't deny).",
     ),
     request: {
       params: adminValidators.denyOrganization.shape.params,
@@ -380,36 +381,41 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.createStaff',
     ...adminOnly(
-      'Provision an internal staff account (sales, online/offline KYC desk, load console).\n\n' +
-        '`roleId` must resolve to one of those four platform-scope roles — platform_admin and ' +
-        "org_admin can't be assigned this way. The password is generated server-side (not admin-" +
-        "supplied) and isn't returned in this response; the staff member logs in themselves via " +
-        'POST /v1/auth/login once they have it through some other channel.\n\n' +
-        'Optional `permissionIds` grants extra permissions on top of the role, in the same call ' +
-        "(each id from GET /v1/roles/permissions?scope=platform — group by that response's `module` " +
-        'field to build a checklist). Not atomic with account creation: if one id in the list is ' +
-        "invalid (wrong scope, or doesn't exist), the account is still created and any ids granted " +
-        'before it stay granted — the error identifies which id failed so it can be retried alone ' +
-        'via POST /v1/roles/users/{userId}/permissions. Response `permissions` is the final effective ' +
-        'list (role ∪ granted), not just what this call added.',
+      'Add a team member (the "Team members" screen).\n\n' +
+        '`roleId` is the team — one of ls_admin, ls_approval, ls_placement, ls_tracking, ls_cs, ' +
+        'ls_receivables, ls_payables, sales (platform_admin and org_admin are never assignable). ' +
+        'The team decides all access; there are no per-member permissions (strictly one team per ' +
+        'person). `teamRole` is the job title within the team: ls_admin → admin; ops teams → ' +
+        'team_member; sales → salesperson | asm. `sales` ({ salesType: ' +
+        'shipper_sales | tracker_sales, state, asmUserId }) is required on the sales team and ' +
+        'rejected elsewhere; a salesperson needs an active sales ASM as asmUserId, an ASM has ' +
+        'none. `reportsToUserId` must be an active team member or the platform admin. ' +
+        '`employeeId` is unique per team (a second account on another team may reuse it).\n\n' +
+        'No password: team members sign in with their mobile number and an OTP ' +
+        '(POST /v1/auth/login/otp/request with portal "platform"); an SMS/email invite tells them ' +
+        'so (best-effort — never fails the hire).',
     ),
     request: { body: json(adminValidators.createStaff.shape.body) },
     responses: {
       201: {
         description:
-          'Created staff account (no password hash in the response). A sales hire also gets their ' +
-          'own referral code, returned as referralCode ({ id, code }; null for other roles).',
+          'Created team member, in the GET .../staff item shape plus `permissions` (the team ' +
+          'bundle). A sales hire also gets their own referral code, returned as referralCode ' +
+          '({ id, code }; null for other teams).',
       },
-      400: { description: 'Validation failed, or roleId is not staff-assignable', ...errorContent },
-      403: {
-        description: 'A permissionId in the list is organization-scope, not platform-scope',
+      400: {
+        description:
+          'Validation failed: roleId is not a team, teamRole not valid for the team, sales fields ' +
+          'missing/not allowed, asmUserId not an active ASM, or reportsToUserId not an active ' +
+          'team member',
         ...errorContent,
       },
-      404: {
-        description: 'Role not found, or a permissionId in the list not found',
+      404: { description: 'Role not found', ...errorContent },
+      409: {
+        description:
+          'Phone number or email already in use, or employee ID already used on the team',
         ...errorContent,
       },
-      409: { description: 'Phone number or email already in use', ...errorContent },
     },
   });
 
@@ -419,15 +425,21 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.listStaff',
     ...adminOnly(
-      'List internal staff accounts, paginated and optionally filtered by name/email search and/or ' +
-        'role (e.g. ?role=online_kyc_desk to populate the KYC verifier/agent assignment dropdowns).',
+      'List team members, paginated. Filters: search (name, email, phone or employee ID), team ' +
+        '(e.g. ?team=ls_approval for the KYC verifier/agent assignment dropdowns; `role` is the ' +
+        'older name for the same filter), teamRole, region, status (invited | active). A KYC ' +
+        'reviewer (not the platform admin) only gets { id, fullName, team, role, teamRole, region, ' +
+        'workload } per item.',
     ),
     request: { query: adminValidators.listStaff.shape.query },
     responses: {
       200: {
         description:
-          'Paginated staff — { data: { items, page, limit, total, totalPages } }. Each item ' +
-          "includes signupCount (submitted orgs that used the staff member's referral codes), " +
+          'Paginated team members — { data: { items, page, limit, total, totalPages } }. Each item: ' +
+          'id, fullName, employeeId, phoneNumber, email, team (and role, the same value), teamRole, ' +
+          'region, reportsTo ({ id, fullName } | null), sales ({ salesType, state, asm } | null), ' +
+          'status (invited until first sign-in), lastActiveAt, plus signupCount (submitted orgs ' +
+          "that used the member's referral codes), " +
           'approvedSignupCount (those now approved), referralCodes (each with its status) and ' +
           'workload (orgs currently assigned to them for KYC review, not yet completed).',
       },
@@ -449,14 +461,28 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/staff/teams`,
+    tags: [TAGS.ADMIN],
+    operationId: 'admin.listStaffTeams',
+    ...adminOnly(
+      'The teams a team member can be put in, for the Team members form — [{ id, name, ' +
+        'teamRoles, capabilities }]: `id` is the roleId to send, `teamRoles` the job titles valid ' +
+        'on that team, `capabilities` what the team can do (permission descriptions).',
+    ),
+    responses: { 200: { description: 'Teams' } },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/staff/summary`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.getStaffSummary',
     ...adminOnly(
-      'Per-role cards for the Employees screen, across all staff — { [role]: { count, workload, ' +
-        'signups, approvedSignups } } for online_kyc_desk, offline_kyc_desk, sales and load_console.',
+      'Per-team cards for the Team members screen — { [team]: { count, workload, signups, ' +
+        'approvedSignups } } for every team. Counts the same people GET .../staff lists, so the ' +
+        'card totals and the list total agree.',
     ),
-    responses: { 200: { description: 'Staff counts by role' } },
+    responses: { 200: { description: 'Team member counts by team' } },
   });
 
   registry.registerPath({
@@ -477,26 +503,28 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.updateStaff',
     ...adminOnly(
-      "Update an existing staff account's profile fields, role, and/or direct permission grants " +
-        "— all fields optional, only what's provided is changed. `roleId` follows the same " +
-        'staff-assignable rule as POST /v1/admin/staff. `permissionIds`, when provided, replaces ' +
-        "the full set of the staff member's direct grants (missing ids get revoked, new ones " +
-        'granted) — omit it to leave direct grants untouched. A caller cannot change their own ' +
-        'role or permissions through this endpoint (still may edit their own profile fields).',
+      'Update a team member — every POST field, all optional; the patch is merged onto the ' +
+        'current record and validated as a whole with the POST rules (send teamRole when moving to ' +
+        'a team where the current one is not valid; sales: null clears the sales details). ' +
+        'Moving off a team is refused (409) while work tied to it would be orphaned: open KYC ' +
+        'reviews (leaving Approval/Admin), active referral codes (leaving sales), salespeople ' +
+        'under them (no longer an ASM). Changing the phone number signs the member out everywhere.',
     ),
     request: {
       params: adminValidators.updateStaff.shape.params,
       body: json(adminValidators.updateStaff.shape.body),
     },
     responses: {
-      200: { description: 'Updated staff account' },
-      400: { description: 'Validation failed, or roleId is not staff-assignable', ...errorContent },
-      403: {
-        description: 'Attempted to change your own role/permissions, or a scope mismatch',
+      200: { description: 'Updated team member (GET .../staff item shape plus permissions)' },
+      400: { description: 'Validation failed — same rules as POST', ...errorContent },
+      403: { description: 'Attempted to edit your own record', ...errorContent },
+      404: { description: 'Team member or role not found', ...errorContent },
+      409: {
+        description:
+          'Phone/email/employee ID already in use, or the team change would orphan KYC reviews, ' +
+          'referral codes or salespeople',
         ...errorContent,
       },
-      404: { description: 'Staff member, role, or a permissionId not found', ...errorContent },
-      409: { description: 'Phone number or email already in use', ...errorContent },
     },
   });
 
@@ -506,16 +534,14 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.ADMIN],
     operationId: 'admin.deleteStaff',
     ...adminOnly(
-      'Deactivate a staff account (soft delete) — restricted to roles provisioned through this ' +
-        'surface (sales, online/offline KYC desk, load console); platform_admin/org_admin accounts ' +
-        "aren't deprovisioned this way. Rejected while the staff member still has unfinished KYC " +
-        'review work assigned to them — reassign those organizations first. A caller cannot delete ' +
-        'their own account through this endpoint.',
+      'Remove a team member (soft delete; their sessions are revoked). platform_admin and org ' +
+        "users aren't removed this way. Refused (409) while work still points at them — " +
+        'unfinished KYC reviews, team members reporting to them, salespeople under them as ' +
+        'ASM, or active referral codes — reassign first. A caller cannot delete their own account.',
     ),
     request: { params: adminValidators.deleteStaff.shape.params },
     responses: {
       200: { description: '{ success: true }' },
-      400: { description: 'Role is not staff-assignable', ...errorContent },
       403: { description: 'Attempted to delete your own account', ...errorContent },
       404: { description: 'Staff member not found', ...errorContent },
       409: {
@@ -557,7 +583,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'admin.listReferralCodes',
     ...adminOnly(
       'List referral codes, paginated and optionally filtered by ownerUserId and/or code search. ' +
-        'Each item includes its computed status, owner ({ id, fullName, coverage, deletedAt }), ' +
+        'Each item includes its computed status, owner ({ id, fullName, region, deletedAt }), ' +
         'totalSignup (submitted orgs that used it) and approvedSignup (those now approved).',
     ),
     request: { query: adminValidators.listReferralCodes.shape.query },

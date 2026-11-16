@@ -14,40 +14,36 @@ import {
   LS_RECEIVABLES,
   LS_TRACKING,
   LS_VERIFICATION,
+  LS_MASTERS_MANAGE,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
 import { loadsmartValidators as v } from './loadsmart.validators';
 
-const ANY_TEAM = [
-  LS_APPROVAL,
-  LS_PLACEMENT,
-  LS_VERIFICATION,
-  LS_TRACKING,
-  LS_POD,
-  LS_CS,
-  LS_RECEIVABLES,
-  LS_PAYABLES,
-];
+// One key per ops team (each team's own primary key — see db/role-catalog.ts's OPS_TEAM_BUNDLES);
+// the Admin team holds all of them.
+const ANY_TEAM = [LS_APPROVAL, LS_PLACEMENT, LS_TRACKING, LS_CS, LS_RECEIVABLES, LS_PAYABLES];
 
-/** /v1/loadsmart-ops — the ops console. Each team's routes are gated by its own permission
- *  (platform_admin passes every gate). */
+/** /v1/loadsmart-ops — the ops console. Each team's routes are gated by its team's permissions
+ *  (platform_admin passes every gate). Margin is stripped from every response for teams without
+ *  LS_MARGIN_VIEW — see LoadsmartOpsController.out. */
 export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
   const router = Router();
   const team = (...keys: string[]): RequestHandler => requirePermission(...keys);
   const anyTeam = team(...ANY_TEAM);
 
-  // Partners and each shipper's commercial terms.
-  router.get('/partners', anyTeam, asyncHandler(c.listPartners));
+  // Partners (brokers) are a master: only the Admin team manages them (notes §11 — "no other team
+  // needs Masters access"). Placement may list them to add a broker matching missed (§6).
+  router.get('/partners', team(LS_PLACEMENT, LS_MASTERS_MANAGE), asyncHandler(c.listPartners));
   router.post(
     '/partners',
-    team(LS_PLACEMENT),
+    team(LS_MASTERS_MANAGE),
     validate(v.createPartner),
     asyncHandler(c.createPartner),
   );
   router.patch(
     '/partners/:partnerId',
-    team(LS_PLACEMENT),
+    team(LS_MASTERS_MANAGE),
     validate(v.updatePartner),
     asyncHandler(c.updatePartner),
   );

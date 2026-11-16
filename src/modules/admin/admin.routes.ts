@@ -8,16 +8,19 @@ import {
   KYC_ONLINE_REJECT,
   KYC_OFFLINE_VERIFY,
   KYC_OFFLINE_REJECT,
+  KYC_OVERSEE,
 } from '../../shared/constants/permissions';
 import { AdminController } from './admin.controller';
 import { adminValidators } from './admin.validators';
 
 // Per-route permission groups — this module is no longer platform_admin-only across the board.
-// online_kyc_desk/offline_kyc_desk are let in on the routes relevant to their KYC track (still
-// role-level only: requirePermission has no notion of *which* organization, so it just decides
+// KYC reviewers (Approval/Admin team members, who hold both tracks' keys) are let in on the KYC
+// routes (still role-level only: requirePermission has no notion of *which* organization, so it just decides
 // whether this role may call this kind of endpoint at all). The per-organization ownership check
 // — can this specific reviewer act on this specific org — lives in AdminService.assertOrgAccessible
-// instead, since only the service layer has the fetched organization to compare against.
+// instead, since only the service layer has the fetched organization to compare against — and
+// it also checks the capacity (online verifier vs physical agent) each action belongs to, which
+// the route gate alone can no longer separate now that one team holds both tracks' keys.
 // platform_admin satisfies every group below via requirePermission's own code-level bypass.
 const anyReviewer = [
   ADMIN_ORGANIZATIONS_MANAGE,
@@ -32,6 +35,10 @@ const onlineDeny = [ADMIN_ORGANIZATIONS_MANAGE, KYC_ONLINE_REJECT];
 const offlineVerify = [ADMIN_ORGANIZATIONS_MANAGE, KYC_OFFLINE_VERIFY];
 const eitherReject = [ADMIN_ORGANIZATIONS_MANAGE, KYC_ONLINE_REJECT, KYC_OFFLINE_REJECT];
 const adminOnly = [ADMIN_ORGANIZATIONS_MANAGE]; // only platform_admin actually holds this key
+// Assigning KYC reviewers: the platform admin or the Admin team (KYC_OVERSEE). The Admin team also
+// holds every KYC review key (Approval's bundle), and AdminService.overseesKyc lifts its
+// per-organization scoping, so it sees and works the whole queue.
+const kycAssign = [ADMIN_ORGANIZATIONS_MANAGE, KYC_OVERSEE];
 
 export function createAdminRoutes(controller: AdminController): Router {
   const router = Router();
@@ -85,8 +92,9 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.uploadOrganizationDocument),
   );
 
-  // Assignment/dispatch stays platform_admin-only — online_kyc_desk/offline_kyc_desk don't pick
-  // their own cases or hand off to a specific colleague, they just act once assigned.
+  // Assignment/dispatch is the platform admin's or the Admin team's — Approval reviewers don't pick
+  // their own cases; the one hand-off they make is the online verifier assigning the physical
+  // agent (below).
   router.patch(
     '/organizations/:organizationId/seat-limit',
     requirePermission(...adminOnly),
@@ -95,7 +103,7 @@ export function createAdminRoutes(controller: AdminController): Router {
   );
   router.patch(
     '/organizations/:organizationId/online-verifier',
-    requirePermission(...adminOnly),
+    requirePermission(...kycAssign),
     validate(adminValidators.assignOnlineVerifier),
     asyncHandler(controller.assignOnlineVerifier),
   );
@@ -114,8 +122,8 @@ export function createAdminRoutes(controller: AdminController): Router {
     asyncHandler(controller.approvePhysicalKyc),
   );
 
-  // Grants platform access — the "source verifier" (assigned online_kyc_desk reviewer) or
-  // platform_admin only; offline_kyc_desk never reaches this.
+  // Grants platform access — the "source verifier" (the org's assigned online verifier) or
+  // platform_admin only; the physical agent can't (AdminService.assertOrgAccessible 'online').
   router.post(
     '/organizations/:organizationId/approve',
     requirePermission(...onlineVerify),
@@ -148,6 +156,12 @@ export function createAdminRoutes(controller: AdminController): Router {
     requirePermission(...adminOnly),
     validate(adminValidators.createStaff),
     asyncHandler(controller.createStaff),
+  );
+  // Before '/staff/:staffId' so "teams" isn't read as an id.
+  router.get(
+    '/staff/teams',
+    requirePermission(...adminOnly),
+    asyncHandler(controller.listStaffTeams),
   );
   router.get(
     '/staff/summary',

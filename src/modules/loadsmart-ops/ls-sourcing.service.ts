@@ -138,9 +138,13 @@ export class LsSourcingService extends LsServiceBase {
 
   async saveTerms(actorId: string, tenantId: string, input: CommercialTermsInput) {
     try {
+      // Margin is optional (only the Admin team may send it — see LoadsmartOpsController); left
+      // out, the shipper's current margin (or the default) is kept.
+      const marginPercent =
+        input.marginPercent ?? Number((await this.getTerms(tenantId)).marginPercent);
       await this.repository.terms.save({
         tenantId,
-        marginPercent: String(input.marginPercent),
+        marginPercent: String(marginPercent),
         truckerAdvancePercent: String(input.truckerAdvancePercent),
         updatedBy: actorId,
       });
@@ -149,7 +153,7 @@ export class LsSourcingService extends LsServiceBase {
         userId: actorId,
         action: 'LS_TERMS_SAVED',
         resourceType: 'ls_sourcing',
-        newData: { tenantId, ...input },
+        newData: { tenantId, ...input, marginPercent },
       });
       return this.getTerms(tenantId);
     } catch (error) {

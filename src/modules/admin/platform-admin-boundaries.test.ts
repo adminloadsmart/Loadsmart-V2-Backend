@@ -21,7 +21,9 @@ const actor = (role: string, permissions: string[] = [], id = 'actor-1'): Authen
   portal: 'platform',
 });
 const platformAdmin = actor('platform_admin');
-const adminKeyHolder = actor('load_console', [ADMIN_ORGANIZATIONS_MANAGE]);
+// No API path grants this key any more (RoleService.grantPermission refuses it), but
+// isPlatformAdministrator still honours a holder — these tests pin that code path.
+const adminKeyHolder = actor('ls_tracking', [ADMIN_ORGANIZATIONS_MANAGE]);
 
 const roleRow = (name: string, scope: 'platform' | 'organization') => ({
   id: `role-${name}`,
@@ -123,29 +125,6 @@ describe('editing staff (PATCH /admin/staff/:id)', () => {
   });
 });
 
-describe('creating staff with direct grants', () => {
-  it('writes no user when a requested grant is organization-scope', async () => {
-    const authService = Object.create(AuthService.prototype) as AuthService;
-    const authRepository = { createUser: vi.fn(), findUserByPhone: vi.fn(async () => null) };
-    const roleService = {
-      getRoleById: vi.fn(async () => roleRow('sales', 'platform')),
-      assertPlatformPermissionIds: vi.fn(async () => {
-        throw new AuthorizationError('organization-scope');
-      }),
-    };
-    Object.assign(authService, { authRepository, roleService });
-    await expect(
-      authService.createStaffUser(platformAdmin, {
-        fullName: 'New Hire',
-        phoneNumber: '9000000001',
-        roleId: 'role-sales',
-        permissionIds: ['perm-masters-write'],
-      } as never),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(authRepository.createUser).not.toHaveBeenCalled();
-  });
-});
-
 describe('KYC review scoping in the admin console', () => {
   function adminServiceWith(organization: Record<string, unknown>) {
     const service = Object.create(AdminService.prototype) as AdminService;
@@ -177,35 +156,52 @@ describe('KYC review scoping in the admin console', () => {
     expect(organizationService.summarizeOrganizations).toHaveBeenCalledWith({});
   });
 
-  it('never gives a non-desk staff member with a KYC grant an unscoped view', async () => {
-    const grantedSales = actor('sales', [KYC_ONLINE_VERIFY], 'sales-1');
+  it('never gives a reviewer an unscoped view — only orgs assigned to them', async () => {
+    const reviewer = actor('ls_approval', [KYC_ONLINE_VERIFY], 'approver-1');
     const { service, organizationService } = adminServiceWith(unassignedOrg);
-    await expect(service.getOrganization(grantedSales, 'org-1')).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
-    await service.getOrganizationsSummary(grantedSales, {} as never);
+    await expect(service.getOrganization(reviewer, 'org-1')).rejects.toBeInstanceOf(NotFoundError);
+    await service.getOrganizationsSummary(reviewer, {} as never);
     expect(organizationService.summarizeOrganizations).toHaveBeenCalledWith({
-      onlineKycVerifierId: 'sales-1',
+      reviewerUserId: 'approver-1',
     });
   });
 
-  it('keeps an online desk scoped to its own assignments', async () => {
-    const desk = actor('online_kyc_desk', [KYC_ONLINE_VERIFY], 'desk-1');
-    const { service } = adminServiceWith({ ...unassignedOrg, onlineKycVerifierId: 'desk-1' });
-    await expect(service.getOrganization(desk, 'org-1')).resolves.toMatchObject({ id: 'org-1' });
+  it('lets the online verifier see their org', async () => {
+    const reviewer = actor('ls_approval', [KYC_ONLINE_VERIFY], 'approver-1');
+    const { service } = adminServiceWith({ ...unassignedOrg, onlineKycVerifierId: 'approver-1' });
+    await expect(service.getOrganization(reviewer, 'org-1')).resolves.toMatchObject({
+      id: 'org-1',
+    });
+  });
+
+  it('hides an org from its physical agent until online KYC is complete', async () => {
+    const agent = actor('ls_approval', [KYC_ONLINE_VERIFY], 'agent-1');
+    const pending = { ...unassignedOrg, physicalKycAgentId: 'agent-1' };
+    await expect(
+      adminServiceWith(pending).service.getOrganization(agent, 'org-1'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      adminServiceWith({ ...pending, onlineKycCompletedAt: new Date() }).service.getOrganization(
+        agent,
+        'org-1',
+      ),
+    ).resolves.toMatchObject({ id: 'org-1' });
   });
 });
 
 describe('listing staff for a KYC reviewer', () => {
-  it('returns names, roles and workload only', async () => {
+  it('returns names, team, job title, region and workload only', async () => {
     const service = Object.create(AdminService.prototype) as AdminService;
     const full = {
       id: 's-1',
       fullName: 'Field Agent',
       phoneNumber: '9000000002',
       email: 'agent@example.com',
-      role: 'offline_kyc_desk',
-      coverage: 'Pune',
+      employeeId: 'EMP-7',
+      team: 'ls_approval',
+      role: 'ls_approval',
+      teamRole: 'team_member',
+      region: 'Pune',
       referralCodes: [],
       workload: 2,
     };
@@ -220,13 +216,15 @@ describe('listing staff for a KYC reviewer', () => {
         })),
       },
     });
-    const desk = actor('online_kyc_desk', [KYC_ONLINE_VERIFY]);
-    const page = await service.listStaff(desk, { page: 1, limit: 20 } as never);
+    const reviewer = actor('ls_approval', [KYC_ONLINE_VERIFY]);
+    const page = await service.listStaff(reviewer, { page: 1, limit: 20 } as never);
     expect(page.items[0]).toEqual({
       id: 's-1',
       fullName: 'Field Agent',
-      role: 'offline_kyc_desk',
-      coverage: 'Pune',
+      team: 'ls_approval',
+      role: 'ls_approval',
+      teamRole: 'team_member',
+      region: 'Pune',
       workload: 2,
     });
     const adminPage = await service.listStaff(platformAdmin, { page: 1, limit: 20 } as never);

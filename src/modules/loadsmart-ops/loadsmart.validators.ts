@@ -38,7 +38,7 @@ export const loadsmartValidators = {
   getTerms: z.object({ params: z.object({ tenantId: uuid }) }),
   saveTerms: z.object({
     params: z.object({ tenantId: uuid }),
-    body: z.object({ marginPercent: percent, truckerAdvancePercent: percent }).strict(),
+    body: z.object({ marginPercent: percent.optional(), truckerAdvancePercent: percent }).strict(),
   }),
 
   approve: z.object({

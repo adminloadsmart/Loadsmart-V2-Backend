@@ -1,5 +1,9 @@
 import { Request, Response } from 'express';
 import { respond } from '../../shared/responses/respond';
+import { hasPermission } from '../../shared/middleware/require-permission.middleware';
+import { LS_MARGIN_MANAGE, LS_MARGIN_VIEW } from '../../shared/constants/permissions';
+import { AuthorizationError } from '../../shared/errors';
+import { redactMargin } from './redact-margin';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
 import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';
@@ -15,74 +19,116 @@ export class LoadsmartOpsController {
     private readonly settlement: LsSettlementService,
   ) {}
 
-  listPartners = async (_req: Request, res: Response) =>
-    respond(res, await this.sourcing.listPartners());
+  /** Every ops response goes through here: margin is stripped unless the caller may see it
+   *  (LS_MARGIN_VIEW — Placement and the Admin team; platform_admin via its bypass). */
+  private out(req: Request, res: Response, data: unknown, statusCode = 200): void {
+    respond(res, hasPermission(req.user!, LS_MARGIN_VIEW) ? data : redactMargin(data), statusCode);
+  }
+
+  /** Margin is an Admin setting (notes §4 Settings): Approval saves a shipper's terms and approves
+   *  loads, but only the Admin team (LS_MARGIN_MANAGE; platform_admin via its bypass) may send a
+   *  marginPercent on either. */
+  private assertMayChangeMargin(req: Request): void {
+    if (req.body?.marginPercent !== undefined && !hasPermission(req.user!, LS_MARGIN_MANAGE)) {
+      throw new AuthorizationError('Only the Admin team can change the margin');
+    }
+  }
+
+  listPartners = async (req: Request, res: Response) =>
+    this.out(req, res, await this.sourcing.listPartners());
   createPartner = async (req: Request, res: Response) =>
-    respond(res, await this.sourcing.savePartner(req.user!.id, req.body as PartnerInput), 201);
+    this.out(
+      req,
+      res,
+      await this.sourcing.savePartner(req.user!.id, req.body as PartnerInput),
+      201,
+    );
   updatePartner = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(
+    this.out(
+      req,
       res,
       await this.sourcing.savePartner(req.user!.id, req.body as PartnerInput, req.params.partnerId),
     );
 
   getTerms = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.getTerms(req.params.tenantId));
-  saveTerms = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.saveTerms(req.user!.id, req.params.tenantId, req.body));
+    this.out(req, res, await this.sourcing.getTerms(req.params.tenantId));
+  saveTerms = async (req: Request<LoadsmartRouteParams>, res: Response) => {
+    this.assertMayChangeMargin(req);
+    this.out(req, res, await this.sourcing.saveTerms(req.user!.id, req.params.tenantId, req.body));
+  };
 
-  approvalQueue = async (_req: Request, res: Response) =>
-    respond(res, await this.sourcing.approvalQueue());
-  approve = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.approve(req.user!.id, req.params.sourcingId, req.body));
+  approvalQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.sourcing.approvalQueue());
+  approve = async (req: Request<LoadsmartRouteParams>, res: Response) => {
+    this.assertMayChangeMargin(req);
+    this.out(req, res, await this.sourcing.approve(req.user!.id, req.params.sourcingId, req.body));
+  };
   reject = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.reject(req.user!.id, req.params.sourcingId, req.body.reason));
+    this.out(
+      req,
+      res,
+      await this.sourcing.reject(req.user!.id, req.params.sourcingId, req.body.reason),
+    );
 
-  loadBoard = async (_req: Request, res: Response) => respond(res, await this.sourcing.loadBoard());
-  placementQueue = async (_req: Request, res: Response) =>
-    respond(res, await this.sourcing.placementQueue());
+  loadBoard = async (req: Request, res: Response) =>
+    this.out(req, res, await this.sourcing.loadBoard());
+  placementQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.sourcing.placementQueue());
   placement = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.placement(req.params.sourcingId));
+    this.out(req, res, await this.sourcing.placement(req.params.sourcingId));
   partnerBid = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(
+    this.out(
+      req,
       res,
       await this.sourcing.recordPartnerBid(actorOf(req), req.params.sourcingId, req.body),
       201,
     );
   sendBid = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.sendBid(req.user!.id, req.params.sourcingId, req.body), 201);
+    this.out(
+      req,
+      res,
+      await this.sourcing.sendBid(req.user!.id, req.params.sourcingId, req.body),
+      201,
+    );
 
   nameDriver = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.sourcing.nameDriver(req.user!.id, req.params.loadId, req.body));
-  verificationQueue = async (_req: Request, res: Response) =>
-    respond(res, await this.sourcing.verificationQueue());
+    this.out(req, res, await this.sourcing.nameDriver(req.user!.id, req.params.loadId, req.body));
+  verificationQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.sourcing.verificationQueue());
   approveVerification = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(
+    this.out(
+      req,
       res,
       await this.sourcing.approveVerification(req.user!.id, req.params.loadId, req.body),
     );
 
-  trackingQueue = async (_req: Request, res: Response) =>
-    respond(res, await this.sourcing.trackingQueue());
+  trackingQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.sourcing.trackingQueue());
   partnerAdvance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(
+    this.out(
+      req,
       res,
       await this.sourcing.payPartnerAdvance(req.user!.id, req.params.loadId, req.body),
       201,
     );
 
-  csQueue = async (_req: Request, res: Response) => respond(res, await this.settlement.csQueue());
-  podQueue = async (_req: Request, res: Response) => respond(res, await this.settlement.podQueue());
+  csQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.settlement.csQueue());
+  podQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.settlement.podQueue());
   rate = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.settlement.rate(req.user!.id, req.params.loadId, req.body));
+    this.out(req, res, await this.settlement.rate(req.user!.id, req.params.loadId, req.body));
   originalPod = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(
+    this.out(
+      req,
       res,
       await this.settlement.markOriginalPodReceived(req.user!.id, req.params.loadId, req.body),
     );
-  receivablesQueue = async (_req: Request, res: Response) =>
-    respond(res, await this.settlement.receivablesQueue());
+  receivablesQueue = async (req: Request, res: Response) =>
+    this.out(req, res, await this.settlement.receivablesQueue());
   partnerBalance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(
+    this.out(
+      req,
       res,
       await this.settlement.payPartnerBalance(req.user!.id, req.params.loadId, req.body),
       201,
@@ -90,7 +136,7 @@ export class LoadsmartOpsController {
 
   /** Everything Loadsmart holds on one load. */
   loadDetail = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.settlement.loadDetail(req.params.loadId));
+    this.out(req, res, await this.settlement.loadDetail(req.params.loadId));
 }
 
 /** The shipper's side of a Loadsmart load, on /v1/loads. */

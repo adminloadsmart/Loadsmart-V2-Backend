@@ -19,7 +19,7 @@ export class RoleEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  // 'platform_admin', 'sales', 'online_kyc_desk', 'offline_kyc_desk', 'load_console', 'org_admin'
+  // 'platform_admin', the staff teams (STAFF_TEAMS: 'ls_admin', 'ls_approval', ..., 'sales'), 'org_admin', ...
   @Column({ unique: true })
   name!: string;
 

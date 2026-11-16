@@ -63,7 +63,7 @@ async function bootstrap(): Promise<void> {
       fullName,
       roleId: role.id,
       tenantId: null,
-      coverage: null,
+      region: null,
       deletedAt: null,
     });
     const saved = await users.save(user);

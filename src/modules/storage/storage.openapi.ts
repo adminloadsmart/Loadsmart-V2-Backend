@@ -20,7 +20,7 @@ export function registerStorageOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'storage.generateUploadUrl',
     ...permissionGated(
       [FILES_UPLOAD],
-      'Create a pending file record and return a presigned S3 POST for the browser to upload directly to. Platform-scope callers (sales, online/offline_kyc_desk, load_console) may call this with no tenant of their own.',
+      'Create a pending file record and return a presigned S3 POST for the browser to upload directly to. Platform-scope callers (team members) may call this with no tenant of their own.',
     ),
     request: { body: json(storageValidators.generateUploadUrl.shape.body) },
     responses: {
@@ -36,7 +36,7 @@ export function registerStorageOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'storage.confirmUpload',
     ...permissionGated(
       [FILES_UPLOAD],
-      "Confirm a presigned upload actually landed in S3 and flip the file's status to confirmed. Platform-scope callers (sales, online/offline_kyc_desk, load_console) may call this with no tenant of their own.",
+      "Confirm a presigned upload actually landed in S3 and flip the file's status to confirmed. Platform-scope callers (team members) may call this with no tenant of their own.",
     ),
     request: { params: storageValidators.confirmUpload.shape.params },
     responses: {
@@ -52,7 +52,7 @@ export function registerStorageOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'storage.get',
     ...permissionGated(
       [FILES_READ],
-      'Get file metadata plus a ready-to-use download URL (present once confirmed). Platform-scope callers (platform_admin, sales, online/offline_kyc_desk, load_console) may fetch any tenant’s file; other callers are limited to their own tenant.',
+      'Get file metadata plus a ready-to-use download URL (present once confirmed). Platform-scope callers (platform_admin and team members) may fetch any tenant’s file; other callers are limited to their own tenant.',
     ),
     request: { params: storageValidators.get.shape.params },
     responses: {
