@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { isLoadsmartLoad } from '../loads/utils/load-stages';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
@@ -6,7 +7,7 @@ import { LoadEntity } from '../loads/entities/load.entity';
 import { LoadPaymentRepository } from '../loads/payments/load-payment.repository';
 import { LoadRepository } from '../loads/core/load.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
-import { LoadChargeEntity } from './entities/load-charge.entity';
+import { LoadChargeEntity } from '../loads/money/load-charge.entity';
 import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { ChargeType } from './loadsmart.types';
@@ -18,7 +19,6 @@ import {
   ChargeStageRule,
   ClaimValueInput,
   LoadDocumentKey,
-  UnloadingContactInput,
 } from './loadsmart.interface';
 
 /** When each charge can be added: loading at the gate, unloading at the drop, detention any time
@@ -74,7 +74,7 @@ export class LsShipperService extends LsServiceBase {
 
   private async assertLoadsmartLoad(tenantId: string, loadId: string): Promise<LoadEntity> {
     const load = await this.assertLoad(tenantId, loadId);
-    if (load.sourceType !== 'loadsmart') throw new ConflictError('This is not a Loadsmart load');
+    if (!isLoadsmartLoad(load)) throw new ConflictError('This is not a Loadsmart load');
     return load;
   }
 
@@ -97,18 +97,23 @@ export class LsShipperService extends LsServiceBase {
       if (!charge) throw new NotFoundError(`Charge ${chargeId} not found`);
       if (charge.status !== 'raised')
         throw new ConflictError(`This charge is already ${charge.status}`);
-      if (input.decision === 'rejected' && !input.reason) {
-        throw new ValidationError('reason is required when rejecting a charge');
+      if (input.decision !== 'approved' && !input.reason) {
+        throw new ValidationError(
+          `reason is required to ${input.decision === 'queried' ? 'query' : 'reject'} a charge`,
+        );
       }
-      await this.repository.charges.update(
+      const result = await this.repository.charges.update(
         { id: chargeId, status: 'raised' },
-        {
-          status: input.decision,
-          decidedBy: actorId,
-          decidedAt: this.now(),
-          rejectionReason: input.reason ?? null,
-        },
+        input.decision === 'queried'
+          ? { status: 'queried', queryReason: input.reason!, queriedAt: this.now() }
+          : {
+              status: input.decision,
+              decidedBy: actorId,
+              decidedAt: this.now(),
+              rejectionReason: input.reason ?? null,
+            },
       );
+      if (!result.affected) throw new ConflictError('The charge changed — reload it');
       await this.loadActivityService.record(
         tenantId,
         loadId,
@@ -176,38 +181,6 @@ export class LsShipperService extends LsServiceBase {
       return charge;
     } catch (error) {
       rethrow(error, 'Failed to add the charge');
-    }
-  }
-
-  /** "Adds who will receive the truck, often a day before." Any trip with a market truck. */
-  async setUnloadingContact(
-    tenantId: string,
-    actorId: string,
-    loadId: string,
-    input: UnloadingContactInput,
-  ): Promise<LoadEntity> {
-    try {
-      const load = await this.assertLoad(tenantId, loadId);
-      if (load.status === 'closed') throw new ConflictError('This load is closed');
-      const updated = await this.loadRepository.update(tenantId, loadId, {
-        unloadingContactName: input.name,
-        unloadingContactPhone: input.phone,
-        updatedBy: actorId,
-      });
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        actorId,
-        'LOADSMART_STEP',
-        null,
-        'unloading_contact_added',
-        {
-          ...input,
-        },
-      );
-      return updated!;
-    } catch (error) {
-      rethrow(error, 'Failed to add the unloading contact');
     }
   }
 

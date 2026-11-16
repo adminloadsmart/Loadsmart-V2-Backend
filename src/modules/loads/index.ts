@@ -20,6 +20,13 @@ import { LoadIssueRepository } from './issues/load-issue.repository';
 import { LoadActivityRepository } from './activity/load-activity.repository';
 import { LoadActivityService } from './activity/load-activity.service';
 import { LoadStageService } from './core/load-stage.service';
+import { LoadStageHistoryRepository } from './core/load-stage-history.repository';
+import { LoadDocumentRepository } from './documents/load-document.repository';
+import { LoadDocumentService } from './documents/load-document.service';
+import { LoadChargeService } from './money/load-charge.service';
+import { TruckCancellationService } from './sourcing/truck-cancellation.service';
+import { LoadDocumentController } from './documents/load-document.controller';
+import { createLoadDocumentRoutes } from './documents/load-document.routes';
 import { DispatchPlanningService } from './dispatch-planning/dispatch-planning.service';
 import { LoadsController } from './core/loads.controller';
 import { createLoadsProtectedRoutes } from './core/loads.routes';
@@ -51,6 +58,7 @@ import { DriverTripNotifier } from './utils/load-alert.interface';
 import { LoadStageHook } from './utils/load.interface';
 import { LoadPostingHooks } from './load-posting/utils/load-posting.interface';
 import { VehicleRegistryClient } from './utils/load-verification.interface';
+import { SettingsReader } from '../settings/settings.types';
 
 export function createLoadsModule(
   dataSource: DataSource,
@@ -74,6 +82,8 @@ export function createLoadsModule(
     /** No-tracking alerts: shipper reminders through the catalog, E-POD reminders to the driver app. */
     notificationTriggers: NotificationTriggers;
     driverTripNotifier: DriverTripNotifier;
+    /** Super Admin → Settings: every timer and threshold, per the version a load was posted under. */
+    settings: SettingsReader;
   },
 ) {
   const loadActivityRepository = new LoadActivityRepository(dataSource);
@@ -132,8 +142,18 @@ export function createLoadsModule(
     loadActivityService,
     deps.auditService,
     deps.vehicleService,
+    new LoadStageHistoryRepository(dataSource),
     deps.onLoadEvent,
     runStageHooks,
+  );
+
+  // The documents register — every upload on a load goes through it.
+  const loadDocumentService = new LoadDocumentService(
+    new LoadDocumentRepository(dataSource),
+    loadRepository,
+    deps.storageService,
+    loadActivityService,
+    deps.auditService,
   );
 
   const loadService = new LoadService(
@@ -148,10 +168,20 @@ export function createLoadsModule(
     loadStageService,
     deps.assignmentComplianceService,
     deps.driverTripNotifier,
+    loadDocumentService,
     deps.onIssueReported,
     deps.onLoadEvent,
   );
 
+  // Charges with proof on own-transporter and indent loads (money/).
+  const loadChargeService = new LoadChargeService(
+    dataSource,
+    loadRepository,
+    deps.storageService,
+    loadDocumentService,
+    loadActivityService,
+    deps.auditService,
+  );
   const loadPaymentService = new LoadPaymentService(
     loadPaymentRepository,
     loadRepository,
@@ -159,6 +189,9 @@ export function createLoadsModule(
     loadActivityService,
     deps.auditService,
     loadStageService,
+    loadChargeService,
+    deps.storageService,
+    loadDocumentService,
   );
 
   const dispatchPlanningService = new DispatchPlanningService(
@@ -178,13 +211,14 @@ export function createLoadsModule(
     (tenantId) => deps.authService.getFleetOwner(tenantId),
   );
 
+  // The e-LR — Loadsmart loads, issued by Loadsmart's Tracking team (loadsmart-ops).
   const elrService = new ElrService(
     dataSource,
     loadRepository,
-    codeSequenceRepository,
     deps.storageService,
     loadActivityService,
     deps.auditService,
+    loadDocumentService,
   );
 
   const controller = new LoadsController(
@@ -193,9 +227,10 @@ export function createLoadsModule(
     loadService,
     loadPaymentService,
     loadActivityService,
-    elrService,
+    loadChargeService,
   );
   const protectedRouter = createLoadsProtectedRoutes(controller);
+  protectedRouter.use(createLoadDocumentRoutes(new LoadDocumentController(loadDocumentService)));
 
   // Govt-portal checks of the truck and driver put on a load.
   const loadVerificationService = new LoadVerificationService(
@@ -204,7 +239,12 @@ export function createLoadsModule(
     deps.dlVerificationClient,
   );
 
+  // Filled in by the Loadsmart ops module (composition-root.ts), which is built after this one:
+  // every market posting, and every rejected indent, opens a Loadsmart sourcing.
+  const postingHooks: LoadPostingHooks = {};
+
   // Sourcing — bids, indent acceptance, driver and load memo (market and indent loads).
+  const loadMemoRepository = new LoadMemoRepository(dataSource);
   const loadBidService = new LoadBidService(
     loadBidRepository,
     loadRepository,
@@ -213,24 +253,36 @@ export function createLoadsModule(
     loadActivityService,
     deps.auditService,
     loadVerificationService,
+    postingHooks,
     deps.onLoadEvent,
   );
   const loadMemoService = new LoadMemoService(
-    new LoadMemoRepository(dataSource),
+    loadMemoRepository,
     loadBidRepository,
     loadRepository,
     loadActivityService,
     deps.auditService,
     loadVerificationService,
+    deps.settings,
+    loadStageService,
+    deps.storageService,
+    loadDocumentService,
+  );
+  const truckCancellationService = new TruckCancellationService(
+    dataSource,
+    loadRepository,
+    loadStageService,
+    loadActivityService,
+    deps.settings,
   );
   protectedRouter.use(
-    createLoadSourcingRoutes(new LoadSourcingController(loadBidService, loadMemoService)),
+    createLoadSourcingRoutes(
+      new LoadSourcingController(loadBidService, loadMemoService, truckCancellationService),
+    ),
   );
 
   // Post a load (load-posting/) — mounted under /post (this router itself sits at /v1/loads, so the full path is /v1/loads/post)
   // (the routes above are all /requisitions/* or /loads/*).
-  // Filled in by the Loadsmart ops module (composition-root.ts), which is built after this one.
-  const postingHooks: LoadPostingHooks = {};
   const loadPosting = createLoadPostingModule(dataSource, {
     auditService: deps.auditService,
     customerService: deps.customerService,
@@ -241,6 +293,7 @@ export function createLoadsModule(
     driverNotifier: deps.driverTripNotifier,
     truckTypeService: deps.truckTypeService,
     assignmentComplianceService: deps.assignmentComplianceService,
+    settings: deps.settings,
     onLoadEvent: deps.onLoadEvent,
     onStageEntered: runStageHooks,
     hooks: postingHooks,
@@ -263,6 +316,7 @@ export function createLoadsModule(
     stageHooks,
     loadRepository,
     elrService,
+    loadDocumentService,
     protectedRouter,
     loadRemindersWorker: createLoadRemindersWorker(loadRepository, deps.driverTripNotifier),
   };

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AddTransporterChargeInput, LoadChargeService } from '../money/load-charge.service';
 import { respond } from '../../../shared/responses/respond';
 import { requireTenantId } from '../../../shared/middleware/require-tenant.middleware';
 import { RequisitionService } from '../requisitions/requisition.service';
@@ -6,7 +7,6 @@ import { DispatchPlanningService } from '../dispatch-planning/dispatch-planning.
 import { LoadService } from './load.service';
 import { LoadPaymentService } from '../payments/load-payment.service';
 import { LoadActivityService } from '../activity/load-activity.service';
-import { ElrService } from '../elr/elr.service';
 import {
   CreateRequisitionInput,
   ListRequisitionsInput,
@@ -20,6 +20,8 @@ import {
   ListLiveLoadsInput,
   ListLoadsInput,
   LoadParams,
+  UnloadingDetailsInput,
+  TransporterInvoiceInput,
   ReviewPodInput,
   SetLoadingContactInput,
   SetLoadingPointInput,
@@ -28,7 +30,6 @@ import {
   UploadPodInput,
 } from '../utils/load.interface';
 import { RecordAdvanceInput, RecordBalanceInput } from '../utils/load-payment.interface';
-import { ElrInput } from '../utils/elr.interface';
 
 export class LoadsController {
   constructor(
@@ -37,7 +38,7 @@ export class LoadsController {
     private readonly loadService: LoadService,
     private readonly loadPaymentService: LoadPaymentService,
     private readonly loadActivityService: LoadActivityService,
-    private readonly elrService: ElrService,
+    private readonly loadChargeService: LoadChargeService,
   ) {}
 
   // --- Requisitions ---
@@ -182,6 +183,17 @@ export class LoadsController {
     respond(res, load);
   };
 
+  uploadTransporterInvoice = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.uploadTransporterInvoice(
+      requireTenantId(req),
+      req.user!.id,
+      req.user!.role,
+      req.params.loadId,
+      req.body as TransporterInvoiceInput,
+    );
+    respond(res, load);
+  };
+
   uploadPod = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.uploadPod(
       requireTenantId(req),
@@ -194,16 +206,25 @@ export class LoadsController {
   };
 
   reviewPod = async (req: Request<LoadParams>, res: Response) => {
-    const { decision, reason } = req.body as ReviewPodInput;
     const load = await this.loadService.reviewPod(
       requireTenantId(req),
       req.user!.id,
       req.params.loadId,
-      decision,
-      reason,
+      req.body as ReviewPodInput,
     );
     respond(res, load);
   };
+
+  setUnloadingDetails = async (req: Request<LoadParams>, res: Response) =>
+    respond(
+      res,
+      await this.loadService.setUnloadingDetails(
+        requireTenantId(req),
+        req.user!.id,
+        req.params.loadId,
+        req.body as UnloadingDetailsInput,
+      ),
+    );
 
   setLoadingContact = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.setLoadingContact(
@@ -211,6 +232,7 @@ export class LoadsController {
       req.user!.id,
       req.params.loadId,
       req.body as SetLoadingContactInput,
+      req.user!,
     );
     respond(res, load);
   };
@@ -225,26 +247,21 @@ export class LoadsController {
     respond(res, load);
   };
 
-  generateElr = async (req: Request<LoadParams>, res: Response) => {
-    const result = await this.elrService.generate(
-      requireTenantId(req),
-      req.user!.id,
-      req.user!.role,
-      req.params.loadId,
-      req.body as ElrInput,
-    );
-    respond(res, result, 201);
-  };
-
   settleDeliveryIssue = async (req: Request<LoadParams>, res: Response) => {
+    const body = req.body as SettleDeliveryIssueInput;
     const load = await this.loadService.settleDeliveryIssue(
       requireTenantId(req),
       req.user!.id,
       req.params.loadId,
-      (req.body as SettleDeliveryIssueInput).note,
+      body.note,
+      false,
+      { hasDeduction: body.hasDeduction, amount: body.deductionAmount },
     );
     respond(res, load);
   };
+
+  listStageHistory = async (req: Request<LoadParams>, res: Response) =>
+    respond(res, await this.loadService.stageHistory(requireTenantId(req), req.params.loadId));
 
   listLoadActivities = async (req: Request<LoadParams>, res: Response) => {
     const activities = await this.loadActivityService.listByLoad(
@@ -273,10 +290,27 @@ export class LoadsController {
 
   // --- Payments ---
 
+  moneySummary = async (req: Request<LoadParams>, res: Response) =>
+    respond(res, await this.loadPaymentService.summary(requireTenantId(req), req.params.loadId));
+
+  addTransporterCharge = async (req: Request<LoadParams>, res: Response) =>
+    respond(
+      res,
+      await this.loadChargeService.add(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!.role,
+        req.params.loadId,
+        req.body as AddTransporterChargeInput,
+      ),
+      201,
+    );
+
   recordAdvancePayment = async (req: Request<LoadParams>, res: Response) => {
     const payment = await this.loadPaymentService.recordAdvance(
       requireTenantId(req),
       req.user!.id,
+      req.user!.role,
       req.params.loadId,
       req.body as RecordAdvanceInput,
     );
@@ -287,6 +321,7 @@ export class LoadsController {
     const payment = await this.loadPaymentService.recordBalance(
       requireTenantId(req),
       req.user!.id,
+      req.user!.role,
       req.params.loadId,
       req.body as RecordBalanceInput,
     );

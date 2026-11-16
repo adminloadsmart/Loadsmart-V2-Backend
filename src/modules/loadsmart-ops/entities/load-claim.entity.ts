@@ -1,9 +1,16 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { CLAIM_STATUSES, ClaimStatus } from '../loadsmart.types';
+import {
+  CLAIM_RECOVERY_MODES,
+  CLAIM_STATUSES,
+  ClaimRecoveryMode,
+  ClaimStatus,
+} from '../loadsmart.types';
 
-/** The CS ticket for a Loadsmart load delivered with damage, shortage or pilferage. The shipper
- *  adds the claim value; the CS team settles it with the partner (what is recovered from the
- *  partner's balance). The partner's balance and the shipper's invoice wait until it's settled. */
+/** The claim on a Loadsmart load delivered with damage, shortage, pilferage or another issue
+ *  (C01). The shipper adds the amount claimed; Customer support assesses it, agrees an amount and
+ *  says who bears it (the carrier's balance, split, or Loadsmart). Closing it issues Loadsmart's
+ *  credit note to the shipper and passes the carrier's share to Payables. Billing never waits for
+ *  it; the carrier's balance does. */
 @Entity({ schema: 'loads', name: 'load_claims' })
 export class LoadClaimEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -22,16 +29,51 @@ export class LoadClaimEntity {
   @Column({ type: 'varchar', length: 20, nullable: true })
   issue!: string | null;
 
-  /** Credited to the shipper on the invoice. */
+  /** The shipper's claimed amount, entered in the app. */
   @Column({ name: 'claim_value', type: 'numeric', precision: 12, scale: 2, nullable: true })
   claimValue!: string | null;
 
   @Column({ name: 'shipper_note', type: 'varchar', length: 500, nullable: true })
   shipperNote!: string | null;
 
-  /** Deducted from the partner's balance. */
+  /** The carrier's share of the agreed amount — deducted from its balance. */
   @Column({ name: 'partner_recovery', type: 'numeric', precision: 12, scale: 2, nullable: true })
   partnerRecovery!: string | null;
+
+  /** Tracking assigns a CS agent to each claim; unassigned claims are flagged. */
+  @Column({ name: 'assigned_to', type: 'uuid', nullable: true })
+  assignedTo!: string | null;
+
+  @Column({ name: 'assigned_at', type: 'timestamptz', nullable: true })
+  assignedAt!: Date | null;
+
+  /** CS's own view of the loss. */
+  @Column({ name: 'cs_assessment', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  csAssessment!: string | null;
+
+  /** What Loadsmart credits the shipper — mandatory to close. */
+  @Column({ name: 'agreed_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  agreedAmount!: string | null;
+
+  @Column({
+    name: 'recovery_mode',
+    type: 'enum',
+    enum: [...CLAIM_RECOVERY_MODES],
+    nullable: true,
+  })
+  recoveryMode!: ClaimRecoveryMode | null;
+
+  /** The part Loadsmart absorbs. */
+  @Column({ name: 'loadsmart_share', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  loadsmartShare!: string | null;
+
+  /** The shipper's debit note for the deduction, if it sent one. */
+  @Column({ name: 'shipper_debit_note_ref', type: 'varchar', length: 100, nullable: true })
+  shipperDebitNoteRef!: string | null;
+
+  /** Every step: assigned, assessed, evidence added, closed. */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  history!: { at: string; by: string; step: string; detail?: Record<string, unknown> }[];
 
   @Column({ name: 'resolution_note', type: 'varchar', length: 1000, nullable: true })
   resolutionNote!: string | null;

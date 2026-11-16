@@ -27,8 +27,6 @@ export type PriceBasis = (typeof PRICE_BASES)[number];
 export const ADVANCE_PRESETS = [70, 80, 90, 100] as const;
 export const DEFAULT_ADVANCE_PERCENTAGE = 80;
 
-/** Earliest allowed pickup is this far after posting, rounded up to the next half hour. */
-export const MIN_PICKUP_LEAD_HOURS = 3;
 export const NOTE_MAX_LENGTH = 300;
 /** Optional shipper-given name for a posting, e.g. "Cement to Surat - Oct". */
 export const TITLE_MAX_LENGTH = 100;

@@ -40,9 +40,10 @@ const statusOf = (failures: string[]): VerificationStatus =>
 /**
  * Govt-portal checks of the truck and driver put on a load: the truck on VAHAN (via ULIP) when a
  * bid or indent names it, the driver on Sarathi when the transporter names them. Every check is
- * stored on the load (load_verifications). A failed truck keeps the bid's Accept off; a failed
- * truck or driver keeps the load memo from going out. A portal that can't be reached records
- * `unavailable` and doesn't block — the same policy the driver onboarding check follows.
+ * stored on the load (load_verifications). A failed truck keeps the bid's Accept off. The load
+ * memo goes only when both the truck and the driver checks passed ("every check passes"): a
+ * portal that couldn't be reached records `unavailable`, which blocks the memo until the check is
+ * run again (checksBlockers).
  */
 export class LoadVerificationService {
   constructor(
@@ -214,15 +215,38 @@ export class LoadVerificationService {
           : Promise.resolve(null),
         this.repository.findLatestForLoad(tenantId, load.id, 'driver'),
       ]);
+      const blockers = checksBlockers(truck, driver);
       return {
         truck: truck ? toCheckView(truck) : null,
         driver: driver ? toCheckView(driver) : null,
-        clear: truck?.status !== 'failed' && driver?.status !== 'failed',
+        clear: blockers.length === 0,
+        blockers,
       };
     } catch (error) {
       rethrow(error, 'Failed to read the load checks');
     }
   }
+}
+
+/** What keeps the memo from going out: a check not run yet, one that failed, or one whose portal
+ *  couldn't be reached (run it again). Empty when both passed. */
+export function checksBlockers(
+  truck: Pick<LoadVerificationEntity, 'status' | 'failures'> | null,
+  driver: Pick<LoadVerificationEntity, 'status' | 'failures'> | null,
+): string[] {
+  const blockers: string[] = [];
+  for (const [label, check, portal] of [
+    ['Truck', truck, 'VAHAN'],
+    ['Driver', driver, 'Sarathi'],
+  ] as const) {
+    if (!check) blockers.push(`${label} not checked yet`);
+    else if (check.status === 'failed')
+      blockers.push(...check.failures.map((f) => `${label}: ${f}`));
+    else if (check.status === 'unavailable') {
+      blockers.push(`${label} check could not run on ${portal} — run the checks again`);
+    }
+  }
+  return blockers;
 }
 
 /** What a check means for a bid's truck: passed → verified, failed → not, otherwise unknown. */

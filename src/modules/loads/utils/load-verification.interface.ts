@@ -38,8 +38,10 @@ export interface CheckView {
 export interface LoadChecksView {
   truck: CheckView | null;
   driver: CheckView | null;
-  /** True when nothing failed — what the memo waits on. `unavailable` never blocks. */
+  /** True when both checks passed — what the memo waits on. A check that couldn't run blocks. */
   clear: boolean;
+  /** Why it isn't clear, one line each. */
+  blockers: string[];
 }
 
 /** The truck papers checked on VAHAN — RC, fitness, insurance, PUC, permit. */

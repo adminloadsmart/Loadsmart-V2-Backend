@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
+import { LoadPostingHooks } from '../load-posting/utils/load-posting.interface';
 import { AuditService } from '../../audit/audit.service';
 import { TransporterService } from '../../masters/transporter/transporter.service';
 import { LoadActivityService } from '../activity/load-activity.service';
@@ -30,13 +31,14 @@ import { LoadEventNotifier } from '../../notifications/notifications.interface';
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
 
 /**
- * Bids on market loads (the shipper's own transporters) and the contracted transporter's
- * acceptance of an indent. A bid answers one load — one truck. The first bid moves the load to
- * Bids received; accepting one moves it to Truck assigned with that bid's transporter, truck and
- * rate, and rejects the load's other live bids. Expiry is applied whenever bids are read or
- * accepted, so no scheduled job is needed for it.
+ * Bids on market loads (the shipper's own transporters and Loadsmart) and the contracted
+ * transporter's acceptance of an indent. A bid answers one load — one truck. The first bid moves
+ * the load to Bids received; accepting one keeps it there with the award on it (route
+ * own_transporter, or a Loadsmart award) and rejects the other bids; the accepted load memo moves
+ * it to Truck assigned (load-memo.service.ts). Expiry is applied whenever bids are read or accepted, so no scheduled
+ * job is needed for it. Every stage move goes through LoadStageService as a trigger.
  *
- * Until WhatsApp arrives (Phase 5), bids reach this service through the shipper's web entry.
+ * Until WhatsApp arrives (Phase 4), bids reach this service through the shipper's web entry.
  */
 export class LoadBidService {
   constructor(
@@ -47,6 +49,8 @@ export class LoadBidService {
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
     private readonly verification: LoadVerificationService,
+    /** Filled in by the Loadsmart ops module: a rejected indent opens Loadsmart's sourcing. */
+    private readonly postingHooks: LoadPostingHooks,
     // LS_N_0016 — optional; only queues a notification and never throws (see
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
@@ -72,7 +76,7 @@ export class LoadBidService {
   ): Promise<LoadBidEntity> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
-      if (load.sourceType !== 'market')
+      if (load.postingType !== 'market_fleet')
         throw new ConflictError('Only market fleet loads take Loadsmart bids');
       if (load.status !== 'created' && load.status !== 'bids_received') {
         throw new ConflictError('This load already has a truck — it no longer takes bids');
@@ -199,7 +203,7 @@ export class LoadBidService {
         loadId,
         loadStatus: load.status,
         biddingClosesAt:
-          load.sourceType === 'market'
+          load.postingType === 'market_fleet'
             ? bidWindowClosesAt(await this.sentAtOf(load)).toISOString()
             : null,
         bids: [
@@ -223,12 +227,12 @@ export class LoadBidService {
   ): Promise<BidView> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
-      if (load.sourceType === 'indent') {
+      if (load.postingType === 'indent') {
         throw new ConflictError(
           "An indent has no bidding — record the contracted transporter's acceptance instead",
         );
       }
-      if (load.sourceType !== 'market') {
+      if (load.postingType !== 'market_fleet') {
         throw new ConflictError('Only market fleet loads take bids');
       }
       if (load.status !== 'created' && load.status !== 'bids_received') {
@@ -322,8 +326,9 @@ export class LoadBidService {
     }
   }
 
-  /** The contracted transporter accepts the indent and sends the truck number — Bids received,
-   *  at the contract rate. The shipper then confirms it with acceptBid; there is no counter offer. */
+  /** The contracted transporter accepts the indent and sends the truck number, at the contract
+   *  rate — or the shipper enters an acceptance given by phone. That is the award: the load moves
+   *  to Bids received on the indent route (`indent_accepted`), and the memo follows. */
   async recordIndentAcceptance(
     tenantId: string,
     actorId: string,
@@ -332,7 +337,7 @@ export class LoadBidService {
   ): Promise<BidView> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
-      if (load.sourceType !== 'indent') throw new ConflictError('This load is not an indent');
+      if (load.postingType !== 'indent') throw new ConflictError('This load is not an indent');
       if (load.status !== 'created') {
         throw new ConflictError('The indent has already been accepted');
       }
@@ -367,10 +372,95 @@ export class LoadBidService {
         entryReason: 'Indent accepted by the contracted transporter',
       });
       const bid = await this.checkBidTruck(created);
+      await this.stageService.transition({
+        tenantId,
+        loadId,
+        trigger: 'indent_accepted',
+        actorId,
+        load,
+        auditAction: 'LOAD_BID_ACCEPTED',
+        fields: {
+          vehicleNumber,
+          freightType: load.freightType ?? 'flat',
+          awardedBidId: bid.id,
+        },
+        metadata: { bidId: bid.id, transporterId: bid.transporterId, rate: bid.rate },
+      });
+      await this.bidRepository.accept(bid, actorId);
       await this.recordBidActivity(load, actorId, bid, { indent: true });
-      return this.toView(bid, this.now(), 1);
+      return this.toView({ ...bid, status: 'accepted' }, this.now(), 1);
     } catch (error) {
       rethrow(error, 'Failed to record indent acceptance');
+    }
+  }
+
+  /** The contracted transporter rejected the indent — recorded by the shipper. "The load goes to
+   *  the open market (Loadsmart included) and the contract's non-placement penalty applies, if
+   *  any": the load becomes a market load at Created (`indent_rejected`), the contract rate is
+   *  kept as the expected price, the shipper's active transporters become recipients and Loadsmart
+   *  opens its sourcing. The change and the penalty are kept in load_route_changes. */
+  async recordIndentRejection(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    reason: string,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertLoad(tenantId, loadId);
+      if (load.postingType !== 'indent') throw new ConflictError('This load is not an indent');
+      if (load.status !== 'created') {
+        throw new ConflictError('The indent was already accepted');
+      }
+      const posting = load.postingId
+        ? await this.bidRepository.findPosting(tenantId, load.postingId)
+        : null;
+      const contractId = posting?.contractId ?? null;
+      const penalty = contractId
+        ? await this.bidRepository.findContractPenalty(tenantId, contractId)
+        : null;
+
+      const updated = await this.stageService.transition({
+        tenantId,
+        loadId,
+        trigger: 'indent_rejected',
+        actorId,
+        load,
+        auditAction: 'LOAD_INDENT_REJECTED',
+        fields: {
+          transporterId: null,
+          freightValue: null,
+          expectedRate: load.expectedRate ?? load.freightValue,
+        },
+        metadata: { reason, contractId, penalty },
+      });
+      await this.bidRepository.recordRouteChange({
+        tenantId,
+        loadId,
+        fromPostingType: 'indent',
+        toPostingType: 'market_fleet',
+        reason,
+        contractId,
+        transporterId: load.transporterId,
+        penaltyAmount: penalty,
+        changedBy: actorId,
+      });
+      const recipients = load.postingId
+        ? await this.bidRepository.addTransporterRecipients(tenantId, load.postingId)
+        : 0;
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'INDENT_REJECTED',
+        'indent',
+        'market_fleet',
+        { reason, transporterId: load.transporterId, penalty, recipientsAdded: recipients },
+      );
+      // "Loadsmart included" — Loadsmart opens its sourcing as for any market post.
+      await this.postingHooks.onMarketLoadsPosted?.([updated], actorId);
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to record the indent rejection');
     }
   }
 
@@ -388,11 +478,14 @@ export class LoadBidService {
       reason: bid.entryReason,
       ...extra,
     };
-    if (load.status === 'created') {
+    // The first bid on a market load moves it to Bids received. An indent's acceptance already
+    // moved it (indent_accepted).
+    if (load.status === 'created' && load.postingType === 'market_fleet') {
       await this.stageService.transition({
         tenantId: load.tenantId,
         loadId: load.id,
-        to: 'bids_received',
+        trigger: 'first_bid',
+        actorType: bid.source === 'loadsmart' ? 'ls_team' : 'shipper',
         actorId,
         load,
         metadata,
@@ -416,9 +509,10 @@ export class LoadBidService {
     });
   }
 
-  /** The shipper accepts a bid — only a live bid with a truck that hasn't failed its check. The
-   *  load moves to Truck assigned first (its conditional update is the race guard between two
-   *  accepts), then the bid is marked accepted and the load's other live bids rejected. */
+  /** The shipper accepts a bid — only a live bid with a truck that hasn't failed its check, and
+   *  only once per load. The load stays at Bids received with the award on it
+   *  (`transporter_awarded`, or `loadsmart_awarded` for Loadsmart's bid) and the load's other live
+   *  bids are rejected; the accepted load memo moves it to Truck assigned. */
   async acceptBid(
     tenantId: string,
     actorId: string,
@@ -430,6 +524,7 @@ export class LoadBidService {
       if (load.status !== 'bids_received') {
         throw new ConflictError('Only a load with bids received can have a bid accepted');
       }
+      if (load.awardedBidId) throw new ConflictError('A bid is already accepted on this load');
       const bid = await this.bidRepository.findById(tenantId, loadId, bidId);
       if (!bid) throw new NotFoundError(`Bid ${bidId} not found on load ${loadId}`);
 
@@ -441,10 +536,11 @@ export class LoadBidService {
       }
       await this.assertTruckFree(load, bid.vehicleNumber!);
 
-      const assigned = await this.stageService.transition({
+      const toLoadsmart = bid.source === 'loadsmart';
+      const awarded = await this.stageService.transition({
         tenantId,
         loadId,
-        to: 'truck_assigned',
+        trigger: toLoadsmart ? 'loadsmart_awarded' : 'transporter_awarded',
         actorId,
         load,
         auditAction: 'LOAD_BID_ACCEPTED',
@@ -455,14 +551,13 @@ export class LoadBidService {
           freightType: load.freightType ?? 'flat',
           driverName: null,
           driverNumber: null,
-          // Accepting Loadsmart's bid makes it a Loadsmart load from here on.
-          ...(bid.source === 'loadsmart' ? { sourceType: 'loadsmart' as const } : {}),
+          awardedBidId: bid.id,
         },
         metadata: { bidId, transporterId: bid.transporterId, rate: bid.rate },
       });
       await this.bidRepository.accept(bid, actorId);
       await this.bidRepository.rejectOthers(tenantId, loadId, bid.id, actorId);
-      if (bid.source === 'loadsmart') await this.onLoadsmartBidAccepted?.(bid, assigned, actorId);
+      if (toLoadsmart) await this.onLoadsmartBidAccepted?.(bid, awarded, actorId);
       await this.loadActivityService.record(
         tenantId,
         loadId,
@@ -483,7 +578,7 @@ export class LoadBidService {
         vehicleChecked: false,
         driverChecked: false,
       });
-      return assigned;
+      return awarded;
     } catch (error) {
       rethrow(error, 'Failed to accept bid');
     }

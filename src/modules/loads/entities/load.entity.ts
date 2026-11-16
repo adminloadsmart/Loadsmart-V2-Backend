@@ -1,4 +1,5 @@
 import {
+  Check,
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -22,9 +23,13 @@ import {
   FREIGHT_TYPES,
   FreightMode,
   FreightType,
-  LOAD_SOURCE_TYPES,
+  AWARD_PARTIES,
+  AwardParty,
+  LOAD_POSTING_TYPES,
+  LOAD_ROUTES,
   LOAD_STATUSES,
-  LoadSourceType,
+  LoadPostingType,
+  LoadRoute,
   LoadStatus,
   POD_STATUSES,
   PodStatus,
@@ -52,6 +57,19 @@ import {
 @Entity({ schema: 'loads', name: 'loads' })
 @Index('loads_tenant_id_idx', ['tenantId'])
 @Index('loads_tenant_status_idx', ['tenantId', 'status'])
+// Route invariants (migration LoadThirteenStages): a load past Bids received has a route; own
+// fleet is routed own_fleet from posting; only an indent posting can be on the indent route.
+@Check(
+  'loads_route_known_after_award',
+  `"route" IS NOT NULL OR "status" IN ('created', 'bids_received')`,
+)
+@Check(
+  'loads_own_fleet_route',
+  `("posting_type" = 'own_fleet') = ("route" IS NOT DISTINCT FROM 'own_fleet')`,
+)
+@Check('loads_indent_route', `"route" IS DISTINCT FROM 'indent' OR "posting_type" = 'indent'`)
+@Index('loads_tenant_posting_type_idx', ['tenantId', 'postingType'])
+@Index('loads_tenant_route_idx', ['tenantId', 'route'])
 @Index('loads_tenant_requisition_idx', ['tenantId', 'requisitionId'])
 @Index('loads_tenant_vehicle_idx', ['tenantId', 'vehicleId'])
 @Index('loads_tenant_covers_vehicle_idx', ['tenantId', 'coversVehicleId'])
@@ -83,14 +101,34 @@ export class LoadEntity {
   @Column({ name: 'posting_id', type: 'uuid', nullable: true })
   postingId!: string | null;
 
+  /** The Super Admin settings version the load was posted under (settings/). Every timer and
+   *  threshold on the load reads it, so a later save only affects loads posted after it. Null for
+   *  loads created before settings existed — they follow the latest version. */
+  @Column({ name: 'settings_version_id', type: 'uuid', nullable: true })
+  settingsVersionId!: string | null;
+
   /** Read-only join for loads posted without a requisition — the customer, route and dates live
    *  on the posting. createForeignKeyConstraints:false keeps the column FK-less, as above. */
   @ManyToOne(() => LoadPostingEntity, { nullable: true, createForeignKeyConstraints: false })
   @JoinColumn({ name: 'posting_id' })
   posting!: LoadPostingEntity | null;
 
-  @Column({ name: 'source_type', type: 'enum', enum: [...LOAD_SOURCE_TYPES] })
-  sourceType!: LoadSourceType;
+  /** How the shipper posted it (loads.types.ts LOAD_POSTING_TYPES). */
+  @Column({ name: 'posting_type', type: 'enum', enum: [...LOAD_POSTING_TYPES] })
+  postingType!: LoadPostingType;
+
+  /** Who carries it — null only while a market load has no winner (stages 1–2; DB CHECK
+   *  loads_route_known_after_award). Written only by LoadStageService, through the trigger table. */
+  @Column({ type: 'enum', enum: [...LOAD_ROUTES], nullable: true })
+  route!: LoadRoute | null;
+
+  /** Whose bid the shipper awarded on a market or indent load, and which bid. A Loadsmart award
+   *  becomes route 'loadsmart' when its memo is accepted. */
+  @Column({ name: 'awarded_party', type: 'enum', enum: [...AWARD_PARTIES], nullable: true })
+  awardedParty!: AwardParty | null;
+
+  @Column({ name: 'awarded_bid_id', type: 'uuid', nullable: true })
+  awardedBidId!: string | null;
 
   @Column({ type: 'enum', enum: [...LOAD_STATUSES], default: 'created' })
   status!: LoadStatus;
@@ -144,6 +182,10 @@ export class LoadEntity {
   /** Market/indent only — the licence the transporter named, checked on Sarathi (loads/memo/). */
   @Column({ name: 'driver_licence_number', type: 'varchar', length: 30, nullable: true })
   driverLicenceNumber!: string | null;
+
+  /** Sarathi needs it with the licence number — kept so the driver check can be run again. */
+  @Column({ name: 'driver_date_of_birth', type: 'date', nullable: true })
+  driverDateOfBirth!: string | null;
 
   @Column({ name: 'driver_name', type: 'varchar', length: 150, nullable: true })
   driverName!: string | null;
@@ -409,6 +451,21 @@ export class LoadEntity {
   @Column({ name: 'delivery_issue_settlement_note', type: 'text', nullable: true })
   deliveryIssueSettlementNote!: string | null;
 
+  /** Own transporter / indent: the deduction the shipper took from the transporter for the issue
+   *  ("deduction yes/no and amount") — null for no deduction. Comes off the balance due. */
+  @Column({
+    name: 'delivery_issue_deduction_amount',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  deliveryIssueDeductionAmount!: string | null;
+
+  /** The issue as whoever decided the POD described it (shipper, or Loadsmart's Tracking team). */
+  @Column({ name: 'delivery_issue_details', type: 'text', nullable: true })
+  deliveryIssueDetails!: string | null;
+
   // --- Loadsmart loads (loadsmart-ops/). Stage timestamps for 11–13, the ops teams' approvals the
   // memo and Loaded wait on, and the partner's balance the close waits on.
   @Column({ name: 'original_pod_received_at', type: 'timestamptz', nullable: true })
@@ -417,13 +474,26 @@ export class LoadEntity {
   @Column({ name: 'invoice_generated_at', type: 'timestamptz', nullable: true })
   invoiceGeneratedAt!: Date | null;
 
-  /** When the shipper submitted the balance payment (stage 13), before Receivables verifies it. */
+  /** Own transporter / indent, stage 11: the transporter's invoice the shipper uploaded. Moves to
+   *  the documents register in Phase 2. */
+  @Column({ name: 'transporter_invoice_file_key', type: 'varchar', nullable: true })
+  transporterInvoiceFileKey!: string | null;
+
+  @Column({ name: 'transporter_invoice_number', type: 'varchar', length: 50, nullable: true })
+  transporterInvoiceNumber!: string | null;
+
+  @Column({
+    name: 'transporter_invoice_amount',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  transporterInvoiceAmount!: string | null;
+
+  /** When the shipper recorded the payment (stage 12). */
   @Column({ name: 'payment_submitted_at', type: 'timestamptz', nullable: true })
   paymentSubmittedAt!: Date | null;
-
-  /** Verification team approved the truck and driver — the load memo waits on it. */
-  @Column({ name: 'ls_verification_approved_at', type: 'timestamptz', nullable: true })
-  lsVerificationApprovedAt!: Date | null;
 
   /** Tracking team approved the loading papers — Loaded waits on it. */
   @Column({ name: 'ls_papers_approved_at', type: 'timestamptz', nullable: true })
@@ -455,6 +525,22 @@ export class LoadEntity {
 
   @Column({ name: 'unloading_contact_phone', type: 'varchar', length: 20, nullable: true })
   unloadingContactPhone!: string | null;
+
+  /** Unloading details (M before arrival): the receiver above, or a warehouse appointment. */
+  @Column({ name: 'unloading_appointment_id', type: 'varchar', length: 60, nullable: true })
+  unloadingAppointmentId!: string | null;
+
+  @Column({ name: 'unloading_appointment_date', type: 'date', nullable: true })
+  unloadingAppointmentDate!: string | null;
+
+  @Column({ name: 'unloading_appointment_slot', type: 'varchar', length: 40, nullable: true })
+  unloadingAppointmentSlot!: string | null;
+
+  @Column({ name: 'unloading_details_added_by', type: 'uuid', nullable: true })
+  unloadingDetailsAddedBy!: string | null;
+
+  @Column({ name: 'unloading_details_added_at', type: 'timestamptz', nullable: true })
+  unloadingDetailsAddedAt!: Date | null;
 
   @Column({ name: 'advance_paid_at', type: 'timestamptz', nullable: true })
   advancePaidAt!: Date | null;

@@ -2,9 +2,12 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { LsPartnerLaneEntity } from './ls-partner-lane.entity';
+import { LsPartnerTruckTypeEntity } from './ls-partner-truck-type.entity';
 import { PARTNER_STATUSES, PARTNER_TYPES, PartnerStatus, PartnerType } from '../loadsmart.types';
 
 /** One of Loadsmart's partners — a fleet owner or broker it sources trucks from. Platform-wide
@@ -38,6 +41,28 @@ export class LsPartnerEntity {
 
   @Column({ name: 'upi_id', type: 'varchar', length: 100, nullable: true })
   upiId!: string | null;
+
+  /** The carrier's advance on loading when it isn't the settings' default (90%) — 85% or 80%,
+   *  set only with Super Admin's permission (loadsmart.money.approve). */
+  @Column({ name: 'advance_percent', type: 'numeric', precision: 5, scale: 2, nullable: true })
+  advancePercent!: string | null;
+
+  /** Approval's note for Placement. */
+  @Column({ name: 'note_for_placement', type: 'text', nullable: true })
+  noteForPlacement!: string | null;
+
+  /** The trucker salesperson — a contact only (the sales app is parked). */
+  @Column({ name: 'trucker_sales_name', type: 'varchar', length: 150, nullable: true })
+  truckerSalesName!: string | null;
+
+  @Column({ name: 'trucker_sales_phone', type: 'varchar', length: 15, nullable: true })
+  truckerSalesPhone!: string | null;
+
+  @OneToMany(() => LsPartnerLaneEntity, (lane) => lane.partner)
+  lanes?: LsPartnerLaneEntity[];
+
+  @OneToMany(() => LsPartnerTruckTypeEntity, (truckType) => truckType.partner)
+  truckTypes?: LsPartnerTruckTypeEntity[];
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null;

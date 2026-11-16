@@ -51,7 +51,6 @@ export const hi = {
       reached_unloading: 'अनलोडिंग पॉइंट पर पहुँचा',
       delivered_ok: 'बिना समस्या के डिलीवर हुआ',
       delivered_with_issues: 'समस्या के साथ डिलीवर हुआ',
-      original_pod_received: 'मूल POD प्राप्त हुआ',
       invoice_generated: 'इनवॉइस बना',
       payment: 'भुगतान',
       closed: 'बंद',

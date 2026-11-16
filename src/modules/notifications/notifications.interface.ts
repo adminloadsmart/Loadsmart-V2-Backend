@@ -220,7 +220,7 @@ export type LoadEventNotifier = (event: LoadEvent) => Promise<void>;
 export interface LoadAlertSnapshot {
   code: string;
   status: string;
-  sourceType: string;
+  postingType: string;
   vehicleNumber: string | null;
   transporterName: string | null;
   transporterBankAccountNumber: string | null;

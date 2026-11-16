@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../../../shared/utils/date';
+import { TRUCK_CANCELLATION_NEXT_STEPS } from '../entities/load-cancellation.entity';
 
 const uuid = z.string().uuid();
 const params = z.object({ loadId: uuid });
@@ -34,6 +35,28 @@ export const loadSourcingValidators = {
 
   acceptBid: z.object({ params: bidParams }),
 
+  // The contracted transporter rejected the indent — the load goes to the open market.
+  recordIndentRejection: z.object({
+    params,
+    body: z.object({ reason: z.string().trim().min(3).max(500) }).strict(),
+  }),
+
+  rerunChecks: z.object({ params }),
+
+  // Truck cancelled between Truck assigned and Loaded — a reason code from Settings.
+  cancelTruck: z.object({
+    params,
+    body: z
+      .object({
+        reasonCode: z.string().trim().min(2).max(50),
+        note: z.string().trim().min(1).max(500).optional(),
+        next: z.enum(TRUCK_CANCELLATION_NEXT_STEPS),
+      })
+      .strict(),
+  }),
+  listTruckCancellations: z.object({ params }),
+  listMemos: z.object({ params }),
+
   // The contracted transporter accepts the indent and sends the truck number.
   recordIndentAcceptance: z.object({
     params,
@@ -49,6 +72,8 @@ export const loadSourcingValidators = {
         // Checked on Sarathi with the date of birth before the memo goes out.
         licenceNumber: z.string().trim().min(5).max(30),
         dateOfBirth: isoDateSchema,
+        // The truck number, if it wasn't sent with the bid or the truck was cancelled.
+        vehicleNumber: vehicleNumber.optional(),
       })
       .strict(),
   }),

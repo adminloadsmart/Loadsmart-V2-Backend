@@ -17,6 +17,10 @@ const load = {
   id: 'load-1',
   tenantId: 'tenant-1',
   status: 'bids_received',
+  postingType: 'market_fleet',
+  route: null,
+  awardedParty: null,
+  awardedBidId: null,
   freightType: 'flat',
   postingId: null,
   createdAt: new Date('2026-10-27T09:00:00Z'),
@@ -35,45 +39,61 @@ const bid = {
   createdAt: new Date('2026-10-27T09:30:00Z'),
 } as unknown as LoadBidEntity;
 
-function setup(onLoadEvent?: LoadEventNotifier) {
-  const assigned = { ...load, status: 'truck_assigned' } as LoadEntity;
+function setup(onLoadEvent?: LoadEventNotifier, current: LoadEntity = load) {
+  const awarded = {
+    ...current,
+    route: 'own_transporter',
+    awardedParty: 'transporter',
+    awardedBidId: 'bid-1',
+  } as LoadEntity;
   const bidRepository = {
     findById: vi.fn(async () => bid),
     accept: vi.fn(async () => undefined),
     rejectOthers: vi.fn(async () => undefined),
     markExpired: vi.fn(async () => undefined),
-  } as unknown as LoadBidRepository;
+  };
   const loadRepository = {
-    findById: vi.fn(async () => load),
+    findById: vi.fn(async () => current),
     findActiveByVehicleNumber: vi.fn(async () => null),
   } as unknown as LoadRepository;
   const stageService = {
-    transition: vi.fn(async () => assigned),
+    transition: vi.fn(async () => awarded),
   } as unknown as LoadStageService;
   const service = new LoadBidService(
-    bidRepository,
+    bidRepository as unknown as LoadBidRepository,
     loadRepository,
     {} as TransporterService,
     stageService,
     { record: vi.fn(async () => undefined) } as unknown as LoadActivityService,
     {} as AuditService,
     {} as LoadVerificationService,
+    {},
     onLoadEvent,
     () => NOW,
   );
-  return { service, stageService, assigned };
+  return { service, stageService, awarded, bidRepository };
 }
 
-describe('LS_N_0016 truck assigned — accepting a bid', () => {
-  it('moves the load to Truck assigned and queues the assigned event', async () => {
+describe('Accepting a bid (LS_N_0016)', () => {
+  it('awards the transporter at Bids received, rejects the other bids and queues the event', async () => {
     const onLoadEvent = vi.fn(async () => undefined);
-    const { service, stageService, assigned } = setup(onLoadEvent);
+    const { service, stageService, awarded, bidRepository } = setup(onLoadEvent);
 
     const result = await service.acceptBid('tenant-1', 'user-1', 'load-1', 'bid-1');
 
-    expect(result).toBe(assigned);
+    expect(result).toBe(awarded);
     expect(stageService.transition).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'truck_assigned', loadId: 'load-1' }),
+      expect.objectContaining({
+        trigger: 'transporter_awarded',
+        loadId: 'load-1',
+        fields: expect.objectContaining({ awardedBidId: 'bid-1', transporterId: 'transporter-1' }),
+      }),
+    );
+    expect(bidRepository.rejectOthers).toHaveBeenCalledWith(
+      'tenant-1',
+      'load-1',
+      'bid-1',
+      'user-1',
     );
     expect(onLoadEvent).toHaveBeenCalledWith({
       kind: 'assigned',
@@ -86,9 +106,94 @@ describe('LS_N_0016 truck assigned — accepting a bid', () => {
   });
 
   it('still accepts the bid when no notifier is wired', async () => {
-    const { service, assigned } = setup();
-    await expect(service.acceptBid('tenant-1', 'user-1', 'load-1', 'bid-1')).resolves.toBe(
-      assigned,
+    const { service, awarded } = setup();
+    await expect(service.acceptBid('tenant-1', 'user-1', 'load-1', 'bid-1')).resolves.toBe(awarded);
+  });
+
+  it('accepts only one bid per load', async () => {
+    const { service, stageService } = setup(undefined, {
+      ...load,
+      awardedBidId: 'other-bid',
+    } as LoadEntity);
+    await expect(service.acceptBid('tenant-1', 'user-1', 'load-1', 'bid-1')).rejects.toThrow(
+      'already accepted',
     );
+    expect(stageService.transition).not.toHaveBeenCalled();
+  });
+});
+
+describe('Indent rejected', () => {
+  const indent = {
+    ...load,
+    status: 'created',
+    postingType: 'indent',
+    postingId: 'posting-1',
+    transporterId: 'contracted-1',
+    freightValue: '38000',
+    expectedRate: null,
+  } as unknown as LoadEntity;
+
+  function setupIndent(current: LoadEntity = indent) {
+    const moved = { ...current, postingType: 'market_fleet', transporterId: null } as LoadEntity;
+    const bidRepository = {
+      findPosting: vi.fn(async () => ({ contractId: 'contract-1' })),
+      findContractPenalty: vi.fn(async () => '5000.00'),
+      recordRouteChange: vi.fn(async () => undefined),
+      addTransporterRecipients: vi.fn(async () => 4),
+    };
+    const stageService = { transition: vi.fn(async () => moved) };
+    const hooks = { onMarketLoadsPosted: vi.fn(async () => undefined) };
+    const activity = { record: vi.fn(async () => undefined) };
+    const service = new LoadBidService(
+      bidRepository as unknown as LoadBidRepository,
+      { findById: vi.fn(async () => current) } as unknown as LoadRepository,
+      {} as TransporterService,
+      stageService as unknown as LoadStageService,
+      activity as unknown as LoadActivityService,
+      {} as AuditService,
+      {} as LoadVerificationService,
+      hooks,
+      undefined,
+      () => NOW,
+    );
+    return { service, bidRepository, stageService, hooks, moved, activity };
+  }
+
+  it('sends the load to the open market with the penalty, Loadsmart included', async () => {
+    const { service, bidRepository, stageService, hooks, moved } = setupIndent();
+
+    const result = await service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'No truck');
+
+    expect(result).toBe(moved);
+    expect(stageService.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: 'indent_rejected',
+        fields: { transporterId: null, freightValue: null, expectedRate: '38000' },
+      }),
+    );
+    expect(bidRepository.recordRouteChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromPostingType: 'indent',
+        toPostingType: 'market_fleet',
+        reason: 'No truck',
+        contractId: 'contract-1',
+        transporterId: 'contracted-1',
+        penaltyAmount: '5000.00',
+      }),
+    );
+    expect(bidRepository.addTransporterRecipients).toHaveBeenCalledWith('tenant-1', 'posting-1');
+    expect(hooks.onMarketLoadsPosted).toHaveBeenCalledWith([moved], 'user-1');
+  });
+
+  it('refuses once the indent was accepted, or on a market load', async () => {
+    await expect(
+      setupIndent({
+        ...indent,
+        status: 'bids_received',
+      } as LoadEntity).service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'x'),
+    ).rejects.toThrow('already accepted');
+    await expect(
+      setupIndent(load).service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'x'),
+    ).rejects.toThrow('not an indent');
   });
 });

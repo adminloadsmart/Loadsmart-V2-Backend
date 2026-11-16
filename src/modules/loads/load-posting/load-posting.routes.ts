@@ -13,6 +13,8 @@ export function createLoadPostingRoutes(controller: LoadPostingController): Rout
   const canPost = requirePermission(LOADS_POST);
 
   // --- Pickers behind the form ---
+  // Timing rules from Super Admin → Settings (earliest truck reporting time, memo expiry).
+  router.get('/rules', canPost, asyncHandler(controller.rules));
   router.get(
     '/recent-customers',
     canPost,

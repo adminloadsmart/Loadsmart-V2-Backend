@@ -46,13 +46,26 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     validate(v.nameDriver),
     asyncHandler(controller.nameDriver),
   );
-  // Govt-portal checks of the load's truck and driver — only failures block.
+  router.post(
+    '/loads/:loadId/indent/reject',
+    canManageDispatch,
+    validate(v.recordIndentRejection),
+    asyncHandler(controller.recordIndentRejection),
+  );
+  // Govt-portal checks of the load's truck and driver — the memo needs both passed.
   router.get(
     '/loads/:loadId/verifications',
     validate(v.getChecks),
     asyncHandler(controller.getChecks),
   );
+  router.post(
+    '/loads/:loadId/verifications/rerun',
+    canManageDispatch,
+    validate(v.rerunChecks),
+    asyncHandler(controller.rerunChecks),
+  );
   router.get('/loads/:loadId/memo', validate(v.getMemo), asyncHandler(controller.getMemo));
+  router.get('/loads/:loadId/memos', validate(v.listMemos), asyncHandler(controller.listMemos));
   router.post(
     '/loads/:loadId/memo',
     canManageDispatch,
@@ -64,6 +77,19 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     canManageDispatch,
     validate(v.acceptMemo),
     asyncHandler(controller.acceptMemo),
+  );
+
+  // --- Truck cancelled before loading ---
+  router.post(
+    '/loads/:loadId/truck-cancellation',
+    canManageDispatch,
+    validate(v.cancelTruck),
+    asyncHandler(controller.cancelTruck),
+  );
+  router.get(
+    '/loads/:loadId/truck-cancellations',
+    validate(v.listTruckCancellations),
+    asyncHandler(controller.listTruckCancellations),
   );
 
   return router;

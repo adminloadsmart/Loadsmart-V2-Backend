@@ -29,7 +29,8 @@ export interface MasterLoadHistoryRow {
   code: string;
   status: string;
   fleetType: 'own_fleet' | 'market';
-  sourceType: string;
+  postingType: string;
+  route: string | null;
   date: string;
   tonnes: string;
   freightValue: string | null;
@@ -179,8 +180,9 @@ function toHistoryRow(load: LoadWithPosting): MasterLoadHistoryRow {
     id: load.id,
     code: load.code,
     status: load.status,
-    fleetType: load.sourceType === 'own_fleet' ? 'own_fleet' : 'market',
-    sourceType: load.sourceType,
+    fleetType: load.postingType === 'own_fleet' ? 'own_fleet' : 'market',
+    postingType: load.postingType,
+    route: load.route,
     date: load.createdAt.toISOString(),
     tonnes: load.plannedCapacityTonnes,
     // Trip total — per-ton rates multiplied out, same as the advance/balance maths.

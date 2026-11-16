@@ -14,6 +14,9 @@ import type { LoadDispatchNotifier } from './load-dispatch-notifier';
 import type { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingService } from './load-posting.service';
 import type { PostLoadInput } from './utils/load-posting.interface';
+import { DEFAULT_SETTINGS, SettingsReader } from '../../settings/settings.types';
+
+const SETTINGS = { id: 'settings-v1', version: 1, values: DEFAULT_SETTINGS };
 
 const orgAdmin = { role: 'org_admin', permissions: [] as string[] };
 
@@ -98,6 +101,7 @@ function setup(compliance: Partial<AssignmentCompliance>, licenseExpiry = '2030-
     {} as DriverTripNotifier,
     {} as TruckTypeService,
     complianceService,
+    { current: async () => SETTINGS, forLoad: async () => SETTINGS } as SettingsReader,
     onLoadEvent,
   );
   return { service, onLoadEvent };

@@ -76,10 +76,11 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.acceptBid',
     ...manageDispatch(
-      'Accept a bid: the load moves to Truck assigned with the bid’s transporter, truck ' +
-        'and rate, and the load’s other live bids are rejected. Only a live bid with a ' +
-        'truck number whose truck has not failed its check can be accepted. On an indent this ' +
-        'confirms the truck at the contract rate — there is no counter offer.',
+      'Award a bid at Bids received: the load keeps its stage with the award on it — the ' +
+        'bid’s transporter, truck and rate (route own_transporter; Loadsmart’s bid becomes a ' +
+        'Loadsmart load when its memo is accepted). The other live bids are rejected. One ' +
+        'accepted bid per load. Only a live bid with a truck number whose truck has not failed ' +
+        'its check can be accepted.',
     ),
     request: { params: v.acceptBid.shape.params },
     responses: {
@@ -98,8 +99,8 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.recordIndentAcceptance',
     ...manageDispatch(
       'The contracted transporter accepted the indent and sent the truck number. Records it as ' +
-        'the indent’s one bid, at the contract rate, and moves the load to Bids received. ' +
-        'The shipper then confirms it with POST /loads/{loadId}/bids/{bidId}/accept.',
+        'the indent’s one bid, at the contract rate — that is the award: the load moves to Bids ' +
+        'received on the indent route. No separate confirmation; the load memo follows.',
     ),
     request: {
       params: v.recordIndentAcceptance.shape.params,
@@ -118,7 +119,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.nameDriver',
     ...manageDispatch(
       'The transporter names the driver (name, mobile, licence number and date of birth) for a ' +
-        'market or indent load at Truck assigned. The truck is checked on VAHAN if it never was, ' +
+        'market or indent load with an award, at Bids received. The truck is checked on VAHAN if it never was, ' +
         'and the licence on Sarathi. The memo (expires in 1 hour) goes only when no check failed; ' +
         'otherwise `memo` is null and `checks` lists the failures to fix.',
     ),
@@ -127,7 +128,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       201: { description: '{ memo, checks } — memo sent' },
       200: { description: '{ memo: null, checks } — a check failed, no memo sent' },
       409: {
-        description: 'Own fleet, not at Truck assigned, or memo already accepted',
+        description: 'Own fleet, no award yet, or memo already accepted',
         ...errorContent,
       },
     },
@@ -142,11 +143,100 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       'The latest govt-portal checks on the load: the truck on VAHAN (RC, fitness, insurance, ' +
         'PUC, permit) and the driver on Sarathi (found, in date, and the licence class covers the ' +
         'truck — above 7.5 t GVW a transport licence). Each shows only its `failures`; ' +
-        '`unavailable` means the portal could not be reached and never blocks. `clear` is what ' +
-        'the load memo waits on.',
+        '`unavailable` means the portal could not be reached. `clear` (both passed) is what the ' +
+        'load memo waits on; `blockers` says why not — a failed check, one not run yet, or one ' +
+        'that could not run (POST /loads/{loadId}/verifications/rerun).',
     ),
     request: { params: v.getChecks.shape.params },
     responses: { 200: { description: '{ truck, driver, clear }' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/verifications/rerun`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.rerunChecks',
+    ...manageDispatch(
+      'Run the truck (VAHAN) and driver (Sarathi) checks again — after a portal could not be ' +
+        'reached, or a paper was fixed. If both then pass, the driver is named and no memo is ' +
+        'open, the memo goes out (201 with `memo`). Not on Loadsmart loads (Placement runs them).',
+    ),
+    request: { params: v.rerunChecks.shape.params },
+    responses: {
+      200: { description: '{ memo: null, checks } — still blocked' },
+      201: { description: '{ memo, checks } — memo sent' },
+      409: { description: 'No award yet, own fleet, or memo already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/memos`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listMemos',
+    ...authenticated(
+      'Every load memo version, latest first — reference (LM-<load>-v<n>), truck, driver, ' +
+        'licence, freight and payment terms, `pdfFileKey`, status (sent / accepted / expired / ' +
+        'superseded) and, once accepted, who and how (`acceptedVia` app or call).',
+    ),
+    request: { params: v.listMemos.shape.params },
+    responses: { 200: { description: 'MemoView[]' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/truck-cancellation`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.cancelTruck',
+    ...manageDispatch(
+      'The truck was cancelled between Truck assigned and Loaded (own transporter / indent). ' +
+        '`reasonCode` is an active code from Settings. `next`: `new_truck` — back to Bids ' +
+        'received with the award kept, for a new truck, driver, checks and memo version; ' +
+        '`reopen` — back to Created with no winner (an indent keeps its contracted transporter). ' +
+        'The truck and driver come off the load and are kept with the cancellation.',
+    ),
+    request: { params: v.cancelTruck.shape.params, body: json(v.cancelTruck.shape.body) },
+    responses: {
+      200: { description: 'The load, back at Bids received or Created' },
+      400: { description: 'Not an active reason code', ...errorContent },
+      409: {
+        description: 'Not between Truck assigned and Loaded, or not this route',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/truck-cancellations`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listTruckCancellations',
+    ...authenticated(
+      'The truck cancellations on the load, latest first, with the cancelled truck.',
+    ),
+    request: { params: v.listTruckCancellations.shape.params },
+    responses: { 200: { description: 'LoadCancellation[]' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/indent/reject`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.recordIndentRejection',
+    ...manageDispatch(
+      'The contracted transporter rejected the indent (`reason`). The load goes to the open ' +
+        'market at Created: it becomes a market load, the contract rate stays as the expected ' +
+        'price, the shipper’s active transporters become recipients and Loadsmart opens its ' +
+        'sourcing. The contract’s non-placement penalty, if any, is recorded with the change.',
+    ),
+    request: {
+      params: v.recordIndentRejection.shape.params,
+      body: json(v.recordIndentRejection.shape.body),
+    },
+    responses: {
+      200: { description: 'The load, now a market load' },
+      409: { description: 'Not an indent, or already accepted', ...errorContent },
+    },
   });
 
   registry.registerPath({
@@ -189,8 +279,9 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.acceptMemo',
     ...manageDispatch(
-      'The shipper accepts the load memo within its hour, optionally changing the loading ' +
-        'contact or adding a loading point note. The trip can start only after this.',
+      'The shipper accepts the load memo before it expires, optionally changing the loading ' +
+        'contact or adding a loading point note. This moves the load to Truck assigned (on a ' +
+        'Loadsmart award, it becomes a Loadsmart load).',
     ),
     request: { params: v.acceptMemo.shape.params, body: json(v.acceptMemo.shape.body) },
     responses: {

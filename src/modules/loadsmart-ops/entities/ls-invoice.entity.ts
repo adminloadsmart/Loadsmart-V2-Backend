@@ -1,7 +1,15 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import type { GstSplit, InvoiceLine } from '../billing-rules';
+import {
+  INVOICE_SEND_CHANNELS,
+  INVOICE_STATUSES,
+  InvoiceSendChannel,
+  InvoiceStatus,
+} from '../loadsmart.types';
 
-/** Loadsmart's invoice to the shipper for one load, raised by Receivables once the original POD
- *  is in. Amounts per loadsmart-rules.ts's invoiceAmounts. */
+/** Loadsmart's invoice to the shipper for one load (R02) — drafted from the load by the system,
+ *  issued by Receivables on the POD image (or the original, for shippers who need it). Amounts per
+ *  billing-rules.ts's buildInvoiceDraft. The due date is set once the shipper has received it. */
 @Entity({ schema: 'loads', name: 'ls_invoices' })
 export class LsInvoiceEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -43,8 +51,44 @@ export class LsInvoiceEntity {
   @Column({ name: 'balance_due', type: 'numeric', precision: 14, scale: 2 })
   balanceDue!: string;
 
-  @Column({ name: 'due_date', type: 'date' })
-  dueDate!: string;
+  /** Null until the shipper has received it. */
+  @Column({ name: 'due_date', type: 'date', nullable: true })
+  dueDate!: string | null;
+
+  @Column({ type: 'enum', enum: [...INVOICE_STATUSES], default: 'issued' })
+  status!: InvoiceStatus;
+
+  /** The drafted lines, billing instructions applied (left-off charges are marked). */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  lines!: InvoiceLine[];
+
+  /** Reverse charge, place of supply, CGST + SGST or IGST. */
+  @Column({ name: 'gst_split', type: 'jsonb', nullable: true })
+  gstSplit!: GstSplit | null;
+
+  @Column({ name: 'credit_days', type: 'integer', nullable: true })
+  creditDays!: number | null;
+
+  @Column({ name: 'sent_via', type: 'enum', enum: [...INVOICE_SEND_CHANNELS], nullable: true })
+  sentVia!: InvoiceSendChannel | null;
+
+  @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
+  sentAt!: Date | null;
+
+  /** The shipper's receipt date — sets the due date. */
+  @Column({ name: 'received_on', type: 'date', nullable: true })
+  receivedOn!: string | null;
+
+  /** What is still short after receipts, TDS and credit notes (negative: excess). */
+  @Column({ name: 'open_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  openAmount!: string | null;
+
+  /** An unexplained gap — Receivables follows it up. */
+  @Column({ name: 'follow_up', type: 'boolean', default: false })
+  followUp!: boolean;
+
+  @Column({ name: 'settled_at', type: 'timestamptz', nullable: true })
+  settledAt!: Date | null;
 
   @Column({ name: 'file_key', type: 'text', nullable: true })
   fileKey!: string | null;

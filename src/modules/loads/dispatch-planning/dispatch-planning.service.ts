@@ -629,7 +629,8 @@ export class DispatchPlanningService {
       rows.push({
         tenantId,
         requisitionId,
-        sourceType: 'own_fleet',
+        postingType: 'own_fleet',
+        route: 'own_fleet',
         status: 'truck_assigned',
         truckAssignedAt: new Date(),
         plannedCapacityTonnes: vehicle.capacityTons,
@@ -710,7 +711,8 @@ export class DispatchPlanningService {
     const row: CreateLoadData = {
       tenantId,
       requisitionId,
-      sourceType: 'market',
+      postingType: 'market_fleet',
+      route: null,
       status: 'created',
       plannedCapacityTonnes: truckType.capacityTons,
       truckTypeId: truckType.id,

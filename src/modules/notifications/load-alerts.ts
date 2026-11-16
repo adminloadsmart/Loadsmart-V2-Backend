@@ -236,7 +236,7 @@ function freightTotalOf(snapshot: LoadAlertSnapshot): number | null {
 /** LS_N_0039/0041 — the transporter's freight as the amount to bill (no customer billing amount
  *  exists yet). Null for own-fleet loads or no agreed freight. */
 function freightAmountOf(snapshot: LoadAlertSnapshot): string | null {
-  if (snapshot.sourceType === 'own_fleet') return null;
+  if (snapshot.postingType === 'own_fleet') return null;
   const freightTotal = freightTotalOf(snapshot);
   return freightTotal === null || freightTotal <= 0 ? null : formatRupees(freightTotal);
 }
@@ -244,7 +244,7 @@ function freightAmountOf(snapshot: LoadAlertSnapshot): string | null {
 /** LS_N_0038 — the transporter balance the POD review holds up: freight minus the advance share.
  *  Null for own-fleet loads (no transporter), no agreed freight, or a balance already paid. */
 function balanceAmountOf(snapshot: LoadAlertSnapshot): string | null {
-  if (snapshot.sourceType === 'own_fleet' || snapshot.balancePaidAt) return null;
+  if (snapshot.postingType === 'own_fleet' || snapshot.balancePaidAt) return null;
   const freightTotal = freightTotalOf(snapshot);
   if (freightTotal === null || freightTotal <= 0) return null;
   const advancePercentage = Number(snapshot.advancePercentage ?? 0);
@@ -355,7 +355,7 @@ export function createLoadAlertResolvers(
         origin: snapshot.originCity,
         driverName: snapshot.driverName,
         driverPhone: snapshot.driverPhone,
-        isOwnFleet: snapshot.sourceType === 'own_fleet',
+        isOwnFleet: snapshot.postingType === 'own_fleet',
         createdBy: snapshot.createdBy,
         lateMinutes: (Date.now() - new Date(context.reportingAt).getTime()) / MS_PER_MINUTE,
         lastSeenPlace: position ? await describeLocation(position, position.placeName) : null,
@@ -847,7 +847,7 @@ export function createLoadAlertResolvers(
           : null,
         lrNumber: snapshot.elrNumber,
         amount: freightAmountOf(snapshot),
-        balanceDue: snapshot.sourceType !== 'own_fleet' && !snapshot.balancePaidAt,
+        balanceDue: snapshot.postingType !== 'own_fleet' && !snapshot.balancePaidAt,
       };
     },
 
@@ -890,7 +890,7 @@ export function createLoadAlertResolvers(
       const advancePercentage = Number(snapshot?.advancePercentage ?? 0);
       if (
         !snapshot ||
-        snapshot.sourceType === 'own_fleet' ||
+        snapshot.postingType === 'own_fleet' ||
         snapshot.advancePaidAt ||
         advancePercentage <= 0
       ) {
@@ -940,7 +940,7 @@ export function createLoadAlertResolvers(
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
-        isOwnFleet: snapshot.sourceType === 'own_fleet',
+        isOwnFleet: snapshot.postingType === 'own_fleet',
         driverName: snapshot.driverName,
         driverPhone: snapshot.driverPhone,
         origin: snapshot.originCity,

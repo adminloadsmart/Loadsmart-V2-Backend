@@ -33,6 +33,11 @@ export type CreatePostingData = Omit<
   | 'pickupLoadingPoint'
   | 'dropCustomerDeliveryPoint'
   | 'dropLoadingPoint'
+  // Set afterwards, only when Loadsmart posted it for the shipper (LsApprovalService).
+  | 'postedOnBehalfBy'
+  | 'onBehalfChannel'
+  | 'onBehalfRequestedBy'
+  | 'onBehalfProofKey'
 >;
 
 export interface CreateRecipientData {

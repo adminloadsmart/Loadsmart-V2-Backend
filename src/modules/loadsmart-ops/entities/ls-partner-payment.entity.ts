@@ -1,5 +1,10 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { PARTNER_PAYMENT_TYPES, PartnerPaymentType } from '../loadsmart.types';
+import {
+  PARTNER_PAYMENT_STATUSES,
+  PARTNER_PAYMENT_TYPES,
+  PartnerPaymentStatus,
+  PartnerPaymentType,
+} from '../loadsmart.types';
 
 /** Money Loadsmart pays its partner on a load — the trucker advance once Loaded, the balance once
  *  the original POD is in. Kept apart from loads.load_payments, which is the shipper's side. */
@@ -34,14 +39,38 @@ export class LsPartnerPaymentEntity {
   @Column({ name: 'net_amount', type: 'numeric', precision: 12, scale: 2 })
   netAmount!: string;
 
-  @Column({ name: 'utr_reference', type: 'varchar', length: 100 })
-  utrReference!: string;
+  /** Set when Payables pays it. */
+  @Column({ name: 'utr_reference', type: 'varchar', length: 100, nullable: true })
+  utrReference!: string | null;
 
   @Column({ name: 'paid_by', type: 'uuid', nullable: true })
   paidBy!: string | null;
 
-  @Column({ name: 'paid_at', type: 'timestamptz' })
-  paidAt!: Date;
+  @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
+  paidAt!: Date | null;
+
+  @Column({ type: 'enum', enum: [...PARTNER_PAYMENT_STATUSES], default: 'paid' })
+  status!: PartnerPaymentStatus;
+
+  /** "The amount worked out line by line": freight share, charges, TDS. */
+  @Column({ type: 'jsonb', nullable: true })
+  lines!: { label: string; amount: number }[] | null;
+
+  @Column({ name: 'raised_by', type: 'uuid', nullable: true })
+  raisedBy!: string | null;
+
+  @Column({ name: 'raised_at', type: 'timestamptz', nullable: true })
+  raisedAt!: Date | null;
+
+  /** Super Admin's decision (approve, hold or reject) with the reason. */
+  @Column({ name: 'decided_by', type: 'uuid', nullable: true })
+  decidedBy!: string | null;
+
+  @Column({ name: 'decided_at', type: 'timestamptz', nullable: true })
+  decidedAt!: Date | null;
+
+  @Column({ name: 'decision_reason', type: 'text', nullable: true })
+  decisionReason!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

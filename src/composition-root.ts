@@ -94,6 +94,7 @@ import {
   TRIP_TIMING_JOB,
 } from './modules/notifications/trip-timing';
 import { createLoadsmartOpsModule } from './modules/loadsmart-ops';
+import { createSettingsModule } from './modules/settings';
 import { UlipClient } from './adapters/ulip.client';
 import { createAnalyticsModule } from './modules/analytics';
 import { createFleetAnalyticsModule } from './modules/analytics/fleet-analytics';
@@ -508,6 +509,8 @@ export function buildContainer(dataSource: DataSource): Container {
   // (invoice/e-way-bill/E-LR/E-POD uploads) directly, no gateway — same "consumer takes producer
   // services as direct constructor args" pattern dashboards uses below.
   const ulipClient = new UlipClient();
+  // Super Admin → Settings (S03) — read by the loads and Loadsmart ops modules, so built first.
+  const settings = createSettingsModule(dataSource, { auditService: audit.service });
   const loads = createLoadsModule(dataSource, {
     auditService: audit.service,
     authService: auth.service,
@@ -531,6 +534,7 @@ export function buildContainer(dataSource: DataSource): Container {
     // E-POD reminders and load updates (new load, loading contact/point changed) to the driver
     // app — one in-app card always, plus a push to each signed-in device.
     driverTripNotifier: driver.driverPushNotifier,
+    settings: settings.service,
   });
 
   // Loadsmart loads — the ops console (/loadsmart-ops) and the shipper's side of a Loadsmart load
@@ -538,7 +542,6 @@ export function buildContainer(dataSource: DataSource): Container {
   const loadsmart = createLoadsmartOpsModule(dataSource, {
     auditService: audit.service,
     storageService: storage.service,
-    notificationTriggers: notifications.triggers,
     loadActivityService: loads.loadActivityService,
     loadRepository: loads.loadRepository,
     loadService: loads.loadService,
@@ -549,8 +552,14 @@ export function buildContainer(dataSource: DataSource): Container {
     loadPaymentService: loads.loadPaymentService,
     postingHooks: loads.postingHooks,
     stageHooks: loads.stageHooks,
+    settings: settings.service,
+    loadDocumentService: loads.loadDocumentService,
+    loadPostingService: loads.loadPosting.postingService,
+    elrService: loads.elrService,
   });
   loads.protectedRouter.use(loadsmart.shipperRouter);
+  // Super Admin → Settings on the ops console: /loadsmart-ops/settings.
+  loadsmart.opsRouter.use('/settings', settings.router);
 
   // Geofences — CRUD here; the inside/outside check runs in the tracking service, which reports
   // enter/exit on its tracking.events stream.

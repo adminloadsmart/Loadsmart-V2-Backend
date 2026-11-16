@@ -33,12 +33,12 @@ import {
   TRIP_TRACK,
   LS_APPROVAL,
   LS_PLACEMENT,
-  LS_VERIFICATION,
   LS_TRACKING,
-  LS_POD,
   LS_CS,
   LS_RECEIVABLES,
   LS_PAYABLES,
+  LS_MONEY_APPROVE,
+  LS_SETTINGS_MANAGE,
   GEOFENCES_MANAGE,
   NOTIFICATION_PREFERENCES_MANAGE,
 } from '../shared/constants/permissions';
@@ -228,16 +228,20 @@ export const PERMISSIONS: {
     scope: 'organization',
     description: 'Get trip alerts: truck assigned, or an assignment blocked by expired documents',
   },
-  // Loadsmart ops console — one per ops team (loadsmart-ops/).
+  // Loadsmart ops console — one per ops team (loadsmart-ops/), plus Super Admin's two keys.
   ...[
-    [LS_APPROVAL, 'Check Loadsmart loads and post them on the load board'],
-    [LS_PLACEMENT, "Record partner bids, send Loadsmart's bid and name the partner's driver"],
-    [LS_VERIFICATION, 'Approve the truck and driver on a Loadsmart load'],
-    [LS_TRACKING, 'See Loadsmart loads on the road (the shipper runs the trip)'],
-    [LS_POD, 'Rate shipper and partner and receive the original POD'],
-    [LS_CS, 'See claims on Loadsmart loads delivered with issues (the shipper settles them)'],
+    [LS_APPROVAL, "Review onboarded shippers and post a load on a shipper's behalf"],
+    [
+      LS_PLACEMENT,
+      "Source trucks, give Loadsmart's price, add the truck and driver, send the memo",
+    ],
+    [LS_TRACKING, 'Run Loadsmart loads: papers, e-LR, charges, advance request, POD decision'],
+    [LS_CS, 'Claims on Loadsmart loads delivered with issues, and tickets'],
     [LS_RECEIVABLES, "See Loadsmart's invoices and the shipper's payments"],
-    [LS_PAYABLES, "Pay the partner's advance and balance"],
+    [LS_PAYABLES, "Pay the carrier's advance and balance and track the original POD"],
+    // Super Admin — in no role's bundle below; platform_admin passes through its bypass.
+    [LS_MONEY_APPROVE, 'Approve money going out: carrier advances and balances'],
+    [LS_SETTINGS_MANAGE, 'Change the Load module settings (timers, margin, advance, reason codes)'],
   ].map(([key, description]) => ({
     key,
     module: 'loadsmart',
@@ -246,12 +250,12 @@ export const PERMISSIONS: {
   })),
 ];
 
+// The ops teams' keys — load_console (the console lead) holds all of them. Super Admin's
+// LS_MONEY_APPROVE / LS_SETTINGS_MANAGE are deliberately not here.
 const LOADSMART_PERMISSIONS = [
   LS_APPROVAL,
   LS_PLACEMENT,
-  LS_VERIFICATION,
   LS_TRACKING,
-  LS_POD,
   LS_CS,
   LS_RECEIVABLES,
   LS_PAYABLES,
@@ -267,15 +271,16 @@ export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }
     scope: 'platform',
     permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
   },
+  // The KYC desks are the Load module's Approval team too (LS_APPROVAL).
   {
     name: 'online_kyc_desk',
     scope: 'platform',
-    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, LS_APPROVAL, FILES_READ, FILES_UPLOAD],
   },
   {
     name: 'offline_kyc_desk',
     scope: 'platform',
-    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT, LS_APPROVAL, FILES_READ, FILES_UPLOAD],
   },
   {
     name: 'load_console',
@@ -285,11 +290,8 @@ export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }
   // One role per Loadsmart ops team — its own key plus console access and files.
   ...(
     [
-      ['ls_approval', LS_APPROVAL],
       ['ls_placement', LS_PLACEMENT],
-      ['ls_verification', LS_VERIFICATION],
       ['ls_tracking', LS_TRACKING],
-      ['ls_pod', LS_POD],
       ['ls_cs', LS_CS],
       ['ls_receivables', LS_RECEIVABLES],
       ['ls_payables', LS_PAYABLES],

@@ -132,6 +132,8 @@ export interface CreateContractInput {
   pickupCity: string;
   dropCity: string;
   rate: number;
+  /** Owed by the transporter when it rejects an indent. */
+  nonPlacementPenalty?: number;
   validFrom: string;
   validTo: string;
 }

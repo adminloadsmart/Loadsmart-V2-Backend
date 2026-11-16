@@ -229,6 +229,8 @@ export const loadPostingValidators = {
         pickupCity: z.string().trim().min(1).max(100),
         dropCity: z.string().trim().min(1).max(100),
         rate: z.number().positive(),
+        /** What the transporter owes if it rejects an indent; leave out for none. */
+        nonPlacementPenalty: z.number().nonnegative().optional(),
         validFrom: isoDateSchema,
         validTo: isoDateSchema,
       })

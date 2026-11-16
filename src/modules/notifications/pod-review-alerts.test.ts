@@ -15,7 +15,7 @@ const reviewedAt = new Date('2026-10-21T08:50:00.000Z');
 const snapshot = {
   code: 'LD-1001',
   status: 'reached_unloading',
-  sourceType: 'market',
+  postingType: 'market_fleet',
   vehicleNumber: 'MH12AB1234',
   route: 'Ludhiana to Bhiwandi',
   transporterName: 'Sohal Roadlines',
@@ -98,7 +98,7 @@ describe('LS_N_0039 POD still pending', () => {
       status: 'delivered_ok',
       podStatus: 'rejected',
       podReviewedAt: rejectedAt,
-      sourceType: 'own_fleet',
+      postingType: 'own_fleet',
       transporterName: null,
     }).podPending('tenant-1', { loadId: 'load-1', since: rejectedAt.toISOString(), step: 1 }))!;
     expect(definition.buildContent(resolved, recipient).body).toBe(
@@ -205,7 +205,7 @@ describe('LS_N_0041 POD verified, clear to bill', () => {
   });
 
   it('own fleet: no amount and no transporter balance', async () => {
-    const resolved = (await setup({ ...accepted, sourceType: 'own_fleet' }).podVerified(
+    const resolved = (await setup({ ...accepted, postingType: 'own_fleet' }).podVerified(
       'tenant-1',
       context,
     ))!;

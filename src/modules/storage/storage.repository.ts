@@ -71,6 +71,12 @@ export class StorageRepository {
     return this.files.findOne({ where: { key, tenantId: IsNull(), deletedAt: IsNull() } });
   }
 
+  /** Moves a staff member's own tenant-less upload into a tenant's files. */
+  async adoptIntoTenant(id: string, tenantId: string): Promise<boolean> {
+    const result = await this.files.update({ id, tenantId: IsNull() }, { tenantId });
+    return result.affected === 1;
+  }
+
   async markConfirmed(tenantId: string, id: string, sizeBytes: number) {
     const result = await this.files.update(
       { id, tenantId, status: 'pending' },

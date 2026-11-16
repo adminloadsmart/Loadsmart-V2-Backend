@@ -20,6 +20,7 @@ import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import { LoadStageHook } from '../utils/load.interface';
 import { DriverTripNotifier } from '../utils/load-alert.interface';
 import { LoadPostingHooks } from './utils/load-posting.interface';
+import { SettingsReader } from '../../settings/settings.types';
 
 export function createLoadPostingModule(
   dataSource: DataSource,
@@ -33,6 +34,7 @@ export function createLoadPostingModule(
     driverNotifier: DriverTripNotifier;
     truckTypeService: TruckTypeService;
     assignmentComplianceService: AssignmentComplianceService;
+    settings: SettingsReader;
     /** LS_N_0016/0017 — truck assigned / blocked on an expired document. */
     onLoadEvent?: LoadEventNotifier;
     /** Swap in the real WhatsApp sender here once it exists. */
@@ -57,6 +59,7 @@ export function createLoadPostingModule(
     deps.driverNotifier,
     deps.truckTypeService,
     deps.assignmentComplianceService,
+    deps.settings,
     deps.onLoadEvent,
     deps.onStageEntered,
     deps.hooks,
@@ -71,7 +74,7 @@ export function createLoadPostingModule(
     postingService,
   );
   const contractService = new CustomerContractService(repository, deps.auditService);
-  const draftService = new LoadDraftService(repository);
+  const draftService = new LoadDraftService(repository, deps.settings);
 
   const controller = new LoadPostingController(
     postingService,

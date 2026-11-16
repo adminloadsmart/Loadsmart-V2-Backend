@@ -34,7 +34,7 @@ const num = (value: string | number | null | undefined): number | null =>
 
 /** §6 "Bought as": own truck, else contract when the load came off a customer contract, else spot. */
 function buyMethodOf(load: LoadEntity): BuyMethod {
-  if (load.sourceType === 'own_fleet') return 'own_fleet';
+  if (load.postingType === 'own_fleet') return 'own_fleet';
   return load.posting?.contractId ? 'contract' : 'spot';
 }
 
@@ -126,7 +126,7 @@ export function buildLoadFacts(
     const invoice = invoiceByLoad.get(load.id) ?? null;
     const transporter = load.transporter
       ? { id: load.transporter.id, name: load.transporter.name }
-      : load.sourceType === 'loadsmart'
+      : load.route === 'loadsmart'
         ? LOADSMART_TRANSPORTER
         : null;
 

@@ -31,7 +31,7 @@ export class LsSourcingEntity {
   @Column({ name: 'load_id', type: 'uuid', unique: true })
   loadId!: string;
 
-  @OneToOne(() => LoadEntity, { onDelete: 'CASCADE' })
+  @OneToOne(() => LoadEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'load_id' })
   load!: LoadEntity;
 
@@ -112,9 +112,6 @@ export class LsSourcingEntity {
   @Column({ name: 'driver_named_at', type: 'timestamptz', nullable: true })
   driverNamedAt!: Date | null;
 
-  @Column({ name: 'verification_approved_by', type: 'uuid', nullable: true })
-  verificationApprovedBy!: string | null;
-
   @Column({ name: 'papers_approved_by', type: 'uuid', nullable: true })
   papersApprovedBy!: string | null;
 
@@ -123,6 +120,32 @@ export class LsSourcingEntity {
 
   @Column({ name: 'original_pod_tracking_number', type: 'varchar', length: 100, nullable: true })
   originalPodTrackingNumber!: string | null;
+
+  /** The Placement member who owns the load (round robin, or moved by Super Admin). */
+  @Column({ name: 'placement_owner_id', type: 'uuid', nullable: true })
+  placementOwnerId!: string | null;
+
+  @Column({ name: 'placement_assigned_at', type: 'timestamptz', nullable: true })
+  placementAssignedAt!: Date | null;
+
+  /** Marked lost by Placement: a reason code from Settings, a note, and both rates. */
+  @Column({ name: 'lost_reason_code', type: 'varchar', length: 50, nullable: true })
+  lostReasonCode!: string | null;
+
+  @Column({ name: 'lost_note', type: 'text', nullable: true })
+  lostNote!: string | null;
+
+  @Column({ name: 'lost_shipper_rate', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  lostShipperRate!: string | null;
+
+  @Column({ name: 'lost_broker_rate', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  lostBrokerRate!: string | null;
+
+  @Column({ name: 'lost_by', type: 'uuid', nullable: true })
+  lostBy!: string | null;
+
+  @Column({ name: 'lost_at', type: 'timestamptz', nullable: true })
+  lostAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

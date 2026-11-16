@@ -48,7 +48,6 @@ export const en = {
       reached_unloading: 'Reached unloading point',
       delivered_ok: 'Delivered without issues',
       delivered_with_issues: 'Delivered with issues',
-      original_pod_received: 'Original POD received',
       invoice_generated: 'Invoice generated',
       payment: 'Payment',
       closed: 'Closed',

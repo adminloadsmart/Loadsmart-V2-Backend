@@ -1,4 +1,5 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import { loadChargeValidators } from '../money/load-charge.validators';
 import { requisitionValidators } from '../requisitions/requisition.validators';
 import { dispatchPlanningValidators } from '../dispatch-planning/dispatch-planning.validators';
 import { loadValidators } from './load.validators';
@@ -273,10 +274,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       'Load / Trip Detail — status, assignment, documents (resolved to download URLs), ' +
         'payments, computed e-way-bill expiry, the full chronological activity timeline (now with ' +
         "each entry's actor name/role resolved), the stage stepper for the load's own route " +
-        '(market/indent: Created → Bids received → Truck assigned → In-transit for loading → ' +
-        'Reached loading point → Loaded → In-transit for unloading → Reached unloading point → ' +
-        'Delivered; own fleet starts at Truck assigned; Delivered with issues appears only when the ' +
-        'POD noted an issue), and a next-action panel (current/next stage, "step N of M" on that ' +
+        '(the 13 stages: Created → Bids received → Truck assigned (memo accepted) → In-transit for ' +
+        'loading → Reached loading point → Loaded → In-transit for unloading → Reached unloading ' +
+        'point → Delivered → Invoice → Payment → Closed; own fleet starts at Truck assigned and ' +
+        'closes from Delivered; Delivered with issues appears only when the POD decision noted an ' +
+        'issue), `source` { postingType, route, label }, and a next-action panel (current/next stage, "step N of M" on that ' +
         'route, plus advance/balance info). This is the single trip ' +
         'detail screen — GET /loads/{loadId}/activities returns the same timeline entries alone.',
     ),
@@ -295,6 +297,20 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
       },
       404: { description: 'Load not found', ...errorContent },
     },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/stage-history`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listStageHistory',
+    ...authenticated(
+      'The stages the load has been through, oldest first: stage, route, the trigger that moved it ' +
+        'there, actorType/actorId, channel (web, driver_app, console, whatsapp, call, tracking, ' +
+        'system), enteredAt/exitedAt and minutes spent (so far, for the current stage).',
+    ),
+    request: { params: loadValidators.getActivities.shape.params },
+    responses: { 200: { description: 'StageHistoryView[], chronological' } },
   });
 
   registry.registerPath({
@@ -319,9 +335,9 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.assignLoad',
     ...manageDispatch(
-      'Load Assignment — market and indent loads, from Created or Bids received; moves the load ' +
-        'to Truck assigned. Own-fleet loads are assigned at Dispatch Planning ' +
-        '(vehicle+driver already known there) and 409 if sent here. Requires transporterId, ' +
+      'Load Assignment — award a market load straight to a transporter, from Created or Bids ' +
+        'received. The load moves to (or stays at) Bids received on the own-transporter route; the ' +
+        'accepted load memo moves it to Truck assigned. Other loads 409. Requires transporterId, ' +
         'vehicleNumber/driverNumber (free text), an optional driverName, and freightType; ' +
         'freightValue defaults to the target rate captured at planning if omitted (the ' +
         'negotiation landed on the original ask).',
@@ -455,11 +471,11 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
         'shortageOrDamage, numberOfTonnesShort, damagePhotoKey, and podRemarks are optional. ' +
         'damagePhotoKey becomes required when shortageOrDamage is `damage`, `wet` or `both`. ' +
         'Accepted once the load is In-transit for unloading (it is marked Reached unloading point ' +
-        'first) or at the unloading point. The POD decides the stage: nothing noted → Delivered ' +
-        'without issues; damage, shortage, wet or pilferage → Delivered with issues, until PATCH ' +
-        '/loads/{loadId}/delivery-issue/settle. podStatus becomes `pending` — closing requires ' +
-        'staff to accept the E-POD via PATCH /loads/{loadId}/pod/review. Also usable to resubmit ' +
-        'after a rejection (podStatus resets to `pending`).',
+        'first) or at the unloading point. Recording it does not decide the delivery: podStatus ' +
+        'becomes `pending` and the load stays at Reached unloading until the POD is decided (PATCH ' +
+        '/loads/{loadId}/pod/review; on a Loadsmart load, the Tracking team). shortageOrDamage is ' +
+        "kept as the decision's default. Can be replaced until decided, and resubmitted after a " +
+        'rejection.',
     ),
     request: {
       params: loadValidators.uploadPod.shape.params,
@@ -481,12 +497,12 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.reviewPod',
     ...manageDocuments(
-      'Staff accept/reject of a pending E-POD. `reason` is required when `decision` is ' +
-        '`rejected`. Accepting closes the load if it is Delivered without issues and — for market ' +
-        'and indent loads — both advance and balance are paid; otherwise it closes when the last ' +
-        'of those lands (issue settlement or balance payment). Rejecting leaves the stage as it ' +
-        'is — the driver resubmits via PATCH /loads/{loadId}/pod, which resets podStatus back to ' +
-        '`pending`.',
+      'The POD decision — the shipper answers "was there any issue?" on own fleet, own ' +
+        'transporter and indent loads (a Loadsmart load 409s: its Tracking team decides). ' +
+        '`accepted` with shortageOrDamage `none` → Delivered (own fleet then closes); with an issue ' +
+        '(plus issueDetails) → Delivered with issues until PATCH /loads/{loadId}/delivery-issue/' +
+        "settle. shortageOrDamage defaults to the driver's. `rejected` (reason required) keeps the " +
+        'load at Reached unloading for the driver to resubmit.',
     ),
     request: {
       params: loadValidators.reviewPod.shape.params,
@@ -543,41 +559,15 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
-    method: 'post',
-    path: `${BASE}/loads/{loadId}/elr`,
-    tags: [TAGS.LOADS],
-    operationId: 'loads.generateElr',
-    ...manageDocuments(
-      'Make the e-LR at the loading point (Reached loading point or Loaded). The invoice is ' +
-        'required — uploaded (invoice number + file on the load), or typed with ' +
-        '`invoiceNumber`, `invoiceDate` and `invoiceValue` (own fleet may). The shipper adds ' +
-        '`packages` and `sealNumber`; the rest fills in from the load. Freight is hidden unless ' +
-        '`showFreight` is true. Assigns the next LR-nnnn number (kept on regeneration), stores ' +
-        'the PDF (purpose trips/lr) in `elrDocumentFileKey`, and returns a download URL. The ' +
-        'signed LR the driver brings back is still uploaded separately and completes the ' +
-        'loading papers.',
-    ),
-    request: {
-      params: loadValidators.generateElr.shape.params,
-      body: json(loadValidators.generateElr.shape.body),
-    },
-    responses: {
-      201: { description: '{ load, elrNumber, downloadUrl }' },
-      400: { description: 'No invoice on the load and none typed', ...errorContent },
-      409: { description: 'Not at the loading point', ...errorContent },
-    },
-  });
-
-  registry.registerPath({
     method: 'patch',
     path: `${BASE}/loads/{loadId}/delivery-issue/settle`,
     tags: [TAGS.LOADS],
     operationId: 'loads.settleDeliveryIssue',
     ...manageDocuments(
-      'Delivered with issues → Delivered without issues, once the damage, shortage or pilferage ' +
-        'noted on the POD has been settled (own fleet: handled internally; market/indent: with ' +
-        'the transporter). `note` records how. Closes the load if the E-POD is accepted and — for ' +
-        'market and indent loads — both payments are recorded.',
+      'Delivered with issues → Delivered, once the damage, shortage or pilferage on the POD is ' +
+        'resolved. `note` records how. On own-transporter and indent loads `hasDeduction` is ' +
+        'required (and `deductionAmount` when true): the deduction comes off the balance due. ' +
+        'Own fleet then closes.',
     ),
     request: {
       params: loadValidators.settleDeliveryIssue.shape.params,
@@ -625,13 +615,50 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   // --- Payments ---
 
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/money`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.moneySummary',
+    ...permissionGated(
+      [PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE],
+      "Where the load's money stands: freightTotal, advancePaid, approved charges by head and " +
+        'in total, the deduction for a POD issue, balanceHeads (freight less advance, plus each ' +
+        'charge head) and balanceDue, the payments and the charges.',
+    ),
+    request: { params: loadPaymentValidators.summary.shape.params },
+    responses: { 200: { description: 'Money summary' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/transporter-charges`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.addTransporterCharge',
+    ...managePayments(
+      'Own transporter / indent: add a charge with its proof (proofFileKey, purpose ' +
+        'loads/charge-proof) from Loaded until the balance is paid. Heads: loading, ' +
+        'loading_detention, tarpaulin, overloading, parking, godown, unloading, ' +
+        'unloading_detention, other (remark required). It is paid with the balance.',
+    ),
+    request: {
+      params: loadChargeValidators.add.shape.params,
+      body: json(loadChargeValidators.add.shape.body),
+    },
+    responses: {
+      201: { description: 'The charge' },
+      409: { description: 'Not this route, or outside Loaded…invoice', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/loads/{loadId}/payments/advance`,
     tags: [TAGS.LOADS],
     operationId: 'loads.recordAdvancePayment',
     ...managePayments(
-      'Record the advance payment to a market-load transporter. Amount is computed ' +
-        "from the load's freight value × advance %.",
+      'Record the advance, once the load is Loaded: amount (defaults to freight × advance %), ' +
+        'UTR, paymentMode (neft, rtgs, imps, upi, cheque, cash), the account it was paid from, ' +
+        'and optional transactionId / proofFileKey (purpose loads/payment-proof).',
     ),
     request: {
       params: loadPaymentValidators.recordAdvance.shape.params,
@@ -647,13 +674,58 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'put',
+    path: `${BASE}/loads/{loadId}/unloading-details`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.setUnloadingDetails',
+    ...manageDispatch(
+      'Unloading details, before the truck reaches the drop: the receiver (receiverName + ' +
+        'receiverPhone) or the warehouse appointment (appointmentId + appointmentDate + ' +
+        'appointmentSlot), or both.',
+    ),
+    request: {
+      params: loadValidators.unloadingDetails.shape.params,
+      body: json(loadValidators.unloadingDetails.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      400: { description: 'Neither the receiver nor the appointment is complete', ...errorContent },
+      409: { description: 'The truck already reached the drop', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/transporter-invoice`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.uploadTransporterInvoice',
+    ...managePayments(
+      "Own transporter / indent, stage 11: the transporter's invoice (fileKey uploaded for " +
+        'purpose loads/invoice, optional number and amount), from Delivered. The balance is ' +
+        'recorded against it next.',
+    ),
+    request: {
+      params: loadValidators.transporterInvoice.shape.params,
+      body: json(loadValidators.transporterInvoice.shape.body),
+    },
+    responses: {
+      200: { description: 'Updated load' },
+      409: { description: 'Not Delivered, or not an own-transporter/indent load', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/loads/{loadId}/payments/balance`,
     tags: [TAGS.LOADS],
     operationId: 'loads.recordBalancePayment',
     ...managePayments(
-      'Record the balance payment. Due date is derived from the E-POD date plus the ' +
-        "transporter's credit days. Closes the load once advance is also paid.",
+      "Record the balance — own transporter / indent, once the transporter's invoice is in " +
+        '(stage 11 → Payment, 12). Proof is mandatory: utrReference, transactionId or ' +
+        'proofFileKey (purpose loads/payment-proof). `heads` (freight and each charge head) ' +
+        'default to what is due; the amount is their sum less the POD deduction. Closes the load ' +
+        "once the advance is paid too. On a Loadsmart load it pays Loadsmart's invoice (UTR " +
+        'required).',
     ),
     request: {
       params: loadPaymentValidators.recordBalance.shape.params,

@@ -1,3 +1,4 @@
+import type { ElrEditReason } from '../elr/load-elr-revision.entity';
 import type { LoadEntity } from '../entities/load.entity';
 
 /** What the shipper adds when making the e-LR — the rest fills in from the load. */
@@ -14,6 +15,18 @@ export interface ElrInput {
   /** Weighbridge slip, tonnes. Both given → the load's net weight (gross − tare) is saved. */
   grossWeightTonnes?: number;
   tareWeightTonnes?: number;
+}
+
+/** An edit of an issued e-LR — the reason is required; the number and vehicle never change. */
+export interface ElrEditInput {
+  reason: ElrEditReason;
+  note?: string;
+  packages?: number;
+  sealNumber?: string;
+  showFreight?: boolean;
+  /** A relief or replacement driver. */
+  driverName?: string;
+  driverMobile?: string;
 }
 
 export interface ElrRow {

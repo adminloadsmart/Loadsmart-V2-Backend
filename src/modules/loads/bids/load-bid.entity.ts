@@ -38,7 +38,7 @@ export class LoadBidEntity {
   @Column({ name: 'load_id', type: 'uuid' })
   loadId!: string;
 
-  @ManyToOne(() => LoadEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => LoadEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'load_id' })
   load!: LoadEntity;
 

@@ -10,7 +10,8 @@ import {
 } from '../../loads/core/load.validators';
 import { reportLoadIssueBody } from '../../loads/issues/load-issue.validators';
 import {
-  LOAD_SOURCE_TYPES,
+  LOAD_POSTING_TYPES,
+  LOAD_ROUTES,
   LOAD_STATUS_GROUPS,
   POD_STATUSES,
   LOAD_STATUSES,
@@ -54,7 +55,7 @@ export const driverPortalValidators = {
       reason: z.string().trim().min(1).max(255).optional(),
     }),
   }),
-  // Mirrors loads/load.validators.ts's `list` query filters — status/group/sourceType only
+  // Mirrors loads/load.validators.ts's `list` query filters — status/group/postingType/route only
   // (no requisitionId/transporterId/vehicleId/driverId here, unlike the staff-facing schema:
   // this list is always implicitly scoped to req.driver!.id, never another scope).
   // The only fields a driver may change on their own profile. Deliberately .strict(): the mobile
@@ -103,7 +104,8 @@ export const driverPortalValidators = {
         // The Trips Home-page tab filter (Active/Completed) — a status-group shorthand, not a
         // narrower version of `status` above, so the two aren't combined in one request.
         group: z.enum(LOAD_STATUS_GROUPS).optional(),
-        sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
+        postingType: z.enum(LOAD_POSTING_TYPES).optional(),
+        route: z.enum(LOAD_ROUTES).optional(),
         podStatus: z.enum(POD_STATUSES).optional(),
         fromDate: dateOnly.optional(),
         toDate: dateOnly.optional(),

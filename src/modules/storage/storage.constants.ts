@@ -4,14 +4,12 @@ import {
   KYC_ONLINE_REJECT,
   KYC_ONLINE_VERIFY,
   LOADS_CONSOLE_ACCESS,
-  LS_APPROVAL,
   LS_CS,
   LS_PAYABLES,
   LS_PLACEMENT,
-  LS_POD,
+  LS_MONEY_APPROVE,
   LS_RECEIVABLES,
   LS_TRACKING,
-  LS_VERIFICATION,
 } from '../../shared/constants/permissions';
 
 // Each purpose maps to exactly one S3 key prefix and its own size/mime-type policy — the module's
@@ -32,6 +30,10 @@ export const UPLOAD_PURPOSES = [
   'maintenance/invoice',
   'loads/loading-photo',
   'loads/weighing-slip',
+  'loads/memo',
+  'loads/charge-proof',
+  'loads/posting-request',
+  'loads/claim-evidence',
 ] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
@@ -51,6 +53,31 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     keyPrefix: 'trips/pod',
+  },
+  // The shipper's request (WhatsApp screenshot, email) when Loadsmart posts a load for them.
+  // What Customer support adds to a claim: repair estimates, damage letter, carrier statement,
+  // more photos or video.
+  'loads/claim-evidence': {
+    maxSizeBytes: 25 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf', 'video/mp4'],
+    keyPrefix: 'loads/claim-evidence',
+  },
+  'loads/posting-request': {
+    maxSizeBytes: 10 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
+    keyPrefix: 'loads/posting-request',
+  },
+  // The photo or document with a charge on an own-transporter or indent load.
+  'loads/charge-proof': {
+    maxSizeBytes: 10 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
+    keyPrefix: 'loads/charge-proof',
+  },
+  // System-generated load memo PDFs (loads/memo/load-memo.service.ts) — never uploaded by a user.
+  'loads/memo': {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf'],
+    keyPrefix: 'loads/memo',
   },
   'trips/lr': {
     maxSizeBytes: 5 * 1024 * 1024,
@@ -156,18 +183,17 @@ export const STAFF_CROSS_TENANT_READS: readonly {
     permissions: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT],
     purposes: ['kyc', 'organizations/shopboard-premises', 'profile'],
   },
-  // The Loadsmart ops console works shippers' loads and trips.
+  // The Loadsmart ops console works shippers' loads and trips. Not LS_APPROVAL: that is the KYC
+  // desks (the Approval team), who review onboarding, not load papers.
   {
     permissions: [
       LOADS_CONSOLE_ACCESS,
-      LS_APPROVAL,
       LS_PLACEMENT,
-      LS_VERIFICATION,
       LS_TRACKING,
-      LS_POD,
       LS_CS,
       LS_RECEIVABLES,
       LS_PAYABLES,
+      LS_MONEY_APPROVE,
     ],
     purposes: UPLOAD_PURPOSES.filter(
       (purpose) => purpose.startsWith('loads/') || purpose.startsWith('trips/'),

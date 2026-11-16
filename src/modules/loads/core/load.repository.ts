@@ -13,6 +13,7 @@ import {
   Not,
   Repository,
 } from 'typeorm';
+import { LoadStageHistoryEntity } from '../entities/load-stage-history.entity';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadCargoItemEntity } from '../entities/load-cargo-item.entity';
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
@@ -27,7 +28,8 @@ import {
   FreightMode,
   FreightType,
   LOAD_STATUS_GROUP_FILTERS,
-  LoadSourceType,
+  LoadPostingType,
+  LoadRoute,
   LoadStatus,
   ON_ROAD_LOAD_STATUSES,
   OPEN_LOAD_STATUSES,
@@ -81,8 +83,12 @@ export interface CreateLoadData {
   code?: string;
   requisitionId?: string | null;
   postingId?: string | null;
+  settingsVersionId?: string | null;
   title?: string | null;
-  sourceType: LoadSourceType;
+  postingType: LoadPostingType;
+  /** 'own_fleet' for own-fleet loads (born routed, at Truck assigned); null otherwise — the
+   *  route is set later by the trigger table (LoadStageService). */
+  route: LoadRoute | null;
   status?: LoadStatus; // own-fleet lands 'truck_assigned' directly (R-35); market defaults to 'created'
   truckAssignedAt?: Date | null;
   plannedCapacityTonnes: string;
@@ -183,6 +189,33 @@ export class LoadRepository {
 
   findLoadingPoint(tenantId: string, id: string): Promise<LoadingPointEntity | null> {
     return this.loadingPoints.findOne({ where: { id, tenantId } });
+  }
+
+  /** The loading point master the load loads at: its own override, else its posting's pickup
+   *  point, else its requisition's. Null for a posting picked up at a typed address. */
+  async loadingPointIdOf(load: LoadEntity): Promise<string | null> {
+    if (load.loadingPointId) return load.loadingPointId;
+    const [row] = (await this.loads.manager.query(
+      `SELECT COALESCE(p."pickup_loading_point_id", r."loading_point_id") AS "pointId"
+         FROM "loads"."loads" l
+         LEFT JOIN "loads"."load_postings" p ON p."id" = l."posting_id"
+         LEFT JOIN "loads"."requisitions" r ON r."id" = l."requisition_id"
+        WHERE l."id" = $1 AND l."tenant_id" = $2`,
+      [load.id, load.tenantId],
+    )) as { pointId: string | null }[];
+    return row?.pointId ?? null;
+  }
+
+  async setLoadingPointContact(
+    tenantId: string,
+    pointId: string,
+    contact: { name: string; phone: string },
+    updatedBy: string,
+  ): Promise<void> {
+    await this.loadingPoints.update(
+      { id: pointId, tenantId },
+      { contactPersonName: contact.name, contactPersonNumber: contact.phone, updatedBy },
+    );
   }
 
   /** The loads behind the driver's E-POD reminder cards — by id, or (older cards) by tenant + code.
@@ -345,7 +378,8 @@ export class LoadRepository {
       requisitionId,
       status,
       group,
-      sourceType,
+      postingType,
+      route,
       transporterId,
       vehicleId,
       driverId,
@@ -364,7 +398,8 @@ export class LoadRepository {
     if (group) {
       base.status = In(LOAD_STATUS_GROUP_FILTERS[group]);
     }
-    if (sourceType) base.sourceType = sourceType;
+    if (postingType) base.postingType = postingType;
+    if (route) base.route = route;
     if (transporterId) base.transporterId = transporterId;
     if (vehicleId) base.vehicleId = vehicleId;
     // The driver app's lists rely on this one — without it a driver sees every load in the fleet.
@@ -459,12 +494,19 @@ export class LoadRepository {
     tenantId: string | string[],
     filters: Pick<
       ListLoadsFilters,
-      'requisitionId' | 'sourceType' | 'transporterId' | 'vehicleId' | 'driverId' | 'search'
+      | 'requisitionId'
+      | 'postingType'
+      | 'route'
+      | 'transporterId'
+      | 'vehicleId'
+      | 'driverId'
+      | 'search'
     >,
   ): Promise<{ active: number; completed: number; open: number }> {
     const base: FindOptionsWhere<LoadEntity> = { tenantId: scopeToTenants(tenantId) };
     if (filters.requisitionId) base.requisitionId = filters.requisitionId;
-    if (filters.sourceType) base.sourceType = filters.sourceType;
+    if (filters.postingType) base.postingType = filters.postingType;
+    if (filters.route) base.route = filters.route;
     if (filters.transporterId) base.transporterId = filters.transporterId;
     if (filters.vehicleId) base.vehicleId = filters.vehicleId;
     if (filters.driverId) base.driverId = filters.driverId;
@@ -549,10 +591,26 @@ export class LoadRepository {
     return load?.tenantId ?? null;
   }
 
+  /** Creates the loads and opens each one's first stage in load_stage_history — posted from Post
+   *  a load ('posted'), or planned from a requisition ('planned'). */
   async createMany(rows: CreateLoadData[], manager: EntityManager): Promise<LoadEntity[]> {
     const repo = manager.getRepository(LoadEntity);
-    const entities = repo.create(rows);
-    return repo.save(entities);
+    const saved = await repo.save(repo.create(rows));
+    await manager.getRepository(LoadStageHistoryEntity).insert(
+      saved.map((load) => ({
+        tenantId: load.tenantId,
+        loadId: load.id,
+        stage: load.status,
+        route: load.route,
+        trigger: load.requisitionId ? 'planned' : 'posted',
+        actorType: 'shipper' as const,
+        actorId: load.createdBy,
+        channel: 'web' as const,
+        enteredAt: load.createdAt,
+        metadata: null,
+      })),
+    );
+    return saved;
   }
 
   /** Same cargo mix written once per load spawned from a truck line (Plan Dispatch v2.0 R-08). */

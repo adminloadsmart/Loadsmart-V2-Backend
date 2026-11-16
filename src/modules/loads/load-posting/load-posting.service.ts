@@ -37,11 +37,9 @@ import {
   LoadPostingHooks,
   OwnFleetAssignment,
 } from './utils/load-posting.interface';
-import {
-  DEFAULT_ADVANCE_PERCENTAGE,
-  MIN_PICKUP_LEAD_HOURS,
-  PostAddress,
-} from './utils/load-posting.types';
+import { DEFAULT_ADVANCE_PERCENTAGE, PostAddress } from './utils/load-posting.types';
+import { earliestReporting, reportingLeadError } from './utils/reporting-lead';
+import { SettingsReader } from '../../settings/settings.types';
 import { buildPostMessage } from './utils/post-message';
 import { driverUnavailableReason } from './utils/driver-availability';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
@@ -57,15 +55,6 @@ import {
   licenceClassVerdict,
   licenceExpiryFailure,
 } from '../verification/verification-rules';
-
-const HOUR_MS = 60 * 60 * 1000;
-const HALF_HOUR_MS = 30 * 60 * 1000;
-
-/** Earliest allowed pickup: 3 hours from `now`, rounded up to the next half hour (PL-01 note 5). */
-export function earliestPickup(now: Date): Date {
-  const earliest = now.getTime() + MIN_PICKUP_LEAD_HOURS * HOUR_MS;
-  return new Date(Math.ceil(earliest / HALF_HOUR_MS) * HALF_HOUR_MS);
-}
 
 interface ResolvedPlace {
   address: PostAddress;
@@ -116,6 +105,9 @@ export class LoadPostingService {
     private readonly truckTypeService: TruckTypeService,
     // LS_N_0017 — refuses a truck or driver with an expired document.
     private readonly assignmentComplianceService: AssignmentComplianceService,
+    /** Super Admin → Settings: the minimum reporting lead, and the version each load is stamped
+     *  with so its timers keep the values it was posted under. */
+    private readonly settings: SettingsReader,
     // LS_N_0016/0017 — optional; only queues a notification and never throws (see
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
@@ -127,6 +119,22 @@ export class LoadPostingService {
     /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
     private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
+
+  /** The form's timing rules from the latest settings: the earliest truck reporting time to
+   *  offer, and how long the load memo will run for a load posted now. */
+  async postingRules(now: Date = new Date()) {
+    try {
+      const { version, values } = await this.settings.current();
+      return {
+        settingsVersion: version,
+        minReportingLeadMinutes: values.minReportingLeadMinutes,
+        earliestReportingAt: earliestReporting(now, values.minReportingLeadMinutes).toISOString(),
+        memoExpiryMinutes: values.memoExpiryMinutes,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to read the posting rules');
+    }
+  }
 
   async post(
     tenantId: string,
@@ -145,13 +153,15 @@ export class LoadPostingService {
         if (existing) return this.describeExisting(tenantId, existing);
       }
 
-      // PL-13 — checked again here, not just in the picker.
+      // PL-13 — checked again here, not just in the picker. pickupAt is the truck reporting time.
+      const settings = await this.settings.current();
       const pickupAt = new Date(input.pickupAt);
-      if (pickupAt.getTime() < Date.now() + MIN_PICKUP_LEAD_HOURS * HOUR_MS) {
-        throw new ValidationError(
-          `Pickup must be at least ${MIN_PICKUP_LEAD_HOURS} hours from now`,
-        );
-      }
+      const leadError = reportingLeadError(
+        pickupAt,
+        new Date(),
+        settings.values.minReportingLeadMinutes,
+      );
+      if (leadError) throw new ValidationError(leadError);
 
       const customer = input.customerId
         ? await this.assertCustomerUsable(tenantId, input.customerId)
@@ -304,13 +314,10 @@ export class LoadPostingService {
           tenantId,
           code,
           postingId: posting.id,
+          settingsVersionId: settings.id,
           title: input.title || null,
-          sourceType:
-            input.mode === 'market_fleet'
-              ? 'market'
-              : input.mode === 'indent'
-                ? 'indent'
-                : 'own_fleet',
+          postingType: input.mode,
+          route: input.mode === 'own_fleet' ? 'own_fleet' : null,
           status: input.mode === 'own_fleet' ? 'truck_assigned' : 'created',
           truckAssignedAt: input.mode === 'own_fleet' ? new Date() : null,
           truckTypeId: trucks.main?.id ?? null,

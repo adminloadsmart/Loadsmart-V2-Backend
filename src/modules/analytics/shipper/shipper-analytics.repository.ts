@@ -3,7 +3,7 @@ import { LoadEntity } from '../../loads/entities/load.entity';
 import { LoadPaymentEntity } from '../../loads/entities/load-payment.entity';
 import { LoadIssueReportEntity } from '../../loads/entities/load-issue-report.entity';
 import { LoadAwardOutcomeEntity } from '../../loads/entities/load-award-outcome.entity';
-import { LoadChargeEntity } from '../../loadsmart-ops/entities/load-charge.entity';
+import { LoadChargeEntity } from '../../loads/money/load-charge.entity';
 import { LoadClaimEntity } from '../../loadsmart-ops/entities/load-claim.entity';
 import { LsInvoiceEntity } from '../../loadsmart-ops/entities/ls-invoice.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';

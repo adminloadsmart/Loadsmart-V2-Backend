@@ -16,13 +16,12 @@ export const SALES_ROLE = 'sales';
 export const LOAD_CONSOLE = 'load_console';
 
 // The Loadsmart ops teams — one platform role per team (loadsmart-ops/). Each holds its own
-// loadsmart.* permission; load_console holds every one of them.
+// loadsmart.* permission; load_console holds every one of them. The Approval team is the KYC
+// desks (they hold loadsmart.approval), so it has no role of its own; ls_approval,
+// ls_verification and ls_pod were retired (migration RetireLoadsmartTeamRoles).
 export const LOADSMART_TEAM_ROLES = [
-  'ls_approval',
   'ls_placement',
-  'ls_verification',
   'ls_tracking',
-  'ls_pod',
   'ls_cs',
   'ls_receivables',
   'ls_payables',

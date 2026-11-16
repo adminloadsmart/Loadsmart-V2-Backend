@@ -9,7 +9,7 @@ const departedAt = new Date('2026-11-10T09:15:00.000Z');
 const snapshot = {
   code: 'LD-1005',
   status: 'in_transit_unloading',
-  sourceType: 'market',
+  postingType: 'market_fleet',
   vehicleNumber: 'PB06BM2012',
   route: 'Pune to Bhiwandi',
   originCity: 'Pune',

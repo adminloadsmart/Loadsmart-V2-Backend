@@ -65,11 +65,14 @@ export const TRIP_TRACK = 'trip.track';
 
 // Loadsmart ops console (loadsmart-ops/) — one key per ops team on a Loadsmart load. Platform
 // scope: each ls_* role holds its own team's key, load_console (the console lead) holds them all.
-export const LS_APPROVAL = 'loadsmart.approval'; // checks and posts loads on the load board
-export const LS_PLACEMENT = 'loadsmart.placement'; // partner bids, Loadsmart's bid, driver
-export const LS_VERIFICATION = 'loadsmart.verification'; // approves truck and driver
-export const LS_TRACKING = 'loadsmart.tracking'; // marks stages, papers, charges, POD approval
-export const LS_POD = 'loadsmart.pod'; // ratings, original POD
-export const LS_CS = 'loadsmart.cs'; // claims on loads delivered with issues
+// The Approval team is the KYC desks (online_kyc_desk / offline_kyc_desk hold LS_APPROVAL).
+export const LS_APPROVAL = 'loadsmart.approval'; // reviews shippers, posts a load for a shipper
+export const LS_PLACEMENT = 'loadsmart.placement'; // sourcing, Loadsmart's price, truck, memo
+export const LS_TRACKING = 'loadsmart.tracking'; // papers, e-LR, charges, advance, POD decision
+export const LS_CS = 'loadsmart.cs'; // claims on loads delivered with issues, tickets
 export const LS_RECEIVABLES = 'loadsmart.receivables'; // shipper invoice and payment verification
-export const LS_PAYABLES = 'loadsmart.payables'; // partner advance and balance
+export const LS_PAYABLES = 'loadsmart.payables'; // carrier advance and balance, original POD
+// Super Admin — in no role's bundle: platform_admin passes through its bypass, and a platform
+// admin can grant either key to a named person (POST /roles/users/:userId/permissions).
+export const LS_MONEY_APPROVE = 'loadsmart.money.approve'; // approves money going out (S01)
+export const LS_SETTINGS_MANAGE = 'loadsmart.settings.manage'; // Super Admin → Settings (S03)

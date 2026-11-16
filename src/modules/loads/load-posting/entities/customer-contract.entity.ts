@@ -55,6 +55,17 @@ export class CustomerContractEntity {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   rate!: string;
 
+  /** What the contracted transporter owes when it rejects an indent (the load goes to the open
+   *  market). Null: no penalty. */
+  @Column({
+    name: 'non_placement_penalty',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  nonPlacementPenalty!: string | null;
+
   @Column({ name: 'valid_from', type: 'date' })
   validFrom!: string;
 

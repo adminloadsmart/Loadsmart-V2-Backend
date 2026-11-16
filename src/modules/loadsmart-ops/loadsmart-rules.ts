@@ -63,6 +63,29 @@ export function partnerAdvance(
   return { gross, tds, deductions: 0, net: round2(gross - tds) };
 }
 
+/** The carrier advance Tracking raises: the advance % of the carrier's trip, plus the approved
+ *  loading-side charges (they go with the advance), less TDS on the whole. `lines` is what
+ *  Super Admin sees. */
+export function partnerAdvanceWithCharges(
+  partnerTrip: number,
+  advancePercent: number,
+  charges: { head: string; amount: number }[],
+  tdsPercent: number,
+): PartnerPaymentAmounts & { lines: { label: string; amount: number }[] } {
+  const base = round2((partnerTrip * advancePercent) / 100);
+  const lines = [
+    { label: `Advance at ${advancePercent}% of ${round2(partnerTrip)}`, amount: base },
+    ...charges.map((charge) => ({
+      label: `${charge.head.replace(/_/g, ' ')} charge`,
+      amount: round2(charge.amount),
+    })),
+  ];
+  const gross = round2(lines.reduce((sum, line) => sum + line.amount, 0));
+  const tds = round2((gross * tdsPercent) / 100);
+  lines.push({ label: `TDS at ${tdsPercent}%`, amount: -tds });
+  return { gross, tds, deductions: 0, net: round2(gross - tds), lines };
+}
+
 /** "Payables pays the partner's balance, less any deductions": the partner's trip amount plus
  *  approved charges, less the advance already paid (gross), the claim recovered from the partner,
  *  and TDS on what is being paid now. */

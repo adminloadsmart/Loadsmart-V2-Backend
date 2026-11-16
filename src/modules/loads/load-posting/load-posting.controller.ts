@@ -113,6 +113,9 @@ export class LoadPostingController {
       ),
     );
 
+  rules = async (_req: Request, res: Response) =>
+    respond(res, await this.postingService.postingRules());
+
   truckOptions = async (req: Request, res: Response) =>
     respond(res, this.lookupService.truckOptions(req.validatedQuery as TruckOptionsInput));
 
