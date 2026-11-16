@@ -31,6 +31,7 @@ const anyReviewer = (description: string) =>
       KYC_ONLINE_REJECT,
       KYC_OFFLINE_VERIFY,
       KYC_OFFLINE_REJECT,
+      KYC_OVERSEE,
     ],
     description,
   );
@@ -424,7 +425,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
     path: `${BASE}/staff`,
     tags: [TAGS.ADMIN],
     operationId: 'admin.listStaff',
-    ...adminOnly(
+    ...anyReviewer(
       'List team members, paginated. Filters: search (name, email, phone or employee ID), team ' +
         '(e.g. ?team=ls_approval for the KYC verifier/agent assignment dropdowns; `role` is the ' +
         'older name for the same filter), teamRole, region, status (invited | active). A KYC ' +
