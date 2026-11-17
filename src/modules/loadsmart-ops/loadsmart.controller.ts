@@ -4,6 +4,8 @@ import { hasPermission } from '../../shared/middleware/require-permission.middle
 import { LS_MARGIN_MANAGE, LS_MARGIN_VIEW } from '../../shared/constants/permissions';
 import { AuthorizationError } from '../../shared/errors';
 import { redactMargin } from './redact-margin';
+import { redactMoney } from './redact-money';
+import { moneyVisibility } from './console-rules';
 import { requireTenantId } from '../../shared/middleware/require-tenant.middleware';
 import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';
@@ -15,6 +17,8 @@ import { LsCsService } from './ls-cs.service';
 import { LsReceivablesService } from './ls-receivables.service';
 import { LsPayablesService, OriginalPodFilter } from './ls-payables.service';
 import { AllLoadsQuery, LsConsoleService } from './ls-console.service';
+import { LsStaffNotifier } from './ls-staff-notifier';
+import { LsCallLogService } from './ls-call-log.service';
 import type { LiveStatus } from './console-rules';
 import { LoadsmartActor, LoadsmartRouteParams, PartnerInput } from './loadsmart.interface';
 import { PartnerPaymentStatus, UnclaimedStatus } from './loadsmart.types';
@@ -33,7 +37,47 @@ export class LoadsmartOpsController {
     private readonly receivables: LsReceivablesService,
     private readonly payables: LsPayablesService,
     private readonly consoleViews: LsConsoleService,
+    private readonly staffNotifier: LsStaffNotifier,
+    private readonly callLogs: LsCallLogService,
   ) {}
+
+  // --- Tracking: papers, POD, documents page ---
+  uploadPapers = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(res, await this.settlement.uploadPapers(actorOf(req), req.params.loadId, req.body));
+  uploadPod = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.settlement.uploadPod(actorOf(req), req.params.loadId, req.body));
+  documentsPage = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.settlement.documentsPage(
+        actorOf(req),
+        (req.validatedQuery ?? {}) as Parameters<LsSettlementService['documentsPage']>[1],
+      ),
+    );
+
+  // --- Tracking's call log ---
+  logCall = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(res, await this.callLogs.logCall(req.user!.id, req.params.loadId, req.body), 201);
+  listCalls = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(
+      res,
+      await this.callLogs.listCalls(
+        req.params.loadId,
+        ((req.validatedQuery ?? {}) as { limit?: number }).limit,
+      ),
+    );
+
+  // --- The member's own in-app inbox ---
+  notifications = async (req: Request, res: Response) => {
+    const query = (req.validatedQuery ?? {}) as { unreadOnly?: boolean; limit?: number };
+    respond(res, await this.staffNotifier.list(req.user!.id, query));
+  };
+  readNotification = async (req: Request<{ notificationId: string }>, res: Response) => {
+    await this.staffNotifier.markRead(req.user!.id, req.params.notificationId);
+    respond(res, { read: true });
+  };
+  readAllNotifications = async (req: Request, res: Response) =>
+    respond(res, { read: await this.staffNotifier.markAllRead(req.user!.id) });
 
   /** Every ops response goes through here: margin is stripped unless the caller may see it
    *  (LS_MARGIN_VIEW — Placement and the Admin team; platform_admin via its bypass). */
@@ -56,6 +100,15 @@ export class LoadsmartOpsController {
       req,
       res,
       await this.consoleViews.allLoads(req.user!, (req.validatedQuery ?? {}) as AllLoadsQuery),
+    );
+  trackingInbox = async (req: Request, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.consoleViews.trackingInbox(
+        { id: req.user!.id, role: req.user!.role, permissions: req.user!.permissions },
+        (req.validatedQuery ?? {}) as Parameters<LsConsoleService['trackingInbox']>[1],
+      ),
     );
   loadPanel = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.consoleViews.loadPanel(req.user!, req.params.loadId));
@@ -94,6 +147,17 @@ export class LoadsmartOpsController {
       await this.tracking.raiseCharge(actorOf(req), req.params.loadId, req.body),
       201,
     );
+  decideChargeAsAdmin = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.tracking.decideChargeAsAdmin(
+        req.user!.id,
+        req.params.loadId,
+        req.params.chargeId!,
+        req.body,
+      ),
+    );
   replyToChargeQuery = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,
@@ -126,7 +190,7 @@ export class LoadsmartOpsController {
     this.out(
       req,
       res,
-      await this.tracking.raisePartnerAdvance(req.user!.id, req.params.loadId),
+      await this.tracking.raisePartnerAdvance(req.user!.id, req.params.loadId, req.body),
       201,
     );
   partnerPayments = async (req: Request, res: Response) =>
@@ -179,8 +243,22 @@ export class LoadsmartOpsController {
     this.out(
       req,
       res,
-      await this.placementService.moveOwner(req.user!.id, req.params.sourcingId, req.body.ownerId),
+      req.body.team === 'tracking'
+        ? await this.tracking.moveTrackingOwner(
+            req.user!.id,
+            req.params.sourcingId,
+            req.body.ownerId,
+          )
+        : await this.placementService.moveOwner(
+            req.user!.id,
+            req.params.sourcingId,
+            req.body.ownerId,
+          ),
     );
+  claimPlacement = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.placementService.claim(req.user!.id, req.params.sourcingId));
+  claimTracking = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.tracking.claimLoad(req.user!.id, req.params.loadId));
   markLost = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,
@@ -423,8 +501,16 @@ export class LoadsmartOpsController {
     this.out(req, res, await this.payables.payBalance(req.user!.id, req.params.loadId, req.body));
 
   /** Everything Loadsmart holds on one load. */
+  // Money as the caller's team may see it: Tracking gets carrier money only, CS none.
   loadDetail = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    this.out(req, res, await this.settlement.loadDetail(req.params.loadId));
+    this.out(
+      req,
+      res,
+      redactMoney(await this.settlement.loadDetail(req.params.loadId), moneyVisibility(req.user!)),
+    );
+  // The carrier advance and balance with their UTR and payment advice — Tracking passes it on.
+  partnerPaymentsOfLoad = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(res, await this.tracking.partnerPaymentsOf(actorOf(req), req.params.loadId));
 }
 
 /** The shipper's side of a Loadsmart load, on /v1/loads. */

@@ -135,6 +135,8 @@ const row = (overrides: Partial<AllLoadsRow>): AllLoadsRow => ({
   sourcingStatus: 'won',
   tenantId: 't-1',
   shipperName: 'Acme',
+  trackingOwnerId: null,
+  placementOwnerId: null,
   loadId: 'load-1',
   code: 'LOAD-1',
   status: 'loaded',
@@ -207,6 +209,33 @@ describe('All loads (L01)', () => {
       margin: 5000,
       marginPercent: 10,
     });
+  });
+});
+
+describe('Tracking inbox', () => {
+  const rows = [
+    row({ loadId: 'a', code: 'A', trackingOwnerId: 'me' }),
+    row({ loadId: 'b', code: 'B', trackingOwnerId: 'someone-else' }),
+    row({ loadId: 'c', code: 'C', trackingOwnerId: null }),
+    row({ loadId: 'd', code: 'D', status: 'delivered_ok' }), // no longer on the road
+  ];
+  const me = { id: 'me', ...staff('loadsmart.tracking') };
+
+  it('lists only loads on the road, with counts for all, mine and unclaimed', async () => {
+    const { service } = consoleFixture(rows);
+    const inbox = await service.trackingInbox(me, {});
+    expect(inbox.items.map((item) => item.code)).toEqual(['A', 'B', 'C']);
+    expect(inbox.counts).toEqual({ all: 3, mine: 1, unclaimed: 1 });
+  });
+
+  it('narrows to mine or unclaimed, shows carrier money only and no margin', async () => {
+    const { service } = consoleFixture(rows);
+    const mine = await service.trackingInbox(me, { mine: true });
+    expect(mine.items.map((item) => item.code)).toEqual(['A']);
+    expect(mine.items[0].owners.tracking).toBe('me');
+    const unclaimed = await service.trackingInbox(me, { unclaimed: true });
+    expect(unclaimed.items.map((item) => item.code)).toEqual(['C']);
+    expect(unclaimed.items[0].money).toEqual({ carrierFreight: 45000 });
   });
 });
 

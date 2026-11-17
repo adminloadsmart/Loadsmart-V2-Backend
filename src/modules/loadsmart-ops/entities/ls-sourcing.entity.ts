@@ -128,6 +128,13 @@ export class LsSourcingEntity {
   @Column({ name: 'placement_assigned_at', type: 'timestamptz', nullable: true })
   placementAssignedAt!: Date | null;
 
+  /** The Tracking member who runs the load — claimed by themselves, or moved by Super Admin. */
+  @Column({ name: 'tracking_owner_id', type: 'uuid', nullable: true })
+  trackingOwnerId!: string | null;
+
+  @Column({ name: 'tracking_claimed_at', type: 'timestamptz', nullable: true })
+  trackingClaimedAt!: Date | null;
+
   /** Marked lost by Placement: a reason code from Settings, a note, and both rates. */
   @Column({ name: 'lost_reason_code', type: 'varchar', length: 50, nullable: true })
   lostReasonCode!: string | null;

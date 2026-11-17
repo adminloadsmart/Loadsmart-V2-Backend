@@ -94,6 +94,8 @@ import { LsSourcingEntity } from '../modules/loadsmart-ops/entities/ls-sourcing.
 import { LsPartnerBidEntity } from '../modules/loadsmart-ops/entities/ls-partner-bid.entity';
 import { LoadChargeEntity } from '../modules/loads/money/load-charge.entity';
 import { LsPartnerPaymentEntity } from '../modules/loadsmart-ops/entities/ls-partner-payment.entity';
+import { LsCallLogEntity } from '../modules/loadsmart-ops/entities/ls-call-log.entity';
+import { LsStaffNotificationEntity } from '../modules/loadsmart-ops/entities/ls-staff-notification.entity';
 import { LoadClaimEntity } from '../modules/loadsmart-ops/entities/load-claim.entity';
 import { LoadRatingEntity } from '../modules/loadsmart-ops/entities/load-rating.entity';
 import { LsInvoiceEntity } from '../modules/loadsmart-ops/entities/ls-invoice.entity';
@@ -204,6 +206,8 @@ export const AppDataSource = new DataSource({
     LsPartnerBidEntity,
     LoadChargeEntity,
     LsPartnerPaymentEntity,
+    LsStaffNotificationEntity,
+    LsCallLogEntity,
     LoadClaimEntity,
     LoadRatingEntity,
     LsInvoiceEntity,

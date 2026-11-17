@@ -1,4 +1,4 @@
-import { In } from 'typeorm';
+import { In, IsNull } from 'typeorm';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
@@ -16,7 +16,10 @@ import { LoadsmartRepository } from './loadsmart.repository';
 import { DEFAULT_TDS_PERCENT, LOADING_SIDE_HEADS, PartnerPaymentStatus } from './loadsmart.types';
 import { partnerAdvanceWithCharges } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
-import { LoadsmartActor, UtrInput } from './loadsmart.interface';
+import { LsStaffNotifier } from './ls-staff-notifier';
+import { LS_MONEY_APPROVE, LS_PAYABLES, LS_TRACKING } from '../../shared/constants/permissions';
+import { LoadsmartActor, PartnerPayInput } from './loadsmart.interface';
+import { attachPaymentProof } from './ls-payment-proof';
 
 /** Tracking raises a charge on a Loadsmart load (with its proof). */
 export interface RaiseChargeInput {
@@ -24,8 +27,20 @@ export interface RaiseChargeInput {
   amount: number;
   /** Required with the `other` head. */
   remark?: string;
-  /** Uploaded by the Tracking member for purpose loads/charge-proof. */
-  proofFileKey: string;
+  /** Optional. Uploaded by the Tracking member for purpose loads/charge-proof. */
+  proofFileKey?: string;
+}
+
+/** Super Admin's decision on a charge the shipper has approved. */
+export interface ChargeAdminDecisionInput {
+  decision: 'approved' | 'rejected';
+  /** Required to reject. */
+  reason?: string;
+}
+
+/** Which approved loading-side charges go with the advance (default: all that are not yet sent). */
+export interface RaiseAdvanceInput {
+  chargeIds?: string[];
 }
 
 /** Super Admin's decision on money going out to a carrier. */
@@ -49,14 +64,27 @@ export function isPreapproved(
   );
 }
 
+/** The notice Super Admin gets when a charge has cleared the shipper and waits for them. */
+export function chargeNeedsAdmin(loadCode: string, charge: LoadChargeEntity, head: string) {
+  return {
+    type: 'charge.pending_admin',
+    title: `Charge waiting for approval — ${loadCode}`,
+    body: `The ${head.replace(/_/g, ' ')} charge of ₹${charge.amount} on ${loadCode} cleared the shipper and needs Super Admin.`,
+    loadId: charge.loadId,
+    metadata: { chargeId: charge.id, amount: charge.amount },
+  };
+}
+
 /**
  * Loadsmart's Tracking team on a load it won:
- * - charges with proof — approved as raised when the shipper pre-approved the head, otherwise
- *   the shipper approves, rejects or queries; Tracking answers a query;
+ * - charges (proof optional) — the shipper approves, rejects or queries (a pre-approved head skips
+ *   that step), then Super Admin approves or rejects; Tracking answers a query;
  * - the e-LR (one series across Loadsmart): issue, edit with a reason, cancel, history;
  * - the carrier advance: Tracking raises it (advance % of the carrier's trip plus approved
  *   loading-side charges, less TDS), Super Admin approves, holds or rejects it, Payables pays it
- *   with the UTR. No email or WhatsApp goes out at any step.
+ *   with the UTR. Each step drops an in-app notice in the ops inbox (LsStaffNotifier): raised → Payables
+ *   and Super Admin; decided → the member who raised it (and Payables once approved); paid → the member
+ *   who raised it. No email or WhatsApp goes out.
  */
 export class LsTrackingService extends LsServiceBase {
   constructor(
@@ -66,6 +94,7 @@ export class LsTrackingService extends LsServiceBase {
     private readonly storageService: StorageService,
     private readonly documents: LoadDocumentService,
     private readonly elrService: ElrService,
+    private readonly notifier: LsStaffNotifier,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -88,15 +117,18 @@ export class LsTrackingService extends LsServiceBase {
       if (input.head === 'other' && !remark) {
         throw new ValidationError('Add a remark for a charge under "other"');
       }
-      await this.storageService.attachStaffUpload(
-        actor.id,
-        input.proofFileKey,
-        'loads/charge-proof',
-        sourcing.tenantId,
-      );
+      if (input.proofFileKey) {
+        await this.storageService.attachStaffUpload(
+          actor.id,
+          input.proofFileKey,
+          'loads/charge-proof',
+          sourcing.tenantId,
+        );
+      }
       const terms = await this.repository.terms.findOneBy({ tenantId: sourcing.tenantId });
       const preapproved = isPreapproved(terms?.preapprovedCharges ?? [], input.head, input.amount);
       const now = this.now();
+      // The shipper's pre-approval covers the shipper's step only; Super Admin still decides.
       const charge = await this.repository.charges.save(
         this.repository.charges.create({
           tenantId: sourcing.tenantId,
@@ -104,26 +136,35 @@ export class LsTrackingService extends LsServiceBase {
           chargeType: input.head,
           amount: String(input.amount),
           note: remark,
-          proofFileKey: input.proofFileKey,
-          status: preapproved ? 'approved' : 'raised',
+          proofFileKey: input.proofFileKey ?? null,
+          status: preapproved ? 'pending_admin' : 'raised',
           preapproved,
           raisedByParty: 'loadsmart',
           raisedBy: actor.id,
-          ...(preapproved ? { decidedBy: actor.id, decidedAt: now } : {}),
+          ...(preapproved ? { decidedAt: now } : {}),
         }),
       );
-      await this.documents.save(
-        sourcing.tenantId,
-        load,
-        { updatedBy: actor.id },
-        { userId: actor.id, source: 'console' },
-        [{ docType: 'charge_proof', fileKey: input.proofFileKey }],
-      );
+      if (input.proofFileKey) {
+        await this.documents.save(
+          sourcing.tenantId,
+          load,
+          { updatedBy: actor.id },
+          { userId: actor.id, source: 'console' },
+          [{ docType: 'charge_proof', fileKey: input.proofFileKey }],
+        );
+      }
       await this.step(sourcing, actor.id, `${input.head}_charge_raised`, 'LS_CHARGE_RAISED', {
         chargeId: charge.id,
         amount: charge.amount,
         preapproved,
       });
+      if (preapproved) {
+        await this.notifier.notifyPermission(
+          [LS_MONEY_APPROVE],
+          chargeNeedsAdmin(load.code, charge, input.head),
+          actor.id,
+        );
+      }
       return charge;
     } catch (error) {
       rethrow(error, 'Failed to raise the charge');
@@ -168,6 +209,120 @@ export class LsTrackingService extends LsServiceBase {
     }
   }
 
+  /** Super Admin's decision on a charge the shipper has approved — the second approval. Only an
+   *  approved charge reaches the shipper's invoice and the carrier's pay. */
+  async decideChargeAsAdmin(
+    actorId: string,
+    loadId: string,
+    chargeId: string,
+    input: ChargeAdminDecisionInput,
+  ): Promise<LoadChargeEntity> {
+    try {
+      const sourcing = await this.assertWonLoad(loadId);
+      const charge = await this.repository.charges.findOneBy({
+        id: chargeId,
+        tenantId: sourcing.tenantId,
+        loadId,
+      });
+      if (!charge) throw new NotFoundError(`Charge ${chargeId} not found`);
+      if (charge.status !== 'pending_admin') {
+        throw new ConflictError(
+          charge.status === 'approved' || charge.status === 'rejected'
+            ? `This charge is already ${charge.status}`
+            : 'The shipper has not approved this charge yet',
+        );
+      }
+      const reason = input.reason?.trim() || null;
+      if (input.decision === 'rejected' && !reason) {
+        throw new ValidationError('Give a reason to reject the charge');
+      }
+      const result = await this.repository.charges.update(
+        { id: chargeId, status: 'pending_admin' },
+        {
+          status: input.decision,
+          adminDecidedBy: actorId,
+          adminDecidedAt: this.now(),
+          rejectionReason: input.decision === 'rejected' ? reason : charge.rejectionReason,
+        },
+      );
+      if (!result.affected) throw new ConflictError('The charge changed — reload it');
+      await this.step(
+        sourcing,
+        actorId,
+        `${charge.chargeType}_charge_admin_${input.decision}`,
+        'LS_CHARGE_DECIDED',
+        { chargeId, amount: charge.amount, decision: input.decision, reason },
+      );
+      await this.notifier.notifyUsers([charge.raisedBy], {
+        type: `charge.${input.decision}`,
+        title: `Charge ${input.decision} — ${sourcing.load.code}`,
+        body: `Super Admin ${input.decision} the ${charge.chargeType.replace(/_/g, ' ')} charge of ₹${charge.amount} on ${sourcing.load.code}${reason ? `: ${reason}` : ''}.`,
+        loadId,
+        metadata: { chargeId, decision: input.decision, reason },
+      });
+      return (await this.repository.charges.findOneBy({ id: chargeId }))!;
+    } catch (error) {
+      rethrow(error, 'Failed to decide the charge');
+    }
+  }
+
+  // --- Ownership -----------------------------------------------------------------------------
+
+  /** "Claim this load as mine": a Tracking member takes a load nobody runs yet. */
+  async claimLoad(actorId: string, loadId: string) {
+    try {
+      const sourcing = await this.assertWonLoad(loadId);
+      const result = await this.repository.sourcings.update(
+        { id: sourcing.id, trackingOwnerId: IsNull() },
+        { trackingOwnerId: actorId, trackingClaimedAt: this.now() },
+      );
+      if (!result.affected) {
+        throw new ConflictError(
+          sourcing.trackingOwnerId === actorId
+            ? 'This load is already yours'
+            : 'Another Tracking member already runs this load',
+        );
+      }
+      await this.step(sourcing, actorId, 'tracking_owner_claimed', 'LS_TRACKING_ASSIGNED', {
+        from: null,
+        to: actorId,
+        by: 'self_claim',
+      });
+      return this.repository.findSourcingByLoad(loadId);
+    } catch (error) {
+      rethrow(error, 'Failed to claim the load');
+    }
+  }
+
+  /** Super Admin moves a load to another Tracking member by hand. */
+  async moveTrackingOwner(actorId: string, sourcingId: string, ownerId: string) {
+    try {
+      const sourcing = await this.assertSourcing(sourcingId);
+      const holders = await this.repository.listStaffWithPermission([LS_TRACKING]);
+      if (!holders.some((user) => user.id === ownerId)) {
+        throw new ValidationError(`Not on the Tracking team: ${ownerId}`);
+      }
+      const updated = await this.repository.updateSourcing(sourcing.id, {
+        trackingOwnerId: ownerId,
+        trackingClaimedAt: this.now(),
+      });
+      await this.step(sourcing, actorId, 'tracking_owner_moved', 'LS_TRACKING_ASSIGNED', {
+        from: sourcing.trackingOwnerId,
+        to: ownerId,
+        by: 'super_admin',
+      });
+      await this.notifier.notifyUsers([ownerId], {
+        type: 'tracking.assigned',
+        title: `A load was assigned to you — ${sourcing.load.code}`,
+        body: `Super Admin moved ${sourcing.load.code} to you.`,
+        loadId: sourcing.loadId,
+      });
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to move the load');
+    }
+  }
+
   // --- e-LR ---------------------------------------------------------------------------------
 
   async issueElr(actor: LoadsmartActor, loadId: string, input: ElrInput) {
@@ -192,8 +347,15 @@ export class LsTrackingService extends LsServiceBase {
 
   // --- Carrier advance: Tracking raises → Super Admin decides → Payables pays ----------------
 
-  /** Tracking raises the carrier's advance once Loaded. A rejected advance can be raised again. */
-  async raisePartnerAdvance(actorId: string, loadId: string): Promise<LsPartnerPaymentEntity> {
+  /** Tracking raises the carrier's advance once Loaded. A rejected advance can be raised again, and
+   *  one still waiting (raised or on hold) can be raised again with a different set of charges —
+   *  it goes back to Super Admin with the new amounts. Loading-side charges not sent with the
+   *  advance are paid with the balance. */
+  async raisePartnerAdvance(
+    actorId: string,
+    loadId: string,
+    input: RaiseAdvanceInput = {},
+  ): Promise<LsPartnerPaymentEntity> {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       const load = sourcing.load;
@@ -201,17 +363,42 @@ export class LsTrackingService extends LsServiceBase {
         throw new ConflictError('The carrier advance is raised once Loaded');
       }
       const existing = await this.repository.findPartnerPayment(sourcing.id, 'advance');
-      if (existing && existing.status !== 'rejected') {
+      const waiting = existing?.status === 'raised' || existing?.status === 'on_hold';
+      if (existing && existing.status !== 'rejected' && !(waiting && input.chargeIds?.length)) {
         throw new ConflictError(
           `The carrier advance is already ${existing.status.replace('_', ' ')}`,
         );
       }
-      const charges = await this.repository.charges.findBy({
-        tenantId: sourcing.tenantId,
-        loadId,
-        status: 'approved',
-        chargeType: In([...LOADING_SIDE_HEADS]),
+      // Approved loading-side charges not yet sent with an advance (or sent with this one).
+      const candidates = await this.repository.charges.find({
+        where: [
+          {
+            tenantId: sourcing.tenantId,
+            loadId,
+            status: 'approved',
+            chargeType: In([...LOADING_SIDE_HEADS]),
+            partnerPaymentId: IsNull(),
+          },
+          ...(existing
+            ? [
+                {
+                  tenantId: sourcing.tenantId,
+                  loadId,
+                  status: 'approved' as const,
+                  chargeType: In([...LOADING_SIDE_HEADS]),
+                  partnerPaymentId: existing.id,
+                },
+              ]
+            : []),
+        ],
       });
+      const wanted = input.chargeIds ? new Set(input.chargeIds) : null;
+      const charges = wanted ? candidates.filter((charge) => wanted.has(charge.id)) : candidates;
+      if (wanted && charges.length !== wanted.size) {
+        throw new ValidationError(
+          'Only approved loading-side charges that are not already paid can go with the advance',
+        );
+      }
       const advancePercent = Number(
         sourcing.partner?.advancePercent ?? sourcing.truckerAdvancePercent,
       );
@@ -253,10 +440,57 @@ export class LsTrackingService extends LsServiceBase {
         tds: amounts.tds,
         net: amounts.net,
       });
-      return (await this.repository.findPartnerPayment(sourcing.id, 'advance'))!;
+      const raised = (await this.repository.findPartnerPayment(sourcing.id, 'advance'))!;
+      // Remember which charges travel with this advance; the rest go with the balance.
+      await this.repository.charges.update(
+        { loadId, partnerPaymentId: raised.id },
+        { partnerPaymentId: null },
+      );
+      if (charges.length) {
+        await this.repository.charges.update(
+          { id: In(charges.map((charge) => charge.id)) },
+          { partnerPaymentId: raised.id },
+        );
+      }
+      // Accounts Payable (and Super Admin, who decides) hear about it the moment it is raised.
+      await this.notifier.notifyPermission(
+        [LS_PAYABLES, LS_MONEY_APPROVE],
+        {
+          type: 'partner_advance.raised',
+          title: `Carrier advance raised — ${load.code}`,
+          body: `Tracking raised a carrier advance of ₹${amounts.net} (net of TDS) for ${load.code}. Super Admin decides, then Payables pays.`,
+          loadId,
+          metadata: { paymentId: raised.id, gross: amounts.gross, net: amounts.net },
+        },
+        actorId,
+      );
+      return raised;
     } catch (error) {
       rethrow(error, 'Failed to raise the carrier advance');
     }
+  }
+
+  /** A load's carrier payments with the UTR and a download link for the payment advice — what
+   *  Tracking passes to the broker once Payables has paid. */
+  async partnerPaymentsOf(actor: LoadsmartActor, loadId: string) {
+    const sourcing = await this.assertWonLoad(loadId);
+    const payments = await this.repository.partnerPayments.find({
+      where: { sourcingId: sourcing.id },
+      order: { paymentType: 'ASC' },
+    });
+    return Promise.all(
+      payments.map(async (payment) => ({
+        ...payment,
+        proofUrl: payment.proofFileKey
+          ? (
+              await this.storageService.getByKey(
+                { tenantId: sourcing.tenantId, role: actor.role },
+                payment.proofFileKey,
+              )
+            ).downloadUrl
+          : null,
+      })),
+    );
   }
 
   /** Super Admin's queue (raised, on hold) and Payables' (approved). */
@@ -301,6 +535,23 @@ export class LsTrackingService extends LsServiceBase {
         'LS_PARTNER_PAYMENT_DECIDED',
         { paymentId, decision: input.decision, reason },
       );
+      const code = sourcing.load?.code ?? payment.loadId;
+      const verb = input.decision.replace('_', ' ');
+      const notice = {
+        type: `partner_${payment.paymentType}.${input.decision}`,
+        title: `Carrier ${payment.paymentType} ${verb} — ${code}`,
+        body: `Super Admin ${verb === 'approved' ? 'approved' : `put the ${payment.paymentType} ${verb}`} for ${code}${reason ? `: ${reason}` : ''}.`,
+        loadId: payment.loadId,
+        metadata: { paymentId, decision: input.decision, reason },
+      };
+      await this.notifier.notifyUsers([payment.raisedBy], notice);
+      if (input.decision === 'approved') {
+        await this.notifier.notifyPermission(
+          [LS_PAYABLES],
+          { ...notice, title: `Ready to pay: carrier ${payment.paymentType} — ${code}` },
+          actorId,
+        );
+      }
       return (await this.repository.partnerPayments.findOneBy({ id: paymentId }))!;
     } catch (error) {
       rethrow(error, 'Failed to decide the payment');
@@ -311,7 +562,7 @@ export class LsTrackingService extends LsServiceBase {
   async payPartnerAdvance(
     actorId: string,
     loadId: string,
-    input: UtrInput,
+    input: PartnerPayInput,
   ): Promise<LsPartnerPaymentEntity> {
     try {
       const sourcing = await this.assertWonLoad(loadId);
@@ -324,16 +575,40 @@ export class LsTrackingService extends LsServiceBase {
             : 'The carrier advance is paid once Super Admin approves it',
         );
       }
+      if (input.proofFileKey) {
+        await attachPaymentProof(
+          this.storageService,
+          this.documents,
+          actorId,
+          sourcing.tenantId,
+          sourcing.load,
+          input.proofFileKey,
+        );
+      }
       const result = await this.repository.partnerPayments.update(
         { id: advance.id, status: 'approved' },
-        { status: 'paid', utrReference: input.utrReference, paidBy: actorId, paidAt: this.now() },
+        {
+          status: 'paid',
+          utrReference: input.utrReference ?? null,
+          proofFileKey: input.proofFileKey ?? null,
+          paidBy: actorId,
+          paidAt: this.now(),
+        },
       );
       if (!result.affected) throw new ConflictError('The payment changed — reload it');
       await this.step(sourcing, actorId, 'partner_advance_paid', 'LS_PARTNER_PAID', {
         gross: Number(advance.grossAmount),
         tds: Number(advance.tdsAmount),
         net: Number(advance.netAmount),
-        utrReference: input.utrReference,
+        utrReference: input.utrReference ?? null,
+        proofFileKey: input.proofFileKey ?? null,
+      });
+      await this.notifier.notifyUsers([advance.raisedBy], {
+        type: 'partner_advance.paid',
+        title: `Carrier advance paid — ${sourcing.load.code}`,
+        body: `Payables paid the carrier advance for ${sourcing.load.code} ${input.utrReference ? `(UTR ${input.utrReference})` : '(payment advice attached)'}. You can pass the proof to the broker.`,
+        loadId,
+        metadata: { paymentId: advance.id, utrReference: input.utrReference ?? null },
       });
       return (await this.repository.findPartnerPayment(sourcing.id, 'advance'))!;
     } catch (error) {

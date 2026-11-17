@@ -385,6 +385,10 @@ export function buildContainer(dataSource: DataSource): Container {
   // LS_N_0017 — the assignment-time compliance check. Shared by the loads module (which blocks on
   // it) and the load-alert resolvers (which re-run it to see if the document was renewed).
   const assignmentComplianceService = new AssignmentComplianceService(dataSource);
+  // Filled in once the Loadsmart ops module exists (it is built after these resolvers).
+  const ewayBillRiskHook: {
+    notify?: Parameters<typeof createLoadAlertResolvers>[5];
+  } = {};
   const loadAlertResolvers = createLoadAlertResolvers(
     notifications.loadAlertRepository,
     (tenantId, target) => assignmentComplianceService.check(tenantId, target),
@@ -397,6 +401,7 @@ export function buildContainer(dataSource: DataSource): Container {
       addressAt: (point) => places.service.addressAt(point),
       cache: redisManager,
     }),
+    (tenantId, context) => ewayBillRiskHook.notify?.(tenantId, context) ?? Promise.resolve(),
   );
   const notificationTriggerWorker = createNotificationTriggerWorker(
     notifyByType,
@@ -564,6 +569,7 @@ export function buildContainer(dataSource: DataSource): Container {
     trackingClient,
     loadCancelService: loads.loadCancelService,
   });
+  ewayBillRiskHook.notify = loadsmart.notifyEwayBillAtRisk;
   loads.protectedRouter.use(loadsmart.shipperRouter);
   // Super Admin → Settings on the ops console: /loadsmart-ops/settings.
   loadsmart.opsRouter.use('/settings', settings.router);

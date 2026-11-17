@@ -19,7 +19,10 @@ import {
 } from './loadsmart.types';
 import { carrierBalance, daysBetween, originalPodPenalty } from './billing-rules';
 import { LsServiceBase } from './ls-base';
-import { UtrInput } from './loadsmart.interface';
+import { PartnerPayInput } from './loadsmart.interface';
+import { attachPaymentProof } from './ls-payment-proof';
+import { StorageService } from '../storage/storage.service';
+import { LoadDocumentService } from '../loads/documents/load-document.service';
 
 export interface OriginalPodUpdateInput {
   status?: OriginalPodStatus;
@@ -49,6 +52,8 @@ export class LsPayablesService extends LsServiceBase {
     private readonly loadRepository: LoadRepository,
     private readonly stageService: LoadStageService,
     private readonly settings: SettingsReader,
+    private readonly storageService: StorageService,
+    private readonly documents: LoadDocumentService,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -220,7 +225,7 @@ export class LsPayablesService extends LsServiceBase {
 
   /** Payables pays the balance Super Admin approved; the load closes once the shipper is
    *  settled too. */
-  async payBalance(actorId: string, loadId: string, input: UtrInput) {
+  async payBalance(actorId: string, loadId: string, input: PartnerPayInput) {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       const balance = await this.repository.findPartnerPayment(sourcing.id, 'balance');
@@ -233,9 +238,25 @@ export class LsPayablesService extends LsServiceBase {
         );
       }
       const now = this.now();
+      if (input.proofFileKey) {
+        await attachPaymentProof(
+          this.storageService,
+          this.documents,
+          actorId,
+          sourcing.tenantId,
+          sourcing.load,
+          input.proofFileKey,
+        );
+      }
       const result = await this.repository.partnerPayments.update(
         { id: balance.id, status: 'approved' },
-        { status: 'paid', utrReference: input.utrReference, paidBy: actorId, paidAt: now },
+        {
+          status: 'paid',
+          utrReference: input.utrReference ?? null,
+          proofFileKey: input.proofFileKey ?? null,
+          paidBy: actorId,
+          paidAt: now,
+        },
       );
       if (!result.affected) throw new ConflictError('The payment changed — reload it');
       const updated = await this.loadRepository.update(sourcing.tenantId, loadId, {
@@ -244,7 +265,8 @@ export class LsPayablesService extends LsServiceBase {
       });
       await this.step(sourcing, actorId, 'partner_balance_paid', 'LS_PARTNER_PAID', {
         net: Number(balance.netAmount),
-        utrReference: input.utrReference,
+        utrReference: input.utrReference ?? null,
+        proofFileKey: input.proofFileKey ?? null,
       });
       if (updated) await this.stageService.closeIfReady(sourcing.tenantId, actorId, updated);
       return (await this.repository.findPartnerPayment(sourcing.id, 'balance'))!;

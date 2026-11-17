@@ -20,6 +20,11 @@ import { LsCommercialTermsEntity } from './entities/ls-commercial-terms.entity';
 import { LsInvoiceEntity } from './entities/ls-invoice.entity';
 import { LsPartnerBidEntity } from './entities/ls-partner-bid.entity';
 import { LsPartnerPaymentEntity } from './entities/ls-partner-payment.entity';
+import { LoadDocumentEntity } from '../loads/documents/load-document.entity';
+import { LsCallLogEntity } from './entities/ls-call-log.entity';
+import { LsStaffNotificationEntity } from './entities/ls-staff-notification.entity';
+import { UserPermissionEntity } from '../roles/entities/user-permission.entity';
+import { PLATFORM_ADMIN_ROLE } from '../../shared/constants/roles';
 import { LsPartnerEntity } from './entities/ls-partner.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { PartnerPaymentType, SourcingStatus } from './loadsmart.types';
@@ -43,6 +48,9 @@ export class LoadsmartRepository {
   readonly receipts: Repository<LsReceiptEntity>;
   readonly unclaimed: Repository<LsUnclaimedPaymentEntity>;
   readonly originalPods: Repository<LsOriginalPodEntity>;
+  readonly staffNotifications: Repository<LsStaffNotificationEntity>;
+  readonly callLogs: Repository<LsCallLogEntity>;
+  readonly loadDocuments: Repository<LoadDocumentEntity>;
   private readonly postings: Repository<LoadPostingEntity>;
 
   constructor(private readonly dataSource: DataSource) {
@@ -63,6 +71,65 @@ export class LoadsmartRepository {
     this.receipts = dataSource.getRepository(LsReceiptEntity);
     this.unclaimed = dataSource.getRepository(LsUnclaimedPaymentEntity);
     this.originalPods = dataSource.getRepository(LsOriginalPodEntity);
+    this.staffNotifications = dataSource.getRepository(LsStaffNotificationEntity);
+    this.callLogs = dataSource.getRepository(LsCallLogEntity);
+    this.loadDocuments = dataSource.getRepository(LoadDocumentEntity);
+  }
+
+  /** Active platform staff (no tenant) who hold any of `permissionKeys` — through their team's
+   *  bundle or a direct grant — plus the owner account, whose bypass passes every key. Backs
+   *  notifications addressed to "whoever can do X" for the ops console. */
+  async listStaffWithPermission(permissionKeys: string[]): Promise<UserEntity[]> {
+    const users = this.dataSource.getRepository(UserEntity);
+    const staff = { tenantId: IsNull(), deletedAt: IsNull() };
+    const grants = await this.dataSource
+      .getRepository(UserPermissionEntity)
+      .find({ where: { permission: { key: In(permissionKeys) } }, select: { userId: true } });
+    return users.find({
+      where: [
+        { ...staff, role: { name: PLATFORM_ADMIN_ROLE } },
+        { ...staff, role: { permissions: { key: In(permissionKeys) } } },
+        ...(grants.length ? [{ ...staff, id: In(grants.map((grant) => grant.userId)) }] : []),
+      ],
+      relations: { role: true },
+    });
+  }
+
+  /** Documents of Loadsmart loads across shippers, newest first — the console's documents page.
+   *  `q` matches the load code or the LR / e-LR / invoice number; `series` an e-LR prefix. */
+  async searchDocuments(filter: {
+    q?: string;
+    series?: string;
+    docType?: string;
+    from?: Date;
+    to?: Date;
+    includeHistory?: boolean;
+    page: number;
+    limit: number;
+  }) {
+    const query = this.loadDocuments
+      .createQueryBuilder('d')
+      .innerJoinAndSelect('d.load', 'l')
+      .innerJoin(LsSourcingEntity, 's', 's.loadId = d.loadId')
+      .orderBy('d.createdAt', 'DESC')
+      .skip((filter.page - 1) * filter.limit)
+      .take(filter.limit);
+    if (!filter.includeHistory) query.andWhere('d.supersededAt IS NULL');
+    if (filter.docType) query.andWhere('d.docType = :docType', { docType: filter.docType });
+    if (filter.q) {
+      query.andWhere(
+        '(l.code ILIKE :q OR l.elrNumber ILIKE :q OR l.invoiceNumber ILIKE :q OR l.ewayBillNumber ILIKE :q)',
+        { q: `%${filter.q.replace(/[%_]/g, '')}%` },
+      );
+    }
+    if (filter.series) {
+      query.andWhere('l.elrNumber ILIKE :series', {
+        series: `${filter.series.replace(/[%_]/g, '')}%`,
+      });
+    }
+    if (filter.from) query.andWhere('d.createdAt >= :from', { from: filter.from });
+    if (filter.to) query.andWhere('d.createdAt < :to', { to: filter.to });
+    return query.getManyAndCount();
   }
 
   transaction<T>(work: (manager: EntityManager) => Promise<T>): Promise<T> {

@@ -43,6 +43,11 @@ export class LsPartnerPaymentEntity {
   @Column({ name: 'utr_reference', type: 'varchar', length: 100, nullable: true })
   utrReference!: string | null;
 
+  /** The payment advice or screenshot Payables uploads (purpose loads/payment-proof) — Tracking
+   *  passes it to the broker. A UTR, a proof, or both are recorded when it is paid. */
+  @Column({ name: 'proof_file_key', type: 'varchar', length: 500, nullable: true })
+  proofFileKey!: string | null;
+
   @Column({ name: 'paid_by', type: 'uuid', nullable: true })
   paidBy!: string | null;
 

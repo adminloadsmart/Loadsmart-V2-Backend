@@ -283,6 +283,9 @@ export function createLoadAlertResolvers(
   tracking: TrackingClient,
   haltGeofences: HaltGeofences,
   describeLocation: DescribeLocation,
+  /** Called when LS_N_0025 is going out (the ETA is past the e-way bill's expiry, or unknown): the
+   *  ops console tells Super Admin and the load's Tracking owner too. Best-effort. */
+  onEwayBillAtRisk?: (tenantId: string, context: EwayBillExpiryContext) => Promise<void>,
 ) {
   return {
     /** LS_N_0025 — null once the truck has reached the delivery point (or later), its bill was
@@ -302,13 +305,19 @@ export function createLoadAlertResolvers(
       // halted truck arrives later than it says — so it can't rule the risk out either.
       const liveEta = eta && !eta.stale ? eta : null;
       if (liveEta && liveEta.etaAt.getTime() <= new Date(context.expiresAt).getTime()) return null;
-      return {
+      const alert = {
         ...context,
         ...summaryOf(context.loadId, snapshot),
         ewayBillNumber: snapshot.ewayBillNumber,
         destination: snapshot.destinationCity,
         etaAt: liveEta?.etaAt.toISOString() ?? null,
       };
+      try {
+        await onEwayBillAtRisk?.(tenantId, alert);
+      } catch (error) {
+        console.warn('E-way bill staff alert failed', error);
+      }
+      return alert;
     },
 
     /** LS_N_0024 — the load's documents and cargo, and who confirmed loading. */

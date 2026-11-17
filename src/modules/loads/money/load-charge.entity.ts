@@ -58,7 +58,18 @@ export class LoadChargeEntity {
   @Column({ name: 'rejection_reason', type: 'varchar', length: 500, nullable: true })
   rejectionReason!: string | null;
 
-  /** Loadsmart loads: approved as raised because the shipper pre-approved this head. */
+  /** Loadsmart loads: Super Admin's decision, after the shipper's (the second approval). */
+  @Column({ name: 'admin_decided_by', type: 'uuid', nullable: true })
+  adminDecidedBy!: string | null;
+
+  @Column({ name: 'admin_decided_at', type: 'timestamptz', nullable: true })
+  adminDecidedAt!: Date | null;
+
+  /** The carrier advance this charge was sent with; null = paid with the balance. */
+  @Column({ name: 'partner_payment_id', type: 'uuid', nullable: true })
+  partnerPaymentId!: string | null;
+
+  /** Loadsmart loads: the shipper pre-approved this head, so only Super Admin is left to decide. */
   @Column({ type: 'boolean', default: false })
   preapproved!: boolean;
 
