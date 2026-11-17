@@ -88,6 +88,7 @@ import { LsOriginalPodEntity } from '../modules/loadsmart-ops/entities/ls-origin
 import { LsPartnerTruckTypeEntity } from '../modules/loadsmart-ops/entities/ls-partner-truck-type.entity';
 import { LsPlacementRosterEntity } from '../modules/loadsmart-ops/entities/ls-placement-roster.entity';
 import { LoadElrRevisionEntity } from '../modules/loads/elr/load-elr-revision.entity';
+import { ElrSeriesEntity } from '../modules/loads/elr/elr-series.entity';
 import { LsCommercialTermsEntity } from '../modules/loadsmart-ops/entities/ls-commercial-terms.entity';
 import { LsSourcingEntity } from '../modules/loadsmart-ops/entities/ls-sourcing.entity';
 import { LsPartnerBidEntity } from '../modules/loadsmart-ops/entities/ls-partner-bid.entity';
@@ -197,6 +198,7 @@ export const AppDataSource = new DataSource({
     LsPartnerTruckTypeEntity,
     LsPlacementRosterEntity,
     LoadElrRevisionEntity,
+    ElrSeriesEntity,
     LsCommercialTermsEntity,
     LsSourcingEntity,
     LsPartnerBidEntity,

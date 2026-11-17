@@ -204,14 +204,13 @@ export class LoadRepository {
    *  point, else its requisition's. Null for a posting picked up at a typed address. */
   async loadingPointIdOf(load: LoadEntity): Promise<string | null> {
     if (load.loadingPointId) return load.loadingPointId;
-    const [row] = (await this.loads.manager.query(
-      `SELECT COALESCE(p."pickup_loading_point_id", r."loading_point_id") AS "pointId"
-         FROM "loads"."loads" l
-         LEFT JOIN "loads"."load_postings" p ON p."id" = l."posting_id"
-         LEFT JOIN "loads"."requisitions" r ON r."id" = l."requisition_id"
-        WHERE l."id" = $1 AND l."tenant_id" = $2`,
-      [load.id, load.tenantId],
-    )) as { pointId: string | null }[];
+    const row = await this.loads
+      .createQueryBuilder('l')
+      .leftJoin('l.posting', 'p')
+      .leftJoin('l.requisition', 'r')
+      .select('COALESCE(p.pickupLoadingPointId, r.loadingPointId)', 'pointId')
+      .where('l.id = :id AND l.tenantId = :tenantId', { id: load.id, tenantId: load.tenantId })
+      .getRawOne<{ pointId: string | null }>();
     return row?.pointId ?? null;
   }
 

@@ -13,6 +13,7 @@ import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.en
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
+import { LoadBidEntity } from '../bids/load-bid.entity';
 import { LoadDraftEntity } from './entities/load-draft.entity';
 import { CustomerContractEntity } from './entities/customer-contract.entity';
 import { MessageStatus, RecipientType } from './utils/load-posting.types';
@@ -112,12 +113,9 @@ export class LoadPostingRepository {
   /** How many bids the posting's loads have had — any bid locks the full edit. */
   async countBids(tenantId: string, loadIds: string[]): Promise<number> {
     if (!loadIds.length) return 0;
-    const rows = (await this.postings.manager.query(
-      `SELECT COUNT(*)::int AS "count" FROM "loads"."load_bids"
-        WHERE "tenant_id" = $1 AND "load_id" = ANY($2)`,
-      [tenantId, loadIds],
-    )) as { count: number }[];
-    return rows[0]?.count ?? 0;
+    return this.postings.manager
+      .getRepository(LoadBidEntity)
+      .countBy({ tenantId, loadId: In(loadIds) });
   }
 
   findPostingByIdempotencyKey(tenantId: string, idempotencyKey: string) {
