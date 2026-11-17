@@ -68,6 +68,17 @@ export function createTrackingEventHandlers(
     };
 
   return {
+    // Stage 4 — the truck moved the trip-start distance from where it was assigned (tracking
+    // decides: 3 km, or 2 distinct SIM pings). Moves a "Truck assigned" load to "In transit to
+    // loading" at the time of that first movement; anything already past it is left alone.
+    'trip.started': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      if (!loadId || !event.tenantId) {
+        console.warn(`tracking event ${event.eventId}: trip.started without loadId/tenantId`);
+        return;
+      }
+      await deps.markTripStarted(event.tenantId, loadId, occurredAtOf(event));
+    },
     // LS_N_0022 / LS_N_0021 / LS_N_0023's clock — the vehicle entered the loading point's geofence.
     'trip.arrived_at_pickup': async (event) => {
       const loadId = stringOf(event.payload.loadId);
@@ -120,6 +131,41 @@ export function createTrackingEventHandlers(
       }
       await deps.markDepartedDrop(event.tenantId, loadId, occurredAtOf(event));
       await triggers.enqueue('load.trip_completed', event.tenantId, { loadId });
+    },
+    // "Will reach shortly" — the truck entered the drop's geofence. Sent at once, whatever the
+    // stop timer; the arrival (LS_N_0031) follows only after it has been stopped inside for 10 min.
+    'trip.entered_drop_geofence': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      if (!loadId || !event.tenantId) {
+        console.warn(
+          `tracking event ${event.eventId}: trip.entered_drop_geofence without loadId/tenantId`,
+        );
+        return;
+      }
+      await triggers.enqueue('load.vehicle_nearing_drop', event.tenantId, {
+        loadId,
+        enteredAt: occurredAtOf(event).toISOString(),
+      });
+    },
+    // Detention detected — more than the detention time inside the loading / unloading geofence.
+    // Flags the load once; the alert goes out only when this event did the flagging, so a replay
+    // or a second event for the same load is silent.
+    'trip.detention_detected': async (event) => {
+      const loadId = stringOf(event.payload.loadId);
+      const point = stringOf(event.payload.point);
+      if (!loadId || !event.tenantId || (point !== 'loading' && point !== 'unloading')) {
+        console.warn(`tracking event ${event.eventId}: trip.detention_detected missing fields`);
+        return;
+      }
+      const detectedAt = occurredAtOf(event);
+      const flagged = await deps.markDetentionDetected(event.tenantId, loadId, point, detectedAt);
+      if (!flagged) return;
+      await triggers.enqueue('load.detention_detected', event.tenantId, {
+        loadId,
+        point,
+        enteredAt: dateOf(event.payload.enteredAt)?.toISOString() ?? null,
+        detectedAt: detectedAt.toISOString(),
+      });
     },
     // The geofence's own enter / exit alert (any geofence type, trip or not).
     'geofence.entered': geofenceTransition('enter'),
@@ -193,12 +239,13 @@ export function createTrackingEventHandlers(
         speedKmh: finiteOrNull(event.payload.speedKmh),
       });
     },
-    // LS_N_0027 — tracking's HALT-GPS alert (raised 10 min into an in-transit halt). Queues the
+    // LS_N_0027 — tracking's HALT-GPS / HALT-SIM alert (raised 30 min into an in-transit halt;
+    // SIM's up to one poll interval later). Queues the
     // halt's 2 h and 6 h checks; each re-checks at send time that the truck is still standing
     // there, outside a known stop, with the ETA slipping (load-alerts.ts vehicleHalted). The
     // payload is tracking's alert row (snake_case); other rules' alerts are ignored.
     'alert.opened': async (event) => {
-      if (event.payload.rule_id !== 'HALT-GPS') return;
+      if (event.payload.rule_id !== 'HALT-GPS' && event.payload.rule_id !== 'HALT-SIM') return;
       const loadId = stringOf(event.payload.trip_id);
       const haltAlertId = stringOf(event.payload.id);
       const details = objectOf(event.payload.payload);
@@ -215,7 +262,7 @@ export function createTrackingEventHandlers(
         !Number.isFinite(anchorLng)
       ) {
         console.warn(
-          `tracking event ${event.eventId}: HALT-GPS alert without trip/alert id, tenant or anchor`,
+          `tracking event ${event.eventId}: halt alert without trip/alert id, tenant or anchor`,
         );
         return;
       }
@@ -230,6 +277,8 @@ export function createTrackingEventHandlers(
             anchorLat,
             anchorLng,
             stopPlaceKind: stopPlaceKindOf(details.stopPlaceKind),
+            // SIM positions are coarse: the 2 h / 6 h "still there" check allows a wider radius.
+            ...(event.payload.rule_id === 'HALT-SIM' ? { sim: true } : {}),
             step,
           },
           { delayMs: Math.max(1, haltStartedAt.getTime() + afterMs - Date.now()) },

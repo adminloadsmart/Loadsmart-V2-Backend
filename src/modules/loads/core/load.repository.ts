@@ -23,6 +23,7 @@ import { RequisitionEntity } from '../entities/requisition.entity';
 import { ListLoadsInput } from '../utils/load.interface';
 import {
   ARRIVED_AT_DELIVERY_STATUSES,
+  DETENTION_FLAGGABLE_STATUSES,
   ACTIVE_TAB_LOAD_STATUSES,
   COMPLETED_LOAD_STATUSES,
   FreightMode,
@@ -690,6 +691,27 @@ export class LoadRepository {
       .where(
         'id = :id AND tenant_id = :tenantId AND departed_drop_at IS NULL AND status IN (:...statuses)',
         { id, tenantId, statuses: [...ARRIVED_AT_DELIVERY_STATUSES] },
+      )
+      .execute();
+    return result.affected === 1 ? this.findById(tenantId, id) : null;
+  }
+
+  /** Flags the load "Detention detected" once — a replayed or second event changes nothing — and
+   *  only while the truck is on the trip (before the delivery stages). Returns the load if it was
+   *  flagged, else null. */
+  async markDetentionDetected(
+    tenantId: string,
+    id: string,
+    point: 'loading' | 'unloading',
+    at: Date,
+  ): Promise<LoadEntity | null> {
+    const result = await this.loads
+      .createQueryBuilder()
+      .update(LoadEntity)
+      .set({ detentionDetectedAt: at, detentionPoint: point })
+      .where(
+        'id = :id AND tenant_id = :tenantId AND detention_detected_at IS NULL AND status IN (:...statuses)',
+        { id, tenantId, statuses: [...DETENTION_FLAGGABLE_STATUSES] },
       )
       .execute();
     return result.affected === 1 ? this.findById(tenantId, id) : null;

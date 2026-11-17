@@ -206,6 +206,17 @@ export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
   'closed',
 ];
 
+/** Stages a truck can be flagged "Detention detected" in — on the trip, before it has unloaded
+ *  and left. */
+export const DETENTION_FLAGGABLE_STATUSES: readonly LoadStatus[] = [
+  'truck_assigned',
+  'in_transit_loading',
+  'reached_loading',
+  'loaded',
+  'in_transit_unloading',
+  'reached_unloading',
+];
+
 /** Upper bound on the optional cargo value per MT a requisition / posting can carry (LS_N_0034). */
 export const MAX_CARGO_VALUE_PER_TONNE = 10_000_000;
 /** Upper bound on a driver issue report's expected delay — 7 days, in minutes (LS_N_0037). */
