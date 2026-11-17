@@ -66,6 +66,10 @@ import { LoadEntity } from '../modules/loads/entities/load.entity';
 import { LoadCargoItemEntity } from '../modules/loads/entities/load-cargo-item.entity';
 import { LoadPaymentEntity } from '../modules/loads/entities/load-payment.entity';
 import { LoadActivityEntity } from '../modules/loads/entities/load-activity.entity';
+import { LoadStageHistoryEntity } from '../modules/loads/entities/load-stage-history.entity';
+import { LoadDocumentEntity } from '../modules/loads/documents/load-document.entity';
+import { LoadRouteChangeEntity } from '../modules/loads/entities/load-route-change.entity';
+import { LoadCancellationEntity } from '../modules/loads/entities/load-cancellation.entity';
 import { LoadIssueReportEntity } from '../modules/loads/entities/load-issue-report.entity';
 import { CodeSequenceEntity } from '../modules/loads/entities/code-sequence.entity';
 import { LoadPostingEntity } from '../modules/loads/load-posting/entities/load-posting.entity';
@@ -76,16 +80,26 @@ import { LoadBidEntity } from '../modules/loads/bids/load-bid.entity';
 import { LoadMemoEntity } from '../modules/loads/memo/load-memo.entity';
 import { LoadVerificationEntity } from '../modules/loads/verification/load-verification.entity';
 import { LsPartnerEntity } from '../modules/loadsmart-ops/entities/ls-partner.entity';
+import { LsPartnerLaneEntity } from '../modules/loadsmart-ops/entities/ls-partner-lane.entity';
+import { LsCreditNoteEntity } from '../modules/loadsmart-ops/entities/ls-credit-note.entity';
+import { LsReceiptEntity } from '../modules/loadsmart-ops/entities/ls-receipt.entity';
+import { LsUnclaimedPaymentEntity } from '../modules/loadsmart-ops/entities/ls-unclaimed-payment.entity';
+import { LsOriginalPodEntity } from '../modules/loadsmart-ops/entities/ls-original-pod.entity';
+import { LsPartnerTruckTypeEntity } from '../modules/loadsmart-ops/entities/ls-partner-truck-type.entity';
+import { LsPlacementRosterEntity } from '../modules/loadsmart-ops/entities/ls-placement-roster.entity';
+import { LoadElrRevisionEntity } from '../modules/loads/elr/load-elr-revision.entity';
+import { ElrSeriesEntity } from '../modules/loads/elr/elr-series.entity';
 import { LsCommercialTermsEntity } from '../modules/loadsmart-ops/entities/ls-commercial-terms.entity';
 import { LsSourcingEntity } from '../modules/loadsmart-ops/entities/ls-sourcing.entity';
 import { LsPartnerBidEntity } from '../modules/loadsmart-ops/entities/ls-partner-bid.entity';
-import { LoadChargeEntity } from '../modules/loadsmart-ops/entities/load-charge.entity';
+import { LoadChargeEntity } from '../modules/loads/money/load-charge.entity';
 import { LsPartnerPaymentEntity } from '../modules/loadsmart-ops/entities/ls-partner-payment.entity';
 import { LoadClaimEntity } from '../modules/loadsmart-ops/entities/load-claim.entity';
 import { LoadRatingEntity } from '../modules/loadsmart-ops/entities/load-rating.entity';
 import { LsInvoiceEntity } from '../modules/loadsmart-ops/entities/ls-invoice.entity';
 import { LoadAwardOutcomeEntity } from '../modules/loads/entities/load-award-outcome.entity';
 import { SavedViewEntity } from '../modules/analytics/saved-views/saved-view.entity';
+import { SettingsVersionEntity } from '../modules/settings/settings-version.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -162,6 +176,10 @@ export const AppDataSource = new DataSource({
     LoadCargoItemEntity,
     LoadPaymentEntity,
     LoadActivityEntity,
+    LoadStageHistoryEntity,
+    LoadDocumentEntity,
+    LoadRouteChangeEntity,
+    LoadCancellationEntity,
     LoadIssueReportEntity,
     CodeSequenceEntity,
     LoadPostingEntity,
@@ -172,6 +190,15 @@ export const AppDataSource = new DataSource({
     LoadMemoEntity,
     LoadVerificationEntity,
     LsPartnerEntity,
+    LsPartnerLaneEntity,
+    LsCreditNoteEntity,
+    LsReceiptEntity,
+    LsUnclaimedPaymentEntity,
+    LsOriginalPodEntity,
+    LsPartnerTruckTypeEntity,
+    LsPlacementRosterEntity,
+    LoadElrRevisionEntity,
+    ElrSeriesEntity,
     LsCommercialTermsEntity,
     LsSourcingEntity,
     LsPartnerBidEntity,
@@ -183,9 +210,15 @@ export const AppDataSource = new DataSource({
     LoadAwardOutcomeEntity,
     // analytics module
     SavedViewEntity,
+    // settings module (Super Admin → Settings)
+    SettingsVersionEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,
   // __dirname = dist/db, matches the tsc-compiled .js migrations).
   migrations: [`${__dirname}/migrations/*.{js,ts}`],
+  // One transaction per migration (not one for the whole run). Required because some
+  // migrations set `transaction = false` to add Postgres enum values before using them,
+  // and TypeORM refuses per-migration overrides when the global mode is "all".
+  migrationsTransactionMode: 'each',
 });

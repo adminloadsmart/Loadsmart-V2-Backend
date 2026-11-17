@@ -11,12 +11,20 @@ import { VehicleBodyType, VehicleFuelType } from '../../masters/vehicle/vehicle.
 import {
   HALTING_ISSUE_CATEGORIES,
   LoadIssueCategory,
-  LoadSourceType,
+  LoadPostingType,
+  LoadRoute,
   LoadStatus,
   PodStatus,
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
+
+/** What the shipper owes now: the advance (after Loaded), the balance to their transporter, or
+ *  Loadsmart's invoice. */
+export interface AmountDue {
+  kind: 'advance' | 'balance' | 'invoice';
+  amount: string;
+}
 import { stagePathFor } from './load-stages';
 
 /**
@@ -76,7 +84,13 @@ export interface TripListRow {
   code: string;
   /** Title given when the load was posted; null if none. */
   title: string | null;
+  /** The LR number, when there is one — the list shows it first, then the title, then the
+   *  route. */
+  elrNumber: string | null;
   status: LoadStatus;
+  /** What the shipper owes on the load now, for the row's "Pay ₹…" button; null when nothing is
+   *  due (filled by LoadService.list). */
+  amountDue?: AmountDue | null;
   /** Null for loads posted straight from Post a load (no requisition). */
   requisitionId: string | null;
   /** The parent requisition's own display code `REQ-nnnn` — null only if the requisition
@@ -98,7 +112,8 @@ export interface TripListRow {
   /** Own-fleet: the Driver-master row backing this load's driver snapshot. Market: the free-text
    *  driverName entered at Assignment, with `id: null` since no Driver-master row backs it. */
   driver: { id: string | null; fullName: string; phone: string | null } | null;
-  source: { type: LoadSourceType; label: string };
+  /** How it was posted and who carries it (null route: a market load with no winner yet). */
+  source: { postingType: LoadPostingType; route: LoadRoute | null; label: string };
   plannedCapacityTonnes: string;
   freightValue: string | null;
   advance: { applicable: boolean; amount: string | null; paid: boolean; paidAt: string | null };
@@ -189,7 +204,7 @@ export function toTripListRow(
 
   // Advance/balance amounts mirror buildNextAction's computation below — market-only, derived
   // from freightValue + plannedCapacityTonnes + the stored percentages via computeShareAmount.
-  const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
+  const isMarket = load.postingType !== 'own_fleet'; // every route but own fleet pays freight
   const advanceAmount =
     isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
   const balanceAmount =
@@ -200,6 +215,7 @@ export function toTripListRow(
     tenantId: load.tenantId,
     code: load.code,
     title: load.title,
+    elrNumber: load.elrNumber,
     status: load.status,
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,
@@ -222,19 +238,20 @@ export function toTripListRow(
       : load.driverName
         ? { id: null, fullName: load.driverName, phone: load.driverNumber }
         : null,
-    source:
-      load.sourceType === 'own_fleet'
-        ? { type: 'own_fleet', label: t(locale, 'loads.source.ownFleet') }
-        : load.sourceType === 'loadsmart'
-          ? { type: 'loadsmart', label: t(locale, 'loads.source.loadsmart') }
-          : {
-              type: 'market',
-              label: load.transporter
-                ? t(locale, 'loads.source.marketWithTransporter', {
-                    transporter: load.transporter.name,
-                  })
-                : t(locale, 'loads.source.market'),
-            },
+    source: {
+      postingType: load.postingType,
+      route: load.route,
+      label:
+        load.route === 'own_fleet'
+          ? t(locale, 'loads.source.ownFleet')
+          : load.route === 'loadsmart'
+            ? t(locale, 'loads.source.loadsmart')
+            : load.transporter
+              ? t(locale, 'loads.source.marketWithTransporter', {
+                  transporter: load.transporter.name,
+                })
+              : t(locale, 'loads.source.market'),
+    },
     plannedCapacityTonnes: load.plannedCapacityTonnes,
     freightValue: load.freightValue,
     advance: {
@@ -254,7 +271,7 @@ export function toTripListRow(
       productDetails: item.product.productDetails,
       tonnesPerTruck: item.tonnesPerTruck,
     })),
-    expectedRate: load.sourceType === 'own_fleet' ? null : load.expectedRate,
+    expectedRate: load.postingType === 'own_fleet' ? null : load.expectedRate,
     podStatus: load.podStatus,
     podRejectionReason: load.podRejectionReason,
     createdAt: load.createdAt.toISOString(),
@@ -463,7 +480,6 @@ function stageTimestamps(load: LoadEntity): Partial<Record<LoadStatus, Date | nu
     reached_unloading: load.reachedDeliveryPointAt,
     delivered_with_issues: load.deliveredAt,
     delivered_ok: load.deliveryIssueSettledAt ?? load.deliveredAt,
-    original_pod_received: load.originalPodReceivedAt,
     invoice_generated: load.invoiceGeneratedAt,
     payment: load.paymentSubmittedAt,
     closed: load.closedAt,
@@ -497,7 +513,7 @@ export function buildNextAction(load: LoadEntity, locale: Locale = DEFAULT_LOCAL
   const currentIndex = path.indexOf(load.status);
   const nextStatus = path[currentIndex + 1] ?? null;
 
-  const isMarket = load.sourceType !== 'own_fleet'; // market and indent are paid freight loads
+  const isMarket = load.postingType !== 'own_fleet'; // every route but own fleet pays freight
   const advanceAmount =
     isMarket && load.freightValue ? computeShareAmount(load, load.advancePercentage ?? '0') : null;
   const balanceAmount =

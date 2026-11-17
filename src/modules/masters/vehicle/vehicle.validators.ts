@@ -249,7 +249,8 @@ const vehicleDocumentPhotoBody = z
 const vehicleDocumentBody = z.union([vehicleDocumentDatedBody, vehicleDocumentPhotoBody]);
 
 const vehicleVerificationBody = z.object({
-  verificationType: z.enum(VEHICLE_VERIFICATION_TYPES),
+  // 'manual' only through /verifications/manual (TRUCK_VERIFY_MANUAL), never here.
+  verificationType: z.enum(VEHICLE_VERIFICATION_TYPES).exclude(['manual']),
   verificationStatus: z.enum(VEHICLE_VERIFICATION_STATUSES),
   sourceReference: z.string().min(1).max(100).optional(),
   registeredName: z.string().min(1).max(150).optional(),
@@ -462,6 +463,16 @@ export const vehicleValidators = {
   }),
   listVehicleVerifications: z.object({ params: vehicleParams }),
   verifyVahan: z.object({ body: z.object({ registrationNumber }) }),
+  verifyVehicleManually: z.object({
+    params: vehicleParams,
+    body: z
+      .object({
+        // "I've checked this truck's RC" — the checkbox is the whole evidence.
+        rcChecked: z.literal(true),
+        note: z.string().trim().max(500).optional(),
+      })
+      .strict(),
+  }),
 
   listComplianceAlerts: z.object({
     query: pagination.extend({

@@ -15,6 +15,14 @@ export type CreateLoadMemoData = Pick<
   | 'sentAt'
   | 'sentBy'
   | 'expiresAt'
+  | 'version'
+  | 'reference'
+  | 'driverLicenceNumber'
+  | 'freightType'
+  | 'freightValue'
+  | 'advancePercentage'
+  | 'balancePercentage'
+  | 'pdfFileKey'
 >;
 
 export interface NameDriverInput {
@@ -24,10 +32,14 @@ export interface NameDriverInput {
   licenceNumber: string;
   /** YYYY-MM-DD. */
   dateOfBirth: string;
+  /** The truck, when the load has none yet (not sent with the bid, or the truck was cancelled)
+   *  or the transporter changes it — checked on VAHAN. */
+  vehicleNumber?: string;
 }
 
-/** What naming the driver produced: the memo, or — when a truck or driver check failed — no memo
- *  and the failures to fix ("A failed check sits next to the truck number or driver name"). */
+/** What naming the driver (or re-running the checks) produced: the memo, or — while a check
+ *  failed or couldn't run — no memo and what blocks it ("A failed check sits next to the truck
+ *  number or driver name"). */
 export interface NameDriverResult {
   memo: MemoView | null;
   checks: LoadChecksView;

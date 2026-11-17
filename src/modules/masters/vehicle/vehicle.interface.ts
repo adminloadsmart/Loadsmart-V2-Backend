@@ -139,6 +139,7 @@ export interface UpdateVehicleData {
   vahanVerificationStatus?: VehicleVahanStatus;
   vahanVerificationError?: string | null;
   vahanVerifiedAt?: Date | null;
+  vahanVerifiedManually?: boolean;
 }
 
 export interface ExportVehiclesFilters {

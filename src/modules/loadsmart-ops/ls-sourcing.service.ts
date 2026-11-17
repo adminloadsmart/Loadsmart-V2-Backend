@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { LoadDocumentService } from '../loads/documents/load-document.service';
 import { AuditService } from '../audit/audit.service';
 import { SALES_ROLE } from '../../shared/constants/roles';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
@@ -8,7 +9,6 @@ import { LoadBidService } from '../loads/bids/load-bid.service';
 import { LoadMemoService } from '../loads/memo/load-memo.service';
 import { LoadService } from '../loads/core/load.service';
 import { LoadStageService } from '../loads/core/load-stage.service';
-import { hasLoadingPapers } from '../loads/utils/load-stages';
 import {
   LoadVerificationService,
   truckVerifiedOf,
@@ -16,29 +16,20 @@ import {
 import { LsPartnerBidEntity } from './entities/ls-partner-bid.entity';
 import { LsPartnerEntity } from './entities/ls-partner.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
-import { LsPartnerPaymentEntity } from './entities/ls-partner-payment.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
-import {
-  DEFAULT_MARGIN_PERCENT,
-  DEFAULT_TDS_PERCENT,
-  DEFAULT_TRUCKER_ADVANCE_PERCENT,
-  MIN_MARGIN_PERCENT,
-  PARTNER_CALL_AFTER_MS,
-} from './loadsmart.types';
+import { DEFAULT_TDS_PERCENT, MIN_MARGIN_PERCENT, PARTNER_CALL_AFTER_MS } from './loadsmart.types';
 import {
   effectiveMarginPercent,
   marginError,
   missingSourcingFields,
-  partnerAdvance,
   partnerTargetRate,
   shipperPriceFor,
 } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
-import { NameDriverInput } from '../loads/utils/load-memo.interface';
+import { AcceptMemoInput, NameDriverInput } from '../loads/utils/load-memo.interface';
+import type { ManualTruckCheckInput } from '../loads/utils/load-verification.interface';
 import {
-  ApprovePapersInput,
   ApproveSourcingInput,
-  ApproveVerificationInput,
   CommercialTermsInput,
   LoadBoardRow,
   LoadsmartActor,
@@ -47,8 +38,8 @@ import {
   PartnerInput,
   PlacementView,
   SendBidInput,
-  UtrInput,
 } from './loadsmart.interface';
+import { ResolvedSettings, SettingsReader } from '../settings/settings.types';
 
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
 
@@ -63,8 +54,7 @@ const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase(
  *   approves truck and driver, and the memo goes out;
  * - the Tracking team marks the truck, uploads papers for the driver and approves them (the
  *   e-way bill must name Loadsmart) — only then is the load Loaded;
- * - charges are raised for the shipper to approve, and the team lead releases the partner's
- *   advance less TDS.
+ * - charges, the e-LR and the carrier advance are the Tracking service's (ls-tracking.service);
  * WhatsApp to partners and the shipper is out of scope until a provider is wired in.
  */
 export class LsSourcingService extends LsServiceBase {
@@ -77,6 +67,10 @@ export class LsSourcingService extends LsServiceBase {
     private readonly bidService: LoadBidService,
     private readonly memoService: LoadMemoService,
     private readonly verification: LoadVerificationService,
+    /** Super Admin → Settings: the central margin and default carrier advance a shipper without
+     *  terms of its own gets. */
+    private readonly settings: SettingsReader,
+    private readonly documents: LoadDocumentService,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -124,14 +118,22 @@ export class LsSourcingService extends LsServiceBase {
     }
   }
 
-  async getTerms(tenantId: string) {
+  /** A shipper's margin and carrier advance %; without terms of its own, the settings' central
+   *  margin and default carrier advance (`defaults`: a load's own version, else the latest). */
+  async getTerms(tenantId: string, defaults?: ResolvedSettings) {
     const terms = await this.repository.terms.findOneBy({ tenantId });
+    const { values } = defaults ?? (await this.settings.current());
     return {
       tenantId,
-      marginPercent: Number(terms?.marginPercent ?? DEFAULT_MARGIN_PERCENT),
+      marginPercent: Number(terms?.marginPercent ?? values.centralMarginPercent),
       truckerAdvancePercent: Number(
-        terms?.truckerAdvancePercent ?? DEFAULT_TRUCKER_ADVANCE_PERCENT,
+        terms?.truckerAdvancePercent ?? values.defaultCarrierAdvancePercent,
       ),
+      preapprovedCharges: terms?.preapprovedCharges ?? [],
+      creditDays: terms?.creditDays ?? values.defaultShipperCreditDays,
+      podType: terms?.podType ?? 'image',
+      billingInstructions: terms?.billingInstructions ?? [],
+      billingNote: terms?.billingNote ?? null,
       isDefault: !terms,
     };
   }
@@ -142,10 +144,30 @@ export class LsSourcingService extends LsServiceBase {
       // out, the shipper's current margin (or the default) is kept.
       const marginPercent =
         input.marginPercent ?? Number((await this.getTerms(tenantId)).marginPercent);
+      if (input.creditDays !== undefined && input.creditDays !== null) {
+        const { values } = await this.settings.current();
+        if (input.creditDays > values.maxShipperCreditDays) {
+          throw new ValidationError(
+            `Credit is at most ${values.maxShipperCreditDays} days (Super Admin → Settings)`,
+          );
+        }
+      }
       await this.repository.terms.save({
         tenantId,
         marginPercent: String(marginPercent),
         truckerAdvancePercent: String(input.truckerAdvancePercent),
+        ...(input.preapprovedCharges
+          ? {
+              preapprovedCharges: input.preapprovedCharges.map((charge) => ({
+                head: charge.head,
+                maxAmount: charge.maxAmount ?? null,
+              })),
+            }
+          : {}),
+        ...(input.creditDays !== undefined ? { creditDays: input.creditDays } : {}),
+        ...(input.podType ? { podType: input.podType } : {}),
+        ...(input.billingInstructions ? { billingInstructions: input.billingInstructions } : {}),
+        ...(input.billingNote !== undefined ? { billingNote: input.billingNote } : {}),
         updatedBy: actorId,
       });
       await this.auditService.log({
@@ -167,10 +189,10 @@ export class LsSourcingService extends LsServiceBase {
    *  and flags anything missing." One sourcing per market load (truck). */
   createForLoads = async (loads: LoadEntity[]): Promise<void> => {
     for (const load of loads) {
-      if (load.sourceType !== 'market') continue;
+      if (load.postingType !== 'market_fleet') continue;
       const existing = await this.repository.sourcings.findOneBy({ loadId: load.id });
       if (existing) continue;
-      const terms = await this.getTerms(load.tenantId);
+      const terms = await this.getTerms(load.tenantId, await this.settings.forLoad(load));
       const posting = load.postingId
         ? await this.repository.findPosting(load.tenantId, load.postingId)
         : null;
@@ -185,6 +207,37 @@ export class LsSourcingService extends LsServiceBase {
         }),
       );
     }
+  };
+
+  /** Posting hook: the shipper edited the load before any bid — what it is missing is checked
+   *  again, while Approval still has it. */
+  refreshForEditedLoads = async (loads: LoadEntity[]): Promise<void> => {
+    for (const load of loads) {
+      const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+      if (!sourcing || sourcing.status !== 'pending_approval') continue;
+      const posting = load.postingId
+        ? await this.repository.findPosting(load.tenantId, load.postingId)
+        : null;
+      await this.repository.updateSourcing(sourcing.id, {
+        missingFields: missingSourcingFields(posting),
+      });
+    }
+  };
+
+  /** Stage hook: the load was cancelled — its sourcing is closed (a lost one stays lost). */
+  markCancelled = async (load: LoadEntity): Promise<void> => {
+    const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+    if (!sourcing || sourcing.status === 'lost' || sourcing.status === 'cancelled') return;
+    await this.repository.updateSourcing(sourcing.id, { status: 'cancelled' });
+    await this.loadActivityService.record(
+      load.tenantId,
+      load.id,
+      load.updatedBy,
+      'LOADSMART_STEP',
+      sourcing.status,
+      'sourcing_cancelled',
+      {},
+    );
   };
 
   approvalQueue(): Promise<LsSourcingEntity[]> {
@@ -395,6 +448,103 @@ export class LsSourcingService extends LsServiceBase {
 
   /** "Sends the shipper one best bid, without the partner's name." Priced at the margin unless
    *  Placement sets the price; under 6% needs the negotiation note. */
+  /** The shipper countered Loadsmart's bid — the step goes on the timeline for Placement. */
+  onLoadsmartBidCountered = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
+    const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+    if (!sourcing) return;
+    await this.step(
+      sourcing,
+      load.updatedBy ?? bid.enteredBy ?? sourcing.bidSentBy!,
+      'shipper_countered',
+      'LS_BID_SENT',
+      {
+        bidId: bid.id,
+        counterRate: bid.counterRate,
+      },
+    );
+  };
+
+  /** The shipper rejected Loadsmart's bid — the load is back on the board for Placement to send
+   *  another price. */
+  onLoadsmartBidRejected = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
+    const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+    if (!sourcing || sourcing.status !== 'bid_sent') return;
+    await this.repository.partnerBids.update(
+      { sourcingId: sourcing.id, status: 'sent' },
+      { status: 'received' },
+    );
+    const updated = await this.repository.updateSourcing(sourcing.id, { status: 'posted' });
+    await this.step(
+      updated,
+      bid.decidedBy ?? sourcing.bidSentBy!,
+      'shipper_rejected_bid',
+      'LS_BID_SENT',
+      {
+        bidId: bid.id,
+        reason: bid.rejectionReason,
+      },
+    );
+  };
+
+  /** Placement answers the shipper's counter on Loadsmart's bid. Accepting it is a new price to
+   *  the shipper, so the margin rules apply again (a note under the minimum margin, never at a
+   *  loss). */
+  async answerShipperCounter(
+    actorId: string,
+    loadId: string,
+    bidId: string,
+    input: { accepted: boolean; negotiationNote?: string },
+  ) {
+    try {
+      const sourcing = await this.repository.findSourcingByLoad(loadId);
+      if (!sourcing || sourcing.status !== 'bid_sent') {
+        throw new ConflictError("Loadsmart's bid on this load is not with the shipper");
+      }
+      const bid = await this.bidService.findBid(sourcing.tenantId, loadId, bidId);
+      if (!bid || bid.source !== 'loadsmart' || !bid.lsPartnerBidId) {
+        throw new NotFoundError("Loadsmart's bid not found on this load");
+      }
+      let margin: number | null = null;
+      if (input.accepted) {
+        if (!bid.counterRate) throw new ConflictError('There is no counter waiting on this bid');
+        const partnerBid = await this.repository.partnerBids.findOneBy({ id: bid.lsPartnerBidId });
+        if (!partnerBid) throw new NotFoundError('Partner bid not found');
+        margin = effectiveMarginPercent(Number(bid.counterRate), Number(partnerBid.rate));
+        const error = marginError(margin, MIN_MARGIN_PERCENT, input.negotiationNote);
+        if (error) throw new ConflictError(error);
+      }
+      const view = await this.bidService.answerCounter(
+        sourcing.tenantId,
+        actorId,
+        loadId,
+        bidId,
+        { accepted: input.accepted },
+        true,
+      );
+      if (input.accepted) {
+        await this.repository.updateSourcing(sourcing.id, {
+          shipperPrice: view.rate,
+          effectiveMarginPercent: String(margin),
+          negotiationNote: input.negotiationNote ?? sourcing.negotiationNote,
+        });
+      }
+      await this.step(
+        sourcing,
+        actorId,
+        input.accepted ? 'counter_accepted' : 'counter_declined',
+        'LS_BID_SENT',
+        {
+          bidId,
+          rate: view.rate,
+          marginPercent: margin,
+        },
+      );
+      return view;
+    } catch (error) {
+      rethrow(error, "Failed to answer the shipper's counter");
+    }
+  }
+
   async sendBid(actorId: string, sourcingId: string, input: SendBidInput): Promise<LoadBidEntity> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
@@ -509,12 +659,23 @@ export class LsSourcingService extends LsServiceBase {
         driver,
         true,
       );
+      // The driver's papers go into the load's documents register too, versioned.
+      await this.documents.save(
+        sourcing.tenantId,
+        sourcing.load,
+        { updatedBy: actorId },
+        { userId: actorId, source: 'console' },
+        [
+          { docType: 'driver_licence_front', fileKey: licenceFrontFileKey },
+          { docType: 'driver_licence_back', fileKey: licenceBackFileKey },
+          { docType: 'rc_copy', fileKey: rcCopyFileKey },
+        ],
+      );
       await this.repository.updateSourcing(sourcing.id, {
         licenceFrontFileKey,
         licenceBackFileKey,
         rcCopyFileKey,
         driverNamedAt: this.now(),
-        verificationApprovedBy: null,
       });
       await this.step(sourcing, actorId, 'driver_named', 'LS_DRIVER_NAMED', {
         driverName: driver.driverName,
@@ -526,47 +687,22 @@ export class LsSourcingService extends LsServiceBase {
     }
   }
 
-  /** Loads waiting for the Verification team, with their portal checks. */
-  async verificationQueue() {
-    const sourcings = await this.repository.listLoadsAt(['truck_assigned']);
-    const waiting = sourcings.filter(
-      (sourcing) => sourcing.driverNamedAt && !sourcing.load.lsVerificationApprovedAt,
-    );
-    return Promise.all(
-      waiting.map(async (sourcing) => ({
-        sourcing,
-        checks: await this.verification.checksForLoad(sourcing.tenantId, sourcing.load),
-      })),
-    );
+  /** Placement runs the truck and driver checks again on a Loadsmart load. */
+  async rerunChecks(actorId: string, loadId: string) {
+    const sourcing = await this.assertWonLoad(loadId);
+    return this.memoService.rerunChecks(sourcing.tenantId, actorId, loadId, true);
   }
 
-  /** "Verification team approves the truck and driver after the portal checks. Asks the shipper
-   *  for the loading contact if it is missing." Then the memo goes to the shipper. */
-  async approveVerification(actorId: string, loadId: string, input: ApproveVerificationInput) {
-    try {
-      const sourcing = await this.assertWonLoad(loadId);
-      if (!sourcing.driverNamedAt)
-        throw new ConflictError('The partner has not named the driver yet');
-      const checks = await this.verification.checksForLoad(sourcing.tenantId, sourcing.load);
-      if (!checks.clear) {
-        throw new ConflictError('A truck or driver check failed — fix it before approving', {
-          checks,
-        });
-      }
-      if (!checks.driver) throw new ConflictError('The driver has not been checked yet');
-      await this.loadService.markLoadsmartVerified(sourcing.tenantId, actorId, loadId);
-      await this.repository.updateSourcing(sourcing.id, { verificationApprovedBy: actorId });
-      const memo = await this.memoService.resend(sourcing.tenantId, actorId, loadId, {
-        name: input.loadingContactName,
-        phone: input.loadingContactPhone,
-      });
-      await this.step(sourcing, actorId, 'verification_approved', 'LS_VERIFICATION_APPROVED', {
-        memoId: memo.id,
-      });
-      return memo;
-    } catch (error) {
-      rethrow(error, 'Failed to approve the truck and driver');
-    }
+  /** VAHAN is down for the truck on a Loadsmart load — the Admin team verifies it by hand. */
+  async verifyTruckManually(actorId: string, loadId: string, input: ManualTruckCheckInput) {
+    const sourcing = await this.assertWonLoad(loadId);
+    return this.memoService.verifyTruckManually(sourcing.tenantId, actorId, loadId, input, true);
+  }
+
+  /** "Shipper accepted on a call → mark confirmed" — Placement records the memo acceptance. */
+  async confirmMemoOnCall(actorId: string, loadId: string, input: AcceptMemoInput) {
+    const sourcing = await this.assertWonLoad(loadId);
+    return this.memoService.accept(sourcing.tenantId, actorId, loadId, input, 'ls_team');
   }
 
   // --- 13–22 · Tracking team, papers, charges, trucker advance -----------------------------
@@ -580,86 +716,5 @@ export class LsSourcingService extends LsServiceBase {
       'in_transit_unloading',
       'reached_unloading',
     ]);
-  }
-
-  /** "Truck waits for approval": the shipper checks invoice, e-way bill and signed LR are on the
-   *  load, and the e-way bill names Loadsmart as transporter. Only then is the load Loaded. */
-  async approvePapers(
-    tenantId: string,
-    actorId: string,
-    loadId: string,
-    input: ApprovePapersInput,
-  ) {
-    try {
-      const sourcing = await this.assertWonLoad(loadId, tenantId);
-      const load = sourcing.load;
-      if (load.status !== 'reached_loading') {
-        throw new ConflictError('Papers are approved at the loading point');
-      }
-      if (!hasLoadingPapers(load)) {
-        throw new ConflictError('Invoice, e-way bill and signed LR are all needed');
-      }
-      if (!input.ewayBillNamesLoadsmart) {
-        throw new ConflictError('The e-way bill must name Loadsmart as transporter');
-      }
-      await this.loadService.markLoadsmartPapersApproved(sourcing.tenantId, actorId, loadId);
-      await this.repository.updateSourcing(sourcing.id, { papersApprovedBy: actorId });
-      const loaded = await this.stageService.transition({
-        tenantId: sourcing.tenantId,
-        loadId,
-        to: 'loaded',
-        actorId,
-        auditAction: 'LOAD_LOADING_CONFIRMED',
-        fields: { loadingConfirmedBy: actorId },
-      });
-      await this.step(sourcing, actorId, 'papers_approved', 'LS_PAPERS_APPROVED', {});
-      return loaded;
-    } catch (error) {
-      rethrow(error, 'Failed to approve the papers');
-    }
-  }
-
-  /** "The team lead releases the advance, less TDS" — from Loaded. */
-  async payPartnerAdvance(
-    actorId: string,
-    loadId: string,
-    input: UtrInput,
-  ): Promise<LsPartnerPaymentEntity> {
-    try {
-      const sourcing = await this.assertWonLoad(loadId);
-      const load = sourcing.load;
-      if (!load.loadingConfirmedAt)
-        throw new ConflictError('The trucker advance is paid once Loaded');
-      if (await this.repository.findPartnerPayment(sourcing.id, 'advance')) {
-        throw new ConflictError("The partner's advance is already paid");
-      }
-      const amounts = partnerAdvance(
-        this.partnerTrip(sourcing, load),
-        Number(sourcing.truckerAdvancePercent),
-        Number(sourcing.partner?.tdsPercent ?? DEFAULT_TDS_PERCENT),
-      );
-      const payment = await this.repository.partnerPayments.save(
-        this.repository.partnerPayments.create({
-          sourcingId: sourcing.id,
-          loadId,
-          partnerId: sourcing.partnerId!,
-          paymentType: 'advance',
-          grossAmount: String(amounts.gross),
-          tdsAmount: String(amounts.tds),
-          deductionAmount: '0',
-          netAmount: String(amounts.net),
-          utrReference: input.utrReference,
-          paidBy: actorId,
-          paidAt: this.now(),
-        }),
-      );
-      await this.step(sourcing, actorId, 'partner_advance_paid', 'LS_PARTNER_PAID', {
-        ...amounts,
-        utrReference: input.utrReference,
-      });
-      return payment;
-    } catch (error) {
-      rethrow(error, "Failed to pay the partner's advance");
-    }
   }
 }

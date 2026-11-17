@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError } from '../../shared/errors';
+import { isLoadsmartLoad } from '../loads/utils/load-stages';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
@@ -30,7 +31,7 @@ export abstract class LsServiceBase {
     if (
       !sourcing ||
       sourcing.status !== 'won' ||
-      sourcing.load.sourceType !== 'loadsmart' ||
+      !isLoadsmartLoad(sourcing.load) ||
       (tenantId !== undefined && sourcing.tenantId !== tenantId)
     ) {
       throw new NotFoundError(`Loadsmart load ${loadId} not found`);

@@ -677,7 +677,20 @@ describe('ops console access by team', () => {
       next();
     });
     app.use(
-      createLoadsmartOpsRoutes(new LoadsmartOpsController(sourcing as never, settlement as never)),
+      createLoadsmartOpsRoutes(
+        new LoadsmartOpsController(
+          sourcing as never,
+          settlement as never,
+          // placement, approval, tracking, cs, receivables, payables, console — unused here
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+        ),
+      ),
     );
     app.use(errors);
     return app;
@@ -747,6 +760,16 @@ describe('ops console access by team', () => {
     Object.assign(service, {
       repository: { terms: { findOneBy: vi.fn(async () => ({ marginPercent: '9.50' })), save } },
       auditService: { log: vi.fn(async () => undefined) },
+      settings: {
+        current: vi.fn(async () => ({
+          values: {
+            centralMarginPercent: 8,
+            defaultCarrierAdvancePercent: 80,
+            defaultShipperCreditDays: 30,
+            maxShipperCreditDays: 90,
+          },
+        })),
+      },
     });
     await service.saveTerms('approver-1', 't-1', { truckerAdvancePercent: 70 });
     expect(save).toHaveBeenCalledWith(

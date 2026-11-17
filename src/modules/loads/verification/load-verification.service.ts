@@ -1,4 +1,4 @@
-import { rethrow } from '../../../shared/errors';
+import { ConflictError, rethrow } from '../../../shared/errors';
 import { UlipError } from '../../../adapters/ulip.client';
 import { DlVerificationClient } from '../../../adapters/sarathi.client';
 import { VerificationStatus } from '../utils/loads.types';
@@ -17,7 +17,9 @@ import {
   DriverCheckInput,
   DriverCheckLoad,
   LoadChecksView,
+  ManualTruckCheckInput,
   TruckCheckLoad,
+  TruckPapers,
   VehicleRegistryClient,
 } from '../utils/load-verification.interface';
 
@@ -31,6 +33,12 @@ export const toCheckView = (check: LoadVerificationEntity): CheckView => ({
   status: check.status,
   failures: check.failures,
   notes: check.notes,
+  source: check.source,
+  verifiedBy: check.verifiedBy,
+  // The paper validity dates the truck check used (VAHAN's, or those typed in a manual check) —
+  // the "Confirm the truck" screen shows one row per paper.
+  papers:
+    check.subject === 'truck' ? ((check.details?.papers as TruckPapers | undefined) ?? null) : null,
   checkedAt: check.checkedAt.toISOString(),
 });
 
@@ -40,9 +48,10 @@ const statusOf = (failures: string[]): VerificationStatus =>
 /**
  * Govt-portal checks of the truck and driver put on a load: the truck on VAHAN (via ULIP) when a
  * bid or indent names it, the driver on Sarathi when the transporter names them. Every check is
- * stored on the load (load_verifications). A failed truck keeps the bid's Accept off; a failed
- * truck or driver keeps the load memo from going out. A portal that can't be reached records
- * `unavailable` and doesn't block — the same policy the driver onboarding check follows.
+ * stored on the load (load_verifications). A failed truck keeps the bid's Accept off. The load
+ * memo goes only when both the truck and the driver checks passed ("every check passes"): a
+ * portal that couldn't be reached records `unavailable`, which blocks the memo until the check is
+ * run again (checksBlockers).
  */
 export class LoadVerificationService {
   constructor(
@@ -120,6 +129,59 @@ export class LoadVerificationService {
     }
   }
 
+  /**
+   * VAHAN couldn't be reached for the load's truck, so an admin checks the RC by hand. Allowed only
+   * while the latest check of this truck is `unavailable` — a VAHAN verdict (passed or failed)
+   * can't be overridden. Any expiry dates they enter are still checked, so an expired paper fails.
+   */
+  async recordManualTruckCheck(
+    tenantId: string,
+    load: TruckCheckLoad,
+    actorId: string,
+    input: ManualTruckCheckInput,
+  ): Promise<LoadVerificationEntity> {
+    try {
+      if (!load.vehicleNumber) throw new ConflictError('The load has no truck number yet');
+      const latest = await this.repository.findLatestForLoad(
+        tenantId,
+        load.id,
+        'truck',
+        load.vehicleNumber,
+      );
+      if (!latest || latest.status !== 'unavailable') {
+        throw new ConflictError(
+          latest?.status === 'failed'
+            ? "VAHAN failed this truck, so it can't be verified manually — ask for another truck"
+            : latest?.status === 'passed'
+              ? 'The truck check already passed'
+              : 'Run the truck check first — manual verification is only for when VAHAN is down',
+        );
+      }
+      const now = this.now();
+      const papers = input.papers ?? {};
+      const failures = expiredPaperFailures(papers, istDateOf(now));
+      const notes = ['Verified manually: VAHAN was unavailable, the RC was checked by hand'];
+      if (input.note) notes.push(input.note);
+      return await this.repository.create({
+        tenantId,
+        loadId: load.id,
+        bidId: null,
+        subject: 'truck',
+        subjectRef: load.vehicleNumber,
+        status: statusOf(failures),
+        failures,
+        notes,
+        grossVehicleWeightKg: latest.grossVehicleWeightKg,
+        details: { papers, rcChecked: true },
+        source: 'manual',
+        verifiedBy: actorId,
+        checkedAt: now,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to verify the truck manually');
+    }
+  }
+
   /** Checks a driver's licence on Sarathi: found, not expired, and its class covers the truck
    *  (above 7.5 t GVW needs a transport licence). The truck's weight comes from the load's own
    *  truck check, or the vehicle master for an own-fleet truck. */
@@ -189,6 +251,18 @@ export class LoadVerificationService {
     return truck?.grossVehicleWeightKg ?? null;
   }
 
+  /** The load's latest check of its current truck is a manual pass. */
+  async hasManualPass(tenantId: string, load: TruckCheckLoad): Promise<boolean> {
+    if (!load.vehicleNumber) return false;
+    const latest = await this.repository.findLatestForLoad(
+      tenantId,
+      load.id,
+      'truck',
+      load.vehicleNumber,
+    );
+    return latest?.source === 'manual' && latest.status === 'passed';
+  }
+
   /** The load's truck check for its current truck — runs one when there's none yet (e.g. a truck
    *  assigned by hand rather than through a bid). */
   async ensureTruckChecked(
@@ -214,15 +288,43 @@ export class LoadVerificationService {
           : Promise.resolve(null),
         this.repository.findLatestForLoad(tenantId, load.id, 'driver'),
       ]);
+      const blockers = checksBlockers(truck, driver);
       return {
         truck: truck ? toCheckView(truck) : null,
         driver: driver ? toCheckView(driver) : null,
-        clear: truck?.status !== 'failed' && driver?.status !== 'failed',
+        clear: blockers.length === 0,
+        blockers,
+        truckManualAllowed: truck?.status === 'unavailable',
       };
     } catch (error) {
       rethrow(error, 'Failed to read the load checks');
     }
   }
+}
+
+/** What keeps the memo from going out: a check not run yet, one that failed, or one whose portal
+ *  couldn't be reached (run it again). Empty when both passed. */
+export function checksBlockers(
+  truck: Pick<LoadVerificationEntity, 'status' | 'failures'> | null,
+  driver: Pick<LoadVerificationEntity, 'status' | 'failures'> | null,
+): string[] {
+  const blockers: string[] = [];
+  for (const [label, check, portal] of [
+    ['Truck', truck, 'VAHAN'],
+    ['Driver', driver, 'Sarathi'],
+  ] as const) {
+    if (!check) blockers.push(`${label} not checked yet`);
+    else if (check.status === 'failed')
+      blockers.push(...check.failures.map((f) => `${label}: ${f}`));
+    else if (check.status === 'unavailable') {
+      blockers.push(
+        label === 'Truck'
+          ? `Truck check could not run on ${portal} — run the checks again or verify the truck manually`
+          : `${label} check could not run on ${portal} — run the checks again`,
+      );
+    }
+  }
+  return blockers;
 }
 
 /** What a check means for a bid's truck: passed → verified, failed → not, otherwise unknown. */

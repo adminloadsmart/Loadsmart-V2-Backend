@@ -8,16 +8,25 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { LoadEntity } from '../entities/load.entity';
-import { MEMO_STATUSES, MemoStatus } from '../utils/loads.types';
+import {
+  FREIGHT_TYPES,
+  FreightType,
+  MEMO_ACCEPT_CHANNELS,
+  MEMO_STATUSES,
+  MemoAcceptChannel,
+  MemoStatus,
+} from '../utils/loads.types';
 
 /**
- * The load memo: once the transporter has named the driver, the shipper gets the truck and driver
- * to accept. It expires 1 hour after it is sent and only the shipper can accept it; a fresh one
- * can be sent after that. Each row snapshots what the shipper saw. Accepting stamps
- * LoadEntity.memoAcceptedAt, which the trip start waits on.
+ * The load memo — "the only confirmation" of truck, driver and price. Once the driver is named and
+ * every check passed, a version goes to the shipper (LM-<load code>-v1, v2…); a changed truck or
+ * driver, or a resend, is the next version and supersedes the open one. It expires per the load's
+ * settings; the shipper accepts it (or, on a Loadsmart load, Placement confirms it after a call),
+ * which moves the load to Truck assigned. Each row snapshots what the shipper saw, with its PDF.
  */
 @Entity({ schema: 'loads', name: 'load_memos' })
 @Index('load_memos_tenant_load_idx', ['tenantId', 'loadId'])
+@Index('load_memos_load_version_unique', ['loadId', 'version'], { unique: true })
 export class LoadMemoEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -28,12 +37,46 @@ export class LoadMemoEntity {
   @Column({ name: 'load_id', type: 'uuid' })
   loadId!: string;
 
-  @ManyToOne(() => LoadEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => LoadEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'load_id' })
   load!: LoadEntity;
 
   @Column({ type: 'enum', enum: [...MEMO_STATUSES], default: 'sent' })
   status!: MemoStatus;
+
+  /** 1, 2, … per load. */
+  @Column({ type: 'integer' })
+  version!: number;
+
+  /** "LM-<load code>-v<version>". */
+  @Column({ type: 'varchar', length: 60 })
+  reference!: string;
+
+  @Column({ name: 'driver_licence_number', type: 'varchar', length: 30, nullable: true })
+  driverLicenceNumber!: string | null;
+
+  /** The agreed price and payment terms, as on the load when the memo went out. */
+  @Column({
+    name: 'freight_type',
+    type: 'enum',
+    enum: [...FREIGHT_TYPES],
+    enumName: 'loads_freight_type_enum',
+    nullable: true,
+  })
+  freightType!: FreightType | null;
+
+  @Column({ name: 'freight_value', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  freightValue!: string | null;
+
+  @Column({ name: 'advance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
+  advancePercentage!: string | null;
+
+  @Column({ name: 'balance_percentage', type: 'numeric', precision: 5, scale: 2, nullable: true })
+  balancePercentage!: string | null;
+
+  /** The system-generated PDF of this version. */
+  @Column({ name: 'pdf_file_key', type: 'text', nullable: true })
+  pdfFileKey!: string | null;
 
   @Column({ name: 'transporter_id', type: 'uuid', nullable: true })
   transporterId!: string | null;
@@ -73,6 +116,9 @@ export class LoadMemoEntity {
 
   @Column({ name: 'accepted_by', type: 'uuid', nullable: true })
   acceptedBy!: string | null;
+
+  @Column({ name: 'accepted_via', type: 'enum', enum: [...MEMO_ACCEPT_CHANNELS], nullable: true })
+  acceptedVia!: MemoAcceptChannel | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

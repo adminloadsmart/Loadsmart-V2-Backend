@@ -69,7 +69,10 @@ export class DashboardsRepository {
         openLoads()
           .select('COALESCE(SUM(load.planned_capacity_tonnes), 0)', 'tonnes')
           .getRawOne<{ tonnes: string }>(),
-        openLoads().andWhere('load.source_type = :sourceType', { sourceType: 'market' }).getCount(),
+        openLoads()
+          .andWhere("load.posting_type = 'market_fleet'")
+          .andWhere("(load.route IS NULL OR load.route <> 'loadsmart')")
+          .getCount(),
         this.requisitions
           .createQueryBuilder('req')
           .where('req.tenant_id = :tenantId', { tenantId })

@@ -31,6 +31,8 @@ export class LoadVerificationRepository {
         subject,
         subjectRef,
         status: Not('unavailable'),
+        // A manual pass is that load's own call while VAHAN was down — never reused elsewhere.
+        source: 'portal',
         checkedAt: MoreThanOrEqual(since),
       },
       order: { checkedAt: 'DESC' },

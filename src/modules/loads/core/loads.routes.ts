@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { loadChargeValidators } from '../money/load-charge.validators';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
@@ -89,6 +90,11 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   );
   router.get('/loads/:loadId', validate(loadValidators.get), asyncHandler(controller.getLoad));
   router.get(
+    '/loads/:loadId/stage-history',
+    validate(loadValidators.getActivities),
+    asyncHandler(controller.listStageHistory),
+  );
+  router.get(
     '/loads/:loadId/activities',
     validate(loadValidators.getActivities),
     asyncHandler(controller.listLoadActivities),
@@ -138,6 +144,13 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   );
   // The load page's "Change contact" / "Change loading point" — this load only, until the truck
   // reaches the loading point.
+  // Unloading details — the receiver or the appointment, before the truck reaches the drop.
+  router.put(
+    '/loads/:loadId/unloading-details',
+    canManageDispatch,
+    validate(loadValidators.unloadingDetails),
+    asyncHandler(controller.setUnloadingDetails),
+  );
   router.patch(
     '/loads/:loadId/loading-contact',
     canManageDispatch,
@@ -149,13 +162,6 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     canManageDispatch,
     validate(loadValidators.setLoadingPoint),
     asyncHandler(controller.setLoadingPoint),
-  );
-  // The e-LR at the loading point — invoice required, freight hidden unless ticked.
-  router.post(
-    '/loads/:loadId/elr',
-    canManageDocuments,
-    validate(loadValidators.generateElr),
-    asyncHandler(controller.generateElr),
   );
   // Delivered with issues -> Delivered without issues, once the damage/shortage/pilferage noted
   // on the POD is settled — see LoadService.settleDeliveryIssue.
@@ -172,6 +178,31 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     canManagePayments,
     validate(loadPaymentValidators.recordAdvance),
     asyncHandler(controller.recordAdvancePayment),
+  );
+  // Where the load's money stands, and charges with proof (own transporter / indent).
+  router.get(
+    '/loads/:loadId/next-action',
+    validate(loadPaymentValidators.summary),
+    asyncHandler(controller.nextAction),
+  );
+  router.get(
+    '/loads/:loadId/money',
+    requirePermission(PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE),
+    validate(loadPaymentValidators.summary),
+    asyncHandler(controller.moneySummary),
+  );
+  router.post(
+    '/loads/:loadId/transporter-charges',
+    canManagePayments,
+    validate(loadChargeValidators.add),
+    asyncHandler(controller.addTransporterCharge),
+  );
+  // Stage 11 (own transporter / indent): the transporter's invoice, before the balance.
+  router.post(
+    '/loads/:loadId/transporter-invoice',
+    canManagePayments,
+    validate(loadValidators.transporterInvoice),
+    asyncHandler(controller.uploadTransporterInvoice),
   );
   router.post(
     '/loads/:loadId/payments/balance',

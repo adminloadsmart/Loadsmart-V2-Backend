@@ -10,6 +10,7 @@ import {
   STALE_PENDING_MINUTES,
   STAFF_CROSS_TENANT_READS,
   UPLOAD_POLICIES,
+  UploadPurpose,
 } from './storage.constants';
 import {
   FileAccessActor,
@@ -40,6 +41,33 @@ export class StorageService {
     private readonly repository: StorageRepository,
     private readonly s3: S3Adapter,
   ) {}
+
+  /** Loadsmart staff attach a file to a shipper's load (a charge proof, a request to post). Staff
+   *  upload without a tenant, so the file moves into the shipper's files — the shipper can then
+   *  read it, and staff still can (STAFF_CROSS_TENANT_READS). Only the uploader's own confirmed
+   *  file, for the expected purpose; a file already in that tenant is fine as it is. */
+  async attachStaffUpload(
+    staffUserId: string,
+    key: string,
+    purpose: UploadPurpose,
+    tenantId: string,
+  ): Promise<void> {
+    try {
+      const file = await this.repository.findByKeyAny(key);
+      if (!file || file.purpose !== purpose || file.status !== 'confirmed') {
+        throw new ValidationError(`File ${key} is not a confirmed ${purpose} upload`);
+      }
+      if (file.tenantId === tenantId) return;
+      if (file.tenantId !== null || file.uploadedBy !== staffUserId) {
+        throw new ValidationError(`File ${key} was not uploaded by you`);
+      }
+      if (!(await this.repository.adoptIntoTenant(file.id, tenantId))) {
+        throw new ValidationError(`File ${key} could not be attached`);
+      }
+    } catch (error) {
+      rethrow(error, 'Failed to attach the file');
+    }
+  }
 
   async generateUploadUrl(
     tenantId: string | null,

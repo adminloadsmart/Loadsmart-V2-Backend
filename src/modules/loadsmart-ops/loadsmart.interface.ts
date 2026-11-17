@@ -1,8 +1,10 @@
+import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
+import type { LoadDocumentService } from '../loads/documents/load-document.service';
+import type { SettingsReader } from '../settings/settings.types';
 import type { AuditService } from '../audit/audit.service';
 import type { StorageService } from '../storage/storage.service';
 import type { LoadActivityService } from '../loads/activity/load-activity.service';
 import type { LoadBidService } from '../loads/bids/load-bid.service';
-import type { LoadEntity } from '../loads/entities/load.entity';
 import type { LoadMemoService } from '../loads/memo/load-memo.service';
 import type { LoadPaymentService } from '../loads/payments/load-payment.service';
 import type { LoadRepository } from '../loads/core/load.repository';
@@ -12,12 +14,13 @@ import type { LoadPostingHooks } from '../loads/load-posting/utils/load-posting.
 import type { LoadStageHook } from '../loads/utils/load.interface';
 import type { LoadStatus } from '../loads/utils/loads.types';
 import type { LoadVerificationService } from '../loads/verification/load-verification.service';
-import type { NotificationTriggers } from '../notifications/notifications.interface';
-import type { LoadClaimEntity } from './entities/load-claim.entity';
-import type { LsInvoiceEntity } from './entities/ls-invoice.entity';
 import type { LsPartnerBidEntity } from './entities/ls-partner-bid.entity';
 import type { LsSourcingEntity } from './entities/ls-sourcing.entity';
-import type { ChargeType, PartnerStatus, PartnerType } from './loadsmart.types';
+import type { ElrService } from '../loads/elr/elr.service';
+import type { BillingInstruction } from './billing-rules';
+import type { TrackingClient } from '../../adapters/tracking.client';
+import type { LoadCancelService } from '../loads/sourcing/load-cancel.service';
+import type { ChargeType, PartnerStatus, PartnerType, PodType } from './loadsmart.types';
 
 /** Loadsmart ops shapes — service inputs, views and amounts (value sets live in loadsmart.types.ts). */
 
@@ -125,6 +128,12 @@ export type SourcingRef = Pick<LsSourcingEntity, 'id' | 'tenantId' | 'loadId'>;
 export interface CommercialTermsInput {
   marginPercent?: number;
   truckerAdvancePercent: number;
+  preapprovedCharges?: { head: string; maxAmount?: number | null }[];
+  /** Null: the settings' default. */
+  creditDays?: number | null;
+  podType?: PodType;
+  billingInstructions?: BillingInstruction[];
+  billingNote?: string | null;
 }
 
 /** Approval team posts the load on the board, optionally changing the terms. */
@@ -150,17 +159,6 @@ export interface SendBidInput {
   negotiationNote?: string;
 }
 
-/** Verification team approval — fills the loading contact when the shipper hasn't. */
-export interface ApproveVerificationInput {
-  loadingContactName?: string;
-  loadingContactPhone?: string;
-}
-
-/** The shipper's papers check at the loading point. */
-export interface ApprovePapersInput {
-  ewayBillNamesLoadsmart: boolean;
-}
-
 /** A bank/UPI payment reference. */
 export interface UtrInput {
   utrReference: string;
@@ -168,8 +166,9 @@ export interface UtrInput {
 
 /** The shipper's decision on a charge Loadsmart raised. */
 export interface ChargeDecisionInput {
-  decision: 'approved' | 'rejected';
-  /** Required when rejecting. */
+  /** `queried`: the shipper asks Loadsmart about it; Tracking's answer brings it back. */
+  decision: 'approved' | 'rejected' | 'queried';
+  /** Required when rejecting or querying. */
   reason?: string;
 }
 
@@ -180,22 +179,10 @@ export interface AddChargeInput {
   note?: string;
 }
 
-/** Who will receive the truck at the drop. */
-export interface UnloadingContactInput {
-  name: string;
-  phone: string;
-}
-
 /** The shipper's claim value on a load delivered with issues. */
 export interface ClaimValueInput {
   claimValue: number;
   note?: string;
-}
-
-/** Settling a claim: what is recovered from the partner. */
-export interface SettleClaimInput {
-  partnerRecovery: number;
-  note: string;
 }
 
 /** The POD team's 1–5 scores for shipper and partner. */
@@ -203,28 +190,6 @@ export interface RateLoadInput {
   shipperScore: number;
   partnerScore: number;
   note?: string;
-}
-
-/** The signed original POD received at the office. */
-export interface OriginalPodInput {
-  courierName?: string;
-  trackingNumber?: string;
-}
-
-export interface GenerateInvoiceInput {
-  gstPercent?: number;
-  dueDays?: number;
-}
-
-export interface GeneratedInvoice {
-  invoice: LsInvoiceEntity;
-  downloadUrl: string | null;
-}
-
-/** One row of the CS queue — a load delivered with issues and its claim. */
-export interface ClaimQueueItem {
-  load: LoadEntity;
-  claim: LoadClaimEntity | null;
 }
 
 /** When a charge type can be added, and what to say otherwise. */
@@ -279,7 +244,6 @@ export interface SourcingPostingFields {
 export interface LoadsmartOpsModuleDeps {
   auditService: AuditService;
   storageService: StorageService;
-  notificationTriggers: NotificationTriggers;
   loadActivityService: LoadActivityService;
   loadRepository: LoadRepository;
   loadService: LoadService;
@@ -290,4 +254,12 @@ export interface LoadsmartOpsModuleDeps {
   loadPaymentService: LoadPaymentService;
   postingHooks: LoadPostingHooks;
   stageHooks: LoadStageHook[];
+  settings: SettingsReader;
+  loadDocumentService: LoadDocumentService;
+  loadPostingService: LoadPostingService;
+  elrService: ElrService;
+  /** The live map reads each trip's last position and ETA from the tracking service. */
+  trackingClient: TrackingClient;
+  /** Super Admin approves or rejects a shipper's cancellation of a load Loadsmart has won. */
+  loadCancelService: LoadCancelService;
 }

@@ -4,7 +4,8 @@ import { paginationQuery as pagination } from '../../../shared/validators/pagina
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/constants/pagination';
 import {
   FREIGHT_TYPES,
-  LOAD_SOURCE_TYPES,
+  LOAD_POSTING_TYPES,
+  LOAD_ROUTES,
   LOAD_STATUSES,
   LOAD_STATUS_GROUPS,
   MANUAL_TRACKING_STATUSES,
@@ -113,6 +114,7 @@ export const uploadPodBody = z
     shortageOrDamage: z.enum(SHORTAGE_OR_DAMAGE_STATUSES).optional(),
     numberOfTonnesShort: z.number().nonnegative().optional(),
     damagePhotoKey: z.string().trim().min(1).optional(),
+    stampedInvoiceFileKey: z.string().trim().min(1).optional(),
     podRemarks: z.string().trim().max(500).optional(),
   })
   .strict()
@@ -131,12 +133,14 @@ export const uploadPodBody = z
     }
   });
 
-// Staff's accept/reject decision on a pending E-POD — see LoadService.reviewPod. `reason` is
-// required when rejecting (so the driver knows what to fix on resubmission), unused otherwise.
+// The POD decision — see LoadService.reviewPod. `reason` is required when rejecting (so the
+// driver knows what to fix on resubmission); accepting states the issue, if any.
 export const reviewPodBody = z
   .object({
     decision: z.enum(POD_REVIEW_DECISIONS),
     reason: z.string().trim().min(1).max(500).optional(),
+    shortageOrDamage: z.enum(SHORTAGE_OR_DAMAGE_STATUSES).optional(),
+    issueDetails: z.string().trim().min(1).max(2000).optional(),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -149,7 +153,76 @@ export const reviewPodBody = z
     }
   });
 
+// Unloading details — the receiver, or the warehouse appointment; at least one in full.
+export const unloadingDetailsBody = z
+  .object({
+    receiverName: z.string().trim().min(1).max(150).optional(),
+    receiverPhone: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, 'Must be a 10-digit mobile number')
+      .optional(),
+    appointmentId: z.string().trim().min(1).max(60).optional(),
+    appointmentDate: dateOnly.optional(),
+    appointmentSlot: z.string().trim().min(1).max(40).optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    const receiver = [data.receiverName, data.receiverPhone].filter(Boolean).length;
+    const appointment = [data.appointmentId, data.appointmentDate, data.appointmentSlot].filter(
+      Boolean,
+    ).length;
+    if (receiver === 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['receiverPhone'],
+        message: 'Add both the receiver name and mobile',
+      });
+    }
+    if (appointment > 0 && appointment < 3) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appointmentSlot'],
+        message: 'Add the appointment ID, date and slot',
+      });
+    }
+    if (receiver < 2 && appointment < 3) {
+      ctx.addIssue({ code: 'custom', path: [], message: 'Add the receiver or the appointment' });
+    }
+  });
+
+/** The e-LR at the loading point (Loadsmart's Tracking team; elr/elr.service.ts). */
+export const elrIssueBody = z
+  .object({
+    packages: z.number().int().positive(),
+    sealNumber: z.string().trim().min(1).max(50).optional(),
+    showFreight: z.boolean().optional(),
+    invoiceNumber: z.string().trim().min(1).max(50).optional(),
+    invoiceDate: isoDateSchema.optional(),
+    invoiceValue: z.number().positive().optional(),
+    // Weighbridge slip — the load's net weight is gross minus tare.
+    grossWeightTonnes: z.number().positive().max(200).optional(),
+    tareWeightTonnes: z.number().positive().max(200).optional(),
+  })
+  .strict()
+  .refine(
+    (body) => (body.grossWeightTonnes === undefined) === (body.tareWeightTonnes === undefined),
+    {
+      message: 'grossWeightTonnes and tareWeightTonnes go together',
+      path: ['tareWeightTonnes'],
+    },
+  )
+  .refine(
+    (body) =>
+      body.grossWeightTonnes === undefined ||
+      body.tareWeightTonnes === undefined ||
+      body.grossWeightTonnes > body.tareWeightTonnes,
+    { message: 'Gross weight must be more than tare', path: ['grossWeightTonnes'] },
+  );
+
 export const loadValidators = {
+  unloadingDetails: z.object({ params, body: unloadingDetailsBody }),
+
   list: z.object({
     // `search` (inherited from `pagination`) matches against the load's requisition's customer
     // name — see LoadRepository.list/countByGroup.
@@ -160,7 +233,8 @@ export const loadValidators = {
         // The Trips Home-page tab filter (Active/Completed) — a status-group shorthand, not a
         // narrower version of `status` above, so the two aren't combined in one request.
         group: z.enum(LOAD_STATUS_GROUPS).optional(),
-        sourceType: z.enum(LOAD_SOURCE_TYPES).optional(),
+        postingType: z.enum(LOAD_POSTING_TYPES).optional(),
+        route: z.enum(LOAD_ROUTES).optional(),
         transporterId: uuid.optional(),
         vehicleId: uuid.optional(),
         driverId: uuid.optional(),
@@ -243,6 +317,7 @@ export const loadValidators = {
           .string()
           .trim()
           .regex(/^\d{10}$/, 'Must be a 10-digit mobile number'),
+        applyToPoint: z.boolean().optional(),
       })
       .strict(),
   }),
@@ -251,41 +326,28 @@ export const loadValidators = {
     body: z.object({ loadingPointId: uuid }).strict(),
   }),
 
-  // The e-LR at the loading point — see elr/elr.service.ts.
-  generateElr: z.object({
+  // Stage 11 on own transporter / indent — see LoadService.uploadTransporterInvoice.
+  transporterInvoice: z.object({
     params,
     body: z
       .object({
-        packages: z.number().int().positive(),
-        sealNumber: z.string().trim().min(1).max(50).optional(),
-        showFreight: z.boolean().optional(),
+        fileKey: z.string().trim().min(1).max(500),
         invoiceNumber: z.string().trim().min(1).max(50).optional(),
-        invoiceDate: isoDateSchema.optional(),
-        invoiceValue: z.number().positive().optional(),
-        // Weighbridge slip — the load's net weight is gross minus tare.
-        grossWeightTonnes: z.number().positive().max(200).optional(),
-        tareWeightTonnes: z.number().positive().max(200).optional(),
+        amount: z.number().positive().max(100_000_000).optional(),
       })
-      .strict()
-      .refine(
-        (body) => (body.grossWeightTonnes === undefined) === (body.tareWeightTonnes === undefined),
-        {
-          message: 'grossWeightTonnes and tareWeightTonnes go together',
-          path: ['tareWeightTonnes'],
-        },
-      )
-      .refine(
-        (body) =>
-          body.grossWeightTonnes === undefined ||
-          body.tareWeightTonnes === undefined ||
-          body.grossWeightTonnes > body.tareWeightTonnes,
-        { message: 'Gross weight must be more than tare', path: ['grossWeightTonnes'] },
-      ),
+      .strict(),
   }),
 
   // Delivered with issues -> settled — see LoadService.settleDeliveryIssue.
+  // On own-transporter and indent loads also whether there is a deduction and its amount.
   settleDeliveryIssue: z.object({
     params,
-    body: z.object({ note: z.string().trim().min(1).max(1000) }).strict(),
+    body: z
+      .object({
+        note: z.string().trim().min(1).max(1000),
+        hasDeduction: z.boolean().optional(),
+        deductionAmount: z.number().positive().max(100_000_000).optional(),
+      })
+      .strict(),
   }),
 };

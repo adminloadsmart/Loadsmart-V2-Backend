@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
-import { DISPATCH_PLANNING_MANAGE } from '../../../shared/constants/permissions';
+import {
+  DISPATCH_PLANNING_MANAGE,
+  TRUCK_VERIFY_MANUAL,
+} from '../../../shared/constants/permissions';
 import { LoadSourcingController } from './load-sourcing.controller';
 import { loadSourcingValidators as v } from './load-sourcing.validators';
 
@@ -33,6 +36,24 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     asyncHandler(controller.acceptBid),
   );
   router.post(
+    '/loads/:loadId/bids/:bidId/counter',
+    canManageDispatch,
+    validate(v.counterBid),
+    asyncHandler(controller.counterBid),
+  );
+  router.post(
+    '/loads/:loadId/bids/:bidId/counter-response',
+    canManageDispatch,
+    validate(v.answerCounter),
+    asyncHandler(controller.answerCounter),
+  );
+  router.post(
+    '/loads/:loadId/bids/:bidId/reject',
+    canManageDispatch,
+    validate(v.rejectBid),
+    asyncHandler(controller.rejectBid),
+  );
+  router.post(
     '/loads/:loadId/indent/accept',
     canManageDispatch,
     validate(v.recordIndentAcceptance),
@@ -46,13 +67,33 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     validate(v.nameDriver),
     asyncHandler(controller.nameDriver),
   );
-  // Govt-portal checks of the load's truck and driver — only failures block.
+  router.post(
+    '/loads/:loadId/indent/reject',
+    canManageDispatch,
+    validate(v.recordIndentRejection),
+    asyncHandler(controller.recordIndentRejection),
+  );
+  // Govt-portal checks of the load's truck and driver — the memo needs both passed.
   router.get(
     '/loads/:loadId/verifications',
     validate(v.getChecks),
     asyncHandler(controller.getChecks),
   );
+  router.post(
+    '/loads/:loadId/verifications/rerun',
+    canManageDispatch,
+    validate(v.rerunChecks),
+    asyncHandler(controller.rerunChecks),
+  );
+  // VAHAN couldn't be reached for the truck — an org admin verifies it by hand.
+  router.post(
+    '/loads/:loadId/verifications/truck/manual',
+    requirePermission(TRUCK_VERIFY_MANUAL),
+    validate(v.verifyTruckManually),
+    asyncHandler(controller.verifyTruckManually),
+  );
   router.get('/loads/:loadId/memo', validate(v.getMemo), asyncHandler(controller.getMemo));
+  router.get('/loads/:loadId/memos', validate(v.listMemos), asyncHandler(controller.listMemos));
   router.post(
     '/loads/:loadId/memo',
     canManageDispatch,
@@ -64,6 +105,31 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     canManageDispatch,
     validate(v.acceptMemo),
     asyncHandler(controller.acceptMemo),
+  );
+
+  // --- Truck cancelled before loading ---
+  router.post(
+    '/loads/:loadId/truck-cancellation',
+    canManageDispatch,
+    validate(v.cancelTruck),
+    asyncHandler(controller.cancelTruck),
+  );
+  // --- Cancel the load, before Loaded (a Loadsmart load waits for Super Admin) ---
+  router.get(
+    '/loads/:loadId/cancellation',
+    validate(v.listTruckCancellations),
+    asyncHandler(controller.cancellationOptions),
+  );
+  router.post(
+    '/loads/:loadId/cancel',
+    canManageDispatch,
+    validate(v.cancelLoad),
+    asyncHandler(controller.cancelLoad),
+  );
+  router.get(
+    '/loads/:loadId/truck-cancellations',
+    validate(v.listTruckCancellations),
+    asyncHandler(controller.listTruckCancellations),
   );
 
   return router;

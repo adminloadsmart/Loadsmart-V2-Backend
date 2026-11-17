@@ -30,7 +30,7 @@ export class LoadRecipientEntity {
   @Column({ name: 'posting_id', type: 'uuid' })
   postingId!: string;
 
-  @ManyToOne(() => LoadPostingEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => LoadPostingEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'posting_id' })
   posting!: LoadPostingEntity;
 

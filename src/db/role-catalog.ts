@@ -28,21 +28,23 @@ import {
   FILES_READ,
   FILES_DELETE,
   MASTERS_APPROVE,
+  TRUCK_VERIFY_MANUAL,
   MAINTENANCE_MANAGE,
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
   TRIP_TRACK,
   LS_APPROVAL,
   LS_PLACEMENT,
-  LS_VERIFICATION,
   LS_TRACKING,
-  LS_POD,
   LS_CS,
   LS_RECEIVABLES,
   LS_PAYABLES,
+  LS_MONEY_APPROVE,
+  LS_SETTINGS_MANAGE,
   LS_MASTERS_MANAGE,
   LS_MARGIN_VIEW,
   LS_MARGIN_MANAGE,
+  LS_TRUCK_VERIFY_MANUAL,
   GEOFENCES_MANAGE,
   NOTIFICATION_PREFERENCES_MANAGE,
 } from '../shared/constants/permissions';
@@ -231,6 +233,12 @@ export const PERMISSIONS: {
     scope: 'organization',
     description: 'Approve/reject vehicles and drivers created pending admin approval',
   },
+  {
+    key: TRUCK_VERIFY_MANUAL,
+    module: 'masters',
+    scope: 'organization',
+    description: "Mark a truck verified by hand when VAHAN can't be reached",
+  },
   // Not in any role's default bundle (see ROLES below) — granted per user by an org admin.
   {
     key: COMPLIANCE_MANAGE,
@@ -246,19 +254,27 @@ export const PERMISSIONS: {
     scope: 'organization',
     description: 'Get trip alerts: truck assigned, or an assignment blocked by expired documents',
   },
-  // Loadsmart ops console — one per ops team (loadsmart-ops/).
+  // Loadsmart ops console — one per ops team (loadsmart-ops/), plus Super Admin's two keys.
   ...[
-    [LS_APPROVAL, 'Check Loadsmart loads and post them on the load board'],
-    [LS_PLACEMENT, "Record partner bids, send Loadsmart's bid and name the partner's driver"],
-    [LS_VERIFICATION, 'Approve the truck and driver on a Loadsmart load'],
-    [LS_TRACKING, 'See Loadsmart loads on the road (the shipper runs the trip)'],
-    [LS_POD, 'Rate shipper and partner and receive the original POD'],
-    [LS_CS, 'See claims on Loadsmart loads delivered with issues (the shipper settles them)'],
+    [LS_APPROVAL, "Review onboarded shippers and post a load on a shipper's behalf"],
+    [
+      LS_PLACEMENT,
+      "Source trucks, give Loadsmart's price, add the truck and driver, send the memo",
+    ],
+    [LS_TRACKING, 'Run Loadsmart loads: papers, e-LR, charges, advance request, POD decision'],
+    [LS_CS, 'Claims on Loadsmart loads delivered with issues, and tickets'],
     [LS_RECEIVABLES, "See Loadsmart's invoices and the shipper's payments"],
-    [LS_PAYABLES, "Pay the partner's advance and balance"],
+    [LS_PAYABLES, "Pay the carrier's advance and balance and track the original POD"],
+    // Super Admin — in no role's bundle below; platform_admin passes through its bypass.
+    [LS_MONEY_APPROVE, 'Approve money going out: carrier advances and balances'],
+    [LS_SETTINGS_MANAGE, 'Change the Load module settings (timers, margin, advance, reason codes)'],
     [LS_MASTERS_MANAGE, 'Add and edit partners (brokers) — Admin team only'],
     [LS_MARGIN_VIEW, "See Loadsmart's margin on loads and shipper terms"],
     [LS_MARGIN_MANAGE, "Change a shipper's margin — Admin team only"],
+    [
+      LS_TRUCK_VERIFY_MANUAL,
+      "Mark a Loadsmart load's truck verified by hand when VAHAN can't be reached — Admin team only",
+    ],
   ].map(([key, description]) => ({
     key,
     module: 'loadsmart',
@@ -273,9 +289,9 @@ const STAFF_BASE = [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD];
 // Ops team bundles (16 Nov Figma notes §5–§11). A team is a bundle of keys, not one key:
 //  - Approval verifies onboarding documents (§5) — so it holds the KYC review keys that used to
 //    belong to the online/offline KYC desks.
-//  - Placement verifies truck + DL before the Load Memo (§6) — LS_VERIFICATION (/verification-queue)
-//    — and sees margin (§7: "margin stays Admin/Placement-only").
-//  - Payables chases the original POD (§8) — LS_POD (/pod-queue, /original-pod).
+//  - Placement verifies truck + DL before the Load Memo (§6) under LS_PLACEMENT, and sees margin
+//    (§7: "margin stays Admin/Placement-only").
+//  - Payables chases the original POD (§8) under LS_PAYABLES (/original-pod).
 export const OPS_TEAM_BUNDLES: Record<string, string[]> = {
   [APPROVAL_TEAM]: [
     LS_APPROVAL,
@@ -284,11 +300,11 @@ export const OPS_TEAM_BUNDLES: Record<string, string[]> = {
     KYC_OFFLINE_VERIFY,
     KYC_OFFLINE_REJECT,
   ],
-  [PLACEMENT_TEAM]: [LS_PLACEMENT, LS_VERIFICATION, LS_MARGIN_VIEW],
+  [PLACEMENT_TEAM]: [LS_PLACEMENT, LS_MARGIN_VIEW],
   [TRACKING_TEAM]: [LS_TRACKING],
   [CS_TEAM]: [LS_CS],
   [RECEIVABLES_TEAM]: [LS_RECEIVABLES],
-  [PAYABLES_TEAM]: [LS_PAYABLES, LS_POD],
+  [PAYABLES_TEAM]: [LS_PAYABLES],
 };
 
 // The Admin team = every ops bundle combined (computed, so a key added to any team reaches Admin
@@ -299,6 +315,7 @@ export const ADMIN_TEAM_ONLY_KEYS = [
   LS_MASTERS_MANAGE,
   LS_MARGIN_VIEW,
   LS_MARGIN_MANAGE,
+  LS_TRUCK_VERIFY_MANUAL,
   KYC_OVERSEE,
 ];
 export const ADMIN_TEAM_BUNDLE = [
@@ -328,6 +345,7 @@ export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }
       ORGANIZATION_PROFILE_MANAGE,
       MASTERS_WRITE,
       MASTERS_APPROVE,
+      TRUCK_VERIFY_MANUAL,
       CUSTOMERS_CREATE,
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,

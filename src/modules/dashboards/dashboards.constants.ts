@@ -27,12 +27,6 @@ export const LOAD_PIPELINE_STAGES: ReadonlyArray<{
   {
     key: 'delivered_or_money_open',
     label: 'Delivered, POD or money open',
-    statuses: [
-      'delivered_ok',
-      'delivered_with_issues',
-      'original_pod_received',
-      'invoice_generated',
-      'payment',
-    ],
+    statuses: ['delivered_ok', 'delivered_with_issues', 'invoice_generated', 'payment'],
   },
 ];

@@ -31,6 +31,8 @@ import {
   VehicleLoadedContext,
   VehicleNotReportedContext,
   VehicleReachedDropContext,
+  VehicleNearingDropContext,
+  DetentionDetectedContext,
   VehicleReachedPickupContext,
 } from './catalog/notification-catalog';
 import { findHaltExclusion } from './halt-exclusions';
@@ -45,6 +47,7 @@ import {
   TRIP_COMPLETED_FALLBACK_MS,
   MS_PER_MINUTE,
   VEHICLE_HALT_SAME_SPOT_M,
+  VEHICLE_HALT_SAME_SPOT_SIM_M,
 } from './notifications.constants';
 import {
   DescribeLocation,
@@ -236,7 +239,7 @@ function freightTotalOf(snapshot: LoadAlertSnapshot): number | null {
 /** LS_N_0039/0041 — the transporter's freight as the amount to bill (no customer billing amount
  *  exists yet). Null for own-fleet loads or no agreed freight. */
 function freightAmountOf(snapshot: LoadAlertSnapshot): string | null {
-  if (snapshot.sourceType === 'own_fleet') return null;
+  if (snapshot.postingType === 'own_fleet') return null;
   const freightTotal = freightTotalOf(snapshot);
   return freightTotal === null || freightTotal <= 0 ? null : formatRupees(freightTotal);
 }
@@ -244,7 +247,7 @@ function freightAmountOf(snapshot: LoadAlertSnapshot): string | null {
 /** LS_N_0038 — the transporter balance the POD review holds up: freight minus the advance share.
  *  Null for own-fleet loads (no transporter), no agreed freight, or a balance already paid. */
 function balanceAmountOf(snapshot: LoadAlertSnapshot): string | null {
-  if (snapshot.sourceType === 'own_fleet' || snapshot.balancePaidAt) return null;
+  if (snapshot.postingType === 'own_fleet' || snapshot.balancePaidAt) return null;
   const freightTotal = freightTotalOf(snapshot);
   if (freightTotal === null || freightTotal <= 0) return null;
   const advancePercentage = Number(snapshot.advancePercentage ?? 0);
@@ -355,7 +358,7 @@ export function createLoadAlertResolvers(
         origin: snapshot.originCity,
         driverName: snapshot.driverName,
         driverPhone: snapshot.driverPhone,
-        isOwnFleet: snapshot.sourceType === 'own_fleet',
+        isOwnFleet: snapshot.postingType === 'own_fleet',
         createdBy: snapshot.createdBy,
         lateMinutes: (Date.now() - new Date(context.reportingAt).getTime()) / MS_PER_MINUTE,
         lastSeenPlace: position ? await describeLocation(position, position.placeName) : null,
@@ -447,6 +450,39 @@ export function createLoadAlertResolvers(
         freeTimeEndsAt: new Date(
           new Date(context.arrivedAt).getTime() + freeHours * MS_PER_HOUR,
         ).toISOString(),
+      };
+    },
+
+    /** Tracking's drop-geofence entry — null once the load is past the drop (or gone). */
+    vehicleNearingDrop: async (
+      tenantId: string,
+      context: VehicleNearingDropContext,
+    ): Promise<VehicleNearingDropContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || ARRIVED_AT_DELIVERY_STATUSES.includes(snapshot.status as LoadStatus)) {
+        return null;
+      }
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        destination: snapshot.destinationCity,
+      };
+    },
+
+    /** Tracking's detention flag — null once the load has left the trip (delivered / closed). */
+    detentionDetected: async (
+      tenantId: string,
+      context: DetentionDetectedContext,
+    ): Promise<DetentionDetectedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || UNLOADED_LOAD_STATUSES.includes(snapshot.status as LoadStatus)) return null;
+      if (snapshot.status === 'closed') return null;
+      const sinceMs = new Date(context.enteredAt ?? context.detectedAt).getTime();
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        place: context.point === 'loading' ? snapshot.originCity : snapshot.destinationCity,
+        hoursInside: (Date.now() - sinceMs) / MS_PER_HOUR,
       };
     },
 
@@ -586,7 +622,8 @@ export function createLoadAlertResolvers(
       if (
         !position ||
         position.stale ||
-        distanceMetresBetween(anchor, position) > VEHICLE_HALT_SAME_SPOT_M
+        distanceMetresBetween(anchor, position) >
+          (context.sim ? VEHICLE_HALT_SAME_SPOT_SIM_M : VEHICLE_HALT_SAME_SPOT_M)
       ) {
         return null; // halt over or no fresh position
       }
@@ -847,7 +884,7 @@ export function createLoadAlertResolvers(
           : null,
         lrNumber: snapshot.elrNumber,
         amount: freightAmountOf(snapshot),
-        balanceDue: snapshot.sourceType !== 'own_fleet' && !snapshot.balancePaidAt,
+        balanceDue: snapshot.postingType !== 'own_fleet' && !snapshot.balancePaidAt,
       };
     },
 
@@ -890,7 +927,7 @@ export function createLoadAlertResolvers(
       const advancePercentage = Number(snapshot?.advancePercentage ?? 0);
       if (
         !snapshot ||
-        snapshot.sourceType === 'own_fleet' ||
+        snapshot.postingType === 'own_fleet' ||
         snapshot.advancePaidAt ||
         advancePercentage <= 0
       ) {
@@ -940,7 +977,7 @@ export function createLoadAlertResolvers(
       return {
         ...context,
         ...summaryOf(context.loadId, snapshot),
-        isOwnFleet: snapshot.sourceType === 'own_fleet',
+        isOwnFleet: snapshot.postingType === 'own_fleet',
         driverName: snapshot.driverName,
         driverPhone: snapshot.driverPhone,
         origin: snapshot.originCity,

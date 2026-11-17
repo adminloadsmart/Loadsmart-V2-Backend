@@ -16,6 +16,21 @@ import { MAX_CARGO_VALUE_PER_TONNE } from '../utils/loads.types';
 const uuid = z.string().uuid();
 const packaging = z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']);
 const dateTime = z.string().datetime({ offset: true });
+/** Area-level parts of an address — the city and state stay as posted. */
+const addressArea = z
+  .object({
+    addressLine1: z.string().trim().min(1).max(255).optional(),
+    areaLocality: z.string().trim().min(1).max(255).optional(),
+    pinCode: z
+      .string()
+      .trim()
+      .regex(/^\d{6}$/, 'A 6-digit PIN code')
+      .optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+  })
+  .strict()
+  .refine((area) => Object.keys(area).length > 0, { message: 'Nothing to change' });
 
 const newAddress = z
   .object({
@@ -183,6 +198,32 @@ export const postLoadBody = z
 
 export const loadPostingValidators = {
   post: z.object({ body: postLoadBody }),
+  // Edit a posted load: everything until bids come in (the posting form again) …
+  editPosting: z.object({ params: z.object({ postingId: uuid }), body: postLoadBody }),
+  // … then only the reporting time and the area of the pickup and drop (never the city/state).
+  editDetails: z.object({
+    params: z.object({ postingId: uuid }),
+    body: z
+      .object({
+        pickupAt: dateTime.optional(),
+        pickupArea: addressArea.optional(),
+        dropArea: addressArea.optional(),
+      })
+      .strict()
+      .refine((body) => body.pickupAt || body.pickupArea || body.dropArea, {
+        message: 'Send the reporting time, the pickup area or the drop area',
+      })
+      .refine(
+        (body) => {
+          if (!body.pickupAt) return true;
+          const at = new Date(body.pickupAt);
+          return (
+            (at.getUTCMinutes() === 0 || at.getUTCMinutes() === 30) && at.getUTCSeconds() === 0
+          );
+        },
+        { message: 'Pickup time must be on the hour or half hour', path: ['pickupAt'] },
+      ),
+  }),
   recentCustomers: z.object({
     query: z.object({ limit: z.coerce.number().int().min(1).max(10).default(4) }),
   }),
@@ -229,6 +270,8 @@ export const loadPostingValidators = {
         pickupCity: z.string().trim().min(1).max(100),
         dropCity: z.string().trim().min(1).max(100),
         rate: z.number().positive(),
+        /** What the transporter owes if it rejects an indent; leave out for none. */
+        nonPlacementPenalty: z.number().nonnegative().optional(),
         validFrom: isoDateSchema,
         validTo: isoDateSchema,
       })

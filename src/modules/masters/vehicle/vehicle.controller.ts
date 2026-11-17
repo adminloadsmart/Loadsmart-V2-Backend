@@ -202,6 +202,16 @@ export class VehicleController {
     respond(res, result);
   };
 
+  verifyVehicleManually = async (req: Request<VehicleParams>, res: Response) => {
+    const snapshot = await this.vehicleService.verifyManually(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.vehicleId,
+      req.body as { note?: string },
+    );
+    respond(res, snapshot, 201);
+  };
+
   listVehicleVerifications = async (req: Request<VehicleParams>, res: Response) => {
     const snapshots = await this.vehicleService.listVerifications(
       requireTenantId(req),

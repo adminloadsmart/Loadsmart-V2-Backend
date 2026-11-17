@@ -1,8 +1,11 @@
+import type { StageChannel } from '../entities/load-stage-history.entity';
+import type { StageActorType, StageTrigger } from '../core/stage-rules';
 import { PaginationInput } from '../../../shared/utils/pagination';
 import {
   AssignmentComplianceSubject,
   FreightType,
-  LoadSourceType,
+  LoadPostingType,
+  LoadRoute,
   LoadStatus,
   LoadStatusGroup,
   PodStatus,
@@ -60,21 +63,54 @@ export interface UpdateLoadStatusInput {
 export interface SettleDeliveryIssueInput {
   /** How the damage, shortage or pilferage was settled. */
   note: string;
+  /** Own transporter / indent: whether a deduction was taken from the transporter, and how much. */
+  hasDeduction?: boolean;
+  deductionAmount?: number;
 }
 
 /** Who meets the truck at the loading point, for this load only. */
 export interface SetLoadingContactInput {
   name: string;
   phone: string;
+  /** "Use for every load from this point": also save it as the loading point master's contact. */
+  applyToPoint?: boolean;
+}
+
+/** Unloading details — a receiver (name and mobile) or a warehouse appointment (ID, date, slot);
+ *  at least one of the two. */
+/** Own transporter / indent: whether the shipper took a deduction for the issue, and how much. */
+export interface IssueDeductionInput {
+  hasDeduction?: boolean;
+  amount?: number;
+}
+
+export interface UnloadingDetailsInput {
+  receiverName?: string;
+  receiverPhone?: string;
+  appointmentId?: string;
+  /** YYYY-MM-DD */
+  appointmentDate?: string;
+  appointmentSlot?: string;
 }
 
 export interface SetLoadingPointInput {
   loadingPointId: string;
 }
 
+/** Stage 11 on own transporter / indent — the transporter's invoice, uploaded by the shipper. */
+export interface TransporterInvoiceInput {
+  fileKey: string;
+  invoiceNumber?: string;
+  amount?: number;
+}
+
 export interface ReviewPodInput {
   decision: PodReviewDecision;
+  /** Required when rejecting — what the driver has to fix. */
   reason?: string;
+  /** Accepting: the issue on the delivery, 'none' for a clean one. Defaults to the driver's. */
+  shortageOrDamage?: ShortageOrDamageStatus;
+  issueDetails?: string;
 }
 
 /** The delivery receipt — photo of the signed/stamped POD, who took it, what came off the truck,
@@ -93,6 +129,8 @@ export interface UploadPodInput {
   shortageOrDamage?: ShortageOrDamageStatus;
   numberOfTonnesShort?: number;
   damagePhotoKey?: string;
+  /** Optional: the invoice stamped by the receiver — kept in the documents register only. */
+  stampedInvoiceFileKey?: string;
   podRemarks?: string;
 }
 
@@ -101,7 +139,8 @@ export interface ListLoadsInput extends PaginationInput {
   status?: LoadStatus;
   /** Trips Home-page tab filter — mutually exclusive with `status` (see load.validators.ts). */
   group?: LoadStatusGroup;
-  sourceType?: LoadSourceType;
+  postingType?: LoadPostingType;
+  route?: LoadRoute;
   transporterId?: string;
   vehicleId?: string;
   driverId?: string;
@@ -162,9 +201,16 @@ export interface AssignmentCompliance {
 export interface StageTransitionInput {
   tenantId: string;
   loadId: string;
-  to: LoadStatus;
+  /** What happened — core/stage-rules.ts decides the stage it leads to. */
+  trigger: StageTrigger;
+  /** Who took the step. Defaults to `driver` with driverOwnerId, `system` with no actorId, and
+   *  `shipper` otherwise; Loadsmart ops callers pass `ls_team`. */
+  actorType?: StageActorType;
   /** Null for a system move (live tracking) — no user made it. */
   actorId: string | null;
+  /** How the move reached us, for the stage history. Derived from the actor when omitted:
+   *  driver → driver_app, ls_team → console, tracking metadata → tracking, system, else web. */
+  channel?: StageChannel;
   /** Set when the driver app made the move — audit_logs.user_id has an FK to auth.users that a
    *  masters.drivers id would violate, so the driver is carried in newData instead. */
   driverOwnerId?: string;
@@ -178,17 +224,11 @@ export interface StageTransitionInput {
 
 /** The load fields its stepper path depends on (load-stages.ts's stagePathFor). */
 export interface StagePathLoad {
-  sourceType: LoadSourceType;
+  postingType: LoadPostingType;
   status: LoadStatus;
   deliveryIssueSettledAt: Date | null;
-}
-
-/** The load fields a stage's business preconditions read (load-stages.ts's stageGateError). */
-export interface StageGateLoad {
-  sourceType: LoadSourceType;
-  memoAcceptedAt: Date | null;
-  lsPapersApprovedAt?: Date | null;
-  podStatus?: string | null;
+  /** Only on a cancelled load. */
+  cancelledFromStage?: LoadStatus | null;
 }
 
 /** What a truck can be tracked with (tracking-source.ts's initialTrackingSource). */

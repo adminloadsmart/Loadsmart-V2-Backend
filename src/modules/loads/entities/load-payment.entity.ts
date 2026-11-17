@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { PAYMENT_MODES, PaymentHeads, PaymentMode } from '../money/money-rules';
 import { LoadEntity } from './load.entity';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import { LOAD_PAYMENT_TYPES, LoadPaymentType } from '../utils/loads.types';
@@ -51,8 +52,31 @@ export class LoadPaymentEntity {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   amount!: string;
 
-  @Column({ name: 'utr_reference', type: 'varchar', length: 100 })
-  utrReference!: string;
+  /** The proof of payment is a UTR, a transaction ID, or an uploaded advice/screenshot — at
+   *  least one on a balance (money-rules.ts paymentProofError). */
+  @Column({ name: 'utr_reference', type: 'varchar', length: 100, nullable: true })
+  utrReference!: string | null;
+
+  @Column({ name: 'transaction_id', type: 'varchar', length: 100, nullable: true })
+  transactionId!: string | null;
+
+  @Column({ name: 'proof_file_key', type: 'text', nullable: true })
+  proofFileKey!: string | null;
+
+  @Column({ name: 'payment_mode', type: 'enum', enum: [...PAYMENT_MODES], nullable: true })
+  paymentMode!: PaymentMode | null;
+
+  /** The account it was paid from (as the shipper names it). */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  account!: string | null;
+
+  /** Balance: the amount under each head (freight, charges), before the deduction. */
+  @Column({ type: 'jsonb', nullable: true })
+  heads!: PaymentHeads | null;
+
+  /** Balance: what came off for an issue on the POD. */
+  @Column({ name: 'deduction_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  deductionAmount!: string | null;
 
   @Column({ name: 'payment_date', type: 'date' })
   paymentDate!: string;

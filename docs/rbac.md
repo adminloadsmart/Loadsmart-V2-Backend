@@ -133,6 +133,18 @@ a salesperson, their ASM.
 
 | Role | Scope | Who gets it | Permissions |
 |---|---|---|---|
+| `platform_admin` | platform | Bootstrapped once ([§8](#8-bootstrapping)); never self-service | **None seeded** — superuser bypass is code-level, see [§4](#4-the-permission-catalog) |
+| `sales` | platform | Created via `POST /v1/admin/staff` | `sales.leads.manage` |
+| `online_kyc_desk` | platform | Created via `POST /v1/admin/staff` | `kyc.online.verify`, `kyc.online.reject`, `loadsmart.approval` |
+| `offline_kyc_desk` | platform | Created via `POST /v1/admin/staff` | `kyc.offline.verify`, `kyc.offline.reject`, `loadsmart.approval` |
+| `load_console` | platform | Created via `POST /v1/admin/staff` | `loads.console.access` and every Loadsmart team key |
+| `ls_placement`, `ls_tracking`, `ls_cs`, `ls_receivables`, `ls_payables` | platform | Created via `POST /v1/admin/staff` | Its own `loadsmart.<team>` key, `loads.console.access` |
+
+The Load module's **Approval** team is the KYC desks (they hold `loadsmart.approval`); it has no
+role of its own. `ls_approval`, `ls_verification` and `ls_pod` were retired (their users moved to
+`online_kyc_desk`, `ls_placement` and `ls_payables`). **Super Admin** is `platform_admin`: the keys
+`loadsmart.money.approve` and `loadsmart.settings.manage` are in no role's bundle, so only the
+bypass passes them, unless a platform admin grants one to a named person.
 | `org_admin` | organization | Self-signup only (`POST /v1/auth/verify-otp`) — or promoted by an existing `org_admin` in the same org via `PATCH /v1/roles/users/:id/role` | `organization.profile.manage`, `masters.write` |
 
 **Adding a new role** = add a row to `role-catalog.ts`'s `ROLES` array + re-run
@@ -332,7 +344,7 @@ Set up in [composition-root.ts](../src/composition-root.ts) / [app.ts](../src/ap
      enforce its own scope:
      - `/roles`: the `assertCanManage`/`assertCanView` checks in `role.service.ts`.
      - `/admin`: a platform permission on every route.
-     - `/loadsmart-ops`: an `ls_*` permission on every route.
+     - `/loadsmart-ops`: a `loadsmart.*` permission on every route (`/loadsmart-ops/settings`: any team key to read, `loadsmart.settings.manage` to change).
      - `/files`: described below.
    Routers also keep their own `router.use(requireTenant)` as defence in depth.
    `src/app.tenant-routers.test.ts` checks the mount-level guard.
@@ -344,7 +356,7 @@ Set up in [composition-root.ts](../src/composition-root.ts) / [app.ts](../src/ap
 |---|---|
 | `platform_admin` | any file |
 | KYC review permissions (`kyc.online.*`, `kyc.offline.*`) | `kyc`, `organizations/shopboard-premises`, `profile` |
-| `loads.console.access` or any `loadsmart.*` team key | every `loads/*` and `trips/*` purpose |
+| `loads.console.access`, any `loadsmart.*` team key except `loadsmart.approval`, or `loadsmart.money.approve` | every `loads/*` and `trips/*` purpose |
 | any other staff (e.g. `sales`) | only files it uploaded itself |
 
 The map is `STAFF_CROSS_TENANT_READS` in `modules/storage/storage.constants.ts`. Anything else

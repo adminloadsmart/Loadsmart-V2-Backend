@@ -9,8 +9,10 @@ import {
 } from 'typeorm';
 import { LoadEntity } from '../entities/load.entity';
 import {
+  VERIFICATION_SOURCES,
   VERIFICATION_STATUSES,
   VERIFICATION_SUBJECTS,
+  VerificationSource,
   VerificationStatus,
   VerificationSubject,
 } from '../utils/loads.types';
@@ -34,7 +36,7 @@ export class LoadVerificationEntity {
   @Column({ name: 'load_id', type: 'uuid' })
   loadId!: string;
 
-  @ManyToOne(() => LoadEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => LoadEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'load_id' })
   load!: LoadEntity;
 
@@ -65,6 +67,13 @@ export class LoadVerificationEntity {
   /** What the registry returned that the check used (papers, licence classes, validity). */
   @Column({ type: 'jsonb', nullable: true })
   details!: Record<string, unknown> | null;
+
+  /** 'manual' — VAHAN was unavailable and an admin checked the RC by hand (verifiedBy). */
+  @Column({ type: 'enum', enum: [...VERIFICATION_SOURCES], default: 'portal' })
+  source!: VerificationSource;
+
+  @Column({ name: 'verified_by', type: 'uuid', nullable: true })
+  verifiedBy!: string | null;
 
   @Column({ name: 'checked_at', type: 'timestamptz' })
   checkedAt!: Date;

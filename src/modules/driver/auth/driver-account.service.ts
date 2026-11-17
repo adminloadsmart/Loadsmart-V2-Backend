@@ -1,4 +1,4 @@
-import { DataSource, In, IsNull, Not } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
 import { msg } from '../../../shared/i18n/translate';
 import { toDateString } from '../../../shared/utils/date';
@@ -72,15 +72,13 @@ export class DriverAccountService {
         }
 
         // Not started yet — release the driver rather than leaving a load pointed at a deleted
-        // profile. A market/indent `truck_assigned` load goes back to `created` since it no longer
-        // has a driver; an own-fleet load keeps its truck (own fleet never sits in `created`) and
-        // just loses the driver until another is linked.
+        // profile. The load keeps its stage and truck (stage moves belong to LoadStageService) and
+        // waits for another driver to be named.
         const released = { driverId: null, driverNumber: null, driverName: null };
         await loads.update(
-          { driverId, status: 'truck_assigned', sourceType: Not('own_fleet') },
-          { ...released, status: 'created', truckAssignedAt: null },
+          { driverId, status: In(['created', 'bids_received', 'truck_assigned']) },
+          released,
         );
-        await loads.update({ driverId, status: In(['created', 'truck_assigned']) }, released);
 
         const relations = await this.driverTenantRelationRepository.listByDriver(driverId);
         for (const relation of relations) {

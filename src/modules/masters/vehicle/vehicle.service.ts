@@ -2,9 +2,9 @@ import { withoutDriverPay } from '../../driver/driver.service';
 import { DataSource, EntityManager } from 'typeorm';
 import {
   ConflictError,
-  InternalError,
   NotFoundError,
   rethrow,
+  ServiceUnavailableError,
   ValidationError,
 } from '../../../shared/errors';
 import { UlipClient, UlipError, UlipVahanResult } from '../../../adapters/ulip.client';
@@ -816,6 +816,7 @@ export class VehicleService {
           {
             vahanVerificationStatus: input.verificationStatus,
             vahanVerifiedAt: snapshot.verifiedAt,
+            vahanVerifiedManually: input.verificationType === 'manual',
             vahanVerificationError: verified ? null : (errorMessage?.slice(0, 500) ?? null),
           },
           manager,
@@ -861,11 +862,62 @@ export class VehicleService {
       return await this.ulipClient.lookupVehicle(registrationNumber);
     } catch (error) {
       if (error instanceof UlipError) {
-        // ULIP's own wording is for our logs, not the client (same as places.service.ts).
-        console.error(error.message);
-        throw new InternalError('VAHAN lookup is currently unavailable');
+        // ULIP's own wording is for our logs, not the client (same as places.service.ts). An
+        // outage is expected, not a crash: the client offers the manual fallback on this code.
+        console.warn(`VAHAN lookup unavailable: ${error.message}`);
+        throw new ServiceUnavailableError(
+          "VAHAN can't be reached right now. Enter the truck's details yourself — an admin can verify it manually.",
+          'VAHAN_UNAVAILABLE',
+        );
       }
       rethrow(error, 'Failed to check vehicle against VAHAN');
+    }
+  }
+
+  /**
+   * VAHAN couldn't confirm the truck (it was down, or the background check gave up), so an org
+   * admin checks the RC by hand and marks it verified. Allowed only while the truck is
+   * unverified, pending or in manual review — never over a VAHAN "not found", and not twice.
+   * Recorded as a 'manual' snapshot; the vehicle's VAHAN badge reads verified, flagged manual.
+   */
+  async verifyManually(
+    tenantId: string,
+    actorId: string,
+    vehicleId: string,
+    input: { note?: string },
+  ): Promise<VehicleVerificationSnapshotEntity> {
+    try {
+      const vehicle = await this.assertVehicleExists(tenantId, vehicleId);
+      if (vehicle.vahanVerificationStatus === 'verified') {
+        throw new ConflictError('This truck is already verified');
+      }
+      if (vehicle.vahanVerificationStatus === 'not_found') {
+        throw new ConflictError(
+          "VAHAN has no record of this truck, so it can't be verified manually. Check the registration number.",
+        );
+      }
+      const snapshot = await this.recordVerification(tenantId, actorId, vehicleId, {
+        verificationType: 'manual',
+        verificationStatus: 'verified',
+        sourceReference: 'manual',
+        responsePayload: {
+          rcChecked: true,
+          verifiedBy: actorId,
+          note: input.note ?? null,
+          previousStatus: vehicle.vahanVerificationStatus,
+        },
+      });
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'VEHICLE_VERIFIED_MANUALLY',
+        resourceType: 'vehicle',
+        oldData: { id: vehicleId, vahanVerificationStatus: vehicle.vahanVerificationStatus },
+        newData: { id: vehicleId, vahanVerificationStatus: 'verified', manual: true },
+      });
+      return snapshot;
+    } catch (error) {
+      rethrow(error, 'Failed to verify the truck manually');
     }
   }
 

@@ -29,6 +29,8 @@ export class CustomerContractService {
         pickupCity: input.pickupCity,
         dropCity: input.dropCity,
         rate: String(input.rate),
+        nonPlacementPenalty:
+          input.nonPlacementPenalty === undefined ? null : String(input.nonPlacementPenalty),
         validFrom: input.validFrom,
         validTo: input.validTo,
         createdBy: actorId,

@@ -18,7 +18,7 @@ const recipient = { userId: 'user-1', fullName: 'Asha Verma' };
 const snapshot = {
   code: 'LD-1001',
   status: 'delivered_ok',
-  sourceType: 'market',
+  postingType: 'market_fleet',
   vehicleNumber: 'MH12AB1234',
   route: 'Ludhiana to Bhiwandi',
   transporterName: 'Sohal Roadlines',
@@ -138,7 +138,7 @@ describe('LS_N_0038 POD uploaded', () => {
   });
 
   it('own fleet, or a balance already paid: no amount', async () => {
-    for (const overrides of [{ sourceType: 'own_fleet' }, { balancePaidAt: new Date() }]) {
+    for (const overrides of [{ postingType: 'own_fleet' }, { balancePaidAt: new Date() }]) {
       const { resolvers } = setup({
         snapshot: { ...overrides, numberOfTonnesShort: null, shortageOrDamage: 'none' },
       });

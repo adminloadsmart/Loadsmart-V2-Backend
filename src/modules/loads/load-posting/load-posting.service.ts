@@ -24,7 +24,10 @@ import { LoadEntity } from '../entities/load.entity';
 import { formatLoadCode } from '../utils/code.util';
 import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { LoadStageHook } from '../utils/load.interface';
-import { LoadPostingRepository } from './load-posting.repository';
+import { CreatePostingData, LoadPostingRepository } from './load-posting.repository';
+import { LoadCargoItemEntity } from '../entities/load-cargo-item.entity';
+import { LoadStatus } from '../utils/loads.types';
+import { LOAD_CANCELLABLE_STAGES } from '../money/money-rules';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
 import { LoadDispatchNotifier } from './load-dispatch-notifier';
@@ -36,12 +39,12 @@ import {
   PostLoadInput,
   LoadPostingHooks,
   OwnFleetAssignment,
+  AddressAreaInput,
+  EditPostingDetailsInput,
 } from './utils/load-posting.interface';
-import {
-  DEFAULT_ADVANCE_PERCENTAGE,
-  MIN_PICKUP_LEAD_HOURS,
-  PostAddress,
-} from './utils/load-posting.types';
+import { DEFAULT_ADVANCE_PERCENTAGE, PostAddress } from './utils/load-posting.types';
+import { earliestReporting, reportingLeadError } from './utils/reporting-lead';
+import { SettingsReader } from '../../settings/settings.types';
 import { buildPostMessage } from './utils/post-message';
 import { driverUnavailableReason } from './utils/driver-availability';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
@@ -57,15 +60,6 @@ import {
   licenceClassVerdict,
   licenceExpiryFailure,
 } from '../verification/verification-rules';
-
-const HOUR_MS = 60 * 60 * 1000;
-const HALF_HOUR_MS = 30 * 60 * 1000;
-
-/** Earliest allowed pickup: 3 hours from `now`, rounded up to the next half hour (PL-01 note 5). */
-export function earliestPickup(now: Date): Date {
-  const earliest = now.getTime() + MIN_PICKUP_LEAD_HOURS * HOUR_MS;
-  return new Date(Math.ceil(earliest / HALF_HOUR_MS) * HALF_HOUR_MS);
-}
 
 interface ResolvedPlace {
   address: PostAddress;
@@ -116,6 +110,9 @@ export class LoadPostingService {
     private readonly truckTypeService: TruckTypeService,
     // LS_N_0017 — refuses a truck or driver with an expired document.
     private readonly assignmentComplianceService: AssignmentComplianceService,
+    /** Super Admin → Settings: the minimum reporting lead, and the version each load is stamped
+     *  with so its timers keep the values it was posted under. */
+    private readonly settings: SettingsReader,
     // LS_N_0016/0017 — optional; only queues a notification and never throws (see
     // notifications/load-alerts.ts).
     private readonly onLoadEvent?: LoadEventNotifier,
@@ -127,6 +124,22 @@ export class LoadPostingService {
     /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
     private readonly fleetOwnerLookup?: FleetOwnerLookup,
   ) {}
+
+  /** The form's timing rules from the latest settings: the earliest truck reporting time to
+   *  offer, and how long the load memo will run for a load posted now. */
+  async postingRules(now: Date = new Date()) {
+    try {
+      const { version, values } = await this.settings.current();
+      return {
+        settingsVersion: version,
+        minReportingLeadMinutes: values.minReportingLeadMinutes,
+        earliestReportingAt: earliestReporting(now, values.minReportingLeadMinutes).toISOString(),
+        memoExpiryMinutes: values.memoExpiryMinutes,
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to read the posting rules');
+    }
+  }
 
   async post(
     tenantId: string,
@@ -145,13 +158,15 @@ export class LoadPostingService {
         if (existing) return this.describeExisting(tenantId, existing);
       }
 
-      // PL-13 — checked again here, not just in the picker.
+      // PL-13 — checked again here, not just in the picker. pickupAt is the truck reporting time.
+      const settings = await this.settings.current();
       const pickupAt = new Date(input.pickupAt);
-      if (pickupAt.getTime() < Date.now() + MIN_PICKUP_LEAD_HOURS * HOUR_MS) {
-        throw new ValidationError(
-          `Pickup must be at least ${MIN_PICKUP_LEAD_HOURS} hours from now`,
-        );
-      }
+      const leadError = reportingLeadError(
+        pickupAt,
+        new Date(),
+        settings.values.minReportingLeadMinutes,
+      );
+      if (leadError) throw new ValidationError(leadError);
 
       const customer = input.customerId
         ? await this.assertCustomerUsable(tenantId, input.customerId)
@@ -304,13 +319,10 @@ export class LoadPostingService {
           tenantId,
           code,
           postingId: posting.id,
+          settingsVersionId: settings.id,
           title: input.title || null,
-          sourceType:
-            input.mode === 'market_fleet'
-              ? 'market'
-              : input.mode === 'indent'
-                ? 'indent'
-                : 'own_fleet',
+          postingType: input.mode,
+          route: input.mode === 'own_fleet' ? 'own_fleet' : null,
           status: input.mode === 'own_fleet' ? 'truck_assigned' : 'created',
           truckAssignedAt: input.mode === 'own_fleet' ? new Date() : null,
           truckTypeId: trucks.main?.id ?? null,
@@ -964,6 +976,339 @@ export class LoadPostingService {
         name: relation?.driver?.fullName ?? null,
         phone: load.driverNumber,
       },
+    };
+  }
+
+  /**
+   * Edit everything on a posted load — the same form as posting it — until it receives bids
+   * ("bids were given against the original source, destination and price"). The load type and the
+   * number of trucks stay; an indent keeps its contract (the lane must still match it); an
+   * own-fleet load keeps its truck and driver and can be edited until the trip starts. Every load
+   * of the posting changes together. Transporters already sent the load keep it.
+   */
+  async editPosting(
+    tenantId: string,
+    actorId: string,
+    actor: PermissionHolder,
+    postingId: string,
+    input: PostLoadInput,
+  ): Promise<PostLoadResult> {
+    try {
+      const posting = await this.repository.findPostingById(tenantId, postingId);
+      if (!posting) throw new NotFoundError(`Posting ${postingId} not found`);
+      if (input.mode !== posting.mode) {
+        throw new ValidationError("The load type can't change — cancel the load and post again");
+      }
+      if (input.truckCount !== posting.truckCount) {
+        throw new ValidationError("The number of trucks can't change — cancel and post again");
+      }
+      const loads = await this.repository.listLoadsByPosting(tenantId, postingId);
+      const stillOpen = (load: LoadEntity) =>
+        posting.mode === 'own_fleet'
+          ? load.status === 'truck_assigned'
+          : load.status === 'created' && !load.awardedBidId;
+      if (!loads.every(stillOpen)) {
+        throw new ConflictError(
+          posting.mode === 'own_fleet'
+            ? 'The trip has started — only the area, reporting time and contacts can change now'
+            : 'A truck is already awarded — only the area, reporting time and contacts can change now',
+        );
+      }
+      if (
+        await this.repository.countBids(
+          tenantId,
+          loads.map((load) => load.id),
+        )
+      ) {
+        throw new ConflictError(
+          'Bids have come in — only the area, reporting time and contacts can change now',
+        );
+      }
+      if (posting.mode === 'own_fleet') {
+        if (input.vehicleId && input.vehicleId !== posting.vehicleId) {
+          throw new ValidationError("The truck can't change — cancel the load and post again");
+        }
+        if (input.driverId && input.driverId !== loads[0]?.driverId) {
+          throw new ValidationError("The driver can't change here — cancel and post again");
+        }
+      }
+
+      const settings = await this.settings.forLoad(loads[0] ?? { settingsVersionId: null });
+      const pickupAt = new Date(input.pickupAt);
+      const leadError = reportingLeadError(
+        pickupAt,
+        new Date(),
+        settings.values.minReportingLeadMinutes,
+      );
+      if (leadError) throw new ValidationError(leadError);
+      const customer = input.customerId
+        ? await this.assertCustomerUsable(tenantId, input.customerId)
+        : null;
+      const pickup = await this.resolvePickup(tenantId, input.pickup);
+      const drop = await this.resolveDrop(tenantId, customer, input.drop);
+      this.assertPlacesDiffer(pickup, drop);
+      let contractRate: string | null = null;
+      if (posting.mode === 'indent') {
+        const contract = await this.assertIndentContract(tenantId, customer, pickup, drop, input);
+        if (contract.id !== posting.contractId) {
+          throw new ValidationError(
+            'This lane is on a different contract — cancel the indent and post it again',
+          );
+        }
+        contractRate = contract.rate;
+      }
+      const cargoPerTruck =
+        input.weightTonnes === undefined ? null : input.weightTonnes / input.truckCount;
+
+      const updatedLoads = await this.dataSource.transaction(async (manager) => {
+        const pickupMasterId = await this.savePickup(tenantId, actorId, actor, pickup, manager);
+        const drop2 = await this.saveDrop(tenantId, actorId, customer, drop, manager);
+        const commodity = await this.resolveCommodity(tenantId, actorId, input, manager);
+        const trucks =
+          posting.mode === 'own_fleet'
+            ? { main: null, acceptedIds: [], labels: [] }
+            : await this.resolveTrucks(tenantId, actorId, input, manager);
+        const rate =
+          contractRate ?? (input.price?.rate !== undefined ? String(input.price.rate) : null);
+        const advance =
+          posting.mode === 'own_fleet'
+            ? null
+            : String(input.advancePercentage ?? DEFAULT_ADVANCE_PERCENTAGE);
+        const deliverByAt = input.deliverByAt ? new Date(input.deliverByAt) : null;
+        const messageText =
+          posting.mode === 'own_fleet'
+            ? null
+            : buildPostMessage({
+                mode: posting.mode,
+                loadCodes: loads.map((load) => load.code),
+                pickup: pickup.address,
+                drop: drop.address,
+                pickupAt,
+                deliverByAt,
+                commodityName: commodity.name,
+                packaging: input.packaging,
+                weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
+                truckCount: input.truckCount,
+                truckLabels: trucks.labels,
+                advancePercentage: advance,
+                note: input.note ?? null,
+                title: input.title || null,
+              });
+        await this.repository.updatePosting(
+          tenantId,
+          postingId,
+          {
+            customerId: customer?.id ?? null,
+            pickupLoadingPointId: pickupMasterId,
+            pickupAddress: pickup.address,
+            dropCustomerDeliveryPointId: drop2.customerDeliveryPointId,
+            dropLoadingPointId: drop2.loadingPointId,
+            dropAddress: drop.address,
+            pickupAt,
+            deliverByAt,
+            commodityId: commodity.id,
+            commodityName: commodity.name,
+            packaging: input.packaging,
+            weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
+            cargoValuePerTonne:
+              input.cargoValuePerTonne === undefined ? null : String(input.cargoValuePerTonne),
+            ...(posting.mode === 'own_fleet'
+              ? {}
+              : {
+                  truckTypeId: trucks.main?.id ?? null,
+                  truckLengthFt: input.truck?.bodyLengthFt ?? null,
+                  truckPick: input.truck ?? null,
+                  acceptedTruckPicks: input.acceptedTrucks ?? [],
+                  acceptedTruckTypeIds: trucks.acceptedIds,
+                  priceMode: posting.mode === 'market_fleet' ? input.price!.mode : null,
+                  priceBasis: posting.mode === 'market_fleet' ? (input.price!.basis ?? null) : null,
+                  rate,
+                  freightTotal: this.freightTotal(input, rate),
+                  advancePercentage: advance,
+                  balancePaidBy: input.balancePaidBy ?? posting.balancePaidBy ?? 'shipper',
+                }),
+            note: input.note ?? null,
+            title: input.title || null,
+            messageText,
+          },
+          manager,
+        );
+        const plannedCapacity = String(
+          cargoPerTruck ??
+            Number(trucks.main?.capacityTons ?? loads[0]?.plannedCapacityTonnes ?? 0),
+        );
+        const result: LoadEntity[] = [];
+        for (const load of loads) {
+          const updated = await this.loadRepository.update(
+            tenantId,
+            load.id,
+            {
+              title: input.title || null,
+              plannedCapacityTonnes: plannedCapacity,
+              ...(posting.mode === 'own_fleet'
+                ? {}
+                : {
+                    truckTypeId: trucks.main?.id ?? null,
+                    feetWheels: input.truck?.bodyLengthFt ?? null,
+                    freightType: input.price?.basis === 'per_tonne' ? 'per_ton' : 'flat',
+                    expectedRate: rate,
+                    ...(posting.mode === 'indent' ? { freightValue: rate } : {}),
+                    advancePercentage: advance,
+                    balancePercentage: advance === null ? null : String(100 - Number(advance)),
+                  }),
+              updatedBy: actorId,
+            },
+            manager,
+          );
+          if (commodity.id) {
+            await manager.getRepository(LoadCargoItemEntity).delete({ tenantId, loadId: load.id });
+            await this.loadRepository.createCargoItems(
+              [
+                {
+                  tenantId,
+                  loadId: load.id,
+                  productId: commodity.id,
+                  tonnesPerTruck: plannedCapacity,
+                },
+              ],
+              manager,
+            );
+          }
+          await this.loadActivityService.record(
+            tenantId,
+            load.id,
+            actorId,
+            'LOAD_EDITED',
+            null,
+            null,
+            { postingId, full: true },
+            manager,
+          );
+          if (updated) result.push(updated);
+        }
+        return result;
+      });
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_EDITED',
+        resourceType: 'load',
+        newData: { postingId, full: true, loadCodes: loads.map((load) => load.code) },
+      });
+      if (posting.mode === 'market_fleet') {
+        try {
+          await this.hooks.onMarketLoadsEdited?.(updatedLoads, actorId);
+        } catch (error) {
+          console.warn(`[load-posting] Loadsmart refresh for posting ${postingId} failed`, error);
+        }
+      }
+      const fresh = (await this.repository.findPostingById(tenantId, postingId))!;
+      return { ...(await this.describeExisting(tenantId, fresh)), duplicate: false };
+    } catch (error) {
+      rethrow(error, 'Failed to edit the load');
+    }
+  }
+
+  /**
+   * What can change once bids are in: the pickup and drop "at an area level (not city level)" and
+   * the truck's reporting time. Contacts have their own endpoints (loading contact, unloading
+   * details). Every live truck of the posting shares the address and reporting time, so the
+   * change applies to all of them — the reporting time until any truck reaches the loading
+   * point, the pickup area until any is Loaded, the drop area until any is delivered.
+   */
+  async editDetails(
+    tenantId: string,
+    actorId: string,
+    postingId: string,
+    input: EditPostingDetailsInput,
+  ): Promise<PostLoadResult> {
+    try {
+      const posting = await this.repository.findPostingById(tenantId, postingId);
+      if (!posting) throw new NotFoundError(`Posting ${postingId} not found`);
+      if (!input.pickupAt && !input.pickupArea && !input.dropArea) {
+        throw new ValidationError('Nothing to change');
+      }
+      const loads = (await this.repository.listLoadsByPosting(tenantId, postingId)).filter(
+        (load) => load.status !== 'cancelled' && load.status !== 'closed',
+      );
+      if (!loads.length) throw new ConflictError('No live load left on this posting');
+      const before = (stages: LoadStatus[], what: string) => {
+        const late = loads.find((load) => !stages.includes(load.status));
+        if (late)
+          throw new ConflictError(
+            `${what} can't change once ${late.code} is ${late.status.replace(/_/g, ' ')}`,
+          );
+      };
+      const data: Partial<CreatePostingData> = {};
+      if (input.pickupAt) {
+        before(
+          ['created', 'bids_received', 'truck_assigned', 'in_transit_loading'],
+          'The reporting time',
+        );
+        const pickupAt = new Date(input.pickupAt);
+        const { values } = await this.settings.forLoad(loads[0]);
+        const leadError = reportingLeadError(pickupAt, new Date(), values.minReportingLeadMinutes);
+        if (leadError) throw new ValidationError(leadError);
+        if (posting.deliverByAt && posting.deliverByAt <= pickupAt) {
+          throw new ValidationError('The reporting time must be before the deliver-by time');
+        }
+        data.pickupAt = pickupAt;
+      }
+      if (input.pickupArea) {
+        before([...LOAD_CANCELLABLE_STAGES], 'The pickup address');
+        data.pickupAddress = { ...posting.pickupAddress, ...this.area(input.pickupArea) };
+      }
+      if (input.dropArea) {
+        before(
+          [...LOAD_CANCELLABLE_STAGES, 'loaded', 'in_transit_unloading', 'reached_unloading'],
+          'The drop address',
+        );
+        data.dropAddress = { ...posting.dropAddress, ...this.area(input.dropArea) };
+      }
+      await this.dataSource.transaction(async (manager) => {
+        await this.repository.updatePosting(tenantId, postingId, data, manager);
+        for (const load of loads) {
+          await this.loadRepository.update(tenantId, load.id, { updatedBy: actorId }, manager);
+          await this.loadActivityService.record(
+            tenantId,
+            load.id,
+            actorId,
+            'LOAD_EDITED',
+            null,
+            null,
+            { postingId, fields: Object.keys(data) },
+            manager,
+          );
+        }
+      });
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_EDITED',
+        resourceType: 'load',
+        oldData: {
+          postingId,
+          pickupAt: posting.pickupAt,
+          pickupAddress: posting.pickupAddress,
+          dropAddress: posting.dropAddress,
+        },
+        newData: { postingId, ...data },
+      });
+      const fresh = (await this.repository.findPostingById(tenantId, postingId))!;
+      return { ...(await this.describeExisting(tenantId, fresh)), duplicate: false };
+    } catch (error) {
+      rethrow(error, 'Failed to edit the load');
+    }
+  }
+
+  /** Only the area-level parts of an address; blank strings clear nothing. */
+  private area(input: AddressAreaInput): Partial<PostAddress> {
+    return {
+      ...(input.addressLine1 !== undefined ? { addressLine1: input.addressLine1 } : {}),
+      ...(input.areaLocality !== undefined ? { areaLocality: input.areaLocality } : {}),
+      ...(input.pinCode !== undefined ? { pinCode: input.pinCode } : {}),
+      ...(input.latitude !== undefined ? { latitude: input.latitude } : {}),
+      ...(input.longitude !== undefined ? { longitude: input.longitude } : {}),
     };
   }
 

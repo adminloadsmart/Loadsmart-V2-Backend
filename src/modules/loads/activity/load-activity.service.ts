@@ -76,7 +76,7 @@ export class LoadActivityService {
       for (const load of loads) {
         const activity = latest.get(load.id);
         if (activity) assignment.set(load.id, { userId: activity.actorId, at: activity.createdAt });
-        else if (load.sourceType === 'own_fleet') {
+        else if (load.postingType === 'own_fleet') {
           assignment.set(load.id, { userId: load.createdBy, at: load.truckAssignedAt });
         }
       }

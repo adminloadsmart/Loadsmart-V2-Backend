@@ -42,6 +42,9 @@ export const FILES_DELETE = 'storage.files.delete';
 // Approve/reject a pending vehicle or driver created by a non-org-admin (currently: dispatch).
 // Org_admin only — same one-key-per-module shape as MASTERS_WRITE, not split per entity.
 export const MASTERS_APPROVE = 'masters.approve';
+// Mark a truck verified by hand when VAHAN can't be reached — the fleet truck and a load's truck
+// check. Org admin only.
+export const TRUCK_VERIFY_MANUAL = 'trucks.verify_manual';
 
 // Maintenance (FMS-MNT-000). MANAGE gates every workshop write (log a service, open/close a
 // breakdown, tyres, batteries). COSTS_VIEW is not a route gate: the maintenance screen's reads are
@@ -67,16 +70,19 @@ export const COMPLIANCE_MANAGE = 'compliance.manage';
 export const TRIP_TRACK = 'trip.track';
 
 // Loadsmart ops console (loadsmart-ops/) — keys grouped into team bundles in db/role-catalog.ts.
-// Platform scope. A key is not a team: e.g. Placement holds LS_PLACEMENT + LS_VERIFICATION, Payables
-// holds LS_PAYABLES + LS_POD, and the Admin team holds every one of them.
-export const LS_APPROVAL = 'loadsmart.approval'; // checks and posts loads on the load board
-export const LS_PLACEMENT = 'loadsmart.placement'; // partner bids, Loadsmart's bid, driver
-export const LS_VERIFICATION = 'loadsmart.verification'; // approves truck and driver
-export const LS_TRACKING = 'loadsmart.tracking'; // marks stages, papers, charges, POD approval
-export const LS_POD = 'loadsmart.pod'; // ratings, original POD
-export const LS_CS = 'loadsmart.cs'; // claims on loads delivered with issues
+// Platform scope. A key is not a team: e.g. Placement holds LS_PLACEMENT + LS_MARGIN_VIEW, and the
+// Admin team holds every one of them.
+// The Approval team is the KYC desks (online_kyc_desk / offline_kyc_desk hold LS_APPROVAL).
+export const LS_APPROVAL = 'loadsmart.approval'; // reviews shippers, posts a load for a shipper
+export const LS_PLACEMENT = 'loadsmart.placement'; // sourcing, Loadsmart's price, truck, memo
+export const LS_TRACKING = 'loadsmart.tracking'; // papers, e-LR, charges, advance, POD decision
+export const LS_CS = 'loadsmart.cs'; // claims on loads delivered with issues, tickets
 export const LS_RECEIVABLES = 'loadsmart.receivables'; // shipper invoice and payment verification
-export const LS_PAYABLES = 'loadsmart.payables'; // partner advance and balance
+export const LS_PAYABLES = 'loadsmart.payables'; // carrier advance and balance, original POD
+// Super Admin — in no role's bundle: platform_admin passes through its bypass, and a platform
+// admin can grant either key to a named person (POST /roles/users/:userId/permissions).
+export const LS_MONEY_APPROVE = 'loadsmart.money.approve'; // approves money going out (S01)
+export const LS_SETTINGS_MANAGE = 'loadsmart.settings.manage'; // Super Admin → Settings (S03)
 // Admin-team only (notes §11: "Admin — everything, including Masters (brokers etc.) — no other
 // team needs Masters access"): create/edit partners (brokers) in the ops console.
 export const LS_MASTERS_MANAGE = 'loadsmart.masters.manage';
@@ -86,3 +92,5 @@ export const LS_MARGIN_VIEW = 'loadsmart.margin.view';
 // Admin-team only: change a shipper's margin (PUT /terms) or override it when approving a load.
 // Separate from LS_MARGIN_VIEW — Placement sees margin but must not change a shipper's terms.
 export const LS_MARGIN_MANAGE = 'loadsmart.margin.manage';
+// The same manual truck check on a Loadsmart load — Admin team only.
+export const LS_TRUCK_VERIFY_MANUAL = 'loadsmart.truck.verify_manual';

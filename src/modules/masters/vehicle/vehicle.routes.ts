@@ -4,7 +4,11 @@ import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
 import { createIpRateLimit } from '../../../shared/middleware/rate-limit.middleware';
 import { env } from '../../../config/env';
-import { MASTERS_WRITE, MASTERS_APPROVE } from '../../../shared/constants/permissions';
+import {
+  MASTERS_WRITE,
+  MASTERS_APPROVE,
+  TRUCK_VERIFY_MANUAL,
+} from '../../../shared/constants/permissions';
 import { importUpload, requireImportFile } from '../../../shared/import/upload';
 import { VehicleController } from './vehicle.controller';
 import { VehicleImportController } from './vehicle-import.controller';
@@ -18,6 +22,8 @@ export function createVehicleRoutes(
   const canWrite = requirePermission(MASTERS_WRITE);
   // Approve/reject a pending vehicle — org_admin only (see db/seed-roles.ts).
   const canApprove = requirePermission(MASTERS_APPROVE);
+  // Mark a truck verified by hand while VAHAN is down — org_admin only.
+  const canVerifyManually = requirePermission(TRUCK_VERIFY_MANUAL);
   // Throttles POST /vehicles/verify-vahan — each call is a ULIP lookup. Same createIpRateLimit +
   // env-driven limit/window pattern as driver.routes.ts's verify-dl.
   const verifyVahanRateLimit = createIpRateLimit({
@@ -165,6 +171,12 @@ export function createVehicleRoutes(
     canWrite,
     validate(vehicleValidators.recordVehicleVerification),
     asyncHandler(controller.recordVehicleVerification),
+  );
+  router.post(
+    '/vehicles/:vehicleId/verifications/manual',
+    canVerifyManually,
+    validate(vehicleValidators.verifyVehicleManually),
+    asyncHandler(controller.verifyVehicleManually),
   );
   router.get(
     '/vehicles/:vehicleId/verifications',

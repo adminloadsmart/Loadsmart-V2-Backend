@@ -185,6 +185,20 @@ export class LoadPostingEntity {
   @Column({ name: 'posted_by', type: 'uuid', nullable: true })
   postedBy!: string | null;
 
+  /** "Posted by Loadsmart · <user>": Loadsmart's Approval team posted it for the shipper — how the
+   *  shipper asked (WhatsApp, call, email), who asked, and the proof of the request. */
+  @Column({ name: 'posted_on_behalf_by', type: 'uuid', nullable: true })
+  postedOnBehalfBy!: string | null;
+
+  @Column({ name: 'on_behalf_channel', type: 'varchar', length: 20, nullable: true })
+  onBehalfChannel!: string | null;
+
+  @Column({ name: 'on_behalf_requested_by', type: 'varchar', length: 150, nullable: true })
+  onBehalfRequestedBy!: string | null;
+
+  @Column({ name: 'on_behalf_proof_key', type: 'text', nullable: true })
+  onBehalfProofKey!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

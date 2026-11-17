@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
+import { isLoadsmartLoad } from '../loads/utils/load-stages';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
@@ -6,11 +7,12 @@ import { LoadEntity } from '../loads/entities/load.entity';
 import { LoadPaymentRepository } from '../loads/payments/load-payment.repository';
 import { LoadRepository } from '../loads/core/load.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
-import { LoadChargeEntity } from './entities/load-charge.entity';
+import { LoadChargeEntity } from '../loads/money/load-charge.entity';
 import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
-import { ChargeType } from './loadsmart.types';
+import { ChargeType, LOADING_SIDE_HEADS } from './loadsmart.types';
 import { LsServiceBase } from './ls-base';
+import { SettingsReader } from '../settings/settings.types';
 import {
   AddChargeInput,
   BundleDocument,
@@ -18,7 +20,6 @@ import {
   ChargeStageRule,
   ClaimValueInput,
   LoadDocumentKey,
-  UnloadingContactInput,
 } from './loadsmart.interface';
 
 /** When each charge can be added: loading at the gate, unloading at the drop, detention any time
@@ -61,6 +62,8 @@ export class LsShipperService extends LsServiceBase {
     private readonly loadPaymentRepository: LoadPaymentRepository,
     private readonly memoRepository: LoadMemoRepository,
     private readonly storageService: StorageService,
+    /** Loadsmart's bank account for Pay invoice (Super Admin → Settings). */
+    private readonly settings: SettingsReader,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -74,13 +77,44 @@ export class LsShipperService extends LsServiceBase {
 
   private async assertLoadsmartLoad(tenantId: string, loadId: string): Promise<LoadEntity> {
     const load = await this.assertLoad(tenantId, loadId);
-    if (load.sourceType !== 'loadsmart') throw new ConflictError('This is not a Loadsmart load');
+    if (!isLoadsmartLoad(load)) throw new ConflictError('This is not a Loadsmart load');
     return load;
   }
 
-  async listCharges(tenantId: string, loadId: string): Promise<LoadChargeEntity[]> {
+  /** The load's charges, each with what it is paid with (loading-side charges with the advance,
+   *  the rest with the balance) and a link to its proof. */
+  async listCharges(tenantId: string, loadId: string, role = 'org_admin') {
     await this.assertLoad(tenantId, loadId);
-    return this.repository.listCharges(tenantId, loadId);
+    const charges = await this.repository.listCharges(tenantId, loadId);
+    return Promise.all(
+      charges.map(async (charge) => ({
+        ...charge,
+        paidWith: LOADING_SIDE_HEADS.includes(charge.chargeType)
+          ? ('advance' as const)
+          : ('balance' as const),
+        proofUrl: charge.proofFileKey
+          ? await this.storageService
+              .getByKey({ tenantId, role }, charge.proofFileKey)
+              .then((file) => file.downloadUrl)
+              .catch(() => null)
+          : null,
+      })),
+    );
+  }
+
+  /** "Approve charges of ₹4,850" — several decisions in one go; each is applied in turn and the
+   *  first that fails stops the rest. */
+  async decideCharges(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    decisions: (ChargeDecisionInput & { chargeId: string })[],
+  ): Promise<LoadChargeEntity[]> {
+    const decided: LoadChargeEntity[] = [];
+    for (const { chargeId, ...input } of decisions) {
+      decided.push(await this.decideCharge(tenantId, actorId, loadId, chargeId, input));
+    }
+    return decided;
   }
 
   /** "Approves the loading charge if Loadsmart raises one" — and detention, and unloading. */
@@ -97,18 +131,23 @@ export class LsShipperService extends LsServiceBase {
       if (!charge) throw new NotFoundError(`Charge ${chargeId} not found`);
       if (charge.status !== 'raised')
         throw new ConflictError(`This charge is already ${charge.status}`);
-      if (input.decision === 'rejected' && !input.reason) {
-        throw new ValidationError('reason is required when rejecting a charge');
+      if (input.decision !== 'approved' && !input.reason) {
+        throw new ValidationError(
+          `reason is required to ${input.decision === 'queried' ? 'query' : 'reject'} a charge`,
+        );
       }
-      await this.repository.charges.update(
+      const result = await this.repository.charges.update(
         { id: chargeId, status: 'raised' },
-        {
-          status: input.decision,
-          decidedBy: actorId,
-          decidedAt: this.now(),
-          rejectionReason: input.reason ?? null,
-        },
+        input.decision === 'queried'
+          ? { status: 'queried', queryReason: input.reason!, queriedAt: this.now() }
+          : {
+              status: input.decision,
+              decidedBy: actorId,
+              decidedAt: this.now(),
+              rejectionReason: input.reason ?? null,
+            },
       );
+      if (!result.affected) throw new ConflictError('The charge changed — reload it');
       await this.loadActivityService.record(
         tenantId,
         loadId,
@@ -179,38 +218,6 @@ export class LsShipperService extends LsServiceBase {
     }
   }
 
-  /** "Adds who will receive the truck, often a day before." Any trip with a market truck. */
-  async setUnloadingContact(
-    tenantId: string,
-    actorId: string,
-    loadId: string,
-    input: UnloadingContactInput,
-  ): Promise<LoadEntity> {
-    try {
-      const load = await this.assertLoad(tenantId, loadId);
-      if (load.status === 'closed') throw new ConflictError('This load is closed');
-      const updated = await this.loadRepository.update(tenantId, loadId, {
-        unloadingContactName: input.name,
-        unloadingContactPhone: input.phone,
-        updatedBy: actorId,
-      });
-      await this.loadActivityService.record(
-        tenantId,
-        loadId,
-        actorId,
-        'LOADSMART_STEP',
-        null,
-        'unloading_contact_added',
-        {
-          ...input,
-        },
-      );
-      return updated!;
-    } catch (error) {
-      rethrow(error, 'Failed to add the unloading contact');
-    }
-  }
-
   /** "The shipper adds the claim value" on a Loadsmart load delivered with issues. */
   async addClaimValue(
     tenantId: string,
@@ -255,7 +262,16 @@ export class LsShipperService extends LsServiceBase {
     const downloadUrl = invoice.fileKey
       ? (await this.storageService.getByKey({ tenantId, role }, invoice.fileKey)).downloadUrl
       : null;
-    return { invoice, downloadUrl };
+    const { values } = await this.settings.current();
+    // Pay invoice: where to pay, what is still open, and when it falls due.
+    return {
+      invoice,
+      downloadUrl,
+      payTo: values.loadsmartPayee,
+      openAmount: invoice.openAmount ?? invoice.balanceDue,
+      dueDate: invoice.dueDate,
+      creditDays: invoice.creditDays,
+    };
   }
 
   /** "The load memo, documents and payments stay on the load to download." */

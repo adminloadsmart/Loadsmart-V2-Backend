@@ -295,7 +295,8 @@ function averageOf(loads: LoadEntity[], pick: (load: LoadEntity) => number | nul
 }
 
 /** Where a load sits on the "Where the loads are" chart (§17). */
-function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] {
+/** Null for a cancelled load — it sits on no stage of the chart. */
+function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] | null {
   switch (load.status) {
     case 'created':
     case 'bids_received':
@@ -315,12 +316,13 @@ function stageOf(load: LoadEntity): (typeof LOAD_STAGES)[number] {
     case 'delivered_ok':
     case 'delivered_with_issues':
       return load.podFileKey ? 'pod_received' : 'unloaded';
-    case 'original_pod_received':
     case 'invoice_generated':
     case 'payment':
       return 'pod_received';
     case 'closed':
       return 'closed';
+    case 'cancelled':
+      return null;
   }
 }
 
@@ -1095,7 +1097,7 @@ export class FleetAnalyticsService {
       const stageCounts = new Map<string, number>(LOAD_STAGES.map((stage) => [stage, 0]));
       for (const load of staged.values()) {
         const stage = stageOf(load);
-        stageCounts.set(stage, (stageCounts.get(stage) ?? 0) + 1);
+        if (stage) stageCounts.set(stage, (stageCounts.get(stage) ?? 0) + 1);
       }
 
       const byLane = new Map<string, { lane: Lane; rows: typeof delivered }>();

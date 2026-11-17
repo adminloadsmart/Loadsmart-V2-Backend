@@ -59,17 +59,12 @@ export class MaintenanceFleetRepository {
       .select('load.covers_vehicle_id', 'vehicleId')
       .addSelect('COUNT(*)::int', 'count')
       .where('load.tenant_id = :tenantId', { tenantId })
-      .andWhere("load.source_type = 'market'")
+      // Market loads carried by the shipper's transporters (not Loadsmart's).
+      .andWhere("load.posting_type = 'market_fleet'")
+      .andWhere("(load.route IS NULL OR load.route <> 'loadsmart')")
       .andWhere('load.covers_vehicle_id IN (:...vehicleIds)', { vehicleIds })
       .andWhere('load.status NOT IN (:...done)', {
-        done: [
-          'delivered_ok',
-          'delivered_with_issues',
-          'original_pod_received',
-          'invoice_generated',
-          'payment',
-          'closed',
-        ],
+        done: ['delivered_ok', 'delivered_with_issues', 'invoice_generated', 'payment', 'closed'],
       })
       .groupBy('load.covers_vehicle_id')
       .getRawMany<{ vehicleId: string; count: number }>();

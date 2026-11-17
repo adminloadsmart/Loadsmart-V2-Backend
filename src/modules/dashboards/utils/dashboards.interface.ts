@@ -143,7 +143,7 @@ export interface WhereEveryLoadIs {
   openLoads: number;
   /** Open requisitions whose dispatched tonnes are still below the ordered tonnes. */
   customerOrdersShortOfTrucks: number;
-  /** Open loads sourced from the market (source_type = 'market'). */
+  /** Open market loads not carried by Loadsmart (posting_type market_fleet, route ≠ loadsmart). */
   openOnMarketFleet: number;
   /** Planned tonnes summed across open loads. */
   tonnesInPlay: number;

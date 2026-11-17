@@ -1,4 +1,7 @@
-import { DataSource, In, Not, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
+import { CustomerContractEntity } from '../load-posting/entities/customer-contract.entity';
+import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
+import { LoadRouteChangeEntity } from '../entities/load-route-change.entity';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { LoadPostingEntity } from '../load-posting/entities/load-posting.entity';
 import { LoadRecipientEntity } from '../load-posting/entities/load-recipient.entity';
@@ -68,6 +71,14 @@ export class LoadBidRepository {
     );
   }
 
+  /** Every bid still open on the load — rejected when the load is cancelled. */
+  async rejectAllOpen(tenantId: string, loadId: string, actorId: string): Promise<void> {
+    await this.bids.update(
+      { tenantId, loadId, status: 'received' },
+      { status: 'rejected', decidedAt: new Date(), decidedBy: actorId },
+    );
+  }
+
   /** Loadsmart's live bid on the load — a new one from placement replaces it. */
   findLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity | null> {
     return this.bids.findOneBy({ tenantId, loadId, source: 'loadsmart', status: 'received' });
@@ -78,6 +89,48 @@ export class LoadBidRepository {
       { id: bid.id, tenantId: bid.tenantId, status: 'received' },
       { status: 'rejected', decidedAt: new Date(), decidedBy: actorId },
     );
+  }
+
+  /** The indent contract's non-placement penalty, if it has one. */
+  async findContractPenalty(tenantId: string, contractId: string): Promise<string | null> {
+    const contract = await this.bids.manager.getRepository(CustomerContractEntity).findOne({
+      where: { id: contractId, tenantId },
+      select: { id: true, nonPlacementPenalty: true },
+    });
+    return contract?.nonPlacementPenalty ?? null;
+  }
+
+  recordRouteChange(data: Omit<LoadRouteChangeEntity, 'id' | 'load' | 'createdAt'>) {
+    const repo = this.bids.manager.getRepository(LoadRouteChangeEntity);
+    return repo.save(repo.create(data));
+  }
+
+  /** A rejected indent goes to the shipper's own transporters too: each active one becomes a
+   *  recipient of the posting (status pending — nothing is sent from here), so the shipper can
+   *  record their bids. */
+  async addTransporterRecipients(tenantId: string, postingId: string): Promise<number> {
+    const { manager } = this.bids;
+    const transporters = await manager.getRepository(TransporterEntity).find({
+      where: { tenantId, status: 'active', deletedAt: IsNull() },
+      select: { id: true },
+    });
+    if (!transporters.length) return 0;
+    const existing = await this.recipients.find({
+      where: { postingId, transporterId: In(transporters.map((t) => t.id)) },
+      select: { id: true, transporterId: true },
+    });
+    const already = new Set(existing.map((r) => r.transporterId));
+    const fresh = transporters.filter((t) => !already.has(t.id));
+    if (!fresh.length) return 0;
+    await this.recipients.insert(
+      fresh.map((t) => ({
+        tenantId,
+        postingId,
+        recipientType: 'transporter' as const,
+        transporterId: t.id,
+      })),
+    );
+    return fresh.length;
   }
 
   findPosting(tenantId: string, postingId: string): Promise<LoadPostingEntity | null> {

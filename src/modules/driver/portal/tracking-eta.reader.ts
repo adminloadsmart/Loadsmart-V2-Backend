@@ -34,7 +34,6 @@ const REACHED_DROP_STATUS: LoadStatus = 'reached_unloading';
 const PAST_DROP_STATUSES: readonly LoadStatus[] = [
   'delivered_ok',
   'delivered_with_issues',
-  'original_pod_received',
   'invoice_generated',
   'payment',
   'closed',

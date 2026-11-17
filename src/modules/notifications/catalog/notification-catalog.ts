@@ -505,6 +505,27 @@ export interface VehicleReachedDropContext extends LoadSummary {
   freeTimeEndsAt?: string | null;
 }
 
+/** Tracking's drop-geofence entry: the vehicle is at the delivery point's gate, not yet arrived. */
+export interface VehicleNearingDropContext extends LoadSummary {
+  /** When the vehicle entered the drop's geofence (ISO). */
+  enteredAt: string;
+  // Filled in by the resolver:
+  destination?: string | null;
+}
+
+/** Tracking's "Detention detected": inside the loading or unloading geofence for more than the
+ *  detention time. */
+export interface DetentionDetectedContext extends LoadSummary {
+  point: 'loading' | 'unloading';
+  /** When the vehicle entered the geofence (ISO), when tracking knows it. */
+  enteredAt: string | null;
+  /** When the detention time was passed (ISO). */
+  detectedAt: string;
+  // Filled in by the resolver:
+  place?: string | null;
+  hoursInside?: number;
+}
+
 /** LS_N_0032 — queued by the trip-timing sweep for each 4-hour step of unloading detention. */
 export interface DetentionAtUnloadingContext extends LoadSummary {
   /** When the vehicle reached the delivery point (ISO) — the detention clock's start. */
@@ -593,6 +614,9 @@ export interface VehicleHaltedContext extends LoadSummary {
   anchorLng: number;
   /** Rest stop / toll plaza, when tracking itself tagged the halt; null otherwise. */
   stopPlaceKind?: HaltExpectedGeofenceType | null;
+  /** The halt is tracked by SIM (HALT-SIM): its positions are coarse, so the "still at the same
+   *  spot" check uses a wider radius. */
+  sim?: boolean;
   /** '2h' — the first alert; '6h' — only if the same halt crossed 6 hours. */
   step: VehicleHaltStep;
   // Filled in by the resolver:
@@ -2447,6 +2471,80 @@ export const NOTIFICATION_CATALOG = {
           promised_at: context.promisedAt ?? '',
           free_time_end: context.freeTimeEndsAt ? formatIndiaDateTime(context.freeTimeEndsAt) : '',
           free_time_ends_at: context.freeTimeEndsAt ?? '',
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // Tracking's `trip.entered_drop_geofence` — the vehicle entered the delivery point's geofence.
+  // Sent at once, so the consignee can be told "will reach shortly"; the arrival (LS_N_0031) comes
+  // only after the vehicle has been stopped there for 10 minutes. Once per load. Push only, P3,
+  // to trip.track holders.
+  'load.vehicle_nearing_drop': {
+    label: 'Vehicle will reach unloading point shortly',
+    category: 'trip_execution',
+    description: 'The vehicle has entered the delivery point’s geofence and will reach it shortly.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p3_info',
+    dedupeKey: (context: VehicleNearingDropContext) => context.loadId,
+    buildContent: (context: VehicleNearingDropContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const destination = context.destination ?? context.consignee ?? 'the delivery point';
+      return {
+        title: `${vehicleNo} will reach ${destination} shortly`,
+        body: `Entered the unloading point's geofence at ${formatIndiaTime(context.enteredAt)}.`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          destination: context.destination ?? '',
+          entered_at: context.enteredAt,
+          cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+
+  // Tracking's `trip.detention_detected` — the vehicle has been inside the loading or unloading
+  // geofence for more than the detention time (24 h by default). The load is flagged "Detention
+  // detected" (loads.detention_detected_at) by the same event, so this goes out once per load.
+  // It is a tracking alert, separate from the free-hours billing alerts (LS_N_0023 / LS_N_0032).
+  // Push only, P2, to trip.track holders.
+  'load.detention_detected': {
+    label: 'Detention detected',
+    category: 'trip_execution',
+    description:
+      'A vehicle has been inside a loading or unloading geofence for more than the detention time.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: DetentionDetectedContext) => context.loadId,
+    buildContent: (context: DetentionDetectedContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const place =
+        context.place ??
+        (context.point === 'loading'
+          ? 'the loading point'
+          : (context.consignee ?? 'the delivery point'));
+      const hours = context.hoursInside ? ` for ${Math.round(context.hoursInside)} hours` : '';
+      return {
+        title: `Detention detected at ${place}`,
+        body: `${vehicleNo} has been inside ${place}'s geofence${hours}.`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          point: context.point,
+          place,
+          entered_at: context.enteredAt ?? '',
+          detected_at: context.detectedAt,
+          hours_inside: String(context.hoursInside ?? ''),
           cta_label: 'View load',
           cta_path: `/loads/${context.loadId}`,
         },

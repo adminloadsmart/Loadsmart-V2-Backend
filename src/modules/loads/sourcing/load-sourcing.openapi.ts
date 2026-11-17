@@ -1,5 +1,8 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { DISPATCH_PLANNING_MANAGE } from '../../../shared/constants/permissions';
+import {
+  DISPATCH_PLANNING_MANAGE,
+  TRUCK_VERIFY_MANUAL,
+} from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
@@ -76,10 +79,11 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.acceptBid',
     ...manageDispatch(
-      'Accept a bid: the load moves to Truck assigned with the bid’s transporter, truck ' +
-        'and rate, and the load’s other live bids are rejected. Only a live bid with a ' +
-        'truck number whose truck has not failed its check can be accepted. On an indent this ' +
-        'confirms the truck at the contract rate — there is no counter offer.',
+      'Award a bid at Bids received: the load keeps its stage with the award on it — the ' +
+        'bid’s transporter, truck and rate (route own_transporter; Loadsmart’s bid becomes a ' +
+        'Loadsmart load when its memo is accepted). The other live bids are rejected. One ' +
+        'accepted bid per load. Only a live bid with a truck number whose truck has not failed ' +
+        'its check can be accepted.',
     ),
     request: { params: v.acceptBid.shape.params },
     responses: {
@@ -93,13 +97,62 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/loads/{loadId}/bids/{bidId}/counter`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.counterBid',
+    ...manageDispatch(
+      'Counter a live bid with your own rate (and a note). The bid waits for the answer — Accept ' +
+        'stays off until it is recorded; a new counter replaces one still waiting. A counter on ' +
+        "Loadsmart's bid goes to Loadsmart's Placement team, which answers on its console.",
+    ),
+    request: { params: v.counterBid.shape.params, body: json(v.counterBid.shape.body) },
+    responses: {
+      200: { description: 'The bid, with its counter and rate history' },
+      409: { description: 'Not a live bid, or a bid is already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/bids/{bidId}/counter-response`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.answerCounter',
+    ...manageDispatch(
+      "Record the transporter's answer to your counter, given by phone. Accepted: the counter " +
+        "becomes the bid's rate. Not for Loadsmart's bid — Loadsmart answers that itself.",
+    ),
+    request: { params: v.answerCounter.shape.params, body: json(v.answerCounter.shape.body) },
+    responses: {
+      200: { description: 'The bid' },
+      409: { description: 'No counter waiting, or a Loadsmart bid', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/bids/{bidId}/reject`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.rejectBid',
+    ...manageDispatch(
+      "Reject a live bid, with an optional reason. Rejecting Loadsmart's bid lets its Placement " +
+        'team send another.',
+    ),
+    request: { params: v.rejectBid.shape.params, body: json(v.rejectBid.shape.body) },
+    responses: {
+      200: { description: 'The rejected bid' },
+      409: { description: 'Not a live bid, or a bid is already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/loads/{loadId}/indent/accept`,
     tags: [TAGS.LOADS],
     operationId: 'loads.recordIndentAcceptance',
     ...manageDispatch(
       'The contracted transporter accepted the indent and sent the truck number. Records it as ' +
-        'the indent’s one bid, at the contract rate, and moves the load to Bids received. ' +
-        'The shipper then confirms it with POST /loads/{loadId}/bids/{bidId}/accept.',
+        'the indent’s one bid, at the contract rate — that is the award: the load moves to Bids ' +
+        'received on the indent route. No separate confirmation; the load memo follows.',
     ),
     request: {
       params: v.recordIndentAcceptance.shape.params,
@@ -118,7 +171,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.nameDriver',
     ...manageDispatch(
       'The transporter names the driver (name, mobile, licence number and date of birth) for a ' +
-        'market or indent load at Truck assigned. The truck is checked on VAHAN if it never was, ' +
+        'market or indent load with an award, at Bids received. The truck is checked on VAHAN if it never was, ' +
         'and the licence on Sarathi. The memo (expires in 1 hour) goes only when no check failed; ' +
         'otherwise `memo` is null and `checks` lists the failures to fix.',
     ),
@@ -127,7 +180,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       201: { description: '{ memo, checks } — memo sent' },
       200: { description: '{ memo: null, checks } — a check failed, no memo sent' },
       409: {
-        description: 'Own fleet, not at Truck assigned, or memo already accepted',
+        description: 'Own fleet, no award yet, or memo already accepted',
         ...errorContent,
       },
     },
@@ -142,11 +195,169 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       'The latest govt-portal checks on the load: the truck on VAHAN (RC, fitness, insurance, ' +
         'PUC, permit) and the driver on Sarathi (found, in date, and the licence class covers the ' +
         'truck — above 7.5 t GVW a transport licence). Each shows only its `failures`; ' +
-        '`unavailable` means the portal could not be reached and never blocks. `clear` is what ' +
-        'the load memo waits on.',
+        '`unavailable` means the portal could not be reached. `clear` (both passed) is what the ' +
+        'load memo waits on; `blockers` says why not — a failed check, one not run yet, or one ' +
+        'that could not run (POST /loads/{loadId}/verifications/rerun).',
     ),
     request: { params: v.getChecks.shape.params },
-    responses: { 200: { description: '{ truck, driver, clear }' } },
+    responses: {
+      200: { description: '{ truck, driver, clear, blockers, truckManualAllowed }' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/verifications/rerun`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.rerunChecks',
+    ...manageDispatch(
+      'Run the truck (VAHAN) and driver (Sarathi) checks again — after a portal could not be ' +
+        'reached, or a paper was fixed. If both then pass, the driver is named and no memo is ' +
+        'open, the memo goes out (201 with `memo`). Not on Loadsmart loads (Placement runs them).',
+    ),
+    request: { params: v.rerunChecks.shape.params },
+    responses: {
+      200: { description: '{ memo: null, checks } — still blocked' },
+      201: { description: '{ memo, checks } — memo sent' },
+      409: { description: 'No award yet, own fleet, or memo already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/verifications/truck/manual`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.verifyTruckManually',
+    ...permissionGated(
+      [TRUCK_VERIFY_MANUAL],
+      "VAHAN couldn't be reached for the load's truck (its latest check is `unavailable`, see " +
+        '`truckManualAllowed` on GET /verifications), so an org admin checks the RC by hand. ' +
+        'Any paper expiry dates entered are still checked — an expired one fails it. Saved with ' +
+        "`source: 'manual'` and `verifiedBy`; a later rerun keeps it. If every check then passes, " +
+        'the memo goes out (201). A VAHAN pass or failure cannot be overridden. Not on Loadsmart ' +
+        'loads (the Admin team does it from the console).',
+    ),
+    request: {
+      params: v.verifyTruckManually.shape.params,
+      body: json(v.verifyTruckManually.shape.body),
+    },
+    responses: {
+      200: { description: '{ memo: null, checks } — still blocked' },
+      201: { description: '{ memo, checks } — memo sent' },
+      409: {
+        description: 'Check not unavailable, Loadsmart load, own fleet, or no award',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/memos`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listMemos',
+    ...authenticated(
+      'Every load memo version, latest first — reference (LM-<load>-v<n>), truck, driver, ' +
+        'licence, freight and payment terms, `pdfFileKey`, status (sent / accepted / expired / ' +
+        'superseded) and, once accepted, who and how (`acceptedVia` app or call).',
+    ),
+    request: { params: v.listMemos.shape.params },
+    responses: { 200: { description: 'MemoView[]' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/truck-cancellation`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.cancelTruck',
+    ...manageDispatch(
+      'The truck was cancelled between Truck assigned and Loaded (own transporter / indent). ' +
+        '`reasonCode` is an active code from Settings. `next`: `new_truck` — back to Bids ' +
+        'received with the award kept, for a new truck, driver, checks and memo version; ' +
+        '`reopen` — back to Created with no winner (an indent keeps its contracted transporter). ' +
+        'The truck and driver come off the load and are kept with the cancellation.',
+    ),
+    request: { params: v.cancelTruck.shape.params, body: json(v.cancelTruck.shape.body) },
+    responses: {
+      200: { description: 'The load, back at Bids received or Created' },
+      400: { description: 'Not an active reason code', ...errorContent },
+      409: {
+        description: 'Not between Truck assigned and Loaded, or not this route',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/cancellation`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.cancellationOptions',
+    ...authenticated(
+      'What the cancel form needs: `canCancel` and `blocker`, `needsLoadsmartApproval` (a load ' +
+        'Loadsmart has won waits for Super Admin), the request `pending`, the `latest` one with ' +
+        'its decision, `cancelledAt` / `cancelledFromStage`, and the active `reasonCodes` (code, ' +
+        'label) — the same list a truck cancellation uses.',
+    ),
+    request: { params: v.listTruckCancellations.shape.params },
+    responses: { 200: { description: 'Cancellation options' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/cancel`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.cancelLoad',
+    ...manageDispatch(
+      'Cancel the whole load, any time before Loaded, with an active reason code from Settings. ' +
+        'Own transporter, indent, own fleet and market loads nobody has won: cancelled at once ' +
+        '(outcome `cancelled`) — open bids are rejected, an open memo withdrawn, an own-fleet truck ' +
+        'freed. A load Loadsmart has won: a request Super Admin approves or rejects on the ops ' +
+        'console (outcome `pending`). Cancelled loads sit outside the 13 stages, in the ' +
+        '`cancelled` status group.',
+    ),
+    request: { params: v.cancelLoad.shape.params, body: json(v.cancelLoad.shape.body) },
+    responses: {
+      200: { description: '{ outcome, load, cancellation }' },
+      400: { description: 'Not an active reason code', ...errorContent },
+      409: {
+        description: 'Already Loaded or cancelled, or a request is already waiting',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/truck-cancellations`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.listTruckCancellations',
+    ...authenticated(
+      'The truck cancellations on the load, latest first, with the cancelled truck.',
+    ),
+    request: { params: v.listTruckCancellations.shape.params },
+    responses: { 200: { description: 'LoadCancellation[]' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/indent/reject`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.recordIndentRejection',
+    ...manageDispatch(
+      'The contracted transporter rejected the indent (`reason`). The load goes to the open ' +
+        'market at Created: it becomes a market load, the contract rate stays as the expected ' +
+        'price, the shipper’s active transporters become recipients and Loadsmart opens its ' +
+        'sourcing. The contract’s non-placement penalty, if any, is recorded with the change.',
+    ),
+    request: {
+      params: v.recordIndentRejection.shape.params,
+      body: json(v.recordIndentRejection.shape.body),
+    },
+    responses: {
+      200: { description: 'The load, now a market load' },
+      409: { description: 'Not an indent, or already accepted', ...errorContent },
+    },
   });
 
   registry.registerPath({
@@ -189,8 +400,9 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.acceptMemo',
     ...manageDispatch(
-      'The shipper accepts the load memo within its hour, optionally changing the loading ' +
-        'contact or adding a loading point note. The trip can start only after this.',
+      'The shipper accepts the load memo before it expires, optionally changing the loading ' +
+        'contact or adding a loading point note. This moves the load to Truck assigned (on a ' +
+        'Loadsmart award, it becomes a Loadsmart load).',
     ),
     request: { params: v.acceptMemo.shape.params, body: json(v.acceptMemo.shape.body) },
     responses: {

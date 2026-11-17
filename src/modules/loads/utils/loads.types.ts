@@ -21,11 +21,26 @@ export const REQUISITION_ITEM_UNITS = [
 ] as const;
 export type RequisitionItemUnit = (typeof REQUISITION_ITEM_UNITS)[number];
 
-/** `indent` — posted straight to one contracted transporter at the contract rate (Post a load).
- *  `loadsmart` — a market load whose Loadsmart bid the shipper accepted: Loadsmart sources the
- *  truck from its partners, runs the trip, invoices the shipper and pays the partner. */
-export const LOAD_SOURCE_TYPES = ['own_fleet', 'market', 'indent', 'loadsmart'] as const;
-export type LoadSourceType = (typeof LOAD_SOURCE_TYPES)[number];
+/** How the shipper posted the load — fixed at posting, except that a rejected indent goes to the
+ *  open market (indent → market_fleet, recorded on the load's activity). Analytics and the
+ *  indent penalty read this; the stage rules read `route`. */
+export const LOAD_POSTING_TYPES = ['market_fleet', 'indent', 'own_fleet'] as const;
+export type LoadPostingType = (typeof LOAD_POSTING_TYPES)[number];
+
+/** Who carries the load, known once someone has won it:
+ *  - `own_fleet` — the shipper's own truck; set at posting.
+ *  - `indent` — the contracted transporter; set when it accepts the indent.
+ *  - `own_transporter` — one of the shipper's transporters; set when the shipper awards its bid.
+ *  - `loadsmart` — Loadsmart sources, runs, invoices and pays; set when the shipper accepts
+ *    Loadsmart's load memo.
+ *  Null while a market load has no winner (stages 1–2 only — a DB CHECK enforces it). */
+export const LOAD_ROUTES = ['loadsmart', 'own_transporter', 'indent', 'own_fleet'] as const;
+export type LoadRoute = (typeof LOAD_ROUTES)[number];
+
+/** Whose bid the shipper awarded on a market load. A Loadsmart award only becomes the load's
+ *  route when its memo is accepted; until then the load is unrouted with a Loadsmart award. */
+export const AWARD_PARTIES = ['transporter', 'loadsmart'] as const;
+export type AwardParty = (typeof AWARD_PARTIES)[number];
 
 export const FREIGHT_TYPES = ['per_ton', 'flat'] as const;
 export type FreightType = (typeof FREIGHT_TYPES)[number];
@@ -66,13 +81,21 @@ export const SHORTAGE_OR_DAMAGE_STATUSES = [
 ] as const;
 export type ShortageOrDamageStatus = (typeof SHORTAGE_OR_DAMAGE_STATUSES)[number];
 
-/** Anything other than 'none' noted on the POD puts the load in Delivered with issues until it is
- *  settled (LoadService.settleDeliveryIssue). */
-export function deliveredStageFor(
+/** The POD decision's trigger: anything other than 'none' puts the load in Delivered with issues
+ *  until it is resolved (LoadService.settleDeliveryIssue). */
+export function podDecisionTrigger(
   shortageOrDamage: ShortageOrDamageStatus | null | undefined,
-): 'delivered_ok' | 'delivered_with_issues' {
-  return shortageOrDamage && shortageOrDamage !== 'none' ? 'delivered_with_issues' : 'delivered_ok';
+): 'pod_clean' | 'pod_issue' {
+  return shortageOrDamage && shortageOrDamage !== 'none' ? 'pod_issue' : 'pod_clean';
 }
+
+/** Manual stage marks (no tracking) as the trigger each one is. */
+export const MANUAL_MARK_TRIGGERS = {
+  in_transit_loading: 'trip_started',
+  reached_loading: 'reached_loading',
+  in_transit_unloading: 'left_loading',
+  reached_unloading: 'reached_unloading',
+} as const;
 
 /** E-POD's staff-review state — set to 'pending' by uploadPod, then decided by
  *  LoadService.reviewPod. null before any E-POD has ever been uploaded. A load only reaches
@@ -87,15 +110,13 @@ export const POD_REVIEW_DECISIONS = ['accepted', 'rejected'] as const;
 export type PodReviewDecision = (typeof POD_REVIEW_DECISIONS)[number];
 
 /**
- * The load's single, unified movement status — the client's 13-stage lifecycle ("Load flow ·
- * posting to payment"). Stages 1–10 live here; 11–13 (original POD received, invoice generated,
- * payment) only apply to Loadsmart loads and arrive with that route. Advance/balance payment are
- * tracked separately (LoadEntity.advancePaidAt/balancePaidAt) since they run in parallel with
- * movement rather than block it; see loads/entities/load.entity.ts's doc comment.
+ * The load's single movement status — the spec's 13 stages. Every route goes through all of them
+ * except own fleet, which starts at Truck assigned and closes from Delivered (no 1, 2, 11, 12).
+ * The original POD is not a stage: Payables tracks it beside the load (originalPodReceivedAt).
  *
- * Order is the design's stage order, but transitions are NOT walked by index — the two delivered
- * stages are a branch, not a sequence. LOAD_STAGE_TRANSITIONS below is the only source of which
- * move is allowed, and LoadStageService the only writer.
+ * Order is the spec's stage order, but moves are NOT walked by index — the two delivered stages
+ * are a branch. core/stage-rules.ts's trigger table is the only source of which move is allowed,
+ * and LoadStageService the only writer.
  */
 export const LOAD_STATUSES = [
   'created', // 1 · Sourcing
@@ -106,20 +127,18 @@ export const LOAD_STATUSES = [
   'loaded', // 6 · Execution
   'in_transit_unloading', // 7 · Execution
   'reached_unloading', // 8 · Execution
-  'delivered_ok', // 9 · Delivery — nothing noted on the POD, or the issue was settled
-  'delivered_with_issues', // 10 · Delivery — damage, shortage or pilferage noted, not yet settled
-  'original_pod_received', // 11 · Money — Loadsmart only
-  'invoice_generated', // 12 · Money — Loadsmart only
-  'payment', // 13 · Money — Loadsmart only: the shipper's payment is in, awaiting verification
-  'closed',
+  'delivered_ok', // 9 · Delivery — no issue on the POD, or the issue was resolved
+  'delivered_with_issues', // 10 · Delivery — damage, shortage or pilferage, not yet resolved
+  'invoice_generated', // 11 · Money — Loadsmart's invoice issued / the transporter's uploaded
+  'payment', // 12 · Money — the shipper's payment recorded, with proof
+  'closed', // 13
+  // Outside the 13: the shipper cancelled the load before it was Loaded (a Loadsmart load once
+  // Super Admin approves). Nothing moves it on.
+  'cancelled',
 ] as const;
 
-/** Stages 11–13 — only a Loadsmart load goes through them. */
-export const MONEY_LOAD_STATUSES: readonly LoadStatus[] = [
-  'original_pod_received',
-  'invoice_generated',
-  'payment',
-];
+/** Stages 11–12 — every route but own fleet. */
+export const MONEY_LOAD_STATUSES: readonly LoadStatus[] = ['invoice_generated', 'payment'];
 export type LoadStatus = (typeof LOAD_STATUSES)[number];
 
 /** Either delivered stage — the truck has unloaded and an E-POD is on record. */
@@ -134,46 +153,29 @@ export const UNLOADED_LOAD_STATUSES: readonly LoadStatus[] = [
   ...MONEY_LOAD_STATUSES,
 ];
 
-/** Every allowed single move. `delivered_ok -> delivered_with_issues` is only reachable through an
- *  E-POD resubmission that now notes an issue; `delivered_with_issues -> delivered_ok` is the
- *  settlement. 'closed' is terminal. */
-export const LOAD_STAGE_TRANSITIONS: Record<LoadStatus, readonly LoadStatus[]> = {
-  created: ['bids_received', 'truck_assigned'],
-  bids_received: ['truck_assigned'],
-  truck_assigned: ['in_transit_loading'],
-  in_transit_loading: ['reached_loading'],
-  reached_loading: ['loaded'],
-  loaded: ['in_transit_unloading'],
-  in_transit_unloading: ['reached_unloading'],
-  reached_unloading: ['delivered_ok', 'delivered_with_issues'],
-  delivered_ok: ['delivered_with_issues', 'original_pod_received', 'closed'],
-  delivered_with_issues: ['delivered_ok'],
-  original_pod_received: ['invoice_generated'],
-  invoice_generated: ['payment'],
-  payment: ['closed'],
-  closed: [],
-};
-
-/** Which stages each route goes through. Own fleet starts at Truck assigned — no bids, the
- *  shipper's own truck and driver are picked when posting. */
-const WITHOUT_MONEY_STAGES = LOAD_STATUSES.filter(
-  (status) => !MONEY_LOAD_STATUSES.includes(status),
+/** The stages each route goes through. Own fleet starts at Truck assigned (its truck and driver
+ *  are picked when posting) and closes from Delivered — nothing to invoice or pay. */
+export const OWN_FLEET_STAGES: readonly LoadStatus[] = LOAD_STATUSES.filter(
+  (status) =>
+    status !== 'created' &&
+    status !== 'bids_received' &&
+    status !== 'cancelled' &&
+    !MONEY_LOAD_STATUSES.includes(status),
 );
-export const ROUTE_STAGES: Record<LoadSourceType, readonly LoadStatus[]> = {
-  own_fleet: WITHOUT_MONEY_STAGES.filter(
-    (status) => status !== 'created' && status !== 'bids_received',
-  ),
-  market: WITHOUT_MONEY_STAGES,
-  indent: WITHOUT_MONEY_STAGES,
-  loadsmart: LOAD_STATUSES,
-};
+/** The 13 stages a load goes through — every status but Cancelled. */
+export const LIFECYCLE_STAGES: readonly LoadStatus[] = LOAD_STATUSES.filter(
+  (status) => status !== 'cancelled',
+);
 
 /** Trips Home-page tab boundary — a delivered load is deliberately NOT completed: it only counts
  *  as done once staff has accepted its E-POD, any delivery issue is settled (and, for market
  *  loads, both advance and balance are paid) and LoadService.closeLoad has flipped it to 'closed'. */
 export const COMPLETED_LOAD_STATUSES: readonly LoadStatus[] = ['closed'];
+/** "A place for cancelled loads to go" — their own tab, never Active, Open or Completed. */
+export const CANCELLED_LOAD_STATUSES: readonly LoadStatus[] = ['cancelled'];
 export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
-  (status) => !COMPLETED_LOAD_STATUSES.includes(status),
+  (status) =>
+    !COMPLETED_LOAD_STATUSES.includes(status) && !CANCELLED_LOAD_STATUSES.includes(status),
 );
 /** Trips "Active" tab — the trip is still being executed. Once the truck has unloaded (either
  *  delivered stage, or a money stage after it) the trip moves to Open, where it stays until its
@@ -184,7 +186,7 @@ export const ACTIVE_TAB_LOAD_STATUSES: readonly LoadStatus[] = ACTIVE_LOAD_STATU
 /** Driver-app "Open Trips" tab — every status except 'closed'. Named separately from
  *  ACTIVE_LOAD_STATUSES (equal today) since they serve different audiences and may diverge. */
 export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
-  (status) => status !== 'closed',
+  (status) => status !== 'closed' && status !== 'cancelled',
 );
 /** Driver-app "Upcoming" tab — not yet moving. */
 export const UPCOMING_LOAD_STATUSES: readonly LoadStatus[] = [
@@ -215,19 +217,32 @@ export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
   'reached_unloading',
   ...UNLOADED_LOAD_STATUSES,
   'closed',
+  'cancelled',
+];
+
+/** Stages a truck can be flagged "Detention detected" in — on the trip, before it has unloaded
+ *  and left. */
+export const DETENTION_FLAGGABLE_STATUSES: readonly LoadStatus[] = [
+  'truck_assigned',
+  'in_transit_loading',
+  'reached_loading',
+  'loaded',
+  'in_transit_unloading',
+  'reached_unloading',
 ];
 
 /** Upper bound on the optional cargo value per MT a requisition / posting can carry (LS_N_0034). */
 export const MAX_CARGO_VALUE_PER_TONNE = 10_000_000;
 /** Upper bound on a driver issue report's expected delay — 7 days, in minutes (LS_N_0037). */
 export const MAX_ISSUE_ETA_IMPACT_MINUTES = 7 * 24 * 60;
-export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
+export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming', 'cancelled'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
   active: ACTIVE_TAB_LOAD_STATUSES,
   completed: COMPLETED_LOAD_STATUSES,
   open: OPEN_LOAD_STATUSES,
   upcoming: UPCOMING_LOAD_STATUSES,
+  cancelled: CANCELLED_LOAD_STATUSES,
 };
 
 /** Stages set by hand through PATCH /loads/:id/status (staff) or the driver app — there is no
@@ -245,17 +260,33 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'LOAD_CREATED',
   'STATUS_CHANGED',
   'DOCUMENT_UPLOADED',
+  'DOCUMENT_REVIEWED',
+  'CHARGE_ADDED',
+  'TRUCK_CANCELLED',
+  'BID_COUNTERED',
+  'BID_COUNTER_ANSWERED',
+  'BID_REJECTED',
+  'LOAD_CANCELLED',
+  'LOAD_CANCEL_REQUESTED',
+  'LOAD_CANCEL_REJECTED',
+  'LOAD_EDITED',
   'PAYMENT_RECORDED',
   'ISSUE_REPORTED',
   'POD_REVIEWED',
   'DELIVERY_ISSUE_SETTLED',
   'BID_RECORDED',
   'BID_ACCEPTED',
+  'TRANSPORTER_INVOICE_UPLOADED',
   'DRIVER_NAMED',
   'MEMO_SENT',
   'MEMO_ACCEPTED',
+  'MEMO_WITHDRAWN',
+  'CHECKS_RERUN',
+  'TRUCK_VERIFIED_MANUALLY',
+  'INDENT_REJECTED',
   'LOADSMART_STEP',
   'LOADING_CONTACT_CHANGED',
+  'UNLOADING_DETAILS_SAVED',
   'LOADING_POINT_CHANGED',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
@@ -303,6 +334,19 @@ export const DRIVING_LICENCE_DOC_LABEL = 'Driving licence';
 export const BID_STATUSES = ['received', 'accepted', 'rejected', 'expired'] as const;
 export type BidStatus = (typeof BID_STATUSES)[number];
 
+/** The shipper's counter-offer on a live bid: `pending` until the bidder answers (by phone for a
+ *  transporter, recorded by the shipper; on the console for Loadsmart's own bid). */
+export const BID_COUNTER_STATUSES = ['pending', 'accepted', 'declined'] as const;
+export type BidCounterStatus = (typeof BID_COUNTER_STATUSES)[number];
+
+/** One step in a bid's rate history — every rate it has carried stays on the bid. */
+export interface BidRateStep {
+  at: string;
+  by: string | null;
+  kind: 'bid' | 'revised' | 'counter' | 'counter_accepted' | 'counter_declined';
+  rate: string;
+}
+
 /** How the bid reached Loadsmart — `web` is the shipper typing in a rate given by phone (and,
  *  for indent, the transporter's acceptance); `whatsapp` arrives with the WhatsApp buttons. */
 export const BID_CHANNELS = ['web', 'whatsapp'] as const;
@@ -314,8 +358,15 @@ export type BidSource = (typeof BID_SOURCES)[number];
 export type BidChannel = (typeof BID_CHANNELS)[number];
 
 /** The load memo the shipper accepts before the trip starts (loads/memo/). */
-export const MEMO_STATUSES = ['sent', 'accepted', 'expired'] as const;
+/** `superseded`: a newer version went out before this one was accepted (a changed truck or
+ *  driver, or a resend). */
+export const MEMO_STATUSES = ['sent', 'accepted', 'expired', 'superseded', 'withdrawn'] as const;
 export type MemoStatus = (typeof MEMO_STATUSES)[number];
+
+/** How the memo was accepted: by the shipper in the app, or confirmed by Loadsmart's Placement
+ *  team after a call (Loadsmart loads only). */
+export const MEMO_ACCEPT_CHANNELS = ['app', 'call'] as const;
+export type MemoAcceptChannel = (typeof MEMO_ACCEPT_CHANNELS)[number];
 
 /** What a load-time govt-portal check looked at (loads/verification/). */
 export const VERIFICATION_SUBJECTS = ['truck', 'driver'] as const;
@@ -325,6 +376,11 @@ export type VerificationSubject = (typeof VERIFICATION_SUBJECTS)[number];
 export const VERIFICATION_STATUSES = ['passed', 'failed', 'unavailable'] as const;
 export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
 
+/** Where a check's verdict came from: the govt portal, or an admin checking the RC by hand while
+ *  the portal couldn't be reached (truck only). */
+export const VERIFICATION_SOURCES = ['portal', 'manual'] as const;
+export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
+
 /** How the load's truck is tracked — the client's chain GPS device → driver's mobile (app) → SIM
  *  → FASTag. Saved on the load (LoadEntity.trackingSource) for the tracking service to read and
  *  update; see utils/tracking-source.ts for the starting value. */
@@ -332,4 +388,4 @@ export const TRACKING_SOURCES = ['gps', 'driver_app', 'sim', 'fastag'] as const;
 export type TrackingSource = (typeof TRACKING_SOURCES)[number];
 
 export type CodeSequenceEntityKind =
-  'requisition' | 'load' | 'customer' | 'transporter' | 'lr' | 'ls_invoice';
+  'requisition' | 'load' | 'customer' | 'transporter' | 'lr' | 'ls_invoice' | 'ls_credit_note';

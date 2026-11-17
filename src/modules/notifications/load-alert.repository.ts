@@ -170,7 +170,7 @@ export class LoadAlertRepository {
     return {
       code: load.code,
       status: load.status,
-      sourceType: load.sourceType,
+      postingType: load.postingType,
       vehicleNumber: load.vehicleNumber ?? load.vehicle?.registrationNumber ?? null,
       transporterName: load.transporter?.name ?? null,
       transporterBankAccountNumber: load.transporter?.bankAccountNumber ?? null,

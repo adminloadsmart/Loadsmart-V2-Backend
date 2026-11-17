@@ -11,7 +11,11 @@ export type DriverCheckLoad = Pick<LoadEntity, 'id' | 'vehicleId' | 'vehicleNumb
 /** The load fields a truck check reads. */
 export type TruckCheckLoad = Pick<LoadEntity, 'id' | 'vehicleNumber'>;
 
-export type CreateLoadVerificationData = Omit<LoadVerificationEntity, 'id' | 'load' | 'createdAt'>;
+export type CreateLoadVerificationData = Omit<
+  LoadVerificationEntity,
+  'id' | 'load' | 'createdAt' | 'source' | 'verifiedBy'
+> &
+  Partial<Pick<LoadVerificationEntity, 'source' | 'verifiedBy'>>;
 
 /** The VAHAN lookup this service needs — UlipClient satisfies it. */
 export interface VehicleRegistryClient {
@@ -32,14 +36,33 @@ export interface CheckView {
   /** Only the failures are shown to the shipper. */
   failures: string[];
   notes: string[];
+  /** 'manual' when an admin verified the truck by hand while VAHAN was down. */
+  source: LoadVerificationEntity['source'];
+  verifiedBy: string | null;
+  /** Truck only: RC, fitness, insurance, PUC and permit validity dates; null for a driver or when
+   *  the portal returned nothing. */
+  papers: TruckPapers | null;
   checkedAt: string;
 }
 
 export interface LoadChecksView {
   truck: CheckView | null;
   driver: CheckView | null;
-  /** True when nothing failed — what the memo waits on. `unavailable` never blocks. */
+  /** True when both checks passed — what the memo waits on. A check that couldn't run blocks. */
   clear: boolean;
+  /** Why it isn't clear, one line each. */
+  blockers: string[];
+  /** The truck check couldn't run on VAHAN, so an admin (trucks.verify_manual, or
+   *  loadsmart.truck.verify_manual on a Loadsmart load) may verify it by hand. */
+  truckManualAllowed: boolean;
+}
+
+/** An admin's manual truck check while VAHAN is down: the RC checkbox, plus any paper expiry
+ *  dates they read off the papers (an expired one still fails the check). */
+export interface ManualTruckCheckInput {
+  rcChecked: true;
+  papers?: TruckPapers;
+  note?: string;
 }
 
 /** The truck papers checked on VAHAN — RC, fitness, insurance, PUC, permit. */

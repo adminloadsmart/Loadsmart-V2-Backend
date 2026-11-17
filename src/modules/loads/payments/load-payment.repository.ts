@@ -1,6 +1,7 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { LoadPaymentEntity } from '../entities/load-payment.entity';
 import { LoadPaymentType } from '../utils/loads.types';
+import { PaymentHeads, PaymentMode } from '../money/money-rules';
 
 export interface CreateLoadPaymentData {
   tenantId: string;
@@ -8,8 +9,15 @@ export interface CreateLoadPaymentData {
   transporterId: string | null;
   paymentType: LoadPaymentType;
   amount: string;
-  utrReference: string;
-  verificationStatus?: 'verified' | null;
+  utrReference: string | null;
+  transactionId?: string | null;
+  proofFileKey?: string | null;
+  paymentMode?: PaymentMode | null;
+  account?: string | null;
+  heads?: PaymentHeads | null;
+  deductionAmount?: string | null;
+  /** `pending`: a Loadsmart shipper's reported payment, until Receivables matches it. */
+  verificationStatus?: 'pending' | 'verified' | null;
   verifiedBy?: string | null;
   verifiedAt?: Date | null;
   paymentDate: string;
@@ -43,6 +51,20 @@ export class LoadPaymentRepository {
 
   findById(tenantId: string, loadId: string, id: string): Promise<LoadPaymentEntity | null> {
     return this.payments.findOneBy({ tenantId, loadId, id });
+  }
+
+  /** Loadsmart's Receivables matched the shipper's reported payment against the bank. */
+  async markVerified(
+    tenantId: string,
+    id: string,
+    verifiedBy: string,
+    verifiedAt: Date,
+  ): Promise<boolean> {
+    const result = await this.payments.update(
+      { tenantId, id, verificationStatus: 'pending' },
+      { verificationStatus: 'verified', verifiedBy, verifiedAt },
+    );
+    return !!result.affected;
   }
 
   listByLoad(tenantId: string, loadId: string): Promise<LoadPaymentEntity[]> {

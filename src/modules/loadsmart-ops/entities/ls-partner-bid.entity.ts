@@ -23,7 +23,7 @@ export class LsPartnerBidEntity {
   @Column({ name: 'sourcing_id', type: 'uuid' })
   sourcingId!: string;
 
-  @ManyToOne(() => LsSourcingEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => LsSourcingEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'sourcing_id' })
   sourcing!: LsSourcingEntity;
 

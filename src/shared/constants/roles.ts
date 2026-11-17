@@ -23,7 +23,9 @@ export const CS_TEAM = 'ls_cs';
 export const RECEIVABLES_TEAM = 'ls_receivables';
 export const PAYABLES_TEAM = 'ls_payables';
 
-// The ops teams — each holds its own loadsmart.* permission (see db/role-catalog.ts).
+// The ops teams — each holds its own loadsmart.* permission (see db/role-catalog.ts). The Approval team is the KYC
+// desks (they hold loadsmart.approval), so it has no role of its own; ls_approval,
+// ls_verification and ls_pod were retired (migration RetireLoadsmartTeamRoles).
 export const LOADSMART_TEAM_ROLES = [
   APPROVAL_TEAM,
   PLACEMENT_TEAM,

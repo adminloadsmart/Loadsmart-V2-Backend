@@ -1,8 +1,19 @@
-import { DataSource, In, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { UserEntity } from '../auth/entities/user.entity';
+import { LoadMemoEntity } from '../loads/memo/load-memo.entity';
+import { TruckTypeEntity } from '../masters/truck-type/entities/truck-type.entity';
+import { OrganizationDocumentEntity } from '../organization/entities/organization-document.entity';
+import { LsPartnerLaneEntity } from './entities/ls-partner-lane.entity';
+import { LsPartnerTruckTypeEntity } from './entities/ls-partner-truck-type.entity';
+import { LsPlacementRosterEntity } from './entities/ls-placement-roster.entity';
+import { LsCreditNoteEntity } from './entities/ls-credit-note.entity';
+import { LsReceiptEntity } from './entities/ls-receipt.entity';
+import { LsUnclaimedPaymentEntity } from './entities/ls-unclaimed-payment.entity';
+import { LsOriginalPodEntity } from './entities/ls-original-pod.entity';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
 import { LoadStatus } from '../loads/utils/loads.types';
-import { LoadChargeEntity } from './entities/load-charge.entity';
+import { LoadChargeEntity } from '../loads/money/load-charge.entity';
 import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadRatingEntity } from './entities/load-rating.entity';
 import { LsCommercialTermsEntity } from './entities/ls-commercial-terms.entity';
@@ -25,9 +36,16 @@ export class LoadsmartRepository {
   readonly claims: Repository<LoadClaimEntity>;
   readonly ratings: Repository<LoadRatingEntity>;
   readonly invoices: Repository<LsInvoiceEntity>;
+  readonly lanes: Repository<LsPartnerLaneEntity>;
+  readonly partnerTruckTypes: Repository<LsPartnerTruckTypeEntity>;
+  readonly roster: Repository<LsPlacementRosterEntity>;
+  readonly creditNotes: Repository<LsCreditNoteEntity>;
+  readonly receipts: Repository<LsReceiptEntity>;
+  readonly unclaimed: Repository<LsUnclaimedPaymentEntity>;
+  readonly originalPods: Repository<LsOriginalPodEntity>;
   private readonly postings: Repository<LoadPostingEntity>;
 
-  constructor(dataSource: DataSource) {
+  constructor(private readonly dataSource: DataSource) {
     this.partners = dataSource.getRepository(LsPartnerEntity);
     this.terms = dataSource.getRepository(LsCommercialTermsEntity);
     this.sourcings = dataSource.getRepository(LsSourcingEntity);
@@ -38,6 +56,128 @@ export class LoadsmartRepository {
     this.ratings = dataSource.getRepository(LoadRatingEntity);
     this.invoices = dataSource.getRepository(LsInvoiceEntity);
     this.postings = dataSource.getRepository(LoadPostingEntity);
+    this.lanes = dataSource.getRepository(LsPartnerLaneEntity);
+    this.partnerTruckTypes = dataSource.getRepository(LsPartnerTruckTypeEntity);
+    this.roster = dataSource.getRepository(LsPlacementRosterEntity);
+    this.creditNotes = dataSource.getRepository(LsCreditNoteEntity);
+    this.receipts = dataSource.getRepository(LsReceiptEntity);
+    this.unclaimed = dataSource.getRepository(LsUnclaimedPaymentEntity);
+    this.originalPods = dataSource.getRepository(LsOriginalPodEntity);
+  }
+
+  transaction<T>(work: (manager: EntityManager) => Promise<T>): Promise<T> {
+    return this.dataSource.transaction(work);
+  }
+
+  // --- Placement ---------------------------------------------------------------------------
+
+  /** Active brokers with the lanes and truck types they claim. */
+  listBrokersWithClaims(): Promise<LsPartnerEntity[]> {
+    return this.partners.find({
+      where: { partnerType: 'broker', status: 'active' },
+      relations: { lanes: true, truckTypes: true },
+      order: { name: 'ASC' },
+    });
+  }
+
+  /** Loads each partner won on this lane (by the posting's pickup and drop city). */
+  async loadsOnLane(fromCity: string, toCity: string): Promise<Map<string, number>> {
+    const rows = await this.sourcings
+      .createQueryBuilder('s')
+      .innerJoin('s.load', 'l')
+      .innerJoin('l.posting', 'p')
+      .select('s.partnerId', 'partnerId')
+      .addSelect('COUNT(*)::int', 'count')
+      .where("s.status = 'won'")
+      .andWhere('s.partnerId IS NOT NULL')
+      .andWhere("lower(p.pickupAddress ->> 'city') = lower(:fromCity)", { fromCity })
+      .andWhere("lower(p.dropAddress ->> 'city') = lower(:toCity)", { toCity })
+      .groupBy('s.partnerId')
+      .getRawMany<{ partnerId: string; count: number }>();
+    return new Map(rows.map((row) => [row.partnerId, row.count]));
+  }
+
+  async partnerRatings(): Promise<Map<string, number>> {
+    const rows = await this.ratings
+      .createQueryBuilder('r')
+      .select('r.partnerId', 'partnerId')
+      .addSelect('ROUND(AVG(r.score)::numeric, 1)::float', 'rating')
+      .where("r.subject = 'partner'")
+      .andWhere('r.partnerId IS NOT NULL')
+      .groupBy('r.partnerId')
+      .getRawMany<{ partnerId: string; rating: number }>();
+    return new Map(rows.map((row) => [row.partnerId, row.rating]));
+  }
+
+  /** The load's truck type — body type and capacity — from the shipper's truck type master. */
+  async loadTruckType(
+    tenantId: string,
+    truckTypeId: string,
+  ): Promise<{ bodyType: string | null; capacityTons: string | null } | null> {
+    const truckType = await this.dataSource.getRepository(TruckTypeEntity).findOne({
+      where: { id: truckTypeId, tenantId },
+      select: { id: true, bodyType: true, capacityTons: true },
+    });
+    return truckType
+      ? { bodyType: truckType.bodyType, capacityTons: truckType.capacityTons }
+      : null;
+  }
+
+  /** Who got the most recent new load since `since` (the round robin's last turn today). */
+  async lastPlacementAssignee(since: Date): Promise<string | null> {
+    const row = await this.sourcings
+      .createQueryBuilder('s')
+      .select('s.placement_owner_id', 'ownerId')
+      .where('s.placement_assigned_at >= :since', { since })
+      .andWhere('s.placement_owner_id IS NOT NULL')
+      .orderBy('s.placement_assigned_at', 'DESC')
+      .limit(1)
+      .getRawOne<{ ownerId: string }>();
+    return row?.ownerId ?? null;
+  }
+
+  /** Staff users with their role name — to check a Placement roster member. */
+  async findStaffRoles(userIds: string[]): Promise<Map<string, string>> {
+    if (!userIds.length) return new Map();
+    const users = await this.dataSource.getRepository(UserEntity).find({
+      where: { id: In(userIds) },
+      relations: { role: true },
+      select: { id: true, role: { id: true, name: true } },
+    });
+    return new Map(users.filter((user) => user.role).map((user) => [user.id, user.role.name]));
+  }
+
+  /** Does this staff user's role carry the permission key? */
+  async userHasPermission(userId: string, key: string): Promise<boolean> {
+    return this.dataSource
+      .getRepository(UserEntity)
+      .createQueryBuilder('u')
+      .innerJoin('u.role', 'r')
+      .innerJoin('r.permissions', 'p')
+      .where('u.id = :userId', { userId })
+      .andWhere('p.key = :key', { key })
+      .getExists();
+  }
+
+  /** Loadsmart loads still with Placement: not yet past Bids received, not lost or cancelled. */
+  listPlacementLoads(): Promise<LsSourcingEntity[]> {
+    return this.sourcings.find({
+      where: {
+        status: In(['pending_approval', 'posted', 'bid_sent', 'won']),
+        load: { status: In(['created', 'bids_received']) },
+      },
+      relations: { load: { posting: true }, partner: true },
+    });
+  }
+
+  /** Loads among `loadIds` with a memo still open (sent and not expired). */
+  async loadsWithOpenMemo(loadIds: string[], now: Date): Promise<Set<string>> {
+    if (!loadIds.length) return new Set();
+    const memos = await this.dataSource.getRepository(LoadMemoEntity).find({
+      where: { loadId: In(loadIds), status: 'sent', expiresAt: MoreThan(now) },
+      select: { id: true, loadId: true },
+    });
+    return new Set(memos.map((memo) => memo.loadId));
   }
 
   findPosting(tenantId: string, postingId: string): Promise<LoadPostingEntity | null> {
@@ -105,6 +245,29 @@ export class LoadsmartRepository {
 
   findInvoice(tenantId: string, loadId: string): Promise<LsInvoiceEntity | null> {
     return this.invoices.findOneBy({ tenantId, loadId });
+  }
+
+  /** The shipper's GSTIN state (first two digits of its active GST certificate) — the invoice's
+   *  place of supply. */
+  async shipperGstStateCode(tenantId: string): Promise<string | null> {
+    const doc = await this.dataSource.getRepository(OrganizationDocumentEntity).findOne({
+      where: {
+        organizationId: tenantId,
+        documentType: 'gst_certificate',
+        deletedAt: IsNull(),
+        documentNumber: Not(IsNull()),
+      },
+      select: { id: true, documentNumber: true },
+      order: { createdAt: 'DESC' },
+    });
+    const gstin = doc?.documentNumber?.trim();
+    return gstin && /^\d{2}/.test(gstin) ? gstin.slice(0, 2) : null;
+  }
+
+  creditNotesTotal(loadId: string): Promise<number> {
+    return this.creditNotes
+      .findBy({ loadId })
+      .then((notes) => notes.reduce((sum, note) => sum + Number(note.amount), 0));
   }
 
   listLoadsAt(statuses: LoadStatus[]): Promise<LsSourcingEntity[]> {
