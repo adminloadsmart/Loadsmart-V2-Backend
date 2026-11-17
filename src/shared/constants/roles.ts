@@ -4,39 +4,83 @@
 // assertCanManage, and auth.service.ts's verifyOtp bootstrap assignment.
 export const PLATFORM_ADMIN_ROLE = 'platform_admin';
 export const ORG_ADMIN_ROLE = 'org_admin';
-// Named individually (also members of STAFF_ASSIGNABLE_ROLES below) so admin.service.ts's
-// online-verifier/physical-agent assignment can validate an assignment target actually holds the
-// matching role, without comparing against a raw string literal.
-export const ONLINE_KYC_DESK_ROLE = 'online_kyc_desk';
-export const OFFLINE_KYC_DESK_ROLE = 'offline_kyc_desk';
-// Named individually so admin.service.ts's referral-code owner assignment can validate the owner
-// actually holds this role, without comparing against a raw string literal — same reason
-// ONLINE_KYC_DESK_ROLE/OFFLINE_KYC_DESK_ROLE exist.
+// Named individually so admin.service.ts's referral-code owner assignment, ls-sourcing's bid rule
+// and auth.service.ts's hire-time referral code can check this role without a raw string literal.
 export const SALES_ROLE = 'sales';
-export const LOAD_CONSOLE = 'load_console';
 
-// The Loadsmart ops teams — one platform role per team (loadsmart-ops/). Each holds its own
-// loadsmart.* permission; load_console holds every one of them. The Approval team is the KYC
+// The Loadsmart staff teams (16 Nov Figma notes §4/§11) — one platform role per team, strictly one
+// team per person (a user has exactly one role_id). The team decides all access; the per-team job
+// title lives in users.team_role (TEAM_ROLES below) and has no effect on access.
+//  - ADMIN_TEAM ("Admin" — the notes' "Super Admin") can do everything every ops team can, plus
+//    masters and margin, but is NOT platform_admin: it never holds ADMIN_ORGANIZATIONS_MANAGE, so
+//    it can't manage staff, roles, referral codes or org status (see db/role-catalog.ts).
+//  - platform_admin is the single owner account, seed-only, never a team.
+export const ADMIN_TEAM = 'ls_admin';
+export const APPROVAL_TEAM = 'ls_approval';
+export const PLACEMENT_TEAM = 'ls_placement';
+export const TRACKING_TEAM = 'ls_tracking';
+export const CS_TEAM = 'ls_cs';
+export const RECEIVABLES_TEAM = 'ls_receivables';
+export const PAYABLES_TEAM = 'ls_payables';
+
+// The ops teams — each holds its own loadsmart.* permission (see db/role-catalog.ts). The Approval team is the KYC
 // desks (they hold loadsmart.approval), so it has no role of its own; ls_approval,
 // ls_verification and ls_pod were retired (migration RetireLoadsmartTeamRoles).
 export const LOADSMART_TEAM_ROLES = [
-  'ls_placement',
-  'ls_tracking',
-  'ls_cs',
-  'ls_receivables',
-  'ls_payables',
+  APPROVAL_TEAM,
+  PLACEMENT_TEAM,
+  TRACKING_TEAM,
+  CS_TEAM,
+  RECEIVABLES_TEAM,
+  PAYABLES_TEAM,
 ] as const;
 
-// Roles a platform admin may hand a newly-created staff account (POST /admin/staff) — deliberately
-// excludes platform_admin (no minting new platform admins through a bulk staff form) and org_admin
-// (provisioned exclusively through self-signup).
-export const STAFF_ASSIGNABLE_ROLES = [
-  SALES_ROLE,
-  ONLINE_KYC_DESK_ROLE,
-  OFFLINE_KYC_DESK_ROLE,
-  LOAD_CONSOLE,
-  ...LOADSMART_TEAM_ROLES,
-];
+// Every team a platform admin may put a team member in (POST /admin/staff) — deliberately excludes
+// platform_admin (seed-only owner) and org_admin (self-signup only).
+export const STAFF_TEAMS = [ADMIN_TEAM, ...LOADSMART_TEAM_ROLES, SALES_ROLE] as const;
+export type StaffTeam = (typeof STAFF_TEAMS)[number];
+export const STAFF_ASSIGNABLE_ROLES: readonly string[] = STAFF_TEAMS;
+
+// Teams whose members may be assigned an organization's KYC review (online verifier / physical
+// agent) — Approval verifies onboarding documents (notes §5); Admin can do anything Approval can.
+export const KYC_REVIEWER_TEAMS: readonly string[] = [APPROVAL_TEAM, ADMIN_TEAM];
+
+// The member's Role (users.team_role) — the design's Add team member form: Team member, Salesperson,
+// ASM or Super Admin (named Admin here). The Role picks the team: a Team member chooses one ops
+// team; Salesperson/ASM are the sales team; Admin is the Admin team. No access effect beyond the
+// team — the team decides access. ASM is sales-only, so it can't sit on an ops team (design note:
+// "Rohit Varma is on Tracking with the role ASM").
+export const TEAM_MEMBER_TEAM_ROLE = 'team_member';
+export const SALESPERSON_TEAM_ROLE = 'salesperson';
+export const ASM_TEAM_ROLE = 'asm';
+export const ADMIN_TEAM_ROLE = 'admin';
+export const TEAM_ROLES: Record<StaffTeam, readonly string[]> = {
+  [ADMIN_TEAM]: [ADMIN_TEAM_ROLE],
+  [APPROVAL_TEAM]: [TEAM_MEMBER_TEAM_ROLE],
+  [PLACEMENT_TEAM]: [TEAM_MEMBER_TEAM_ROLE],
+  [TRACKING_TEAM]: [TEAM_MEMBER_TEAM_ROLE],
+  [CS_TEAM]: [TEAM_MEMBER_TEAM_ROLE],
+  [RECEIVABLES_TEAM]: [TEAM_MEMBER_TEAM_ROLE],
+  [PAYABLES_TEAM]: [TEAM_MEMBER_TEAM_ROLE],
+  [SALES_ROLE]: [SALESPERSON_TEAM_ROLE, ASM_TEAM_ROLE],
+};
+export const ALL_TEAM_ROLES = [...new Set(Object.values(TEAM_ROLES).flat())];
+
+// Sales-type members only: which side they sell to (notes §4 "tracker-sales vs shipper-sales").
+export const SALES_TYPES = ['shipper_sales', 'tracker_sales'] as const;
+export type SalesType = (typeof SALES_TYPES)[number];
+
+// Permission-key prefixes that make up a team's identity — never granted directly to a staff member
+// on top of their team (strictly one team per person, notes §4); see role.service.ts's
+// grantPermission. Kept here, not in permissions.ts, whose every export must be a seeded key.
+export const TEAM_PERMISSION_PREFIXES = ['loadsmart.', 'kyc.'] as const;
+export function isTeamPermissionKey(key: string): boolean {
+  return TEAM_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+export function isStaffTeam(role: string): role is StaffTeam {
+  return (STAFF_TEAMS as readonly string[]).includes(role);
+}
 
 // Every role with scope: 'platform' in auth.roles — i.e. never tied to a tenant (tenantId is
 // always null for these). Used by tenant-scope.middleware.ts to exempt them from requiring a
@@ -45,7 +89,7 @@ export const STAFF_ASSIGNABLE_ROLES = [
 export const PLATFORM_SCOPE_ROLES = [PLATFORM_ADMIN_ROLE, ...STAFF_ASSIGNABLE_ROLES];
 
 // Named individually so listOrganizationUsers/inviteOrganizationUser can validate an assignment
-// target without comparing against a raw string literal — same reason ONLINE_KYC_DESK_ROLE etc.
+// target without comparing against a raw string literal — same reason SALES_ROLE and the team
 // are named above. Display labels (Settings → Users & Roles): "Sales / CS", "Dispatch",
 // "Documents / Ops", "Finance / Accounts" — the frontend's concern, not encoded here.
 export const SALES_CS_ROLE = 'sales_cs';

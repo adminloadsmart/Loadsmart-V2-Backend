@@ -13,7 +13,7 @@ describe('createForSalesperson', () => {
   it('builds FIRSTNAME-<territory initial><2 digits> for the new owner', async () => {
     const { service, repo } = build();
     const code = await service.createForSalesperson(
-      { id: 'u1', fullName: "Ravi D'Souza", coverage: 'Maharashtra, Mumbai' },
+      { id: 'u1', fullName: "Ravi D'Souza", region: 'Maharashtra, Mumbai' },
       'admin-1',
     );
     expect(code.code).toMatch(/^RAVI-M\d{2}$/);
@@ -24,10 +24,7 @@ describe('createForSalesperson', () => {
 
   it('falls back to REF / X when the name or territory has no letters', async () => {
     const { service } = build();
-    const code = await service.createForSalesperson(
-      { id: 'u1', fullName: '', coverage: null },
-      null,
-    );
+    const code = await service.createForSalesperson({ id: 'u1', fullName: '', region: null }, null);
     expect(code.code).toMatch(/^REF-X\d{2}$/);
   });
 
@@ -35,7 +32,7 @@ describe('createForSalesperson', () => {
     const taken = Array.from({ length: 90 }, (_, i) => `RAVI-M${10 + i}`);
     const { service } = build(taken);
     await expect(
-      service.createForSalesperson({ id: 'u1', fullName: 'Ravi', coverage: 'Mumbai' }, null),
+      service.createForSalesperson({ id: 'u1', fullName: 'Ravi', region: 'Mumbai' }, null),
     ).rejects.toThrow(/free referral code/);
   });
 });

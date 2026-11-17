@@ -22,19 +22,20 @@ describe('staffMayRead (a tenant-less staff caller reading another tenant’s fi
     }
   });
 
-  it('lets KYC desks read onboarding documents only', () => {
-    for (const role of ['online_kyc_desk', 'offline_kyc_desk']) {
+  it('lets the KYC reviewer teams (Approval, Admin) read onboarding documents', () => {
+    for (const role of ['ls_approval', 'ls_admin']) {
       expect(staffMayRead(staff(role), file('kyc'))).not.toBeNull();
       expect(staffMayRead(staff(role), file('organizations/shopboard-premises'))).not.toBeNull();
-      expect(staffMayRead(staff(role), file('loads/invoice'))).toBeNull();
       expect(staffMayRead(staff(role), file('masters/driver'))).toBeNull();
     }
   });
 
-  it('lets the ops console read load and trip files only', () => {
-    for (const role of ['load_console', 'ls_tracking', 'ls_payables']) {
+  it('lets every ops team read load and trip files, but only reviewers read KYC', () => {
+    for (const role of ['ls_admin', 'ls_approval', 'ls_placement', 'ls_tracking', 'ls_payables']) {
       expect(staffMayRead(staff(role), file('trips/pod'))).not.toBeNull();
       expect(staffMayRead(staff(role), file('loads/payment-proof'))).not.toBeNull();
+    }
+    for (const role of ['ls_placement', 'ls_tracking', 'ls_cs', 'ls_receivables', 'ls_payables']) {
       expect(staffMayRead(staff(role), file('kyc'))).toBeNull();
     }
   });

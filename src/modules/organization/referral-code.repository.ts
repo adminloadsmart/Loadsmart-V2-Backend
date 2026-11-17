@@ -59,7 +59,7 @@ export class ReferralCodeRepository {
     const qb = this.repo
       .createQueryBuilder('referralCode')
       .leftJoin('referralCode.owner', 'owner')
-      .addSelect(['owner.id', 'owner.fullName', 'owner.coverage', 'owner.deletedAt'])
+      .addSelect(['owner.id', 'owner.fullName', 'owner.region', 'owner.deletedAt'])
       .orderBy('referralCode.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);

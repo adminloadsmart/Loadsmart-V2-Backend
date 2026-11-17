@@ -7,6 +7,7 @@ import { Msg91Client } from './adapters/msg91.client';
 import { OtpService } from './shared/services/otp.service';
 
 import { createAuthModule } from './modules/auth';
+import { StaffInviteSender } from './modules/auth/staff-invite.sender';
 import { AuthRepository } from './modules/auth/auth.repository';
 import {
   createOrganizationModule,
@@ -198,6 +199,7 @@ export function buildContainer(dataSource: DataSource): Container {
     storageService: storage.service,
     otpService,
     notificationTriggers: notifications.triggers,
+    staffInviteSender: new StaffInviteSender(msg91Client),
   });
   const authMiddleware = createAuth(auth.authRepository);
 

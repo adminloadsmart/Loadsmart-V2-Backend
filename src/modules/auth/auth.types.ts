@@ -1,3 +1,4 @@
+import type { SalesType } from '../../shared/constants/roles';
 /* Service-layer inputs — shapes accepted by AuthService's methods. */
 
 export interface SignupInput {
@@ -56,26 +57,43 @@ export interface SaveUserDetailsInput {
   department?: 'Sales' | 'Logistics' | 'Dispatch' | 'Accounts' | 'Administration' | 'Management';
 }
 
-export interface CreateStaffInput {
-  fullName: string;
-  phoneNumber: string;
-  email?: string;
-  roleId: string;
-  coverage: string;
-  // Extra permissions granted on top of whatever roleId already grants — see
-  // auth.service.ts's createStaffUser.
-  permissionIds?: string[];
+// Sales-type team members only (team = sales) — notes §4: "tracker-sales vs shipper-sales, region,
+// state, and ASM". asmUserId is the Area Sales Manager a salesperson reports into; required for
+// a salesperson, not allowed for an ASM.
+export interface StaffSalesInput {
+  salesType: SalesType;
+  state: string;
+  asmUserId?: string | null;
 }
 
+// A team member (POST /admin/staff) — the "Team members" form (notes §4). roleId is the team (an
+// auth.roles row from STAFF_TEAMS) and decides all access; teamRole is the job title within that
+// team (TEAM_ROLES) and decides none. No password and no per-user permissions: login is OTP-only,
+// and access comes from the team alone (strictly one team per person).
+export interface CreateStaffInput {
+  fullName: string;
+  employeeId: string;
+  phoneNumber: string;
+  email: string;
+  roleId: string;
+  teamRole: string;
+  reportsToUserId?: string | null;
+  region: string;
+  sales?: StaffSalesInput;
+}
+
+// PATCH /admin/staff/:staffId — every field optional; validated against the merged result.
+// reportsToUserId/sales accept null to clear them.
 export interface UpdateStaffInput {
   fullName?: string;
+  employeeId?: string;
   phoneNumber?: string;
   email?: string;
   roleId?: string;
-  coverage?: string;
-  // Extra permissions granted on top of whatever roleId already grants — see
-  // auth.service.ts's createStaffUser.
-  permissionIds?: string[];
+  teamRole?: string;
+  reportsToUserId?: string | null;
+  region?: string;
+  sales?: StaffSalesInput | null;
 }
 
 // Org admin inviting a teammate into their own org — the organization-scope counterpart to

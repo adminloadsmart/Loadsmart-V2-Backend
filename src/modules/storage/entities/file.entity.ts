@@ -15,7 +15,7 @@ import { UploadPurpose, UPLOAD_PURPOSES } from '../storage.constants';
 @Index('files_key_idx', ['key'], { unique: true })
 export class FileEntity {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  // Nullable: a platform-scope caller (sales/online_kyc_desk/offline_kyc_desk/load_console — see
+  // Nullable: a platform-scope caller (a team member or platform_admin — see
   // PLATFORM_SCOPE_ROLES) has no tenant of its own. Such a file is never re-attributed to a
   // tenant later; see storage.repository.ts's findByNullTenant/markConfirmedByNullTenant for the
   // matching tenant-less lookup/update paths, scoped only to rows with tenant_id IS NULL.

@@ -64,7 +64,9 @@ export class AddDriverInviteTimeline1792500000000 implements MigrationInterface 
         UNION ALL
         SELECT "id", 4, jsonb_build_object('step', 'cancelled', 'at', ${ISO('"updated_at"')},
                                            'by', "updated_by")
-        FROM sent WHERE "status" = 'cancelled'
+        -- Compared as text: 'cancelled' is added to the enum by 1791000000000, and Postgres rejects
+        -- an enum value added earlier in the same (uncommitted) migration transaction (55P04).
+        FROM sent WHERE "status"::text = 'cancelled'
       )
       UPDATE "masters"."driver_tenant_relations" r
       SET "invite_timeline" = t."timeline"

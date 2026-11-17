@@ -11,6 +11,7 @@ import {
   LS_PLACEMENT,
   LS_RECEIVABLES,
   LS_TRACKING,
+  LS_MASTERS_MANAGE,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { TAGS, authenticated, json, permissionGated } from '../../shared/openapi/core';
@@ -47,24 +48,25 @@ const ROWS: Row[] = [
     method: 'get',
     path: `${OPS}/partners`,
     op: 'loadsmart.listPartners',
-    permissions: ANY_TEAM,
-    description: "Loadsmart's partners — fleet owners and brokers.",
+    permissions: [LS_PLACEMENT, LS_MASTERS_MANAGE],
+    description:
+      "Loadsmart's partners — fleet owners and brokers. Placement (to add a broker matching missed) and the Admin team.",
   },
   {
     method: 'post',
     path: `${OPS}/partners`,
     op: 'loadsmart.createPartner',
-    permissions: [LS_PLACEMENT],
+    permissions: [LS_MASTERS_MANAGE],
     schema: v.createPartner,
-    description: 'Add a partner (TDS % defaults to 1).',
+    description: 'Add a partner (TDS % defaults to 1). Admin team only — partners are a master.',
   },
   {
     method: 'patch',
     path: `${OPS}/partners/{partnerId}`,
     op: 'loadsmart.updatePartner',
-    permissions: [LS_PLACEMENT],
+    permissions: [LS_MASTERS_MANAGE],
     schema: v.updatePartner,
-    description: 'Update a partner.',
+    description: 'Update a partner. Admin team only — partners are a master.',
   },
   {
     method: 'get',
@@ -82,7 +84,7 @@ const ROWS: Row[] = [
     permissions: [LS_APPROVAL],
     schema: v.saveTerms,
     description:
-      "Set a shipper's margin, trucker advance % and pre-approved charge heads (each with an optional maximum).",
+      "Set a shipper's trucker advance % and, Admin team only (loadsmart.margin.manage), margin %. Without marginPercent the current margin is kept; sending it without that key is a 403.",
   },
   // Part 1
   {
@@ -99,7 +101,7 @@ const ROWS: Row[] = [
     permissions: [LS_APPROVAL],
     schema: v.approve,
     description:
-      'Post the load on the load board. Partners see the target with the margin taken out. Missing fields must be acknowledged.',
+      'Post the load on the load board. Partners see the target with the margin taken out. Missing fields must be acknowledged. Overriding marginPercent is Admin team only (403 otherwise).',
   },
   {
     method: 'post',

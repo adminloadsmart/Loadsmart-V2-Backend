@@ -64,7 +64,7 @@ export const loadsmartValidators = {
     params: z.object({ tenantId: uuid }),
     body: z
       .object({
-        marginPercent: percent,
+        marginPercent: percent.optional(),
         truckerAdvancePercent: percent,
         // "Preapproved loading and unloading charges" — approved as Loadsmart raises them.
         preapprovedCharges: z

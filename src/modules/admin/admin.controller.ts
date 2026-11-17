@@ -177,6 +177,10 @@ export class AdminController {
     respond(res, await this.adminService.getReferralCodesSummary());
   };
 
+  listStaffTeams = async (_req: Request, res: Response) => {
+    respond(res, await this.adminService.listStaffTeams());
+  };
+
   getStaffSummary = async (_req: Request, res: Response) => {
     respond(res, await this.adminService.getStaffSummary());
   };

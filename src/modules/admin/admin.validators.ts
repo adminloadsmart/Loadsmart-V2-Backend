@@ -4,7 +4,7 @@ import {
   ORGANIZATION_STATUSES,
 } from '../organization/entities/organization.entity';
 import { ORGANIZATION_DOCUMENT_TYPES } from '../organization/entities/organization-document.entity';
-import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { ALL_TEAM_ROLES, SALES_TYPES, STAFF_TEAMS } from '../../shared/constants/roles';
 import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { REFERRAL_CODE_SETTABLE_STATUSES } from '../organization/referral-code.service';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
@@ -17,6 +17,14 @@ const staffParams = z.object({ staffId: uuid });
 const organizationDocumentParams = organizationParams.extend({ documentId: uuid });
 const decisionReasonBody = z.object({ reason: z.string().min(1) });
 const referralCodeParams = z.object({ referralCodeId: uuid });
+const trimmed = z.string().trim().min(1);
+const staffSalesBody = z
+  .object({
+    salesType: z.enum(SALES_TYPES),
+    state: trimmed,
+    asmUserId: uuid.nullable().optional(),
+  })
+  .strict();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be in YYYY-MM-DD format');
 // One status or a comma-separated list — `?status=rejected,suspended`.
 const statusList = z.preprocess(
@@ -121,7 +129,7 @@ export const adminValidators = {
   }),
 
   // Record-keeping/routing assignment — see admin.service.ts's assignReviewer for the role check
-  // (online_kyc_desk / offline_kyc_desk respectively) this can't express at the schema level.
+  // (an Approval/Admin team member) this can't express at the schema level.
   assignOnlineVerifier: z.object({
     params: organizationParams,
     body: z.object({ userId: uuid }),
@@ -144,36 +152,55 @@ export const adminValidators = {
 
   getOrganizationAuditTrail: z.object({ params: organizationParams, query: pagination }),
 
+  // The "Team members" form (notes §4). Team/role/sales consistency (a team role valid for the
+  // team, sales fields only on the sales team, a real ASM, no reports-to cycle) needs the database
+  // and is checked in auth.service.ts's createStaffUser/updateStaff.
   createStaff: z.object({
-    body: z.object({
-      fullName: z.string().min(1),
-      phoneNumber: z.string().min(10),
-      email: z.string().email().optional(),
-      roleId: uuid,
-      coverage: z.string().min(1),
-      permissionIds: z.array(uuid).optional(),
-    }),
+    body: z
+      .object({
+        fullName: trimmed,
+        employeeId: trimmed,
+        phoneNumber: z.string().min(10),
+        email: z.string().email(),
+        roleId: uuid,
+        teamRole: z.enum(ALL_TEAM_ROLES as [string, ...string[]]),
+        reportsToUserId: uuid.nullable().optional(),
+        region: trimmed,
+        sales: staffSalesBody.optional(),
+      })
+      .strict(),
   }),
 
   updateStaff: z.object({
     params: staffParams,
-    body: z.object({
-      fullName: z.string().min(1).optional(),
-      phoneNumber: z.string().min(10).optional(),
-      email: z.string().email().optional(),
-      roleId: uuid.optional(),
-      coverage: z.string().min(1).optional(),
-      permissionIds: z.array(uuid).optional(),
-    }),
+    body: z
+      .object({
+        fullName: trimmed.optional(),
+        employeeId: trimmed.optional(),
+        phoneNumber: z.string().min(10).optional(),
+        email: z.string().email().optional(),
+        roleId: uuid.optional(),
+        teamRole: z.enum(ALL_TEAM_ROLES as [string, ...string[]]).optional(),
+        reportsToUserId: uuid.nullable().optional(),
+        region: trimmed.optional(),
+        sales: staffSalesBody.nullable().optional(),
+      })
+      .strict(),
   }),
 
   getStaff: z.object({ params: staffParams }),
   deleteStaff: z.object({ params: staffParams }),
 
-  // role narrows to eligible staff for the KYC assignment dropdowns (see auth.repository.ts's
-  // listStaffUsers) — same enum the staff-creation roleId is ultimately validated against.
+  // team narrows to one team — e.g. the KYC assignment dropdowns ask for ls_approval. `role` is the
+  // pre-teams name for the same filter, kept for one release.
   listStaff: z.object({
-    query: pagination.extend({ role: z.enum(STAFF_ASSIGNABLE_ROLES).optional() }),
+    query: pagination.extend({
+      team: z.enum(STAFF_TEAMS).optional(),
+      role: z.enum(STAFF_TEAMS).optional(),
+      teamRole: z.enum(ALL_TEAM_ROLES as [string, ...string[]]).optional(),
+      region: z.string().min(1).optional(),
+      status: z.enum(['invited', 'active']).optional(),
+    }),
   }),
 
   // ownerUserId's role match (must be 'sales') can't be expressed at the schema level — see
