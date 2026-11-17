@@ -15,11 +15,13 @@ export class MaintenanceTyreAction1789800000000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "maintenance"."maintenance_jobs" ADD "tyre_action" "maintenance"."maintenance_jobs_tyre_action_enum"`,
     );
+    // job_type is compared as text: 'tyre' is added to the enum by 1789700000000, and when both
+    // migrations run in one transaction Postgres rejects the uncommitted enum value (55P04).
     await queryRunner.query(
       `UPDATE "maintenance"."maintenance_jobs"
          SET "tyre_action" = CASE WHEN "description" LIKE 'Cold retread%' THEN 'cold_retread'::"maintenance"."maintenance_jobs_tyre_action_enum"
                                   ELSE 'new_fitment'::"maintenance"."maintenance_jobs_tyre_action_enum" END
-       WHERE "job_type" = 'tyre'`,
+       WHERE "job_type"::text = 'tyre'`,
     );
   }
 
