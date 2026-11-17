@@ -293,6 +293,12 @@ export class LoadsmartOpsController {
     );
   rerunChecks = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.sourcing.rerunChecks(req.user!.id, req.params.loadId));
+  verifyTruckManually = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.sourcing.verifyTruckManually(req.user!.id, req.params.loadId, req.body),
+    );
   confirmMemo = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,

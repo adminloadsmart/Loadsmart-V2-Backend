@@ -6,4 +6,5 @@ export { ConflictError } from './ConflictError';
 export { NotFoundError } from './NotFoundError';
 export { InternalError } from './InternalError';
 export { RateLimitError } from './RateLimitError';
+export { ServiceUnavailableError } from './ServiceUnavailableError';
 export { rethrow } from './rethrow';

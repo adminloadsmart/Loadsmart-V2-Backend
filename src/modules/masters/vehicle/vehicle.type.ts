@@ -128,7 +128,9 @@ export const VEHICLE_OPERATIONAL_STATUSES = [
 export type VehicleOperationalStatus = (typeof VEHICLE_OPERATIONAL_STATUSES)[number];
 
 /** Vehicles are checked against the VAHAN registry. */
-export const VEHICLE_VERIFICATION_TYPES = ['vahan'] as const;
+// 'manual' — an org admin checked the RC by hand while VAHAN couldn't be reached
+// (VehicleService.verifyManually). Never accepted from POST /vehicles/:vehicleId/verifications.
+export const VEHICLE_VERIFICATION_TYPES = ['vahan', 'manual'] as const;
 export type VehicleVerificationType = (typeof VEHICLE_VERIFICATION_TYPES)[number];
 
 export const VEHICLE_VERIFICATION_STATUSES = [

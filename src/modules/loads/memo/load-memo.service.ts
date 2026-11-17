@@ -16,7 +16,7 @@ import {
   NameDriverInput,
   NameDriverResult,
 } from '../utils/load-memo.interface';
-import { LoadChecksView } from '../utils/load-verification.interface';
+import { LoadChecksView, ManualTruckCheckInput } from '../utils/load-verification.interface';
 import { LoadStageService } from '../core/load-stage.service';
 import { isLoadsmartLoad } from '../utils/load-stages';
 import { StorageService } from '../../storage/storage.service';
@@ -304,7 +304,11 @@ export class LoadMemoService {
         throw new ConflictError("On a Loadsmart load, Loadsmart's placement team runs the checks");
       }
       if (!load.vehicleNumber) throw new ConflictError('The load has no truck number yet');
-      await this.verification.verifyTruck(tenantId, load.id, load.vehicleNumber);
+      // A manual pass (VAHAN was down) stands for this truck; re-running it would only bring the
+      // outage back. A new truck number gets a fresh VAHAN check.
+      if (!(await this.verification.hasManualPass(tenantId, load))) {
+        await this.verification.verifyTruck(tenantId, load.id, load.vehicleNumber);
+      }
       if (load.driverLicenceNumber && load.driverDateOfBirth) {
         await this.verification.verifyDriver(tenantId, load, {
           licenceNumber: load.driverLicenceNumber,
@@ -316,13 +320,66 @@ export class LoadMemoService {
         clear: checks.clear,
         blockers: checks.blockers,
       });
-
-      const latest = await this.memoRepository.findLatest(tenantId, loadId);
-      const open = latest && effectiveMemoStatus(latest, this.now()) === 'sent';
-      if (!checks.clear || open || LoadMemoService.memoHold(load)) return { memo: null, checks };
-      return { memo: await this.send(load, actorId), checks };
+      return await this.sendIfClear(load, actorId, checks);
     } catch (error) {
       rethrow(error, 'Failed to run the checks again');
+    }
+  }
+
+  /** When every check passes and no memo is open, the memo goes out. */
+  private async sendIfClear(
+    load: LoadEntity,
+    actorId: string,
+    checks: LoadChecksView,
+  ): Promise<NameDriverResult> {
+    const latest = await this.memoRepository.findLatest(load.tenantId, load.id);
+    const open = latest && effectiveMemoStatus(latest, this.now()) === 'sent';
+    if (!checks.clear || open || LoadMemoService.memoHold(load)) return { memo: null, checks };
+    return { memo: await this.send(load, actorId), checks };
+  }
+
+  /** VAHAN couldn't be reached for the truck, so an admin verifies it by hand (the RC checkbox,
+   *  optional paper expiry dates). Then, as after a rerun, the memo goes out if everything passes.
+   *  On a Loadsmart load only Loadsmart's Admin team does this. */
+  async verifyTruckManually(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: ManualTruckCheckInput,
+    asLoadsmart = false,
+  ): Promise<NameDriverResult> {
+    try {
+      const load = await this.assertMemoLoad(tenantId, loadId);
+      if (isLoadsmartLoad(load) && !asLoadsmart) {
+        throw new ConflictError("On a Loadsmart load, Loadsmart's team verifies the truck");
+      }
+      const check = await this.verification.recordManualTruckCheck(tenantId, load, actorId, input);
+      const checks = await this.verification.checksForLoad(tenantId, load);
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'TRUCK_VERIFIED_MANUALLY',
+        null,
+        null,
+        { vehicleNumber: load.vehicleNumber, status: check.status, failures: check.failures },
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_TRUCK_VERIFIED_MANUALLY',
+        resourceType: 'load_verification',
+        newData: {
+          id: check.id,
+          loadId,
+          vehicleNumber: load.vehicleNumber,
+          status: check.status,
+          note: input.note ?? null,
+        },
+      });
+      return await this.sendIfClear(load, actorId, checks);
+    } catch (error) {
+      rethrow(error, 'Failed to verify the truck manually');
     }
   }
 

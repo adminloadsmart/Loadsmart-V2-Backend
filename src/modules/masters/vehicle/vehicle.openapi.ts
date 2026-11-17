@@ -2,7 +2,11 @@ import { registerImportSampleOpenApi } from '../../../shared/import/openapi';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { vehicleValidators } from './vehicle.validators';
 import { DOCUMENT_EXPIRING_SOON_DAYS } from './vehicle.constants';
-import { MASTERS_APPROVE, MASTERS_WRITE } from '../../../shared/constants/permissions';
+import {
+  MASTERS_APPROVE,
+  MASTERS_WRITE,
+  TRUCK_VERIFY_MANUAL,
+} from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
@@ -413,7 +417,13 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
           'rawResponse }',
       },
       400: { description: 'Validation failed', ...errorContent },
-      500: { description: 'ULIP not configured or unavailable', ...errorContent },
+      500: { description: 'ULIP not configured', ...errorContent },
+      503: {
+        description:
+          'VAHAN_UNAVAILABLE — ULIP could not be reached. Fall back to manual entry; an org ' +
+          'admin can then verify the truck (POST /vehicles/{vehicleId}/verifications/manual).',
+        ...errorContent,
+      },
     },
   });
 
@@ -434,6 +444,29 @@ export function registerVehicleOpenApi(registry: OpenAPIRegistry): void {
       201: { description: 'Created verification snapshot' },
       400: { description: 'Validation failed', ...errorContent },
       404: { description: 'Vehicle not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/vehicles/{vehicleId}/verifications/manual`,
+    tags: [TAGS.MASTERS],
+    operationId: 'masters.verifyVehicleManually',
+    ...permissionGated(
+      [TRUCK_VERIFY_MANUAL],
+      "VAHAN couldn't confirm the truck (it was down), so an org admin checks the RC by hand and " +
+        'marks it verified. Only while the truck is unverified, pending or in manual review — ' +
+        "not over a VAHAN 'not_found'. Saved as a 'manual' snapshot; the vehicle gets " +
+        'vahanVerificationStatus verified with vahanVerifiedManually true.',
+    ),
+    request: {
+      params: vehicleValidators.verifyVehicleManually.shape.params,
+      body: json(vehicleValidators.verifyVehicleManually.shape.body),
+    },
+    responses: {
+      201: { description: 'Created verification snapshot' },
+      404: { description: 'Vehicle not found', ...errorContent },
+      409: { description: 'Already verified, or VAHAN has no record of it', ...errorContent },
     },
   });
 

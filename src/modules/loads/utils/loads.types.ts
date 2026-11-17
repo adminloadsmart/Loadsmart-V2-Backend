@@ -271,6 +271,7 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'MEMO_ACCEPTED',
   'MEMO_WITHDRAWN',
   'CHECKS_RERUN',
+  'TRUCK_VERIFIED_MANUALLY',
   'INDENT_REJECTED',
   'LOADSMART_STEP',
   'LOADING_CONTACT_CHANGED',
@@ -363,6 +364,11 @@ export type VerificationSubject = (typeof VERIFICATION_SUBJECTS)[number];
 /** `unavailable` — the portal couldn't be reached or isn't configured; never blocks. */
 export const VERIFICATION_STATUSES = ['passed', 'failed', 'unavailable'] as const;
 export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+/** Where a check's verdict came from: the govt portal, or an admin checking the RC by hand while
+ *  the portal couldn't be reached (truck only). */
+export const VERIFICATION_SOURCES = ['portal', 'manual'] as const;
+export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
 
 /** How the load's truck is tracked — the client's chain GPS device → driver's mobile (app) → SIM
  *  → FASTag. Saved on the load (LoadEntity.trackingSource) for the tracking service to read and

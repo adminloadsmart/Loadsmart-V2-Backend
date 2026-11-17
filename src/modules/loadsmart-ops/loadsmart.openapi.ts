@@ -12,6 +12,7 @@ import {
   LS_RECEIVABLES,
   LS_TRACKING,
   LS_MASTERS_MANAGE,
+  LS_TRUCK_VERIFY_MANUAL,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { TAGS, authenticated, json, permissionGated } from '../../shared/openapi/core';
@@ -170,6 +171,15 @@ const ROWS: Row[] = [
     schema: v.rerunChecks,
     description:
       'Run the truck and driver checks again on a Loadsmart load; the memo goes out once both pass.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/verifications/truck/manual`,
+    op: 'loadsmart.verifyTruckManually',
+    permissions: [LS_TRUCK_VERIFY_MANUAL],
+    schema: v.verifyTruckManually,
+    description:
+      "VAHAN couldn't be reached for the truck on a Loadsmart load — the Admin team checks the RC by hand (rcChecked, optional paper expiry dates). The memo goes out once every check passes.",
   },
   {
     method: 'post',

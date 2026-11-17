@@ -129,6 +129,10 @@ export class VehicleEntity {
   vahanVerificationError!: string | null;
   @Column({ name: 'vahan_verified_at', type: 'timestamptz', nullable: true })
   vahanVerifiedAt!: Date | null;
+  /** True when the newest 'verified' came from an org admin checking the RC by hand while VAHAN
+   *  was down, not from the registry. A later VAHAN result resets it. */
+  @Column({ name: 'vahan_verified_manually', type: 'boolean', default: false })
+  vahanVerifiedManually!: boolean;
 
   /** The size the truck is sold as (picker step 3), not the legal load — see grossVehicleWeightKg. */
   @Column({

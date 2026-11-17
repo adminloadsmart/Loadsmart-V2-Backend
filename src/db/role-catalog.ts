@@ -28,6 +28,7 @@ import {
   FILES_READ,
   FILES_DELETE,
   MASTERS_APPROVE,
+  TRUCK_VERIFY_MANUAL,
   MAINTENANCE_MANAGE,
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
@@ -43,6 +44,7 @@ import {
   LS_MASTERS_MANAGE,
   LS_MARGIN_VIEW,
   LS_MARGIN_MANAGE,
+  LS_TRUCK_VERIFY_MANUAL,
   GEOFENCES_MANAGE,
   NOTIFICATION_PREFERENCES_MANAGE,
 } from '../shared/constants/permissions';
@@ -231,6 +233,12 @@ export const PERMISSIONS: {
     scope: 'organization',
     description: 'Approve/reject vehicles and drivers created pending admin approval',
   },
+  {
+    key: TRUCK_VERIFY_MANUAL,
+    module: 'masters',
+    scope: 'organization',
+    description: "Mark a truck verified by hand when VAHAN can't be reached",
+  },
   // Not in any role's default bundle (see ROLES below) — granted per user by an org admin.
   {
     key: COMPLIANCE_MANAGE,
@@ -263,6 +271,10 @@ export const PERMISSIONS: {
     [LS_MASTERS_MANAGE, 'Add and edit partners (brokers) — Admin team only'],
     [LS_MARGIN_VIEW, "See Loadsmart's margin on loads and shipper terms"],
     [LS_MARGIN_MANAGE, "Change a shipper's margin — Admin team only"],
+    [
+      LS_TRUCK_VERIFY_MANUAL,
+      "Mark a Loadsmart load's truck verified by hand when VAHAN can't be reached — Admin team only",
+    ],
   ].map(([key, description]) => ({
     key,
     module: 'loadsmart',
@@ -303,6 +315,7 @@ export const ADMIN_TEAM_ONLY_KEYS = [
   LS_MASTERS_MANAGE,
   LS_MARGIN_VIEW,
   LS_MARGIN_MANAGE,
+  LS_TRUCK_VERIFY_MANUAL,
   KYC_OVERSEE,
 ];
 export const ADMIN_TEAM_BUNDLE = [
@@ -332,6 +345,7 @@ export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }
       ORGANIZATION_PROFILE_MANAGE,
       MASTERS_WRITE,
       MASTERS_APPROVE,
+      TRUCK_VERIFY_MANUAL,
       CUSTOMERS_CREATE,
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,

@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { validate } from '../../../shared/middleware/validate.middleware';
 import { requirePermission } from '../../../shared/middleware/require-permission.middleware';
-import { DISPATCH_PLANNING_MANAGE } from '../../../shared/constants/permissions';
+import {
+  DISPATCH_PLANNING_MANAGE,
+  TRUCK_VERIFY_MANUAL,
+} from '../../../shared/constants/permissions';
 import { LoadSourcingController } from './load-sourcing.controller';
 import { loadSourcingValidators as v } from './load-sourcing.validators';
 
@@ -81,6 +84,13 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     canManageDispatch,
     validate(v.rerunChecks),
     asyncHandler(controller.rerunChecks),
+  );
+  // VAHAN couldn't be reached for the truck — an org admin verifies it by hand.
+  router.post(
+    '/loads/:loadId/verifications/truck/manual',
+    requirePermission(TRUCK_VERIFY_MANUAL),
+    validate(v.verifyTruckManually),
+    asyncHandler(controller.verifyTruckManually),
   );
   router.get('/loads/:loadId/memo', validate(v.getMemo), asyncHandler(controller.getMemo));
   router.get('/loads/:loadId/memos', validate(v.listMemos), asyncHandler(controller.listMemos));

@@ -12,6 +12,26 @@ const mobile = z
   .regex(/^\d{10}$/, 'Must be a 10-digit mobile number');
 
 /** Bids, indent acceptance, driver and load memo — see bids/ and memo/. */
+/** An admin's manual truck check while VAHAN is down: the RC checkbox, and any paper expiry dates
+ *  read off the papers (an expired one still fails the check). */
+export const manualTruckCheckBody = z
+  .object({
+    rcChecked: z.literal(true),
+    papers: z
+      .object({
+        rcValidTo: isoDateSchema,
+        fitnessValidTo: isoDateSchema,
+        insuranceValidTo: isoDateSchema,
+        pucValidTo: isoDateSchema,
+        permitValidTo: isoDateSchema,
+      })
+      .partial()
+      .strict()
+      .optional(),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
 export const loadSourcingValidators = {
   listBids: z.object({ params }),
 
@@ -60,6 +80,7 @@ export const loadSourcingValidators = {
   }),
 
   rerunChecks: z.object({ params }),
+  verifyTruckManually: z.object({ params, body: manualTruckCheckBody }),
 
   // Truck cancelled between Truck assigned and Loaded — a reason code from Settings.
   cancelTruck: z.object({

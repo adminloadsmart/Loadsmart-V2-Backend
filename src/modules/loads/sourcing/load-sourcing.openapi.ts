@@ -1,5 +1,8 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { DISPATCH_PLANNING_MANAGE } from '../../../shared/constants/permissions';
+import {
+  DISPATCH_PLANNING_MANAGE,
+  TRUCK_VERIFY_MANUAL,
+} from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
   TAGS,
@@ -197,7 +200,9 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
         'that could not run (POST /loads/{loadId}/verifications/rerun).',
     ),
     request: { params: v.getChecks.shape.params },
-    responses: { 200: { description: '{ truck, driver, clear }' } },
+    responses: {
+      200: { description: '{ truck, driver, clear, blockers, truckManualAllowed }' },
+    },
   });
 
   registry.registerPath({
@@ -215,6 +220,34 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       200: { description: '{ memo: null, checks } — still blocked' },
       201: { description: '{ memo, checks } — memo sent' },
       409: { description: 'No award yet, own fleet, or memo already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/verifications/truck/manual`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.verifyTruckManually',
+    ...permissionGated(
+      [TRUCK_VERIFY_MANUAL],
+      "VAHAN couldn't be reached for the load's truck (its latest check is `unavailable`, see " +
+        '`truckManualAllowed` on GET /verifications), so an org admin checks the RC by hand. ' +
+        'Any paper expiry dates entered are still checked — an expired one fails it. Saved with ' +
+        "`source: 'manual'` and `verifiedBy`; a later rerun keeps it. If every check then passes, " +
+        'the memo goes out (201). A VAHAN pass or failure cannot be overridden. Not on Loadsmart ' +
+        'loads (the Admin team does it from the console).',
+    ),
+    request: {
+      params: v.verifyTruckManually.shape.params,
+      body: json(v.verifyTruckManually.shape.body),
+    },
+    responses: {
+      200: { description: '{ memo: null, checks } — still blocked' },
+      201: { description: '{ memo, checks } — memo sent' },
+      409: {
+        description: 'Check not unavailable, Loadsmart load, own fleet, or no award',
+        ...errorContent,
+      },
     },
   });
 

@@ -42,6 +42,9 @@ export const FILES_DELETE = 'storage.files.delete';
 // Approve/reject a pending vehicle or driver created by a non-org-admin (currently: dispatch).
 // Org_admin only — same one-key-per-module shape as MASTERS_WRITE, not split per entity.
 export const MASTERS_APPROVE = 'masters.approve';
+// Mark a truck verified by hand when VAHAN can't be reached — the fleet truck and a load's truck
+// check. Org admin only.
+export const TRUCK_VERIFY_MANUAL = 'trucks.verify_manual';
 
 // Maintenance (FMS-MNT-000). MANAGE gates every workshop write (log a service, open/close a
 // breakdown, tyres, batteries). COSTS_VIEW is not a route gate: the maintenance screen's reads are
@@ -89,3 +92,5 @@ export const LS_MARGIN_VIEW = 'loadsmart.margin.view';
 // Admin-team only: change a shipper's margin (PUT /terms) or override it when approving a load.
 // Separate from LS_MARGIN_VIEW — Placement sees margin but must not change a shipper's terms.
 export const LS_MARGIN_MANAGE = 'loadsmart.margin.manage';
+// The same manual truck check on a Loadsmart load — Admin team only.
+export const LS_TRUCK_VERIFY_MANUAL = 'loadsmart.truck.verify_manual';
