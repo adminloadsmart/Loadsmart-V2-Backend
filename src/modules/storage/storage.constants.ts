@@ -151,7 +151,7 @@ export const STAFF_CROSS_TENANT_READS: readonly {
   permissions: readonly string[];
   purposes: readonly UploadPurpose[];
 }[] = [
-  // KYC desks review organization onboarding documents.
+  // KYC reviewers (Approval/Admin teams) review organization onboarding documents.
   {
     permissions: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT],
     purposes: ['kyc', 'organizations/shopboard-premises', 'profile'],

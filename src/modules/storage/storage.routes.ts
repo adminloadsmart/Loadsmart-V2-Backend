@@ -10,7 +10,7 @@ import { storageValidators } from './storage.validators';
 // Unlike most tenant-owned-resource routers, requireTenant is NOT applied router-wide here.
 // GET /:fileId has never had it (platform-scope read bypass — see storage.service.ts's get()).
 // POST / and POST /:fileId/confirm don't have it either: PLATFORM_SCOPE_ROLES (sales,
-// online/offline_kyc_desk, load_console) already pass the *global* tenant-scope middleware with
+// the ops teams) already pass the *global* tenant-scope middleware with
 // no tenant of their own (see tenant-scope.middleware.ts), and storage.service.ts/
 // storage.repository.ts are tenant-null-safe end to end — a local requireTenant here would only
 // re-block exactly the callers the global middleware already deliberately let through. A

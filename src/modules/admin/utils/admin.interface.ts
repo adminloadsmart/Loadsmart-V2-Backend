@@ -63,8 +63,16 @@ export type OrganizationParams = { organizationId: string };
 export type OrganizationDocumentParams = { organizationId: string; documentId: string };
 
 export interface ListStaffInput extends PaginationInput {
+  // Matches name, email, phone or employee ID.
   search?: string;
+  // The team (auth role name). `role` is the pre-teams name for the same filter, still accepted
+  // so the KYC assignee dropdowns keep working; `team` wins when both are sent.
+  team?: string;
   role?: string;
+  teamRole?: string;
+  region?: string;
+  // invited = never signed in (lastSignedInAt null); active = has signed in.
+  status?: 'invited' | 'active';
 }
 
 export interface CreateReferralCodeInput {

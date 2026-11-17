@@ -39,12 +39,20 @@ import {
   DUMMY_PASSWORD_HASH,
 } from './auth.constants';
 import {
+  ASM_TEAM_ROLE,
   DISPATCH_ROLE,
+  KYC_REVIEWER_TEAMS,
   ORG_ADMIN_ROLE,
-  SALES_ROLE,
-  STAFF_ASSIGNABLE_ROLES,
   ORG_ASSIGNABLE_ROLES,
+  PLATFORM_ADMIN_ROLE,
+  SALESPERSON_TEAM_ROLE,
+  SALES_ROLE,
+  STAFF_TEAMS,
+  TEAM_ROLES,
+  isStaffTeam,
+  type StaffTeam,
 } from '../../shared/constants/roles';
+import { StaffInviteSender } from './staff-invite.sender';
 import {
   SignupInput,
   RequestLoginOtpInput,
@@ -52,6 +60,7 @@ import {
   VerifyLoginOtpInput,
   CreateStaffInput,
   UpdateStaffInput,
+  StaffSalesInput,
   InviteOrganizationUserInput,
   ListOrganizationUsersInput,
   ChangeOrganizationUserSeatInput,
@@ -124,6 +133,35 @@ export interface FleetOwnerDetails {
   dispatch: FleetOwnerContact | null;
 }
 
+// Team members sign in with mobile + OTP only — no password ever (notes §4).
+function staffPasswordError() {
+  return new AuthorizationError('Team members sign in with an OTP on their mobile number');
+}
+
+// The pre-checks in createStaffUser/updateStaff catch duplicates; two requests racing past them
+// both reach the INSERT/UPDATE, and the partial unique indexes reject the second. Turn that into
+// the same 409 the pre-check gives instead of a 500.
+const STAFF_UNIQUE_INDEX_MESSAGES: Record<string, string> = {
+  users_phone_active_unique: 'A user with this phone number already exists',
+  users_email_active_unique: 'A user with this email already exists',
+  users_employee_id_team_active_unique: 'This employee ID is already used on this team',
+};
+function rethrowStaffUniqueViolation(error: unknown): never {
+  const failure = error as {
+    code?: string;
+    constraint?: string;
+    driverError?: { code?: string; constraint?: string };
+  };
+  const code = failure.driverError?.code ?? failure.code;
+  const constraint = failure.driverError?.constraint ?? failure.constraint;
+  const message = constraint ? STAFF_UNIQUE_INDEX_MESSAGES[constraint] : undefined;
+  if (code === '23505' && message) throw new ConflictError(message);
+  throw error;
+}
+
+// How far up a reports-to chain the no-cycle check walks — far deeper than any real org chart.
+const REPORTS_TO_MAX_DEPTH = 20;
+
 export class AuthService {
   constructor(
     private readonly authRepository: AuthRepository,
@@ -139,6 +177,9 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly dataSource: DataSource,
     private readonly notificationTriggers: NotificationTriggers,
+    // Optional so a test can build the service without MSG91; production wiring always passes it
+    // (modules/auth/index.ts).
+    private readonly staffInviteSender?: StaffInviteSender,
   ) {}
 
   async signup(input: SignupInput) {
@@ -253,6 +294,7 @@ export class AuthService {
 
   async createPassword(user: AuthenticatedUser, input: CreatePasswordInput) {
     const current = await this.getUserById(user.id);
+    this.assertNotStaffPassword(current.role.name);
     if (current.passwordHash) {
       throw new ConflictError('Password already exists');
     }
@@ -281,6 +323,15 @@ export class AuthService {
           throw new NotFoundError(`User ${user.id} not found`);
         }
 
+        if (input.password) this.assertNotStaffPassword(current.role.name);
+        // A team member's work email is managed by the platform admin (Team members form).
+        if (
+          input.email !== undefined &&
+          isStaffTeam(current.role.name) &&
+          input.email !== current.email
+        ) {
+          throw new AuthorizationError('Your work email is managed by your admin');
+        }
         if (input.password && current.passwordHash) {
           throw new ConflictError('Password already exists');
         }
@@ -348,7 +399,12 @@ export class AuthService {
       manualDesignation: user.manualDesignation,
       department: user.department,
       role: user.role.name,
-      coverage: user.coverage,
+      // A team member's team (null for org users and the platform_admin owner) — the frontend
+      // shows that team's sidebar.
+      team: isStaffTeam(user.role.name) ? user.role.name : null,
+      teamRole: user.teamRole,
+      employeeId: user.employeeId,
+      region: user.region,
       permissions: await this.roleService.getEffectivePermissions(user.id),
       hasPassword: Boolean(user.passwordHash),
       whatsappOptIn: user.whatsappOptIn,
@@ -379,42 +435,39 @@ export class AuthService {
     }
   }
 
-  /** Platform admin provisions an internal staff account directly (POST /admin/staff) — the only
-   *  user-creation path that isn't self-service. Unlike self-signup, phone ownership is never
-   *  proven via OTP here, so both phone and email get pre-checked for collisions. The admin sets
-   *  an initial password; the staff member logs in themselves via the existing POST /auth/login —
-   *  this method never issues a token pair, since the admin isn't the one logging in. */
+  /** Platform admin adds a team member (POST /admin/staff — the "Team members" form, notes §4).
+   *  The only user-creation path that isn't self-service, so phone, email and employee ID are all
+   *  pre-checked for collisions (the DB unique indexes stay the final word on a race). No password:
+   *  team members sign in with their mobile number and an OTP (POST /auth/login/otp/request), and
+   *  are told so by an SMS/email invite. Access comes from the team (roleId) alone — no per-user
+   *  grants, strictly one team per person. */
   async createStaffUser(actingUser: AuthenticatedUser, input: CreateStaffInput) {
-    const { fullName, phoneNumber, email, roleId, coverage, permissionIds } = input;
-
-    const role = await this.roleService.getRoleById(roleId);
-    if (!STAFF_ASSIGNABLE_ROLES.includes(role.name)) {
-      throw new ValidationError(
-        `Role "${role.name}" cannot be assigned through staff creation — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
-      );
-    }
-    // Before the user row exists — a rejected grant must not leave a half-created account.
-    await this.roleService.assertPlatformPermissionIds(permissionIds ?? []);
-    const normalizedPhone = this.normalizePhone(phoneNumber);
-    const [existingByPhone, existingByEmail] = await Promise.all([
-      this.authRepository.findUserByPhone(normalizedPhone),
-      // findUserByEmail's `where` drops undefined values entirely, so it must be skipped rather
-      // than called with an undefined email — otherwise it'd match any active user.
-      email ? this.authRepository.findUserByEmail(email) : Promise.resolve(null),
-    ]);
-    if (existingByPhone) throw new ConflictError('A user with this phone number already exists');
-    if (existingByEmail) throw new ConflictError('A user with this email already exists');
-    const password = this.generatePassword();
-    const passwordHash = await bcrypt.hash(password, 10);
-    const user = await this.authRepository.createUser({
-      phoneNumber: normalizedPhone,
-      tenantId: null,
-      roleId,
-      email,
-      passwordHash,
-      fullName,
-      coverage,
+    const role = await this.roleService.getRoleById(input.roleId);
+    const team = this.assertStaffTeam(role.name, 'creation');
+    const normalizedPhone = this.normalizePhone(input.phoneNumber);
+    const profile = await this.resolveStaffProfile({
+      team,
+      roleId: role.id,
+      staffId: null,
+      teamRole: input.teamRole,
+      employeeId: input.employeeId,
+      reportsToUserId: input.reportsToUserId ?? null,
+      sales: input.sales ?? null,
     });
+    await this.assertStaffIdentityFree(null, { phoneNumber: normalizedPhone, email: input.email });
+
+    const user = await this.authRepository
+      .createUser({
+        phoneNumber: normalizedPhone,
+        tenantId: null,
+        roleId: role.id,
+        email: input.email,
+        passwordHash: null,
+        fullName: input.fullName,
+        region: input.region,
+        ...profile,
+      })
+      .catch(rethrowStaffUniqueViolation);
 
     await this.auditService.log({
       tenantId: null,
@@ -423,36 +476,174 @@ export class AuthService {
       resourceType: 'user',
       newData: {
         id: user.id,
-        fullName,
+        fullName: user.fullName,
         phoneNumber: user.phoneNumber,
-        email,
-        role: role.name,
-        coverage,
+        email: user.email,
+        team,
+        region: user.region,
+        ...profile,
       },
     });
 
-    for (const permissionId of new Set(permissionIds ?? [])) {
-      await this.roleService.grantPermission(actingUser, user.id, permissionId);
-    }
-
     // Every salesperson needs their own code to attribute signups — made here so hiring and code
-    // creation are one action.
+    // creation are one action. Best-effort: the hire stands without it (the admin can generate one
+    // from Referral Codes).
     const referralCode =
-      role.name === SALES_ROLE ? await this.createHireReferralCode(actingUser, user) : null;
+      team === SALES_ROLE ? await this.createHireReferralCode(actingUser, user) : null;
+    // Not awaited: two MSG91 calls shouldn't hold up the response; sendStaffInvite never throws.
+    void this.sendStaffInvite(actingUser, user);
 
     return {
-      id: user.id,
-      fullName: user.fullName,
-      phoneNumber: user.phoneNumber,
-      email: user.email,
-      role: user.role.name,
-      coverage: user.coverage,
+      ...(await this.getStaffUser(user.id)),
       permissions: await this.roleService.getEffectivePermissions(user.id),
-      // The salesperson's code, made at hire — null for other roles, or if it couldn't be made
-      // (the hire still stands; the admin can generate one from Referral Codes).
+      // The salesperson's code, made at hire — null for other teams, or if it couldn't be made.
       referralCode: referralCode ? { id: referralCode.id, code: referralCode.code } : null,
-      createdAt: user.createdAt,
     };
+  }
+
+  private assertNotStaffPassword(roleName: string): void {
+    if (isStaffTeam(roleName)) throw staffPasswordError();
+  }
+
+  /** The team (role name) a staff create/update targets — must be one of STAFF_TEAMS; never
+   *  platform_admin (seed-only owner) or an org role. */
+  private assertStaffTeam(roleName: string, action: 'creation' | 'update'): StaffTeam {
+    if (!isStaffTeam(roleName)) {
+      throw new ValidationError(
+        `Role "${roleName}" cannot be assigned through staff ${action} — must be one of: ${STAFF_TEAMS.join(', ')}`,
+      );
+    }
+    return roleName;
+  }
+
+  /** Phone and email are the login and notification identity — unique among active users. */
+  private async assertStaffIdentityFree(
+    staffId: string | null,
+    identity: { phoneNumber?: string; email?: string },
+  ): Promise<void> {
+    const [byPhone, byEmail] = await Promise.all([
+      identity.phoneNumber
+        ? this.authRepository.findUserByPhone(identity.phoneNumber)
+        : Promise.resolve(null),
+      // findUserByEmail's `where` drops undefined values entirely, so it must be skipped rather
+      // than called with an undefined email — otherwise it'd match any active user.
+      identity.email ? this.authRepository.findUserByEmail(identity.email) : Promise.resolve(null),
+    ]);
+    if (byPhone && byPhone.id !== staffId) {
+      throw new ConflictError('A user with this phone number already exists');
+    }
+    if (byEmail && byEmail.id !== staffId) {
+      throw new ConflictError('A user with this email already exists');
+    }
+  }
+
+  /** Validates the team-dependent part of a team member's profile (notes §4 + the design's notes)
+   *  against the team it'll be on, and returns the columns to store. Every rule here runs before
+   *  any write:
+   *   - teamRole must be a job title of this team (TEAM_ROLES) — e.g. ASM is sales-only;
+   *   - sales fields (type, state, ASM) only on the sales team, and required there; a
+   *     salesperson needs an ASM, who must be an active sales-team ASM (and not themselves);
+   *   - employee ID unique on this team (a second account on another team may reuse it);
+   *   - reports-to must be an active team member or the platform_admin owner, never themselves,
+   *     and never someone below them (no cycle). */
+  private async resolveStaffProfile(input: {
+    team: StaffTeam;
+    roleId: string;
+    staffId: string | null;
+    teamRole: string;
+    employeeId: string;
+    reportsToUserId: string | null;
+    sales: StaffSalesInput | null;
+  }) {
+    const { team, roleId, staffId, teamRole, employeeId, reportsToUserId, sales } = input;
+
+    if (!TEAM_ROLES[team].includes(teamRole)) {
+      throw new ValidationError(
+        `"${teamRole}" is not a role on the ${team} team — must be one of: ${TEAM_ROLES[team].join(', ')}`,
+      );
+    }
+
+    let asmUserId: string | null = null;
+    if (team === SALES_ROLE) {
+      if (!sales) throw new ValidationError('Sales team members need sales type and state');
+      if (teamRole === ASM_TEAM_ROLE && sales.asmUserId) {
+        throw new ValidationError('An ASM does not report to another ASM — leave asmUserId empty');
+      }
+      if (teamRole === SALESPERSON_TEAM_ROLE) {
+        if (!sales.asmUserId) throw new ValidationError('A salesperson needs an ASM');
+        if (sales.asmUserId === staffId) throw new ValidationError('Cannot be your own ASM');
+        const [asm] = await this.authRepository.findActivePlatformUsersByIds([sales.asmUserId]);
+        if (!asm || asm.role.name !== SALES_ROLE || asm.teamRole !== ASM_TEAM_ROLE) {
+          throw new ValidationError(
+            `User ${sales.asmUserId} is not an active ASM on the sales team`,
+          );
+        }
+        asmUserId = asm.id;
+      }
+    } else if (sales) {
+      throw new ValidationError('Sales type, state and ASM apply to the sales team only');
+    }
+
+    const sameEmployeeId = await this.authRepository.findActiveByEmployeeIdOnTeam(
+      employeeId,
+      roleId,
+    );
+    if (sameEmployeeId && sameEmployeeId.id !== staffId) {
+      throw new ConflictError(`Employee ID ${employeeId} is already used on the ${team} team`);
+    }
+
+    if (reportsToUserId) {
+      if (reportsToUserId === staffId) throw new ValidationError('Cannot report to yourself');
+      const [manager] = await this.authRepository.findActivePlatformUsersByIds([reportsToUserId]);
+      if (
+        !manager ||
+        (manager.role.name !== PLATFORM_ADMIN_ROLE && !isStaffTeam(manager.role.name))
+      ) {
+        throw new ValidationError(`User ${reportsToUserId} is not an active team member`);
+      }
+      if (staffId) {
+        const chain = await this.authRepository.reportsToChain(
+          reportsToUserId,
+          REPORTS_TO_MAX_DEPTH,
+        );
+        if (chain.includes(staffId)) {
+          throw new ValidationError(
+            `Cannot report to ${manager.fullName ?? reportsToUserId} — they already report to this member`,
+          );
+        }
+      }
+    }
+
+    return {
+      employeeId,
+      teamRole,
+      reportsToUserId,
+      salesType: team === SALES_ROLE ? sales!.salesType : null,
+      state: team === SALES_ROLE ? sales!.state : null,
+      asmUserId,
+    };
+  }
+
+  /** The SMS/email "you've been added — sign in with your mobile number" invite. Never fails the
+   *  hire (StaffInviteSender is itself best-effort; anything before it is caught here too). */
+  private async sendStaffInvite(actingUser: AuthenticatedUser, user: UserEntity): Promise<void> {
+    if (!this.staffInviteSender) return;
+    try {
+      const [inviter, capabilityKeys] = await Promise.all([
+        this.authRepository.findUserById(actingUser.id),
+        this.roleService.getEffectivePermissions(user.id),
+      ]);
+      const capabilities = await this.roleService.describePermissions([...capabilityKeys].sort());
+      await this.staffInviteSender.send({
+        phoneNumber: user.phoneNumber,
+        email: user.email,
+        fullName: user.fullName,
+        inviterName: inviter?.fullName || 'Loadsmart',
+        capabilitySummary: joinCapabilities(capabilities),
+      });
+    } catch (error) {
+      console.warn(`Failed to send the team-member invite for user ${user.id}`, error);
+    }
   }
 
   private async createHireReferralCode(
@@ -540,7 +731,6 @@ export class AuthService {
       email,
       passwordHash,
       fullName,
-      coverage: null,
     });
     if (basedAtLoadingPointId)
       await this.authRepository.setBasedAt(created.id, basedAtLoadingPointId);
@@ -940,7 +1130,15 @@ export class AuthService {
     return this.authRepository.findActiveByUserId(userId);
   }
 
-  async listStaffUsers(input: { search?: string; role?: string; page: number; limit: number }) {
+  async listStaffUsers(input: {
+    search?: string;
+    team?: string;
+    teamRole?: string;
+    region?: string;
+    status?: 'invited' | 'active';
+    page: number;
+    limit: number;
+  }) {
     const { items, total } = await this.authRepository.listStaffUsers(input);
     return {
       items: await this.toStaffListItems(items),
@@ -951,7 +1149,7 @@ export class AuthService {
     };
   }
 
-  /** One staff member in the same shape as a listStaffUsers item — the admin edit screen. */
+  /** One team member in the same shape as a listStaffUsers item — the admin edit screen. */
   async getStaffUser(staffId: string) {
     const user = await this.authRepository.findStaffUserById(staffId);
     if (!user) throw new NotFoundError(`Staff member ${staffId} not found`);
@@ -959,6 +1157,10 @@ export class AuthService {
     return item;
   }
 
+  /** A Team members row (notes §4 / design): identity, team + job title, reports-to, region,
+   *  sales details, last active and Invited/Active — plus the referral and KYC-workload figures
+   *  the screen already showed. `reportsTo`/`asm` must be loaded on the entities (the repository's
+   *  staff queries do). */
   private async toStaffListItems(users: UserEntity[]) {
     const staffIds = users.map((user) => user.id);
     // Batched, not per-row — fixed number of extra queries for the whole page, keyed by
@@ -968,27 +1170,46 @@ export class AuthService {
       this.organizationService.countSignupsByReferralCodeOwnerIds(staffIds),
       this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
     ]);
+    const personRef = (person: UserEntity | null | undefined) =>
+      person && !person.deletedAt ? { id: person.id, fullName: person.fullName } : null;
     return users.map((user) => ({
       id: user.id,
       fullName: user.fullName,
+      employeeId: user.employeeId,
       phoneNumber: user.phoneNumber,
       email: user.email,
+      team: user.role.name,
+      // Kept for older clients — same value as `team`.
       role: user.role.name,
-      coverage: user.coverage,
+      teamRole: user.teamRole,
+      region: user.region,
+      reportsTo: personRef(user.reportsTo),
+      sales:
+        user.role.name === SALES_ROLE
+          ? { salesType: user.salesType, state: user.state, asm: personRef(user.asm) }
+          : null,
+      status: user.lastSignedInAt ? ('active' as const) : ('invited' as const),
+      lastActiveAt: user.lastSignedInAt,
       referralCodes: codesByOwner.get(user.id) ?? [],
       // Submitted orgs that used any of this staff member's referral codes, and how many of
       // those are approved — same numbers as the Referral Codes list.
       signupCount: signupsByOwner.get(user.id)?.total ?? 0,
       approvedSignupCount: signupsByOwner.get(user.id)?.approved ?? 0,
-      // Orgs assigned to this staff member for KYC review (online or physical) not yet completed —
-      // the only "current work" concept this schema has; non-KYC roles are always 0.
+      // Orgs assigned to this member for KYC review (online or physical) not yet completed —
+      // non-reviewer teams are always 0.
       workload: workloadByStaff.get(user.id) ?? 0,
       createdAt: user.createdAt,
     }));
   }
 
-  /** Per-role cards on the admin Employees screen: headcount, open KYC assignments (KYC roles)
-   *  and referral signups (sales) — across all staff, not just the loaded page. */
+  /** The teams (with job titles and capabilities) for the Team members form — RoleService. */
+  listStaffTeams() {
+    return this.roleService.listStaffTeams();
+  }
+
+  /** Per-team cards on the Team members screen: headcount, open KYC assignments and referral
+   *  signups — across all team members, not just the loaded page. Counts exactly the population
+   *  listStaffUsers lists (same repository filter), so the card totals and the list total agree. */
   async getStaffSummary(): Promise<Record<string, StaffRoleSummary>> {
     const staff = await this.authRepository.listAllStaffRoles();
     const staffIds = staff.map((member) => member.id);
@@ -997,157 +1218,216 @@ export class AuthService {
       this.organizationService.countPendingKycAssignmentsByStaffIds(staffIds),
     ]);
     const summary: Record<string, StaffRoleSummary> = {};
-    for (const role of STAFF_ASSIGNABLE_ROLES) {
-      summary[role] = { count: 0, workload: 0, signups: 0, approvedSignups: 0 };
+    for (const team of STAFF_TEAMS) {
+      summary[team] = { count: 0, workload: 0, signups: 0, approvedSignups: 0 };
     }
     for (const member of staff) {
-      const roleSummary = summary[member.role];
-      if (!roleSummary) continue; // e.g. platform_admin
-      roleSummary.count += 1;
-      roleSummary.workload += workloadByStaff.get(member.id) ?? 0;
-      roleSummary.signups += signupsByOwner.get(member.id)?.total ?? 0;
-      roleSummary.approvedSignups += signupsByOwner.get(member.id)?.approved ?? 0;
+      const teamSummary = summary[member.role];
+      if (!teamSummary) continue;
+      teamSummary.count += 1;
+      teamSummary.workload += workloadByStaff.get(member.id) ?? 0;
+      teamSummary.signups += signupsByOwner.get(member.id)?.total ?? 0;
+      teamSummary.approvedSignups += signupsByOwner.get(member.id)?.approved ?? 0;
     }
     return summary;
   }
 
-  /** Platform admin edits an existing staff account (PATCH /admin/staff/:staffId) — profile
-   *  fields, role, and direct permission grants (replace semantics: the new permissionIds list
-   *  becomes the full set of direct grants, missing ones get revoked). Role and permission changes
-   *  are delegated to RoleService.assignRole/grantPermission/revokePermission, which each already
-   *  reject a self-targeting caller (assertCanManage) and write their own audit entries — handled
-   *  first, before the profile-field write below, so a self-target rejection can't leave a partial
-   *  update behind (profile fields saved, permissions half-applied). Profile fields
-   *  (fullName/phoneNumber/email/coverage) aren't scoped by assertCanManage and stay self-editable. */
+  /** Platform admin edits a team member (PATCH /admin/staff/:staffId). Every field is optional;
+   *  the patch is merged onto the current profile and the result validated as a whole
+   *  (resolveStaffProfile), all before any write. Moving to another team is refused while it
+   *  would orphan work tied to the old team (assertTeamChangeAllowed). A phone change revokes the
+   *  member's sessions — the phone is the OTP login identity. The team change itself goes through
+   *  RoleService.assignRole (self-target check, audit, permissions_version bump). */
   async updateStaff(actingUser: AuthenticatedUser, staffId: string, input: UpdateStaffInput) {
-    const { fullName, phoneNumber, email, roleId, coverage, permissionIds } = input;
-
-    // Staff accounts only (tenant-less, a STAFF_ASSIGNABLE_ROLES role) — the same scope
-    // getStaffUser reads. Without this, this route could repoint the phone/email (the login
-    // identity) of an org user or a platform_admin, i.e. take the account over.
+    // Team members only (tenant-less, a STAFF_TEAMS role) — the same scope getStaffUser reads.
+    // Without this, this route could repoint the phone/email (the login identity) of an org user
+    // or the platform_admin owner, i.e. take the account over.
     const existing = await this.authRepository.findStaffUserById(staffId);
     if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
-
-    // Checked before any mutation below: role assignment and permission grants/revokes each
-    // commit immediately and force-invalidate the target's session (a permissions_version bump),
-    // so a phone/email conflict discovered afterward would otherwise leave that already
-    // committed while the caller sees this whole request reported as failed.
-    const normalizedPhone = phoneNumber ? this.normalizePhone(phoneNumber) : undefined;
-    const [existingByPhone, existingByEmail] = await Promise.all([
-      normalizedPhone
-        ? this.authRepository.findUserByPhone(normalizedPhone)
-        : Promise.resolve(null),
-      // Same undefined-drops-the-where gotcha as createStaffUser — only call when email is set.
-      email ? this.authRepository.findUserByEmail(email) : Promise.resolve(null),
-    ]);
-    if (existingByPhone && existingByPhone.id !== staffId) {
-      throw new ConflictError('A user with this phone number already exists');
-    }
-    if (existingByEmail && existingByEmail.id !== staffId) {
-      throw new ConflictError('A user with this email already exists');
+    if (staffId === actingUser.id) {
+      throw new AuthorizationError('Cannot edit your own team-member record');
     }
 
-    if (roleId !== undefined) {
-      const role = await this.roleService.getRoleById(roleId);
-      if (!STAFF_ASSIGNABLE_ROLES.includes(role.name)) {
-        throw new ValidationError(
-          `Role "${role.name}" cannot be assigned through staff update — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
-        );
-      }
-      await this.roleService.assignRole(actingUser, staffId, roleId);
+    const currentTeam = existing.role.name as StaffTeam;
+    const nextRole =
+      input.roleId !== undefined && input.roleId !== existing.roleId
+        ? await this.roleService.getRoleById(input.roleId)
+        : null;
+    const nextTeam = nextRole ? this.assertStaffTeam(nextRole.name, 'update') : currentTeam;
+    const teamChanged = nextTeam !== currentTeam;
+
+    const normalizedPhone =
+      input.phoneNumber !== undefined ? this.normalizePhone(input.phoneNumber) : undefined;
+    const phoneChanged = normalizedPhone !== undefined && normalizedPhone !== existing.phoneNumber;
+
+    // Merge: on a team change, sales details only carry over when staying on sales.
+    const currentSales: StaffSalesInput | null =
+      currentTeam === SALES_ROLE && existing.salesType && existing.state
+        ? { salesType: existing.salesType, state: existing.state, asmUserId: existing.asmUserId }
+        : null;
+    const mergedSales =
+      input.sales !== undefined ? input.sales : nextTeam === SALES_ROLE ? currentSales : null;
+    const mergedTeamRole = input.teamRole ?? existing.teamRole;
+    const mergedEmployeeId = input.employeeId ?? existing.employeeId;
+    if (!mergedTeamRole) throw new ValidationError('teamRole is required');
+    if (!mergedEmployeeId) throw new ValidationError('employeeId is required');
+
+    const profile = await this.resolveStaffProfile({
+      team: nextTeam,
+      roleId: nextRole?.id ?? existing.roleId,
+      staffId,
+      teamRole: mergedTeamRole,
+      employeeId: mergedEmployeeId,
+      reportsToUserId:
+        input.reportsToUserId !== undefined ? input.reportsToUserId : existing.reportsToUserId,
+      sales: mergedSales,
+    });
+    await this.assertStaffIdentityFree(staffId, {
+      phoneNumber: phoneChanged ? normalizedPhone : undefined,
+      email: input.email !== undefined && input.email !== existing.email ? input.email : undefined,
+    });
+    await this.assertTeamChangeAllowed(existing, nextTeam, profile.teamRole);
+
+    // Writes — every check above has passed.
+    if (nextRole && teamChanged) {
+      await this.roleService.assignRole(actingUser, staffId, nextRole.id);
+    }
+    const changes = {
+      ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+      ...(phoneChanged ? { phoneNumber: normalizedPhone } : {}),
+      ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.region !== undefined ? { region: input.region } : {}),
+      ...profile,
+    };
+    await this.authRepository.updateUser(staffId, changes).catch(rethrowStaffUniqueViolation);
+    if (phoneChanged) {
+      // The old number must stop working at once: a permissions_version bump rejects the live
+      // access token on its next request, and the refresh tokens are revoked.
+      await this.roleService.invalidateUserSession(staffId);
+    }
+    // Moving onto the sales team gets a referral code, same as being hired onto it — unless they
+    // still own an active one (e.g. moved off and back).
+    if (
+      teamChanged &&
+      nextTeam === SALES_ROLE &&
+      (await this.countActiveReferralCodes(staffId)) === 0
+    ) {
+      await this.createHireReferralCode(actingUser, { ...existing, ...changes });
     }
 
-    if (permissionIds !== undefined) {
-      const current = await this.roleService.getUserPermissions(actingUser, staffId);
-      const currentIds = new Set(current.directPermissions.map((p) => p.id));
-      const nextIds = new Set(permissionIds);
-      for (const id of nextIds) {
-        if (!currentIds.has(id)) await this.roleService.grantPermission(actingUser, staffId, id);
-      }
-      for (const id of currentIds) {
-        if (!nextIds.has(id)) await this.roleService.revokePermission(actingUser, staffId, id);
-      }
-    }
-
-    const profileFields: Partial<{
-      fullName: string;
-      phoneNumber: string;
-      email: string;
-      coverage: string;
-    }> = {};
-    if (fullName !== undefined) profileFields.fullName = fullName;
-    if (normalizedPhone !== undefined) profileFields.phoneNumber = normalizedPhone;
-    if (email !== undefined) profileFields.email = email;
-    if (coverage !== undefined) profileFields.coverage = coverage;
-
-    if (Object.keys(profileFields).length > 0) {
-      await this.authRepository.updateUser(staffId, profileFields);
-      await this.auditService.log({
-        tenantId: null,
-        userId: actingUser.id,
-        action: 'STAFF_UPDATED',
-        resourceType: 'user',
-        oldData: {
-          fullName: existing.fullName,
-          phoneNumber: existing.phoneNumber,
-          email: existing.email,
-          coverage: existing.coverage,
-        },
-        newData: profileFields,
-      });
-    }
-
-    const updated = await this.authRepository.findUserById(staffId);
-    if (!updated) throw new NotFoundError(`Staff member ${staffId} not found`);
+    await this.auditService.log({
+      tenantId: null,
+      userId: actingUser.id,
+      action: 'STAFF_UPDATED',
+      resourceType: 'user',
+      oldData: {
+        fullName: existing.fullName,
+        phoneNumber: existing.phoneNumber,
+        email: existing.email,
+        team: currentTeam,
+        region: existing.region,
+        employeeId: existing.employeeId,
+        teamRole: existing.teamRole,
+        reportsToUserId: existing.reportsToUserId,
+        salesType: existing.salesType,
+        state: existing.state,
+        asmUserId: existing.asmUserId,
+      },
+      newData: { ...changes, team: nextTeam },
+    });
 
     return {
-      id: updated.id,
-      fullName: updated.fullName,
-      phoneNumber: updated.phoneNumber,
-      email: updated.email,
-      role: updated.role.name,
-      coverage: updated.coverage,
-      permissions: await this.roleService.getEffectivePermissions(updated.id),
-      createdAt: updated.createdAt,
+      ...(await this.getStaffUser(staffId)),
+      permissions: await this.roleService.getEffectivePermissions(staffId),
     };
   }
 
-  /** Platform admin deactivates a staff account (DELETE /admin/staff/:staffId) — soft delete via
-   *  AuthRepository.softDeleteUser, the same mechanism the self-service deleteAccount flow below
-   *  uses, plus revoking their refresh tokens so a currently-live session can't silently keep
-   *  renewing (their still-live access token expires naturally — same limitation deleteAccount
-   *  has for the caller's own current token, there worked around with an explicit blockToken call
-   *  we can't make here since we don't hold the target's jti). role.service.ts's
-   *  assignRole/grantPermission/revokePermission close this exact gap for permission changes via
-   *  a permissions_version check every request goes through (see auth.middleware.ts) — deletion
-   *  doesn't need that same mechanism since invalidateUserExistsCache below already forces the
-   *  equivalent "user no longer exists" rejection on this user's very next request, on the same
-   *  cache-TTL bound. Restricted to accounts actually provisioned through this surface
-   *  (STAFF_ASSIGNABLE_ROLES) — platform_admin/org_admin aren't deprovisioned this way, same
-   *  boundary createStaffUser/updateStaff already enforce for role assignment. Blocked while the
-   *  staff member still has unfinished KYC review work assigned
-   *  (OrganizationService.countPendingKycAssignmentsByStaffIds) — reassign those organizations
-   *  first, mirroring deleteReferralCode's block-while-in-use rule. */
-  async deleteStaff(actingUser: AuthenticatedUser, staffId: string) {
-    const existing = await this.authRepository.findUserById(staffId);
-    if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
+  /** Refuses a team/job-title change that would leave work tied to the old one dangling — the
+   *  admin reassigns it first, same rule deleteStaff applies:
+   *   - open KYC reviews, when leaving the KYC reviewer teams (Approval/Admin);
+   *   - active referral codes, when leaving sales (they attribute signups to a salesperson);
+   *   - salespeople under them, when they stop being a sales ASM. */
+  private async assertTeamChangeAllowed(
+    existing: UserEntity,
+    nextTeam: StaffTeam,
+    nextTeamRole: string,
+  ): Promise<void> {
+    const currentTeam = existing.role.name;
+    if (KYC_REVIEWER_TEAMS.includes(currentTeam) && !KYC_REVIEWER_TEAMS.includes(nextTeam)) {
+      const workload =
+        (await this.organizationService.countPendingKycAssignmentsByStaffIds([existing.id])).get(
+          existing.id,
+        ) ?? 0;
+      if (workload > 0) {
+        throw new ConflictError(
+          `Staff member has ${workload} unfinished KYC review assignment(s) — reassign them before moving them off ${currentTeam}`,
+        );
+      }
+    }
+    if (currentTeam === SALES_ROLE && nextTeam !== SALES_ROLE) {
+      const activeCodes = await this.countActiveReferralCodes(existing.id);
+      if (activeCodes > 0) {
+        throw new ConflictError(
+          `Staff member owns ${activeCodes} active referral code(s) — reassign or revoke them before moving them off sales`,
+        );
+      }
+    }
+    const wasAsm = currentTeam === SALES_ROLE && existing.teamRole === ASM_TEAM_ROLE;
+    const staysAsm = nextTeam === SALES_ROLE && nextTeamRole === ASM_TEAM_ROLE;
+    if (wasAsm && !staysAsm) {
+      const reports = await this.authRepository.countAsmReports(existing.id);
+      if (reports > 0) {
+        throw new ConflictError(
+          `${reports} salesperson(s) have this member as their ASM — reassign them first`,
+        );
+      }
+    }
+  }
 
+  private async countActiveReferralCodes(userId: string): Promise<number> {
+    const codes = (await this.referralCodeService.listByOwnerIds([userId])).get(userId) ?? [];
+    return codes.filter((code) => code.status === 'active').length;
+  }
+
+  /** Platform admin removes a team member (DELETE /admin/staff/:staffId) — soft delete via
+   *  AuthRepository.softDeleteUser, plus revoking their refresh tokens so a live session can't keep
+   *  renewing; invalidateUserExistsCache makes their current access token's next request fail.
+   *  Team members only (findStaffUserById) — platform_admin/org users aren't deprovisioned here.
+   *  Blocked while work still points at them — open KYC reviews, people reporting to them, salespeople
+   *  under them as ASM, active referral codes — reassign first, mirroring
+   *  deleteReferralCode's block-while-in-use rule. */
+  async deleteStaff(actingUser: AuthenticatedUser, staffId: string) {
     if (staffId === actingUser.id) {
       throw new AuthorizationError('Cannot delete your own account');
     }
-    if (!STAFF_ASSIGNABLE_ROLES.includes(existing.role.name)) {
-      throw new ValidationError(
-        `Role "${existing.role.name}" cannot be deleted through staff management — must be one of: ${STAFF_ASSIGNABLE_ROLES.join(', ')}`,
-      );
-    }
+    const existing = await this.authRepository.findStaffUserById(staffId);
+    if (!existing) throw new NotFoundError(`Staff member ${staffId} not found`);
 
-    const workloadByStaff = await this.organizationService.countPendingKycAssignmentsByStaffIds([
-      staffId,
+    const [workloadByStaff, directReports, asmReports, activeCodes] = await Promise.all([
+      this.organizationService.countPendingKycAssignmentsByStaffIds([staffId]),
+      this.authRepository.countDirectReports(staffId),
+      this.authRepository.countAsmReports(staffId),
+      this.countActiveReferralCodes(staffId),
     ]);
     const workload = workloadByStaff.get(staffId) ?? 0;
     if (workload > 0) {
       throw new ConflictError(
         `Staff member has ${workload} unfinished KYC review assignment(s) — reassign them before deleting`,
+      );
+    }
+    if (directReports > 0) {
+      throw new ConflictError(
+        `${directReports} team member(s) report to this member — change their reports-to before deleting`,
+      );
+    }
+    if (asmReports > 0) {
+      throw new ConflictError(
+        `${asmReports} salesperson(s) have this member as their ASM — reassign them before deleting`,
+      );
+    }
+    if (activeCodes > 0) {
+      throw new ConflictError(
+        `Staff member owns ${activeCodes} active referral code(s) — reassign or revoke them before deleting`,
       );
     }
 
@@ -1165,7 +1445,9 @@ export class AuthService {
         fullName: existing.fullName,
         phoneNumber: existing.phoneNumber,
         email: existing.email,
-        role: existing.role.name,
+        team: existing.role.name,
+        employeeId: existing.employeeId,
+        region: existing.region,
       },
     });
   }
@@ -1220,7 +1502,15 @@ export class AuthService {
     await blockToken(jti, exp);
   }
 
+  /** Self-service account deletion. Not for platform-scope accounts: a team member is removed by
+   *  the platform admin (deleteStaff — which refuses while KYC work, reports or referral codes
+   *  still point at them), and the platform_admin owner must never be able to delete itself. */
   async deleteAccount(user: AuthenticatedUser) {
+    if (user.role === PLATFORM_ADMIN_ROLE || isStaffTeam(user.role)) {
+      throw new AuthorizationError(
+        'Platform accounts cannot be deleted here — ask your admin to remove you',
+      );
+    }
     await this.authRepository.softDeleteUser(user.id);
     await this.authRepository.revokeAllRefreshTokensForUser(user.id);
     await blockToken(user.jti, user.exp);
@@ -1739,13 +2029,17 @@ export class AuthService {
       password,
       user?.passwordHash ?? DUMMY_PASSWORD_HASH,
     );
+    // Team members are OTP-only (notes §4): never a password login, even if a hash somehow exists.
+    // Same "Invalid credentials" as a wrong password, so this doesn't reveal who is staff.
+    const allowed =
+      passwordMatches && Boolean(user?.passwordHash) && !isStaffTeam(user?.role.name ?? '');
     await this.authRepository.recordLoginAttempt({
       email: normalizedPhone,
-      success: passwordMatches,
+      success: allowed,
       ipAddress,
     });
 
-    if (!user || !passwordMatches || !user.passwordHash) {
+    if (!user || !allowed) {
       throw new AuthenticationError('Invalid credentials');
     }
 

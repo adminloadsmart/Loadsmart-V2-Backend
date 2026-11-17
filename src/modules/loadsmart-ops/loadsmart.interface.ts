@@ -120,9 +120,10 @@ export interface LoadsmartActor {
 /** The sourcing fields a timeline/audit step needs (LsServiceBase.step). */
 export type SourcingRef = Pick<LsSourcingEntity, 'id' | 'tenantId' | 'loadId'>;
 
-/** A shipper's margin and trucker advance (PUT /terms/:tenantId). */
+/** A shipper's margin and trucker advance (PUT /terms/:tenantId). marginPercent is Admin-team
+ *  only (LS_MARGIN_MANAGE); omitted, the shipper's current margin is kept. */
 export interface CommercialTermsInput {
-  marginPercent: number;
+  marginPercent?: number;
   truckerAdvancePercent: number;
 }
 

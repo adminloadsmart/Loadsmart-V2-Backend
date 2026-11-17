@@ -12,6 +12,7 @@ import {
   KYC_ONLINE_REJECT,
   KYC_OFFLINE_VERIFY,
   KYC_OFFLINE_REJECT,
+  KYC_OVERSEE,
   LOADS_CONSOLE_ACCESS,
   SALES_LEADS_MANAGE,
   REQUISITIONS_MANAGE,
@@ -39,6 +40,9 @@ import {
   LS_CS,
   LS_RECEIVABLES,
   LS_PAYABLES,
+  LS_MASTERS_MANAGE,
+  LS_MARGIN_VIEW,
+  LS_MARGIN_MANAGE,
   GEOFENCES_MANAGE,
   NOTIFICATION_PREFERENCES_MANAGE,
 } from '../shared/constants/permissions';
@@ -49,6 +53,14 @@ import {
   DISPATCH_ROLE,
   DOCUMENTS_OPS_ROLE,
   FINANCE_ACCOUNTS_ROLE,
+  SALES_ROLE,
+  ADMIN_TEAM,
+  APPROVAL_TEAM,
+  PLACEMENT_TEAM,
+  TRACKING_TEAM,
+  CS_TEAM,
+  RECEIVABLES_TEAM,
+  PAYABLES_TEAM,
 } from '../shared/constants/roles';
 
 export const PERMISSIONS: {
@@ -98,6 +110,12 @@ export const PERMISSIONS: {
     module: 'onboarding',
     scope: 'platform',
     description: 'Reject KYC submitted offline',
+  },
+  {
+    key: KYC_OVERSEE,
+    module: 'onboarding',
+    scope: 'platform',
+    description: 'See every organization in the KYC queue and assign reviewers',
   },
   {
     key: LOADS_CONSOLE_ACCESS,
@@ -238,6 +256,9 @@ export const PERMISSIONS: {
     [LS_CS, 'See claims on Loadsmart loads delivered with issues (the shipper settles them)'],
     [LS_RECEIVABLES, "See Loadsmart's invoices and the shipper's payments"],
     [LS_PAYABLES, "Pay the partner's advance and balance"],
+    [LS_MASTERS_MANAGE, 'Add and edit partners (brokers) — Admin team only'],
+    [LS_MARGIN_VIEW, "See Loadsmart's margin on loads and shipper terms"],
+    [LS_MARGIN_MANAGE, "Change a shipper's margin — Admin team only"],
   ].map(([key, description]) => ({
     key,
     module: 'loadsmart',
@@ -246,15 +267,42 @@ export const PERMISSIONS: {
   })),
 ];
 
-const LOADSMART_PERMISSIONS = [
-  LS_APPROVAL,
-  LS_PLACEMENT,
-  LS_VERIFICATION,
-  LS_TRACKING,
-  LS_POD,
-  LS_CS,
-  LS_RECEIVABLES,
-  LS_PAYABLES,
+// Every staff team gets the ops console and file access on top of its own keys.
+const STAFF_BASE = [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD];
+
+// Ops team bundles (16 Nov Figma notes §5–§11). A team is a bundle of keys, not one key:
+//  - Approval verifies onboarding documents (§5) — so it holds the KYC review keys that used to
+//    belong to the online/offline KYC desks.
+//  - Placement verifies truck + DL before the Load Memo (§6) — LS_VERIFICATION (/verification-queue)
+//    — and sees margin (§7: "margin stays Admin/Placement-only").
+//  - Payables chases the original POD (§8) — LS_POD (/pod-queue, /original-pod).
+export const OPS_TEAM_BUNDLES: Record<string, string[]> = {
+  [APPROVAL_TEAM]: [
+    LS_APPROVAL,
+    KYC_ONLINE_VERIFY,
+    KYC_ONLINE_REJECT,
+    KYC_OFFLINE_VERIFY,
+    KYC_OFFLINE_REJECT,
+  ],
+  [PLACEMENT_TEAM]: [LS_PLACEMENT, LS_VERIFICATION, LS_MARGIN_VIEW],
+  [TRACKING_TEAM]: [LS_TRACKING],
+  [CS_TEAM]: [LS_CS],
+  [RECEIVABLES_TEAM]: [LS_RECEIVABLES],
+  [PAYABLES_TEAM]: [LS_PAYABLES, LS_POD],
+};
+
+// The Admin team = every ops bundle combined (computed, so a key added to any team reaches Admin
+// automatically) + the Admin-only keys (masters). Never ADMIN_ORGANIZATIONS_MANAGE: holding it makes
+// isPlatformAdministrator() true, i.e. owner powers (staff/role/referral/org-status management).
+// No sales keys either — Admin isn't a salesperson.
+export const ADMIN_TEAM_ONLY_KEYS = [
+  LS_MASTERS_MANAGE,
+  LS_MARGIN_VIEW,
+  LS_MARGIN_MANAGE,
+  KYC_OVERSEE,
+];
+export const ADMIN_TEAM_BUNDLE = [
+  ...new Set([...Object.values(OPS_TEAM_BUNDLES).flat(), ...ADMIN_TEAM_ONLY_KEYS]),
 ];
 
 // role name -> permission keys. platform_admin gets none: its bypass is code-level
@@ -263,41 +311,15 @@ const LOADSMART_PERMISSIONS = [
 export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }[] = [
   { name: PLATFORM_ADMIN_ROLE, scope: 'platform', permissionKeys: [] },
   {
-    name: 'sales',
+    name: SALES_ROLE,
     scope: 'platform',
     permissionKeys: [SALES_LEADS_MANAGE, CUSTOMERS_CREATE, FILES_READ, FILES_UPLOAD],
   },
-  {
-    name: 'online_kyc_desk',
-    scope: 'platform',
-    permissionKeys: [KYC_ONLINE_VERIFY, KYC_ONLINE_REJECT, FILES_READ, FILES_UPLOAD],
-  },
-  {
-    name: 'offline_kyc_desk',
-    scope: 'platform',
-    permissionKeys: [KYC_OFFLINE_VERIFY, KYC_OFFLINE_REJECT, FILES_READ, FILES_UPLOAD],
-  },
-  {
-    name: 'load_console',
-    scope: 'platform',
-    permissionKeys: [LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD, ...LOADSMART_PERMISSIONS],
-  },
-  // One role per Loadsmart ops team — its own key plus console access and files.
-  ...(
-    [
-      ['ls_approval', LS_APPROVAL],
-      ['ls_placement', LS_PLACEMENT],
-      ['ls_verification', LS_VERIFICATION],
-      ['ls_tracking', LS_TRACKING],
-      ['ls_pod', LS_POD],
-      ['ls_cs', LS_CS],
-      ['ls_receivables', LS_RECEIVABLES],
-      ['ls_payables', LS_PAYABLES],
-    ] as const
-  ).map(([name, key]) => ({
+  { name: ADMIN_TEAM, scope: 'platform', permissionKeys: [...ADMIN_TEAM_BUNDLE, ...STAFF_BASE] },
+  ...Object.entries(OPS_TEAM_BUNDLES).map(([name, keys]) => ({
     name,
     scope: 'platform' as RoleScope,
-    permissionKeys: [key, LOADS_CONSOLE_ACCESS, FILES_READ, FILES_UPLOAD],
+    permissionKeys: [...keys, ...STAFF_BASE],
   })),
   {
     name: ORG_ADMIN_ROLE,
@@ -336,7 +358,7 @@ export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }
   // or driver at all (masters.routes.ts's canWrite gate), same pending-approval treatment.
   // Beyond that, permission keys are forward-looking: the Load module and Payments
   // module that actually enforce them don't exist yet — same "seeded ahead of the
-  // module" situation as sales/online_kyc_desk/offline_kyc_desk/load_console above.
+  // module" situation as sales above.
   {
     name: SALES_CS_ROLE,
     scope: 'organization',

@@ -40,6 +40,15 @@ export class RoleRepository {
     return this.roles.find({ where: { name: In(names) }, order: { name: 'ASC' } });
   }
 
+  /** Same, with each role's seeded permission bundle — the Team members form's team picker. */
+  listRolesWithPermissionsByNames(names: string[]): Promise<RoleEntity[]> {
+    return this.roles.find({
+      where: { name: In(names) },
+      relations: { permissions: true },
+      order: { name: 'ASC' },
+    });
+  }
+
   findPermissionById(id: string): Promise<PermissionEntity | null> {
     return this.permissions.findOneBy({ id });
   }
