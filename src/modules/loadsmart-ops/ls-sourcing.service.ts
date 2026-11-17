@@ -204,6 +204,37 @@ export class LsSourcingService extends LsServiceBase {
     }
   };
 
+  /** Posting hook: the shipper edited the load before any bid — what it is missing is checked
+   *  again, while Approval still has it. */
+  refreshForEditedLoads = async (loads: LoadEntity[]): Promise<void> => {
+    for (const load of loads) {
+      const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+      if (!sourcing || sourcing.status !== 'pending_approval') continue;
+      const posting = load.postingId
+        ? await this.repository.findPosting(load.tenantId, load.postingId)
+        : null;
+      await this.repository.updateSourcing(sourcing.id, {
+        missingFields: missingSourcingFields(posting),
+      });
+    }
+  };
+
+  /** Stage hook: the load was cancelled — its sourcing is closed (a lost one stays lost). */
+  markCancelled = async (load: LoadEntity): Promise<void> => {
+    const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+    if (!sourcing || sourcing.status === 'lost' || sourcing.status === 'cancelled') return;
+    await this.repository.updateSourcing(sourcing.id, { status: 'cancelled' });
+    await this.loadActivityService.record(
+      load.tenantId,
+      load.id,
+      load.updatedBy,
+      'LOADSMART_STEP',
+      sourcing.status,
+      'sourcing_cancelled',
+      {},
+    );
+  };
+
   approvalQueue(): Promise<LsSourcingEntity[]> {
     return this.repository.listSourcings(['pending_approval']);
   }
@@ -412,6 +443,103 @@ export class LsSourcingService extends LsServiceBase {
 
   /** "Sends the shipper one best bid, without the partner's name." Priced at the margin unless
    *  Placement sets the price; under 6% needs the negotiation note. */
+  /** The shipper countered Loadsmart's bid — the step goes on the timeline for Placement. */
+  onLoadsmartBidCountered = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
+    const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+    if (!sourcing) return;
+    await this.step(
+      sourcing,
+      load.updatedBy ?? bid.enteredBy ?? sourcing.bidSentBy!,
+      'shipper_countered',
+      'LS_BID_SENT',
+      {
+        bidId: bid.id,
+        counterRate: bid.counterRate,
+      },
+    );
+  };
+
+  /** The shipper rejected Loadsmart's bid — the load is back on the board for Placement to send
+   *  another price. */
+  onLoadsmartBidRejected = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
+    const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
+    if (!sourcing || sourcing.status !== 'bid_sent') return;
+    await this.repository.partnerBids.update(
+      { sourcingId: sourcing.id, status: 'sent' },
+      { status: 'received' },
+    );
+    const updated = await this.repository.updateSourcing(sourcing.id, { status: 'posted' });
+    await this.step(
+      updated,
+      bid.decidedBy ?? sourcing.bidSentBy!,
+      'shipper_rejected_bid',
+      'LS_BID_SENT',
+      {
+        bidId: bid.id,
+        reason: bid.rejectionReason,
+      },
+    );
+  };
+
+  /** Placement answers the shipper's counter on Loadsmart's bid. Accepting it is a new price to
+   *  the shipper, so the margin rules apply again (a note under the minimum margin, never at a
+   *  loss). */
+  async answerShipperCounter(
+    actorId: string,
+    loadId: string,
+    bidId: string,
+    input: { accepted: boolean; negotiationNote?: string },
+  ) {
+    try {
+      const sourcing = await this.repository.findSourcingByLoad(loadId);
+      if (!sourcing || sourcing.status !== 'bid_sent') {
+        throw new ConflictError("Loadsmart's bid on this load is not with the shipper");
+      }
+      const bid = await this.bidService.findBid(sourcing.tenantId, loadId, bidId);
+      if (!bid || bid.source !== 'loadsmart' || !bid.lsPartnerBidId) {
+        throw new NotFoundError("Loadsmart's bid not found on this load");
+      }
+      let margin: number | null = null;
+      if (input.accepted) {
+        if (!bid.counterRate) throw new ConflictError('There is no counter waiting on this bid');
+        const partnerBid = await this.repository.partnerBids.findOneBy({ id: bid.lsPartnerBidId });
+        if (!partnerBid) throw new NotFoundError('Partner bid not found');
+        margin = effectiveMarginPercent(Number(bid.counterRate), Number(partnerBid.rate));
+        const error = marginError(margin, MIN_MARGIN_PERCENT, input.negotiationNote);
+        if (error) throw new ConflictError(error);
+      }
+      const view = await this.bidService.answerCounter(
+        sourcing.tenantId,
+        actorId,
+        loadId,
+        bidId,
+        { accepted: input.accepted },
+        true,
+      );
+      if (input.accepted) {
+        await this.repository.updateSourcing(sourcing.id, {
+          shipperPrice: view.rate,
+          effectiveMarginPercent: String(margin),
+          negotiationNote: input.negotiationNote ?? sourcing.negotiationNote,
+        });
+      }
+      await this.step(
+        sourcing,
+        actorId,
+        input.accepted ? 'counter_accepted' : 'counter_declined',
+        'LS_BID_SENT',
+        {
+          bidId,
+          rate: view.rate,
+          marginPercent: margin,
+        },
+      );
+      return view;
+    } catch (error) {
+      rethrow(error, "Failed to answer the shipper's counter");
+    }
+  }
+
   async sendBid(actorId: string, sourcingId: string, input: SendBidInput): Promise<LoadBidEntity> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);

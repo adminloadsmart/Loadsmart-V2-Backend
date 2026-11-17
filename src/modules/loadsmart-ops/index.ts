@@ -12,6 +12,8 @@ import { LsTrackingService } from './ls-tracking.service';
 import { LsCsService } from './ls-cs.service';
 import { LsReceivablesService } from './ls-receivables.service';
 import { LsPayablesService } from './ls-payables.service';
+import { LsConsoleService } from './ls-console.service';
+import { ConsoleRepository } from './console.repository';
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
 import { createLoadsmartOpsRoutes, createLoadsmartShipperRoutes } from './loadsmart.routes';
 import { LoadsmartOpsModuleDeps } from './loadsmart.interface';
@@ -53,6 +55,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     loadPaymentRepository,
     new LoadMemoRepository(dataSource),
     deps.storageService,
+    deps.settings,
   );
 
   // Placement (brokers, round robin, inbox, lost, memo) and Approval (post for a shipper).
@@ -115,13 +118,33 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.settings,
   );
 
+  // Cross-team read views: All loads, Super Admin approvals, analytics, live map.
+  const consoleViews = new LsConsoleService(
+    dataSource,
+    repository,
+    new ConsoleRepository(dataSource),
+    deps.loadActivityService,
+    loadPaymentRepository,
+    deps.trackingClient,
+    deps.settings,
+    deps.loadCancelService,
+  );
+
   // Hooks into the loads module: a market post (or a rejected indent) opens a sourcing, which goes
   // to the next Placement member on duty.
   deps.postingHooks.onMarketLoadsPosted = async (loads) => {
     await sourcing.createForLoads(loads);
     await placement.assignNew(loads);
   };
+  // Edited before any bid: the sourcing re-checks what the posting is missing.
+  deps.postingHooks.onMarketLoadsEdited = async (loads) => {
+    await sourcing.refreshForEditedLoads(loads);
+  };
   deps.loadBidService.setLoadsmartBidAcceptedHook(sourcing.onLoadsmartBidAccepted);
+  deps.loadBidService.setLoadsmartBidEventHooks({
+    countered: sourcing.onLoadsmartBidCountered,
+    rejected: sourcing.onLoadsmartBidRejected,
+  });
   deps.loadPaymentService.setLoadsmartBilling({ balanceDueOf: receivables.balanceDueOf });
   deps.stageHooks.push(settlement.onStageEntered, async (load, to) => {
     if (load.route === 'loadsmart' && (to === 'delivered_ok' || to === 'delivered_with_issues')) {
@@ -130,6 +153,9 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     if (to === 'truck_assigned' && load.route !== 'loadsmart') {
       await sourcing.markLostIfAssignedElsewhere(load);
     }
+    // The shipper cancelled the load (Super Admin approved, if Loadsmart had won it): Loadsmart's
+    // side closes too.
+    if (to === 'cancelled') await sourcing.markCancelled(load);
   });
 
   return {
@@ -146,6 +172,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
         cs,
         receivables,
         payables,
+        consoleViews,
       ),
     ),
     shipperRouter: createLoadsmartShipperRoutes(new LoadsmartShipperController(shipper)),

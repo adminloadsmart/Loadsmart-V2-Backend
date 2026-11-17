@@ -17,6 +17,9 @@ import {
   BidChannel,
   BidSource,
   BidStatus,
+  BID_COUNTER_STATUSES,
+  BidCounterStatus,
+  BidRateStep,
 } from '../utils/loads.types';
 
 /**
@@ -89,6 +92,36 @@ export class LoadBidEntity {
 
   @Column({ name: 'entry_reason', type: 'varchar', length: 500, nullable: true })
   entryReason!: string | null;
+
+  /** The shipper's counter-offer, and the bidder's answer. An accepted counter becomes `rate`. */
+  @Column({ name: 'counter_rate', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  counterRate!: string | null;
+
+  @Column({ name: 'counter_note', type: 'varchar', length: 500, nullable: true })
+  counterNote!: string | null;
+
+  @Column({ name: 'counter_status', type: 'enum', enum: [...BID_COUNTER_STATUSES], nullable: true })
+  counterStatus!: BidCounterStatus | null;
+
+  @Column({ name: 'countered_at', type: 'timestamptz', nullable: true })
+  counteredAt!: Date | null;
+
+  @Column({ name: 'countered_by', type: 'uuid', nullable: true })
+  counteredBy!: string | null;
+
+  @Column({ name: 'counter_answered_at', type: 'timestamptz', nullable: true })
+  counterAnsweredAt!: Date | null;
+
+  @Column({ name: 'counter_answered_by', type: 'uuid', nullable: true })
+  counterAnsweredBy!: string | null;
+
+  /** Why the shipper rejected the bid, if they said. */
+  @Column({ name: 'rejection_reason', type: 'varchar', length: 500, nullable: true })
+  rejectionReason!: string | null;
+
+  /** Every rate the bid has carried — bid, revisions, counters and answers, oldest first. */
+  @Column({ name: 'rate_history', type: 'jsonb', default: () => "'[]'" })
+  rateHistory!: BidRateStep[];
 
   @Column({ name: 'decided_at', type: 'timestamptz', nullable: true })
   decidedAt!: Date | null;

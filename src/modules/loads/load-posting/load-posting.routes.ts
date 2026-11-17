@@ -127,6 +127,19 @@ export function createLoadPostingRoutes(controller: LoadPostingController): Rout
   // --- Post ---
   router.post('/', canPost, validate(loadPostingValidators.post), asyncHandler(controller.post));
   router.get('/:postingId', canPost, asyncHandler(controller.getPosting));
+  // Edit a posted load: everything until bids come in, then the reporting time and the area.
+  router.put(
+    '/:postingId',
+    canPost,
+    validate(loadPostingValidators.editPosting),
+    asyncHandler(controller.editPosting),
+  );
+  router.patch(
+    '/:postingId/details',
+    canPost,
+    validate(loadPostingValidators.editDetails),
+    asyncHandler(controller.editDetails),
+  );
 
   return router;
 }

@@ -33,6 +33,24 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     asyncHandler(controller.acceptBid),
   );
   router.post(
+    '/loads/:loadId/bids/:bidId/counter',
+    canManageDispatch,
+    validate(v.counterBid),
+    asyncHandler(controller.counterBid),
+  );
+  router.post(
+    '/loads/:loadId/bids/:bidId/counter-response',
+    canManageDispatch,
+    validate(v.answerCounter),
+    asyncHandler(controller.answerCounter),
+  );
+  router.post(
+    '/loads/:loadId/bids/:bidId/reject',
+    canManageDispatch,
+    validate(v.rejectBid),
+    asyncHandler(controller.rejectBid),
+  );
+  router.post(
     '/loads/:loadId/indent/accept',
     canManageDispatch,
     validate(v.recordIndentAcceptance),
@@ -85,6 +103,18 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     canManageDispatch,
     validate(v.cancelTruck),
     asyncHandler(controller.cancelTruck),
+  );
+  // --- Cancel the load, before Loaded (a Loadsmart load waits for Super Admin) ---
+  router.get(
+    '/loads/:loadId/cancellation',
+    validate(v.listTruckCancellations),
+    asyncHandler(controller.cancellationOptions),
+  );
+  router.post(
+    '/loads/:loadId/cancel',
+    canManageDispatch,
+    validate(v.cancelLoad),
+    asyncHandler(controller.cancelLoad),
   );
   router.get(
     '/loads/:loadId/truck-cancellations',

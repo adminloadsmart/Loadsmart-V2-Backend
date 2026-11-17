@@ -1,7 +1,7 @@
 /**
  * Charge heads on a load — the spec's list for own-transporter and indent loads ("loading, loading
  * detention, tarpaulin, overloading, parking, godown, unloading, unloading detention, other with
- * remark"). `detention` is the older single head Loadsmart loads still use; Loadsmart's own subset
+ * remark"), plus toll/gate (added after the Figma review). `detention` is the older single head Loadsmart loads still use; Loadsmart's own subset
  * is loadsmart-ops CHARGE_TYPES.
  */
 export const CHARGE_HEADS = [
@@ -13,6 +13,8 @@ export const CHARGE_HEADS = [
   'godown',
   'unloading',
   'unloading_detention',
+  // Tolls and gate fees on the way — paid with the balance.
+  'toll',
   'other',
   'detention',
 ] as const;

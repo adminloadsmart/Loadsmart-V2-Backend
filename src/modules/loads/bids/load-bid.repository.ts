@@ -69,6 +69,14 @@ export class LoadBidRepository {
     );
   }
 
+  /** Every bid still open on the load — rejected when the load is cancelled. */
+  async rejectAllOpen(tenantId: string, loadId: string, actorId: string): Promise<void> {
+    await this.bids.update(
+      { tenantId, loadId, status: 'received' },
+      { status: 'rejected', decidedAt: new Date(), decidedBy: actorId },
+    );
+  }
+
   /** Loadsmart's live bid on the load — a new one from placement replaces it. */
   findLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity | null> {
     return this.bids.findOneBy({ tenantId, loadId, source: 'loadsmart', status: 'received' });

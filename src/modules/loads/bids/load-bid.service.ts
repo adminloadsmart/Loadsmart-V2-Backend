@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
+import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../../shared/errors';
 import { LoadPostingHooks } from '../load-posting/utils/load-posting.interface';
 import { AuditService } from '../../audit/audit.service';
 import { TransporterService } from '../../masters/transporter/transporter.service';
@@ -21,8 +21,11 @@ import {
 } from '../verification/load-verification.service';
 import {
   BidView,
+  CounterAnswerInput,
+  CounterBidInput,
   LoadBidsView,
   LoadsmartBidAcceptedHook,
+  LoadsmartBidEventHook,
   LoadsmartBidInput,
   RecordBidInput,
 } from '../utils/load-bid.interface';
@@ -65,6 +68,18 @@ export class LoadBidService {
     this.onLoadsmartBidAccepted = hook;
   }
 
+  /** Set by the Loadsmart ops module: the shipper countered or rejected Loadsmart's bid. */
+  private onLoadsmartBidCountered?: LoadsmartBidEventHook;
+  private onLoadsmartBidRejected?: LoadsmartBidEventHook;
+
+  setLoadsmartBidEventHooks(hooks: {
+    countered: LoadsmartBidEventHook;
+    rejected: LoadsmartBidEventHook;
+  }): void {
+    this.onLoadsmartBidCountered = hooks.countered;
+    this.onLoadsmartBidRejected = hooks.rejected;
+  }
+
   /** Loadsmart's placement team sends one best bid: the partner's truck at Loadsmart's price,
    *  shown to the shipper as Loadsmart's, first and highlighted. A new one replaces Loadsmart's
    *  previous live bid. Market loads only, inside the same 4-hour window. */
@@ -101,6 +116,7 @@ export class LoadBidService {
         expiresAt: closesAt,
         enteredBy: actorId,
         entryReason: "Loadsmart's bid",
+        rateHistory: [{ at: now.toISOString(), by: actorId, kind: 'bid', rate: input.rate }],
       });
       const bid =
         input.truckVerified === null
@@ -186,7 +202,174 @@ export class LoadBidService {
       entryReason: bid.entryReason,
       expiresAt: bid.expiresAt?.toISOString() ?? null,
       createdAt: bid.createdAt.toISOString(),
+      counter:
+        bid.counterStatus && bid.counterRate && bid.counteredAt
+          ? {
+              rate: bid.counterRate,
+              note: bid.counterNote,
+              status: bid.counterStatus,
+              at: bid.counteredAt.toISOString(),
+              answeredAt: bid.counterAnsweredAt?.toISOString() ?? null,
+            }
+          : null,
+      rejectionReason: bid.rejectionReason,
+      history: bid.rateHistory ?? [],
     };
+  }
+
+  // --- Counter and reject -----------------------------------------------------------------
+
+  /** The shipper counters a live bid with a rate of their own. It waits for the bidder's answer
+   *  (Accept stays off meanwhile); a new counter replaces one still waiting. */
+  async counterBid(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    bidId: string,
+    input: CounterBidInput,
+  ): Promise<BidView> {
+    try {
+      const { load, bid, now } = await this.assertLiveBid(tenantId, loadId, bidId);
+      const rate = String(input.rate);
+      if (Number(rate) === Number(bid.rate)) {
+        throw new ValidationError('The counter is the same as the bid — accept the bid instead');
+      }
+      const updated = await this.bidRepository.update(bid, {
+        counterRate: rate,
+        counterNote: input.note?.trim() || null,
+        counterStatus: 'pending',
+        counteredAt: now,
+        counteredBy: actorId,
+        counterAnsweredAt: null,
+        counterAnsweredBy: null,
+        rateHistory: [
+          ...(bid.rateHistory ?? []),
+          { at: now.toISOString(), by: actorId, kind: 'counter', rate },
+        ] as never,
+      });
+      await this.bidStep(load, actorId, 'BID_COUNTERED', bid, { counterRate: rate });
+      if (bid.source === 'loadsmart') await this.onLoadsmartBidCountered?.(updated, load);
+      return this.toView(updated, now, null);
+    } catch (error) {
+      rethrow(error, 'Failed to counter the bid');
+    }
+  }
+
+  /** The bidder's answer to the counter. A transporter answers by phone and the shipper records
+   *  it; Loadsmart's own bid is answered by Placement on the console (`asLoadsmart`). Accepted:
+   *  the counter becomes the bid's rate. */
+  async answerCounter(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    bidId: string,
+    input: CounterAnswerInput,
+    asLoadsmart = false,
+  ): Promise<BidView> {
+    try {
+      const { load, bid, now } = await this.assertLiveBid(tenantId, loadId, bidId);
+      if (bid.counterStatus !== 'pending' || !bid.counterRate) {
+        throw new ConflictError('There is no counter waiting for an answer on this bid');
+      }
+      if ((bid.source === 'loadsmart') !== asLoadsmart) {
+        throw new ConflictError(
+          bid.source === 'loadsmart'
+            ? 'Loadsmart answers a counter on its own bid from the console'
+            : "Only the shipper records a transporter's answer",
+        );
+      }
+      const rate = bid.counterRate;
+      const updated = await this.bidRepository.update(bid, {
+        counterStatus: input.accepted ? 'accepted' : 'declined',
+        counterAnsweredAt: now,
+        counterAnsweredBy: actorId,
+        ...(input.accepted ? { rate } : {}),
+        rateHistory: [
+          ...(bid.rateHistory ?? []),
+          {
+            at: now.toISOString(),
+            by: actorId,
+            kind: input.accepted ? 'counter_accepted' : 'counter_declined',
+            rate: input.accepted ? rate : bid.rate,
+          },
+        ] as never,
+      });
+      await this.bidStep(load, actorId, 'BID_COUNTER_ANSWERED', bid, {
+        accepted: input.accepted,
+        rate: updated.rate,
+      });
+      return this.toView(updated, now, null);
+    } catch (error) {
+      rethrow(error, 'Failed to record the answer to the counter');
+    }
+  }
+
+  /** The shipper rejects a live bid. Rejecting Loadsmart's bid lets Placement send another. */
+  async rejectBid(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    bidId: string,
+    reason?: string,
+  ): Promise<BidView> {
+    try {
+      const { load, bid, now } = await this.assertLiveBid(tenantId, loadId, bidId);
+      await this.bidRepository.markRejected(bid, actorId);
+      const updated = await this.bidRepository.update(bid, {
+        rejectionReason: reason?.trim() || null,
+      });
+      await this.bidStep(load, actorId, 'BID_REJECTED', bid, { reason: reason ?? null });
+      if (bid.source === 'loadsmart') await this.onLoadsmartBidRejected?.(updated, load);
+      return this.toView(updated, now, null);
+    } catch (error) {
+      rethrow(error, 'Failed to reject the bid');
+    }
+  }
+
+  /** One bid as stored — the Loadsmart ops module reads its partner bid from it. */
+  findBid(tenantId: string, loadId: string, bidId: string): Promise<LoadBidEntity | null> {
+    return this.bidRepository.findById(tenantId, loadId, bidId);
+  }
+
+  private async assertLiveBid(tenantId: string, loadId: string, bidId: string) {
+    const load = await this.assertLoad(tenantId, loadId);
+    if (load.status !== 'bids_received' || load.awardedBidId) {
+      throw new ConflictError('Bids are countered or rejected only before one is accepted');
+    }
+    const bid = await this.bidRepository.findById(tenantId, loadId, bidId);
+    if (!bid) throw new NotFoundError(`Bid ${bidId} not found on load ${loadId}`);
+    const now = this.now();
+    const status = effectiveBidStatus(bid, now);
+    if (status !== 'received') throw new ConflictError(`This bid is ${status}`);
+    return { load, bid, now };
+  }
+
+  private async bidStep(
+    load: LoadEntity,
+    actorId: string,
+    action: 'BID_COUNTERED' | 'BID_COUNTER_ANSWERED' | 'BID_REJECTED',
+    bid: LoadBidEntity,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    await this.loadActivityService.record(load.tenantId, load.id, actorId, action, null, bid.id, {
+      bidId: bid.id,
+      source: bid.source,
+      transporterId: bid.transporterId,
+      bidRate: bid.rate,
+      ...metadata,
+    });
+    await this.auditService.log({
+      tenantId: load.tenantId,
+      userId: actorId,
+      action:
+        action === 'BID_COUNTERED'
+          ? 'LOAD_BID_COUNTERED'
+          : action === 'BID_REJECTED'
+            ? 'LOAD_BID_REJECTED'
+            : 'LOAD_BID_COUNTER_ANSWERED',
+      resourceType: 'load_bid',
+      newData: { id: bid.id, loadId: load.id, ...metadata },
+    });
   }
 
   /** The shipper's bid list — live bids ranked best first, then the decided/expired ones. */
@@ -261,9 +444,18 @@ export class LoadBidService {
 
       const rate = String(input.rate);
       const live = await this.bidRepository.findLive(tenantId, loadId, input.transporterId);
+      const step = {
+        at: now.toISOString(),
+        by: actorId,
+        kind: live ? ('revised' as const) : ('bid' as const),
+        rate,
+      };
       const saved = live
         ? await this.bidRepository.update(live, {
             rate,
+            rateHistory: [...(live.rateHistory ?? []), step] as never,
+            // A new rate from the transporter replaces any counter still waiting.
+            ...(live.counterStatus === 'pending' ? { counterStatus: null, counterRate: null } : {}),
             vehicleNumber: vehicleNumber ?? live.vehicleNumber,
             truckVerified:
               vehicleNumber && vehicleNumber !== live.vehicleNumber ? null : live.truckVerified,
@@ -283,6 +475,7 @@ export class LoadBidService {
             expiresAt: bidWindowClosesAt(sentAt),
             enteredBy: actorId,
             entryReason: input.reason,
+            rateHistory: [step],
           });
       const bid = await this.checkBidTruck(saved);
 

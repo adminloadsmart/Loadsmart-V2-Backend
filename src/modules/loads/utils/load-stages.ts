@@ -1,4 +1,4 @@
-import { LOAD_STATUSES, LoadStatus, OWN_FLEET_STAGES } from './loads.types';
+import { LIFECYCLE_STAGES, LoadStatus, OWN_FLEET_STAGES } from './loads.types';
 import { StagePathLoad } from './load.interface';
 
 /**
@@ -39,12 +39,17 @@ export function isLoadsmartLoad(load: {
 export function stagePathFor(load: StagePathLoad): LoadStatus[] {
   const tookIssuesBranch =
     load.status === 'delivered_with_issues' || load.deliveryIssueSettledAt !== null;
-  const stages = load.postingType === 'own_fleet' ? OWN_FLEET_STAGES : LOAD_STATUSES;
+  const stages = load.postingType === 'own_fleet' ? OWN_FLEET_STAGES : LIFECYCLE_STAGES;
   const path: LoadStatus[] = [];
   for (const stage of stages) {
     if (stage === 'delivered_ok' && tookIssuesBranch) path.push('delivered_with_issues');
     if (stage === 'delivered_with_issues') continue;
     path.push(stage);
+  }
+  // A cancelled load stops where it was cancelled: the stages it went through, then Cancelled.
+  if (load.status === 'cancelled') {
+    const reached = load.cancelledFromStage ? path.indexOf(load.cancelledFromStage) : -1;
+    return [...path.slice(0, reached + 1), 'cancelled'];
   }
   return path;
 }

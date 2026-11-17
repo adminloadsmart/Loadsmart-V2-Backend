@@ -18,6 +18,13 @@ import {
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
+
+/** What the shipper owes now: the advance (after Loaded), the balance to their transporter, or
+ *  Loadsmart's invoice. */
+export interface AmountDue {
+  kind: 'advance' | 'balance' | 'invoice';
+  amount: string;
+}
 import { stagePathFor } from './load-stages';
 
 /**
@@ -77,7 +84,13 @@ export interface TripListRow {
   code: string;
   /** Title given when the load was posted; null if none. */
   title: string | null;
+  /** The LR number, when there is one — the list shows it first, then the title, then the
+   *  route. */
+  elrNumber: string | null;
   status: LoadStatus;
+  /** What the shipper owes on the load now, for the row's "Pay ₹…" button; null when nothing is
+   *  due (filled by LoadService.list). */
+  amountDue?: AmountDue | null;
   /** Null for loads posted straight from Post a load (no requisition). */
   requisitionId: string | null;
   /** The parent requisition's own display code `REQ-nnnn` — null only if the requisition
@@ -202,6 +215,7 @@ export function toTripListRow(
     tenantId: load.tenantId,
     code: load.code,
     title: load.title,
+    elrNumber: load.elrNumber,
     status: load.status,
     requisitionId: load.requisitionId,
     requisitionCode: req?.code ?? null,

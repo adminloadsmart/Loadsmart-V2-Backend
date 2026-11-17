@@ -38,6 +38,7 @@ export const STAGE_TRIGGERS = [
   'settled',
   'truck_cancelled_new_truck',
   'truck_cancelled_reopen',
+  'load_cancelled',
 ] as const;
 export type StageTrigger = (typeof STAGE_TRIGGERS)[number];
 
@@ -55,6 +56,12 @@ const TRUCK_CANCELLABLE: readonly LoadStatus[] = [
   'truck_assigned',
   'in_transit_loading',
   'reached_loading',
+];
+/** "Cancel should exist up to the point the truck is loaded." */
+const LOAD_CANCELLABLE_STAGES: readonly LoadStatus[] = [
+  'created',
+  'bids_received',
+  ...TRUCK_CANCELLABLE,
 ];
 
 /** The load fields the rules read. Requirements see the load as it will be after the move: the
@@ -81,6 +88,7 @@ export interface StageRuleLoad {
   advancePaidAt: Date | null;
   balancePaidAt: Date | null;
   partnerBalancePaidAt: Date | null;
+  cancelledAt: Date | null;
 }
 
 /** Fields a rule itself writes with the move (the route, whose award it is). */
@@ -233,6 +241,28 @@ export const STAGE_RULES: readonly StageRule[] = [
     routes: ['loadsmart'],
     actors: ['ls_team'],
     effect: () => ({ route: null, awardedParty: null }),
+  },
+
+  // --- Cancelled (outside the 13) -------------------------------------------------------------
+  {
+    // The shipper cancels with a reason code, any time before Loaded. A load Loadsmart has won
+    // (even before the memo makes the route loadsmart) waits for Super Admin instead.
+    trigger: 'load_cancelled',
+    from: LOAD_CANCELLABLE_STAGES,
+    to: 'cancelled',
+    routes: ['unrouted', 'own_transporter', 'indent', 'own_fleet'],
+    actors: ['shipper'],
+    before: (load) =>
+      need([load.awardedParty !== 'loadsmart', "Super Admin's approval (Loadsmart has the load)"]),
+    requires: (load) => need([!!load.cancelledAt, 'the cancellation']),
+  },
+  {
+    trigger: 'load_cancelled',
+    from: LOAD_CANCELLABLE_STAGES,
+    to: 'cancelled',
+    routes: ['loadsmart', 'unrouted'],
+    actors: ['ls_team'],
+    requires: (load) => need([!!load.cancelledAt, 'the cancellation']),
   },
 
   // --- Execution ------------------------------------------------------------------------------

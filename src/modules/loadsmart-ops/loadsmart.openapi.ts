@@ -21,7 +21,16 @@ import { loadsmartValidators as v } from './loadsmart.validators';
 
 const OPS = `${API_VERSION_PREFIX}/loadsmart-ops`;
 const LOADS = `${API_VERSION_PREFIX}/loads`;
-const ANY_TEAM = [LS_APPROVAL, LS_PLACEMENT, LS_TRACKING, LS_CS, LS_RECEIVABLES, LS_PAYABLES];
+const ANY_TEAM = [
+  LS_APPROVAL,
+  LS_PLACEMENT,
+  LS_TRACKING,
+  LS_CS,
+  LS_RECEIVABLES,
+  LS_PAYABLES,
+  LS_MONEY_APPROVE,
+  LS_SETTINGS_MANAGE,
+];
 
 type Row = {
   method: 'get' | 'post' | 'patch' | 'put';
@@ -567,6 +576,77 @@ const ROWS: Row[] = [
     description:
       'Pay the carrier balance Super Admin approved, recording the UTR. Closes the load once the shipper is settled too.',
   },
+  // Cross-team views
+  {
+    method: 'get',
+    path: `${OPS}/all-loads`,
+    op: 'loadsmart.allLoads',
+    permissions: ANY_TEAM,
+    schema: v.allLoads,
+    description:
+      'All loads (L01): every Loadsmart load whichever team holds it — shipper, route, loading time, truck, movement, money, team holding it — with counts per team. Filters: status, tenantId, team, q (code, vehicle or driver mobile). Money is shown as the caller may see it: Placement and Super Admin both sides and the margin; Tracking and Payables carrier money; Receivables and Approval shipper money; CS none.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/all-loads/{loadId}`,
+    op: 'loadsmart.loadPanel',
+    permissions: ANY_TEAM,
+    schema: v.load,
+    description:
+      "A load's panel: stage milestones, money on both sides (as the caller may see it), shipper and carrier advance status, goods and e-way bill, people with phone numbers, latest events, and the team holding it.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/approvals`,
+    op: 'loadsmart.approvals',
+    permissions: [LS_MONEY_APPROVE],
+    description:
+      'Super Admin approvals (S01): carrier advances and balances waiting (raised or on hold), load cancellations waiting, each worked out line by line with pay-to bank details, why it is here, how long it has waited and the load; plus the charges Loadsmart raised in the last 7 days. Decide on POST /partner-payments/{paymentId}/decision.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/cancellation-requests`,
+    op: 'loadsmart.cancellationRequests',
+    permissions: [LS_MONEY_APPROVE, LS_SETTINGS_MANAGE],
+    description:
+      "Shippers' cancellations of loads Loadsmart has won, waiting for Super Admin — reason code, the stage it was at, the truck on it, how long it has waited.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/cancellation-requests/{cancellationId}/decision`,
+    op: 'loadsmart.decideCancellation',
+    permissions: [LS_MONEY_APPROVE, LS_SETTINGS_MANAGE],
+    schema: v.decideCancellation,
+    description:
+      'Approve (the load moves to Cancelled: open bids rejected, the memo withdrawn, the sourcing closed) or reject with a note (the load carries on). Refused if the load was Loaded while the request waited.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/bids/{bidId}/counter-response`,
+    op: 'loadsmart.answerShipperCounter',
+    permissions: [LS_PLACEMENT],
+    schema: v.answerShipperCounter,
+    description:
+      "Placement answers the shipper's counter on Loadsmart's bid. Accepted: the counter becomes Loadsmart's price — the margin rules apply again (a note under the minimum, never at a loss). Declined: the bid stays at its price.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/analytics`,
+    op: 'loadsmart.analytics',
+    permissions: [LS_MONEY_APPROVE, LS_SETTINGS_MANAGE],
+    schema: v.analytics,
+    description:
+      'Analytics (S02) for [from, to) against the period before: posted, placed (% of posted), billed, gross margin vs the central margin, hours to place, on time; loads posted per day; funnel; median hours per team step and per stage; margin by lane; money position (receivables by age, days to collect, paid to carriers); top shippers.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/live-map`,
+    op: 'loadsmart.liveMap',
+    permissions: [LS_TRACKING, LS_MONEY_APPROVE, LS_SETTINGS_MANAGE],
+    schema: v.liveMap,
+    description:
+      "Live map (T07): every live Loadsmart load (truck assigned to reached unloading) with its last position and ETA from the tracking service, and a status — moving, no signal (2 h), needs action (papers or POD waiting, no unloading details, running late). 'At a stop' needs a halt flag from tracking. Find by code, vehicle or driver mobile.",
+  },
   {
     method: 'get',
     path: `${OPS}/loads/{loadId}`,
@@ -583,7 +663,17 @@ const ROWS: Row[] = [
     op: 'loads.listCharges',
     schema: v.load,
     permissions: [PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE],
-    description: 'Charges on a Loadsmart load.',
+    description:
+      'Charges on a Loadsmart load, each with `paidWith` (advance: loading-side charges; balance: the rest) and a `proofUrl`.',
+  },
+  {
+    method: 'post',
+    path: `${LOADS}/loads/{loadId}/charges/decisions`,
+    op: 'loads.decideCharges',
+    permissions: [DISPATCH_PLANNING_MANAGE],
+    schema: v.decideCharges,
+    description:
+      'Approve, reject or query several charges Loadsmart raised in one go ("Approve charges of ₹4,850"). Applied in order; the first that fails stops the rest.',
   },
   {
     method: 'post',
@@ -636,7 +726,7 @@ const ROWS: Row[] = [
     schema: v.load,
     permissions: [PAYMENTS_MANAGE],
     description:
-      "Loadsmart's invoice and its PDF. Report a payment with POST /loads/{loadId}/payments/balance (with the UTR); Receivables matches it against the bank.",
+      "Loadsmart's invoice and its PDF, with `payTo` (Loadsmart's bank account and UPI from Settings), `openAmount`, `dueDate` and `creditDays`. Report a payment with POST /loads/{loadId}/payments/balance (with the UTR); Receivables matches it against the bank.",
   },
   {
     method: 'get',

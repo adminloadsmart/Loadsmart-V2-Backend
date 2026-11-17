@@ -13,6 +13,9 @@ import { LoadActivityService } from '../activity/load-activity.service';
 import { LoadStageService } from '../core/load-stage.service';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadPaymentEntity } from '../entities/load-payment.entity';
+import type { AmountDue } from '../utils/trip-view';
+import { MONEY_LOAD_STATUSES } from '../utils/loads.types';
+import { ShipperAction, shipperActionFor } from '../utils/shipper-action';
 import {
   RecordAdvanceInput,
   RecordBalanceInput,
@@ -259,6 +262,72 @@ export class LoadPaymentService {
       rethrow(error, 'Failed to record balance payment');
     }
   }
+
+  /** Set by the loads module once the memo repository exists: is a memo out for the shipper? */
+  private memoWaiting?: (tenantId: string, loadId: string) => Promise<boolean>;
+
+  setMemoReader(reader: (tenantId: string, loadId: string) => Promise<boolean>): void {
+    this.memoWaiting = reader;
+  }
+
+  /** The one thing the shipper's load screen asks of them now (utils/shipper-action.ts). */
+  async nextAction(tenantId: string, loadId: string): Promise<ShipperAction> {
+    try {
+      const load = await this.assertLoad(tenantId, loadId);
+      const [charges, payments, memoWaiting] = await Promise.all([
+        this.charges.listForLoad(tenantId, loadId),
+        this.repository.listByLoad(tenantId, loadId),
+        this.memoWaiting?.(tenantId, loadId) ?? Promise.resolve(false),
+      ]);
+      const pending = charges.filter((charge) => charge.status === 'raised');
+      const invoiceOpen =
+        load.route === 'loadsmart'
+          ? await this.loadsmartBilling?.balanceDueOf(tenantId, loadId)
+          : null;
+      return shipperActionFor({
+        ...load,
+        pendingCharges: {
+          count: pending.length,
+          total: pending.reduce((sum, charge) => sum + Number(charge.amount), 0),
+        },
+        invoiceOpen: invoiceOpen === null || invoiceOpen === undefined ? null : Number(invoiceOpen),
+        paymentPendingMatch: payments.some(
+          (payment) =>
+            payment.paymentType === 'balance' && payment.verificationStatus === 'pending',
+        ),
+        memoWaiting,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to work out the next action');
+    }
+  }
+
+  /** What the shipper owes on the load right now — a list row's "Pay ₹…": Loadsmart's invoice
+   *  (what is still open), the balance to their transporter once its invoice is in, or the
+   *  advance once Loaded. Null when nothing is due. */
+  amountDueFor = async (load: LoadEntity): Promise<AmountDue | null> => {
+    if (load.route === 'own_fleet' || load.status === 'closed' || load.status === 'cancelled') {
+      return null;
+    }
+    if (load.route === 'loadsmart') {
+      if (load.balancePaidAt || !MONEY_LOAD_STATUSES.includes(load.status)) return null;
+      const open = await this.loadsmartBilling?.balanceDueOf(load.tenantId, load.id);
+      return open && Number(open) > 0 ? { kind: 'invoice', amount: open } : null;
+    }
+    if (load.route !== 'own_transporter' && load.route !== 'indent') return null;
+    if (MONEY_LOAD_STATUSES.includes(load.status) && !load.balancePaidAt) {
+      const summary = await this.summaryOf(load);
+      return summary.balanceDue > 0
+        ? { kind: 'balance', amount: summary.balanceDue.toFixed(2) }
+        : null;
+    }
+    if (load.loadingConfirmedAt && !load.advancePaidAt && Number(load.advancePercentage ?? 0) > 0) {
+      const summary = await this.summaryOf(load);
+      const advance = ((summary.freightTotal ?? 0) * Number(load.advancePercentage)) / 100;
+      return advance > 0 ? { kind: 'advance', amount: advance.toFixed(2) } : null;
+    }
+    return null;
+  };
 
   /** Where the load's money stands — freight, advance, approved charges by head, the deduction,
    *  and the balance due under each head. */

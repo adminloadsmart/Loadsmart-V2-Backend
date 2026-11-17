@@ -556,6 +556,8 @@ export function buildContainer(dataSource: DataSource): Container {
     loadDocumentService: loads.loadDocumentService,
     loadPostingService: loads.loadPosting.postingService,
     elrService: loads.elrService,
+    trackingClient,
+    loadCancelService: loads.loadCancelService,
   });
   loads.protectedRouter.use(loadsmart.shipperRouter);
   // Super Admin → Settings on the ops console: /loadsmart-ops/settings.

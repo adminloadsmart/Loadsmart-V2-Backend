@@ -18,7 +18,16 @@ import {
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
 import { loadsmartValidators as v } from './loadsmart.validators';
 
-const ANY_TEAM = [LS_APPROVAL, LS_PLACEMENT, LS_TRACKING, LS_CS, LS_RECEIVABLES, LS_PAYABLES];
+const ANY_TEAM = [
+  LS_APPROVAL,
+  LS_PLACEMENT,
+  LS_TRACKING,
+  LS_CS,
+  LS_RECEIVABLES,
+  LS_PAYABLES,
+  LS_MONEY_APPROVE,
+  LS_SETTINGS_MANAGE,
+];
 
 /** /v1/loadsmart-ops — the ops console. Each team's routes are gated by its own permission
  *  (platform_admin passes every gate). */
@@ -147,6 +156,13 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_PLACEMENT),
     validate(v.sendBid),
     asyncHandler(c.sendBid),
+  );
+  // The shipper countered Loadsmart's bid — Placement answers.
+  router.post(
+    '/loads/:loadId/bids/:bidId/counter-response',
+    team(LS_PLACEMENT),
+    validate(v.answerShipperCounter),
+    asyncHandler(c.answerShipperCounter),
   );
   router.post(
     '/loads/:loadId/driver',
@@ -385,6 +401,36 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.partnerBalance),
   );
 
+  // Cross-team views. Every team reads All loads (money as it may see it); Super Admin has the
+  // approvals queue and analytics; Tracking and Super Admin the live map.
+  router.get('/all-loads', anyTeam, validate(v.allLoads), asyncHandler(c.allLoads));
+  router.get('/all-loads/:loadId', anyTeam, validate(v.load), asyncHandler(c.loadPanel));
+  router.get('/approvals', team(LS_MONEY_APPROVE), asyncHandler(c.approvals));
+  // A shipper's cancellation of a load Loadsmart has won waits for Super Admin.
+  router.get(
+    '/cancellation-requests',
+    team(LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    asyncHandler(c.cancellationRequests),
+  );
+  router.post(
+    '/cancellation-requests/:cancellationId/decision',
+    team(LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    validate(v.decideCancellation),
+    asyncHandler(c.decideCancellation),
+  );
+  router.get(
+    '/analytics',
+    team(LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    validate(v.analytics),
+    asyncHandler(c.analytics),
+  );
+  router.get(
+    '/live-map',
+    team(LS_TRACKING, LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    validate(v.liveMap),
+    asyncHandler(c.liveMap),
+  );
+
   router.get('/loads/:loadId', anyTeam, validate(v.load), asyncHandler(c.loadDetail));
   return router;
 }
@@ -403,6 +449,12 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     canSeeChargesAndClaims,
     validate(v.load),
     asyncHandler(c.listCharges),
+  );
+  router.post(
+    '/loads/:loadId/charges/decisions',
+    canDispatch,
+    validate(v.decideCharges),
+    asyncHandler(c.decideCharges),
   );
   router.post(
     '/loads/:loadId/charges/:chargeId/decision',

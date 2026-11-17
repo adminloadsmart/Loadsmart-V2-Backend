@@ -10,8 +10,9 @@ import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
 import { LoadChargeEntity } from '../loads/money/load-charge.entity';
 import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
-import { ChargeType } from './loadsmart.types';
+import { ChargeType, LOADING_SIDE_HEADS } from './loadsmart.types';
 import { LsServiceBase } from './ls-base';
+import { SettingsReader } from '../settings/settings.types';
 import {
   AddChargeInput,
   BundleDocument,
@@ -61,6 +62,8 @@ export class LsShipperService extends LsServiceBase {
     private readonly loadPaymentRepository: LoadPaymentRepository,
     private readonly memoRepository: LoadMemoRepository,
     private readonly storageService: StorageService,
+    /** Loadsmart's bank account for Pay invoice (Super Admin → Settings). */
+    private readonly settings: SettingsReader,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -78,9 +81,40 @@ export class LsShipperService extends LsServiceBase {
     return load;
   }
 
-  async listCharges(tenantId: string, loadId: string): Promise<LoadChargeEntity[]> {
+  /** The load's charges, each with what it is paid with (loading-side charges with the advance,
+   *  the rest with the balance) and a link to its proof. */
+  async listCharges(tenantId: string, loadId: string, role = 'org_admin') {
     await this.assertLoad(tenantId, loadId);
-    return this.repository.listCharges(tenantId, loadId);
+    const charges = await this.repository.listCharges(tenantId, loadId);
+    return Promise.all(
+      charges.map(async (charge) => ({
+        ...charge,
+        paidWith: LOADING_SIDE_HEADS.includes(charge.chargeType)
+          ? ('advance' as const)
+          : ('balance' as const),
+        proofUrl: charge.proofFileKey
+          ? await this.storageService
+              .getByKey({ tenantId, role }, charge.proofFileKey)
+              .then((file) => file.downloadUrl)
+              .catch(() => null)
+          : null,
+      })),
+    );
+  }
+
+  /** "Approve charges of ₹4,850" — several decisions in one go; each is applied in turn and the
+   *  first that fails stops the rest. */
+  async decideCharges(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    decisions: (ChargeDecisionInput & { chargeId: string })[],
+  ): Promise<LoadChargeEntity[]> {
+    const decided: LoadChargeEntity[] = [];
+    for (const { chargeId, ...input } of decisions) {
+      decided.push(await this.decideCharge(tenantId, actorId, loadId, chargeId, input));
+    }
+    return decided;
   }
 
   /** "Approves the loading charge if Loadsmart raises one" — and detention, and unloading. */
@@ -228,7 +262,16 @@ export class LsShipperService extends LsServiceBase {
     const downloadUrl = invoice.fileKey
       ? (await this.storageService.getByKey({ tenantId, role }, invoice.fileKey)).downloadUrl
       : null;
-    return { invoice, downloadUrl };
+    const { values } = await this.settings.current();
+    // Pay invoice: where to pay, what is still open, and when it falls due.
+    return {
+      invoice,
+      downloadUrl,
+      payTo: values.loadsmartPayee,
+      openAmount: invoice.openAmount ?? invoice.balanceDue,
+      dueDate: invoice.dueDate,
+      creditDays: invoice.creditDays,
+    };
   }
 
   /** "The load memo, documents and payments stay on the load to download." */

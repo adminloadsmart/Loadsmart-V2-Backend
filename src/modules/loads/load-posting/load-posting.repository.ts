@@ -98,6 +98,28 @@ export class LoadPostingRepository {
     return repo.save(repo.create(data));
   }
 
+  /** An edit of a posted load (LoadPostingService.editPosting / editDetails). */
+  async updatePosting(
+    tenantId: string,
+    id: string,
+    data: Partial<CreatePostingData>,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = manager?.getRepository(LoadPostingEntity) ?? this.postings;
+    await repo.update({ id, tenantId }, data as never);
+  }
+
+  /** How many bids the posting's loads have had — any bid locks the full edit. */
+  async countBids(tenantId: string, loadIds: string[]): Promise<number> {
+    if (!loadIds.length) return 0;
+    const rows = (await this.postings.manager.query(
+      `SELECT COUNT(*)::int AS "count" FROM "loads"."load_bids"
+        WHERE "tenant_id" = $1 AND "load_id" = ANY($2)`,
+      [tenantId, loadIds],
+    )) as { count: number }[];
+    return rows[0]?.count ?? 0;
+  }
+
   findPostingByIdempotencyKey(tenantId: string, idempotencyKey: string) {
     return this.postings.findOneBy({ tenantId, idempotencyKey });
   }

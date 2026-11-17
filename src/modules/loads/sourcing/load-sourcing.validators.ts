@@ -34,6 +34,24 @@ export const loadSourcingValidators = {
   }),
 
   acceptBid: z.object({ params: bidParams }),
+  // Counter a live bid; record the bidder's answer; reject a bid.
+  counterBid: z.object({
+    params: bidParams,
+    body: z
+      .object({
+        rate: z.number().positive().max(100_000_000),
+        note: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
+  }),
+  answerCounter: z.object({
+    params: bidParams,
+    body: z.object({ accepted: z.boolean() }).strict(),
+  }),
+  rejectBid: z.object({
+    params: bidParams,
+    body: z.object({ reason: z.string().trim().min(1).max(500).optional() }).strict(),
+  }),
 
   // The contracted transporter rejected the indent — the load goes to the open market.
   recordIndentRejection: z.object({
@@ -55,6 +73,16 @@ export const loadSourcingValidators = {
       .strict(),
   }),
   listTruckCancellations: z.object({ params }),
+  // Cancel the whole load, before Loaded.
+  cancelLoad: z.object({
+    params,
+    body: z
+      .object({
+        reasonCode: z.string().trim().min(2).max(50),
+        note: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
+  }),
   listMemos: z.object({ params }),
 
   // The contracted transporter accepts the indent and sends the truck number.

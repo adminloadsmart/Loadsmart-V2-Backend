@@ -10,6 +10,8 @@ import { LsTrackingService } from './ls-tracking.service';
 import { LsCsService } from './ls-cs.service';
 import { LsReceivablesService } from './ls-receivables.service';
 import { LsPayablesService, OriginalPodFilter } from './ls-payables.service';
+import { AllLoadsQuery, LsConsoleService } from './ls-console.service';
+import type { LiveStatus } from './console-rules';
 import { LoadsmartActor, LoadsmartRouteParams, PartnerInput } from './loadsmart.interface';
 import { PartnerPaymentStatus, UnclaimedStatus } from './loadsmart.types';
 
@@ -26,7 +28,41 @@ export class LoadsmartOpsController {
     private readonly cs: LsCsService,
     private readonly receivables: LsReceivablesService,
     private readonly payables: LsPayablesService,
+    private readonly consoleViews: LsConsoleService,
   ) {}
+
+  // --- Cross-team views: All loads (L01), approvals (S01), analytics (S02), live map (T07) ---
+  allLoads = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.consoleViews.allLoads(req.user!, (req.validatedQuery ?? {}) as AllLoadsQuery),
+    );
+  loadPanel = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(res, await this.consoleViews.loadPanel(req.user!, req.params.loadId));
+  approvals = async (_req: Request, res: Response) =>
+    respond(res, await this.consoleViews.approvals());
+  cancellationRequests = async (_req: Request, res: Response) =>
+    respond(res, await this.consoleViews.cancellationRequests());
+  decideCancellation = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(
+      res,
+      await this.consoleViews.decideCancellation(
+        req.user!.id,
+        req.params.cancellationId!,
+        req.body,
+      ),
+    );
+  analytics = async (req: Request, res: Response) => {
+    const { from, to } = req.validatedQuery as { from: Date; to: Date };
+    respond(res, await this.consoleViews.analytics(from, to));
+  };
+  liveMap = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.consoleViews.liveMap(
+        (req.validatedQuery ?? {}) as { q?: string; status?: LiveStatus[] },
+      ),
+    );
 
   // --- Tracking: charges, e-LR, carrier advance ---
   raiseCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>
@@ -171,6 +207,16 @@ export class LoadsmartOpsController {
 
   rate = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.settlement.rate(req.user!.id, req.params.loadId, req.body));
+  answerShipperCounter = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(
+      res,
+      await this.sourcing.answerShipperCounter(
+        req.user!.id,
+        req.params.loadId,
+        req.params.bidId!,
+        req.body,
+      ),
+    );
   rerunChecks = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(res, await this.sourcing.rerunChecks(req.user!.id, req.params.loadId));
   confirmMemo = async (req: Request<LoadsmartRouteParams>, res: Response) =>
@@ -288,7 +334,20 @@ export class LoadsmartShipperController {
   constructor(private readonly service: LsShipperService) {}
 
   listCharges = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    respond(res, await this.service.listCharges(requireTenantId(req), req.params.loadId));
+    respond(
+      res,
+      await this.service.listCharges(requireTenantId(req), req.params.loadId, req.user!.role),
+    );
+  decideCharges = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    respond(
+      res,
+      await this.service.decideCharges(
+        requireTenantId(req),
+        req.user!.id,
+        req.params.loadId,
+        req.body.decisions,
+      ),
+    );
   decideCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,

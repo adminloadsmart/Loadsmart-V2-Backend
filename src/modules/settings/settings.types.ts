@@ -11,6 +11,8 @@ import { z } from 'zod';
  */
 
 const DAY_MINUTES = 24 * 60;
+/** "Balance-due days … capped at 45 days since Loadsmart is MSME-registered." */
+export const MSME_CREDIT_DAYS_CAP = 45;
 const minutes = (min: number, max: number) => z.number().int().min(min).max(max);
 
 /** "Reason codes: bid other than L1, load lost, carrier not interested, no vehicle, truck cancelled
@@ -52,9 +54,29 @@ const settingsShape = {
   originalPodDueDays: z.number().int().min(1).max(90),
   /** … then this much a day comes off the carrier's balance. */
   originalPodPenaltyPerDay: z.number().min(0).max(100_000),
-  /** Shipper credit: mostly 3 days, at most 10 (per shipper from onboarding). */
-  defaultShipperCreditDays: z.number().int().min(0).max(90),
-  maxShipperCreditDays: z.number().int().min(0).max(90),
+  /** Shipper credit: per shipper from onboarding, never more than 45 days (Loadsmart is
+   *  MSME-registered — the Figma review, replacing the spec's "at most 10"). */
+  defaultShipperCreditDays: z.number().int().min(0).max(MSME_CREDIT_DAYS_CAP),
+  maxShipperCreditDays: z.number().int().min(0).max(MSME_CREDIT_DAYS_CAP),
+  /** Loadsmart's bank account shippers pay invoices into (Pay invoice). Null until Super Admin
+   *  fills it in. */
+  loadsmartPayee: z
+    .object({
+      legalName: z.string().trim().min(1).max(200).nullable(),
+      bankName: z.string().trim().min(1).max(150).nullable(),
+      accountNumber: z
+        .string()
+        .trim()
+        .regex(/^\d{6,20}$/, '6–20 digits')
+        .nullable(),
+      ifsc: z
+        .string()
+        .trim()
+        .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'An 11-character IFSC')
+        .nullable(),
+      upiId: z.string().trim().min(3).max(100).nullable(),
+    })
+    .strict(),
   /** Loadsmart's invoice: GST on transport (GTA) — under reverse charge the shipper pays it. */
   gstPercent: z.number().min(0).max(28),
   gstReverseCharge: z.boolean(),
@@ -112,7 +134,8 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   originalPodDueDays: 15,
   originalPodPenaltyPerDay: 100,
   defaultShipperCreditDays: 3,
-  maxShipperCreditDays: 10,
+  maxShipperCreditDays: MSME_CREDIT_DAYS_CAP,
+  loadsmartPayee: { legalName: null, bankName: null, accountNumber: null, ifsc: null, upiId: null },
   gstPercent: 5,
   gstReverseCharge: true,
   loadsmartGstStateCode: '03',

@@ -160,6 +160,26 @@ export interface DraftParams {
 /** Set by the Loadsmart ops module once built — every market posting opens a sourcing too. */
 export interface LoadPostingHooks {
   onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
+  /** A market posting was edited before any bid — the Loadsmart sourcing re-reads it. */
+  onMarketLoadsEdited?: (loads: LoadEntity[], actorId: string) => Promise<void>;
+}
+
+/** Area-level refinement of an address after bids: never the city or state the bids were given
+ *  against. */
+export interface AddressAreaInput {
+  addressLine1?: string;
+  areaLocality?: string;
+  pinCode?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+/** What can still change once bids are in ("only pickup/drop at an area level and contacts" —
+ *  the contacts have their own endpoints), plus the truck's reporting time. */
+export interface EditPostingDetailsInput {
+  pickupAt?: string;
+  pickupArea?: AddressAreaInput;
+  dropArea?: AddressAreaInput;
 }
 
 /** An own-fleet truck and driver that can take the trip (LoadPostingService's availability

@@ -25,6 +25,7 @@ import { LoadDocumentRepository } from './documents/load-document.repository';
 import { LoadDocumentService } from './documents/load-document.service';
 import { LoadChargeService } from './money/load-charge.service';
 import { TruckCancellationService } from './sourcing/truck-cancellation.service';
+import { LoadCancelService } from './sourcing/load-cancel.service';
 import { LoadDocumentController } from './documents/load-document.controller';
 import { createLoadDocumentRoutes } from './documents/load-document.routes';
 import { DispatchPlanningService } from './dispatch-planning/dispatch-planning.service';
@@ -43,7 +44,7 @@ import { LoadStatus } from './utils/loads.types';
 import { LoadBidRepository } from './bids/load-bid.repository';
 import { LoadBidService } from './bids/load-bid.service';
 import { LoadMemoRepository } from './memo/load-memo.repository';
-import { LoadMemoService } from './memo/load-memo.service';
+import { effectiveMemoStatus, LoadMemoService } from './memo/load-memo.service';
 import { LoadSourcingController } from './sourcing/load-sourcing.controller';
 import { createLoadSourcingRoutes } from './sourcing/load-sourcing.routes';
 import { ElrService } from './elr/elr.service';
@@ -245,6 +246,11 @@ export function createLoadsModule(
 
   // Sourcing — bids, indent acceptance, driver and load memo (market and indent loads).
   const loadMemoRepository = new LoadMemoRepository(dataSource);
+  // The shipper's next action needs to know whether a memo is out for them.
+  loadPaymentService.setMemoReader(async (tenantId, loadId) => {
+    const memo = await loadMemoRepository.findLatest(tenantId, loadId);
+    return !!memo && effectiveMemoStatus(memo, new Date()) === 'sent';
+  });
   const loadBidService = new LoadBidService(
     loadBidRepository,
     loadRepository,
@@ -268,6 +274,7 @@ export function createLoadsModule(
     deps.storageService,
     loadDocumentService,
   );
+  loadService.setAmountDueResolver(loadPaymentService.amountDueFor);
   const truckCancellationService = new TruckCancellationService(
     dataSource,
     loadRepository,
@@ -275,9 +282,24 @@ export function createLoadsModule(
     loadActivityService,
     deps.settings,
   );
+  const loadCancelService = new LoadCancelService(
+    dataSource,
+    loadRepository,
+    loadStageService,
+    loadBidRepository,
+    loadMemoRepository,
+    loadActivityService,
+    deps.auditService,
+    deps.settings,
+  );
   protectedRouter.use(
     createLoadSourcingRoutes(
-      new LoadSourcingController(loadBidService, loadMemoService, truckCancellationService),
+      new LoadSourcingController(
+        loadBidService,
+        loadMemoService,
+        truckCancellationService,
+        loadCancelService,
+      ),
     ),
   );
 
@@ -316,6 +338,7 @@ export function createLoadsModule(
     stageHooks,
     loadRepository,
     elrService,
+    loadCancelService,
     loadDocumentService,
     protectedRouter,
     loadRemindersWorker: createLoadRemindersWorker(loadRepository, deps.driverTripNotifier),

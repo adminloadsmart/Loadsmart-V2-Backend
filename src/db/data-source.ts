@@ -69,6 +69,7 @@ import { LoadActivityEntity } from '../modules/loads/entities/load-activity.enti
 import { LoadStageHistoryEntity } from '../modules/loads/entities/load-stage-history.entity';
 import { LoadDocumentEntity } from '../modules/loads/documents/load-document.entity';
 import { LoadRouteChangeEntity } from '../modules/loads/entities/load-route-change.entity';
+import { LoadCancellationEntity } from '../modules/loads/entities/load-cancellation.entity';
 import { LoadIssueReportEntity } from '../modules/loads/entities/load-issue-report.entity';
 import { CodeSequenceEntity } from '../modules/loads/entities/code-sequence.entity';
 import { LoadPostingEntity } from '../modules/loads/load-posting/entities/load-posting.entity';
@@ -177,6 +178,7 @@ export const AppDataSource = new DataSource({
     LoadStageHistoryEntity,
     LoadDocumentEntity,
     LoadRouteChangeEntity,
+    LoadCancellationEntity,
     LoadIssueReportEntity,
     CodeSequenceEntity,
     LoadPostingEntity,
@@ -213,4 +215,8 @@ export const AppDataSource = new DataSource({
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,
   // __dirname = dist/db, matches the tsc-compiled .js migrations).
   migrations: [`${__dirname}/migrations/*.{js,ts}`],
+  // One transaction per migration (not one for the whole run). Required because some
+  // migrations set `transaction = false` to add Postgres enum values before using them,
+  // and TypeORM refuses per-migration overrides when the global mode is "all".
+  migrationsTransactionMode: 'each',
 });

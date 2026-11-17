@@ -630,6 +630,22 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/next-action`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.nextAction',
+    ...authenticated(
+      'The one thing the load screen asks of the shipper now — `kind`: pick_bid, accept_memo, ' +
+        'send_invoice (Loadsmart load: the goods invoice makes the e-LR), loading_papers, ' +
+        'approve_charges (with count and amount), record_advance, upload_pod, settle_issue, ' +
+        'upload_transporter_invoice, record_balance, pay_invoice (with amount), or none (with a ' +
+        'reason when it helps, e.g. the payment is being matched).',
+    ),
+    request: { params: loadPaymentValidators.summary.shape.params },
+    responses: { 200: { description: '{ kind, amount?, count?, reason? }' } },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: `${BASE}/loads/{loadId}/transporter-charges`,
     tags: [TAGS.LOADS],
