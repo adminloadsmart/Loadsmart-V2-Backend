@@ -23,6 +23,8 @@ function setup() {
     markDepartedPickup: vi.fn(),
     markReachedDeliveryPoint: vi.fn(),
     markDepartedDrop: vi.fn(),
+    markTripStarted: vi.fn(),
+    markDetentionDetected: vi.fn(),
     notifyGeofenceTransition: vi.fn(),
   });
   return { enqueue, handlers };

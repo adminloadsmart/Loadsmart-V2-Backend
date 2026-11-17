@@ -81,6 +81,9 @@ export type VehicleHaltStep = (typeof VEHICLE_HALT_ALERT_STEPS)[number]['step'];
 /** LS_N_0027 — the truck's latest position must be this close to where the halt started for it
  *  to still count as the same halt (tracking's HALT-GPS clubbing radius). */
 export const VEHICLE_HALT_SAME_SPOT_M = 500;
+/** …and for a halt tracked by SIM (tracking's HALT-SIM): cell-tower positions wander by hundreds
+ *  of metres to a kilometre or more, so the same spot is judged against a wider radius. */
+export const VEHICLE_HALT_SAME_SPOT_SIM_M = 1500;
 
 /** IFSC bank code (first four letters) → display name, for the advance-due card. A code not
  *  listed here is shown as-is. */

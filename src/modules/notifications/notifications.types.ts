@@ -73,10 +73,18 @@ export type LoadStageHandoffStage = (typeof LOAD_STAGE_HANDOFF_STAGES)[number];
 // the delivery point's geofence, entered / left any geofence (its own alert), and a rule alert
 // opened (only HALT-GPS is acted on — LS_N_0027).
 export const TRACKING_EVENT_TYPES = [
+  // The truck moved the trip-start distance (3 km; for SIM, 2 distinct pings) from where it was
+  // assigned: the load moves to "In transit to loading" (stage 4).
+  'trip.started',
   'trip.arrived_at_pickup',
   'trip.departed_pickup',
+  // The truck entered the drop's geofence (sent at once — "will reach shortly"); the arrival
+  // itself ('trip.arrived_at_drop') comes only after it has been stopped inside for 10 min.
+  'trip.entered_drop_geofence',
   'trip.arrived_at_drop',
   'trip.departed_drop',
+  // Inside the loading or unloading geofence for more than the detention time (24 h).
+  'trip.detention_detected',
   'geofence.entered',
   'geofence.exited',
   // LS_N_0028 / LS_N_0029 / LS_N_0030 — tracking decides when; this backend only sends.

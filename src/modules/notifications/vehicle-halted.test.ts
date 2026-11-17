@@ -110,6 +110,14 @@ describe('vehicleHalted resolver (LS_N_0027)', () => {
     expect(await setup({ eta: null })()).toBeNull();
   });
 
+  it('a SIM-tracked halt tolerates the coarser SIM positions (same spot within 1.5 km, not 500 m)', async () => {
+    const drifted = { ...freshPosition, lat: ANCHOR.lat + 0.01 }; // ~1.1 km
+    expect(await setup({ position: drifted })()).toBeNull();
+    expect(await setup({ position: drifted })({ ...context, sim: true })).not.toBeNull();
+    const gone = { ...freshPosition, lat: ANCHOR.lat + 0.02 }; // ~2.2 km: moved on
+    expect(await setup({ position: gone })({ ...context, sim: true })).toBeNull();
+  });
+
   it('skips when the truck has moved on or tracking has no fresh position', async () => {
     const moved = { ...freshPosition, lat: ANCHOR.lat + 0.01 }; // ~1.1 km
     expect(await setup({ position: moved })()).toBeNull();
@@ -178,7 +186,7 @@ describe('load.vehicle_halted content', () => {
   });
 });
 
-describe("tracking's HALT-GPS alert.opened", () => {
+describe("tracking's HALT-GPS / HALT-SIM alert.opened", () => {
   const event = (payload: Record<string, unknown>): TrackingEvent => ({
     streamId: '1-0',
     eventId: '42',
@@ -194,6 +202,8 @@ describe("tracking's HALT-GPS alert.opened", () => {
       markDepartedPickup: vi.fn(),
       markReachedDeliveryPoint: vi.fn(),
       markDepartedDrop: vi.fn(),
+      markTripStarted: vi.fn(),
+      markDetentionDetected: vi.fn(),
       notifyGeofenceTransition: vi.fn(),
     });
     const haltStartedAt = new Date(Date.now() - 10 * 60_000);
@@ -226,6 +236,38 @@ describe("tracking's HALT-GPS alert.opened", () => {
     expect(Math.abs(calls[0][3].delayMs - expected2h)).toBeLessThan(5000);
   });
 
+  it("queues the same checks for tracking's HALT-SIM alert, flagged as SIM", async () => {
+    const enqueue = vi.fn(async () => undefined);
+    const handlers = createTrackingEventHandlers({ enqueue } as unknown as NotificationTriggers, {
+      markArrivedAtPickup: vi.fn(),
+      markDepartedPickup: vi.fn(),
+      markReachedDeliveryPoint: vi.fn(),
+      markDepartedDrop: vi.fn(),
+      markTripStarted: vi.fn(),
+      markDetentionDetected: vi.fn(),
+      notifyGeofenceTransition: vi.fn(),
+    });
+    await handlers['alert.opened']!(
+      event({
+        id: 'alert-2',
+        rule_id: 'HALT-SIM',
+        trip_id: 'load-1',
+        tenant_id: 'tenant-1',
+        payload: {
+          haltStartedAt: new Date(Date.now() - 40 * 60_000).toISOString(),
+          anchor: ANCHOR,
+          source: 'sim',
+        },
+      }),
+    );
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    const calls = enqueue.mock.calls as unknown as [string, string, VehicleHaltedContext][];
+    expect(calls.map(([, , ctx]) => [ctx.step, ctx.sim])).toEqual([
+      ['2h', true],
+      ['6h', true],
+    ]);
+  });
+
   it("ignores other rules' alerts", async () => {
     const enqueue = vi.fn();
     const handlers = createTrackingEventHandlers({ enqueue } as unknown as NotificationTriggers, {
@@ -233,6 +275,8 @@ describe("tracking's HALT-GPS alert.opened", () => {
       markDepartedPickup: vi.fn(),
       markReachedDeliveryPoint: vi.fn(),
       markDepartedDrop: vi.fn(),
+      markTripStarted: vi.fn(),
+      markDetentionDetected: vi.fn(),
       notifyGeofenceTransition: vi.fn(),
     });
     await handlers['alert.opened']!(event({ id: 'a', rule_id: 'OVER-GPS', trip_id: 'load-1' }));

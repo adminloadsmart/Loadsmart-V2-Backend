@@ -781,10 +781,18 @@ export type TrackingStreamEntry = [id: string, fields: string[]];
  *  loading point", departure → "In transit to unloading", drop arrival → "Reached unloading
  *  point") and GeofenceService's own geofence alerts. */
 export interface TrackingEventHandlerDeps {
+  markTripStarted(tenantId: string, loadId: string, at: Date): Promise<boolean>;
   markArrivedAtPickup(tenantId: string, loadId: string, at: Date): Promise<boolean>;
   markDepartedPickup(tenantId: string, loadId: string, at: Date): Promise<boolean>;
   markReachedDeliveryPoint(tenantId: string, loadId: string, at: Date): Promise<boolean>;
   markDepartedDrop(tenantId: string, loadId: string, at: Date): Promise<boolean>;
+  /** Flags the load "Detention detected" (once); true only the first time. */
+  markDetentionDetected(
+    tenantId: string,
+    loadId: string,
+    point: 'loading' | 'unloading',
+    at: Date,
+  ): Promise<boolean>;
   notifyGeofenceTransition(notice: GeofenceTransitionNotice): Promise<void>;
 }
 

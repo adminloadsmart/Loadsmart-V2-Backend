@@ -31,6 +31,8 @@ import {
   VehicleLoadedContext,
   VehicleNotReportedContext,
   VehicleReachedDropContext,
+  VehicleNearingDropContext,
+  DetentionDetectedContext,
   VehicleReachedPickupContext,
 } from './catalog/notification-catalog';
 import { findHaltExclusion } from './halt-exclusions';
@@ -45,6 +47,7 @@ import {
   TRIP_COMPLETED_FALLBACK_MS,
   MS_PER_MINUTE,
   VEHICLE_HALT_SAME_SPOT_M,
+  VEHICLE_HALT_SAME_SPOT_SIM_M,
 } from './notifications.constants';
 import {
   DescribeLocation,
@@ -450,6 +453,39 @@ export function createLoadAlertResolvers(
       };
     },
 
+    /** Tracking's drop-geofence entry — null once the load is past the drop (or gone). */
+    vehicleNearingDrop: async (
+      tenantId: string,
+      context: VehicleNearingDropContext,
+    ): Promise<VehicleNearingDropContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || ARRIVED_AT_DELIVERY_STATUSES.includes(snapshot.status as LoadStatus)) {
+        return null;
+      }
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        destination: snapshot.destinationCity,
+      };
+    },
+
+    /** Tracking's detention flag — null once the load has left the trip (delivered / closed). */
+    detentionDetected: async (
+      tenantId: string,
+      context: DetentionDetectedContext,
+    ): Promise<DetentionDetectedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || UNLOADED_LOAD_STATUSES.includes(snapshot.status as LoadStatus)) return null;
+      if (snapshot.status === 'closed') return null;
+      const sinceMs = new Date(context.enteredAt ?? context.detectedAt).getTime();
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        place: context.point === 'loading' ? snapshot.originCity : snapshot.destinationCity,
+        hoursInside: (Date.now() - sinceMs) / MS_PER_HOUR,
+      };
+    },
+
     /** LS_N_0032 — null once the vehicle has left the delivery point or this step already went
      *  out. Left means: out of the geofence (tracking's exit) when the geofence saw it arrive —
      *  for as long as tracking follows a delivered load; the E-POD when its arrival was tapped by
@@ -586,7 +622,8 @@ export function createLoadAlertResolvers(
       if (
         !position ||
         position.stale ||
-        distanceMetresBetween(anchor, position) > VEHICLE_HALT_SAME_SPOT_M
+        distanceMetresBetween(anchor, position) >
+          (context.sim ? VEHICLE_HALT_SAME_SPOT_SIM_M : VEHICLE_HALT_SAME_SPOT_M)
       ) {
         return null; // halt over or no fresh position
       }

@@ -482,6 +482,9 @@ export function buildContainer(dataSource: DataSource): Container {
       // LS_N_0031 reached unloading point / LS_N_0032 detention at unloading / LS_N_0033 trip
       // completed (E-POD + tracking's exit from the drop).
       'load.vehicle_reached_drop': loadAlertResolvers.vehicleReachedDrop,
+      // Tracking's drop-geofence entry ("will reach shortly") and its 24 h detention flag.
+      'load.vehicle_nearing_drop': loadAlertResolvers.vehicleNearingDrop,
+      'load.detention_detected': loadAlertResolvers.detentionDetected,
       'load.detention_at_unloading': loadAlertResolvers.detentionAtUnloading,
       'load.trip_completed': loadAlertResolvers.tripCompleted,
       'load.pickup_reminder': loadAlertResolvers.pickupReminder,
@@ -702,12 +705,16 @@ export function buildContainer(dataSource: DataSource): Container {
       startTrackingEventsConsumer(
         env.redisUrl,
         createTrackingEventHandlers(notifications.triggers, {
+          markTripStarted: (tenantId, loadId, at) =>
+            loads.loadService.markTripStarted(tenantId, loadId, at),
           markArrivedAtPickup: (tenantId, loadId, at) =>
             loads.loadService.markArrivedAtPickup(tenantId, loadId, at),
           markDepartedPickup: (tenantId, loadId, at) =>
             loads.loadService.markDepartedPickup(tenantId, loadId, at),
           markDepartedDrop: (tenantId, loadId, at) =>
             loads.loadService.markDepartedDrop(tenantId, loadId, at),
+          markDetentionDetected: (tenantId, loadId, point, at) =>
+            loads.loadService.markDetentionDetected(tenantId, loadId, point, at),
           markReachedDeliveryPoint: (tenantId, loadId, at) =>
             loads.loadService.markReachedDeliveryPoint(tenantId, loadId, at),
           notifyGeofenceTransition: (notice) => geofences.service.notifyTransition(notice),

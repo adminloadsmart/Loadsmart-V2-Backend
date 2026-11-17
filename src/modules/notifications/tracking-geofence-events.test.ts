@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TrackingEvent } from './notifications.interface';
 import { createTrackingEventHandlers } from './tracking-events.consumer';
 import { NotificationTriggers } from './notifications.interface';
+import { NOTIFICATION_CATALOG } from './catalog/notification-catalog';
 
 const AT = '2026-10-19T10:15:00.000Z';
 
@@ -19,6 +20,8 @@ function setup() {
     markDepartedPickup: vi.fn(async () => true),
     markReachedDeliveryPoint: vi.fn(async () => true),
     markDepartedDrop: vi.fn(async () => true),
+    markTripStarted: vi.fn(async () => true),
+    markDetentionDetected: vi.fn(async () => true),
     notifyGeofenceTransition: vi.fn(async () => undefined),
   };
   const enqueue = vi.fn(async () => undefined);
@@ -30,6 +33,21 @@ function setup() {
 }
 
 describe('tracking geofence events', () => {
+  it('trip.started moves the load to In transit to loading at the first movement', async () => {
+    const { deps, enqueue, handlers } = setup();
+    await handlers['trip.started']!(
+      event('trip.started', { loadId: 'load-1', occurredAt: AT, distanceM: 3200 }),
+    );
+    expect(deps.markTripStarted).toHaveBeenCalledWith('tenant-1', 'load-1', new Date(AT));
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('trip.started without a load is ignored', async () => {
+    const { deps, handlers } = setup();
+    await handlers['trip.started']!(event('trip.started', {}));
+    expect(deps.markTripStarted).not.toHaveBeenCalled();
+  });
+
   it('trip.arrived_at_pickup moves the load to At plant at the arrival time', async () => {
     const { deps, handlers } = setup();
     await handlers['trip.arrived_at_pickup']!(
@@ -143,5 +161,94 @@ describe('tracking geofence events', () => {
     const { deps, handlers } = setup();
     await handlers['geofence.entered']!(event('geofence.entered', { vehicleId: 'veh-1' }));
     expect(deps.notifyGeofenceTransition).not.toHaveBeenCalled();
+  });
+
+  it('trip.entered_drop_geofence queues "will reach shortly" at once, without moving the load', async () => {
+    const { deps, enqueue, handlers } = setup();
+    await handlers['trip.entered_drop_geofence']!(
+      event('trip.entered_drop_geofence', { loadId: 'load-1', occurredAt: AT }),
+    );
+    expect(enqueue).toHaveBeenCalledWith('load.vehicle_nearing_drop', 'tenant-1', {
+      loadId: 'load-1',
+      enteredAt: AT,
+    });
+    expect(deps.markReachedDeliveryPoint).not.toHaveBeenCalled();
+  });
+
+  it('trip.entered_drop_geofence without a load is ignored', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['trip.entered_drop_geofence']!(event('trip.entered_drop_geofence', {}));
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('trip.detention_detected flags the load and raises the alert the first time', async () => {
+    const { deps, enqueue, handlers } = setup();
+    await handlers['trip.detention_detected']!(
+      event('trip.detention_detected', {
+        loadId: 'load-1',
+        point: 'unloading',
+        occurredAt: AT,
+        enteredAt: '2026-10-18T10:15:00.000Z',
+      }),
+    );
+    expect(deps.markDetentionDetected).toHaveBeenCalledWith(
+      'tenant-1',
+      'load-1',
+      'unloading',
+      new Date(AT),
+    );
+    expect(enqueue).toHaveBeenCalledWith('load.detention_detected', 'tenant-1', {
+      loadId: 'load-1',
+      point: 'unloading',
+      enteredAt: '2026-10-18T10:15:00.000Z',
+      detectedAt: AT,
+    });
+  });
+
+  it('trip.detention_detected is silent when the load was already flagged', async () => {
+    const { deps, enqueue, handlers } = setup();
+    deps.markDetentionDetected.mockResolvedValueOnce(false);
+    await handlers['trip.detention_detected']!(
+      event('trip.detention_detected', { loadId: 'load-1', point: 'loading', occurredAt: AT }),
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('trip.detention_detected without a valid point is ignored', async () => {
+    const { deps, handlers } = setup();
+    await handlers['trip.detention_detected']!(
+      event('trip.detention_detected', { loadId: 'load-1', point: 'yard', occurredAt: AT }),
+    );
+    expect(deps.markDetentionDetected).not.toHaveBeenCalled();
+  });
+});
+
+describe('new tracking notification cards', () => {
+  it('"will reach shortly" names the vehicle and the delivery point', () => {
+    const content = NOTIFICATION_CATALOG['load.vehicle_nearing_drop'].buildContent({
+      loadId: 'load-1',
+      vehicleNo: 'MH12AB1234',
+      destination: 'Bhiwandi',
+      enteredAt: AT,
+    });
+    expect(content.title).toBe('MH12AB1234 will reach Bhiwandi shortly');
+    expect(content.metadata?.cta_path).toBe('/loads/load-1');
+  });
+
+  it('detention detected says which point and for how long', () => {
+    const content = NOTIFICATION_CATALOG['load.detention_detected'].buildContent({
+      loadId: 'load-1',
+      vehicleNo: 'MH12AB1234',
+      point: 'loading',
+      place: 'Ludhiana',
+      enteredAt: '2026-10-18T10:15:00.000Z',
+      detectedAt: AT,
+      hoursInside: 24.2,
+    });
+    expect(content.title).toBe('Detention detected at Ludhiana');
+    expect(content.body).toContain('24 hours');
+    expect(
+      NOTIFICATION_CATALOG['load.detention_detected'].dedupeKey({ loadId: 'load-1' } as never),
+    ).toBe('load-1');
   });
 });

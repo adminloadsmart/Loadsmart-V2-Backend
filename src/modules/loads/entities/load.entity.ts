@@ -350,6 +350,15 @@ export class LoadEntity {
   @Column({ name: 'departed_drop_at', type: 'timestamptz', nullable: true })
   departedDropAt!: Date | null;
 
+  /** Tracking's "Detention detected" flag: the truck has been inside the loading or unloading
+   *  geofence for more than the detention time (`trip.detention_detected`). Set once. */
+  @Column({ name: 'detention_detected_at', type: 'timestamptz', nullable: true })
+  detentionDetectedAt!: Date | null;
+
+  /** Which geofence the detention was at. */
+  @Column({ name: 'detention_point', type: 'varchar', length: 16, nullable: true })
+  detentionPoint!: 'loading' | 'unloading' | null;
+
   // --- E-POD — podFileKey, podReceiverName, podReceiverMobile, podReceiverDesignation,
   // podQuantityReceived and sealStatus are all captured together at uploadPod; only podRemarks
   // is optional. ---

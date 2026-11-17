@@ -750,6 +750,29 @@ export class LoadService {
     }
   }
 
+  /** Tracking's `trip.started` (the truck moved the trip-start distance from where it was
+   *  assigned) moves a "Truck assigned" load to "In transit to loading" at the time of that
+   *  movement — stage 4, the step the driver or staff would otherwise tap by hand. A load already
+   *  past it, one whose trip can't start yet (memo not accepted), or one on hold after an
+   *  incident is left alone. Returns whether it moved. */
+  async markTripStarted(tenantId: string, loadId: string, at: Date): Promise<boolean> {
+    try {
+      const load = await this.repository.findById(tenantId, loadId);
+      if (load?.status !== 'truck_assigned') return false;
+      return Boolean(
+        await this.advanceFromTracking(
+          tenantId,
+          load,
+          'in_transit_loading',
+          'inTransitLoadingAt',
+          at,
+        ),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to start the trip from tracking');
+    }
+  }
+
   /** Tracking's `trip.arrived_at_pickup` (the vehicle entered the loading point's geofence) moves
    *  a load still on its way to the loading point to "Reached loading point" at the arrival time —
    *  the same step the driver or staff can take by hand (updateStatus), whichever comes first. A
@@ -838,6 +861,38 @@ export class LoadService {
       return true;
     } catch (error) {
       rethrow(error, 'Failed to record the departure from the delivery point');
+    }
+  }
+
+  /** Tracking's `trip.detention_detected` (the truck has been inside the loading or unloading
+   *  geofence for more than the detention time) flags the load "Detention detected" — once; a
+   *  replayed or later event changes nothing. The billable detention (LS_N_0023 / LS_N_0032)
+   *  keeps running on its own free-hours clock. Returns whether the load was flagged. */
+  async markDetentionDetected(
+    tenantId: string,
+    loadId: string,
+    point: 'loading' | 'unloading',
+    at: Date,
+  ): Promise<boolean> {
+    try {
+      const updated = await this.repository.markDetentionDetected(tenantId, loadId, point, at);
+      if (!updated) return false;
+      await this.auditService.log({
+        tenantId,
+        userId: null,
+        action: 'LOAD_DETENTION_DETECTED_BY_TRACKING',
+        resourceType: 'load',
+        oldData: { id: loadId, detentionDetectedAt: null },
+        newData: {
+          id: loadId,
+          status: updated.status,
+          detentionPoint: point,
+          detentionDetectedAt: at.toISOString(),
+        },
+      });
+      return true;
+    } catch (error) {
+      rethrow(error, 'Failed to flag the load as detention detected');
     }
   }
 
