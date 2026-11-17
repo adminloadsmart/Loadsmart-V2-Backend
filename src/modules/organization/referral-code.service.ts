@@ -57,7 +57,7 @@ export class ReferralCodeService {
   ): Promise<ReferralCodeEntity> {
     const prefix = codePrefixOf(owner.fullName ?? '');
     const territory =
-      (owner.coverage ?? '').toUpperCase().replace(/[^A-Z]/g, '')[0] ??
+      (owner.region ?? '').toUpperCase().replace(/[^A-Z]/g, '')[0] ??
       REFERRAL_CODE_FALLBACK_TERRITORY;
     for (let attempt = 0; attempt < REFERRAL_CODE_GENERATION_ATTEMPTS; attempt += 1) {
       const code = `${prefix}-${territory}${10 + Math.floor(Math.random() * 90)}`;

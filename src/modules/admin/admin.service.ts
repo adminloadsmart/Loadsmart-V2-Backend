@@ -1,4 +1,9 @@
-import { isPlatformAdministrator } from '../../shared/middleware/require-permission.middleware';
+import {
+  hasPermission,
+  isPlatformAdministrator,
+} from '../../shared/middleware/require-permission.middleware';
+import { KYC_OVERSEE } from '../../shared/constants/permissions';
+
 import { DataSource, In, IsNull } from 'typeorm';
 import { OrganizationService } from '../organization/organization.service';
 import { OrganizationDocumentService } from '../organization/organization-document.service';
@@ -31,13 +36,14 @@ import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit.types';
 import { StorageService } from '../storage/storage.service';
 import { AuthenticatedUser } from '../../shared/middleware/request.types';
-import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import {
-  ORG_ADMIN_ROLE,
-  ONLINE_KYC_DESK_ROLE,
-  OFFLINE_KYC_DESK_ROLE,
-  SALES_ROLE,
-} from '../../shared/constants/roles';
+  AuthorizationError,
+  ConflictError,
+  NotFoundError,
+  rethrow,
+  ValidationError,
+} from '../../shared/errors';
+import { ORG_ADMIN_ROLE, SALES_ROLE, KYC_REVIEWER_TEAMS } from '../../shared/constants/roles';
 import { paginate } from './utils/admin.types';
 import {
   AssignReviewerInput,
@@ -57,6 +63,13 @@ import {
 import { CreateStaffInput, UpdateStaffInput } from '../auth/auth.types';
 import { NotificationTriggers } from '../notifications/notifications.interface';
 
+/** Whole-queue KYC authority: the platform admin, or an Admin-team member (KYC_OVERSEE) — sees
+ *  every organization and may act on any of them in any capacity. Everyone else is scoped to
+ *  their own assignments (reviewerScopeFilter / assertOrgAccessible). */
+function overseesKyc(user: AuthenticatedUser): boolean {
+  return isPlatformAdministrator(user) || hasPermission(user, KYC_OVERSEE);
+}
+
 export class AdminService {
   constructor(
     private readonly organizationService: OrganizationService,
@@ -71,8 +84,8 @@ export class AdminService {
     private readonly notificationTriggers: NotificationTriggers,
   ) {}
 
-  /** platform_admin gets every org, unfiltered. online_kyc_desk/offline_kyc_desk only ever see
-   *  their own assigned orgs — and offline_kyc_desk additionally only once handed over (see
+  /** platform_admin gets every org, unfiltered. A KYC reviewer (Approval/Admin team) only ever sees
+   *  orgs assigned to them — as online verifier, or as physical agent once handed over (see
    *  assertOrgAccessible's doc comment for the single-org equivalent of this same rule). */
   async listOrganizations(actingUser: AuthenticatedUser, input: ListOrganizationsInput) {
     try {
@@ -221,47 +234,49 @@ export class AdminService {
     return publicOrganization;
   }
 
-  private reviewerScopeFilter(actingUser: AuthenticatedUser): {
-    onlineKycVerifierId?: string;
-    physicalKycAgentId?: string;
-    onlineKycCompleted?: boolean;
-  } {
-    if (isPlatformAdministrator(actingUser)) return {};
-    if (actingUser.role === OFFLINE_KYC_DESK_ROLE) {
-      return { physicalKycAgentId: actingUser.id, onlineKycCompleted: true };
-    }
-    // An online desk sees its own assignments. Anyone else who reached a reviewer route (e.g. a
-    // staff member directly granted a KYC review key) gets the same "assigned to me" filter —
-    // which matches nothing, since only desk roles can be assigned (see assignReviewer). Never
-    // an unscoped list.
-    return { onlineKycVerifierId: actingUser.id };
+  private reviewerScopeFilter(actingUser: AuthenticatedUser): { reviewerUserId?: string } {
+    if (overseesKyc(actingUser)) return {};
+    // Everyone else who reached a reviewer route is scoped to "assigned to me": the online
+    // verifier, or the physical agent once online KYC is complete. Someone who isn't a reviewer
+    // team member can't be assigned (see assignReviewer), so for them this matches nothing —
+    // never an unscoped list.
+    return { reviewerUserId: actingUser.id };
   }
 
   /** The per-organization counterpart to reviewerScopeFilter above — used everywhere a single
    *  already-fetched org needs an ownership/visibility check. Platform administrators
-   *  (isPlatformAdministrator) are exempt. Throws NotFoundError (not AuthorizationError) so an org outside a reviewer's scope reads as "doesn't
-   *  exist" rather than "exists but you can't touch it" — deliberate for offline_kyc_desk, whose
-   *  orgs must be genuinely hidden until onlineKycCompletedAt is set, not just un-actionable. */
+   *  and the Admin team (overseesKyc) are exempt. Throws NotFoundError (not AuthorizationError) so an org outside a reviewer's scope reads as "doesn't
+   *  exist" rather than "exists but you can't touch it" — deliberate for the physical agent, whose
+   *  orgs must be genuinely hidden until onlineKycCompletedAt is set, not just un-actionable.
+   *
+   *  `capacity` says which assignment the action belongs to. The old online/offline KYC desks were
+   *  kept apart by holding different permission keys; the Approval team now holds both sets, so an
+   *  online-only action (verify a document, approve/deny the org, hand over to a physical agent)
+   *  must come from the org's online verifier, and the physical approval from its physical agent —
+   *  checked here, since the route gate alone no longer separates them. */
   private assertOrgAccessible(
     actingUser: AuthenticatedUser,
     organization: Pick<
       OrganizationEntity,
       'id' | 'onlineKycVerifierId' | 'physicalKycAgentId' | 'onlineKycCompletedAt'
     >,
+    capacity: 'any' | 'online' | 'physical' = 'any',
   ) {
-    if (isPlatformAdministrator(actingUser)) return;
-    if (
-      actingUser.role === ONLINE_KYC_DESK_ROLE &&
-      organization.onlineKycVerifierId === actingUser.id
-    ) {
-      return;
-    }
-    if (
-      actingUser.role === OFFLINE_KYC_DESK_ROLE &&
+    if (overseesKyc(actingUser)) return;
+    const isOnlineVerifier = organization.onlineKycVerifierId === actingUser.id;
+    const isPhysicalAgent =
       organization.physicalKycAgentId === actingUser.id &&
-      organization.onlineKycCompletedAt !== null
-    ) {
-      return;
+      organization.onlineKycCompletedAt !== null;
+    if (capacity === 'online' && isOnlineVerifier) return;
+    if (capacity === 'physical' && isPhysicalAgent) return;
+    if (capacity === 'any' && (isOnlineVerifier || isPhysicalAgent)) return;
+    if (isOnlineVerifier || isPhysicalAgent) {
+      // Visible to them, just not this action — a real authorization error, not a 404.
+      throw new AuthorizationError(
+        capacity === 'online'
+          ? 'Only the online verifier assigned to this organization can do this'
+          : 'Only the physical agent assigned to this organization can do this',
+      );
     }
     throw new NotFoundError(`Organization ${organization.id} not found`);
   }
@@ -361,7 +376,7 @@ export class AdminService {
   ) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, organization);
+      this.assertOrgAccessible(actingUser, organization, 'online');
 
       // LS_N_0003 fires only when a document BECOMES invalid — re-marking an already-invalid
       // document (e.g. a double-clicked reject) isn't a new event, whatever the timing. Read only
@@ -457,7 +472,7 @@ export class AdminService {
   ) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, organization);
+      this.assertOrgAccessible(actingUser, organization, 'online');
 
       await this.assertUploadedFile(actingUser, input.fileKey);
       if (input.backFileKey) {
@@ -545,7 +560,6 @@ export class AdminService {
   ) {
     try {
       return await this.assignReviewer(actingUser, organizationId, input.userId, {
-        role: ONLINE_KYC_DESK_ROLE,
         field: 'onlineKycVerifierId',
         action: 'ONLINE_KYC_VERIFIER_ASSIGNED',
         journeyStage: 'online_kyc_handover',
@@ -562,7 +576,6 @@ export class AdminService {
   ) {
     try {
       return await this.assignReviewer(actingUser, organizationId, input.userId, {
-        role: OFFLINE_KYC_DESK_ROLE,
         field: 'physicalKycAgentId',
         action: 'PHYSICAL_KYC_AGENT_ASSIGNED',
         journeyStage: 'physical_kyc_handover',
@@ -577,7 +590,6 @@ export class AdminService {
     organizationId: string,
     userId: string,
     opts: {
-      role: string;
       field: 'onlineKycVerifierId' | 'physicalKycAgentId';
       action: AuditAction;
       journeyStage: OrganizationJourneyStage;
@@ -585,11 +597,15 @@ export class AdminService {
   ) {
     try {
       const existing = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, existing);
+      this.assertOrgAccessible(actingUser, existing, 'online');
 
+      // Only an active Approval/Admin team member can review KYC (notes §5: Approval verifies
+      // onboarding documents). getUserById already 404s a deleted user.
       const target = await this.authService.getUserById(userId);
-      if (target.role.name !== opts.role) {
-        throw new ValidationError(`User ${userId} does not have the "${opts.role}" role`);
+      if (target.tenantId !== null || !KYC_REVIEWER_TEAMS.includes(target.role.name)) {
+        throw new ValidationError(
+          `User ${userId} must be on one of these teams to review KYC: ${KYC_REVIEWER_TEAMS.join(', ')}`,
+        );
       }
 
       await this.organizationService.updateOrganization(organizationId, {
@@ -627,7 +643,7 @@ export class AdminService {
   async approvePhysicalKyc(actingUser: AuthenticatedUser, organizationId: string) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, organization);
+      this.assertOrgAccessible(actingUser, organization, 'physical');
       if (!organization.onlineKycCompletedAt) {
         throw new ValidationError('Cannot approve physical KYC before online KYC is completed');
       }
@@ -662,12 +678,12 @@ export class AdminService {
   /** Unlocks only once every submitted document is verified AND physicalKycApprovedAt is set —
    *  the online-review and physical-review halves of the gate, both unconditional (bind
    *  platform_admin too — see approvePhysicalKyc's doc comment on why these aren't folded into
-   *  assertOrgAccessible). Called by the "source verifier" (the assigned online_kyc_desk reviewer)
-   *  or platform_admin — never by offline_kyc_desk (blocked at the route level). */
+   *  assertOrgAccessible). Called by the "source verifier" (the assigned online verifier) or
+   *  platform_admin. */
   async approveOrganization(actingUser: AuthenticatedUser, organizationId: string) {
     try {
       const organization = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, organization);
+      this.assertOrgAccessible(actingUser, organization, 'online');
       await this.assertDocumentsVerified(organizationId);
       if (!organization.physicalKycApprovedAt) {
         throw new ValidationError('Cannot approve: physical KYC has not been approved yet');
@@ -777,6 +793,7 @@ export class AdminService {
         organizationId,
         input.reason,
         'ORGANIZATION_REJECTED',
+        'any',
       );
     } catch (error) {
       rethrow(error, 'Failed to reject organization');
@@ -794,6 +811,7 @@ export class AdminService {
         organizationId,
         input.reason,
         'ORGANIZATION_DENIED',
+        'online',
       );
       await this.notifyAccountNotApproved(organization, input.reason);
       return organization;
@@ -830,18 +848,18 @@ export class AdminService {
 
   /** Reject and Deny both land on status: 'rejected' — the existing OrganizationStatus enum has no
    *  separate value for each — distinguished by which audit action fired and by decisionReason's
-   *  text, not by a different status. Deny is online_kyc_desk/platform_admin only (route-gated);
-   *  Reject is reachable by either reviewer role, so the ownership check below covers both
-   *  branches of assertOrgAccessible. */
+   *  text, not by a different status. Deny is the online verifier/platform_admin only; Reject is
+   *  reachable by either the online verifier or the physical agent. */
   private async decideOrganization(
     actingUser: AuthenticatedUser,
     organizationId: string,
     reason: string,
     action: AuditAction,
+    capacity: 'any' | 'online',
   ) {
     try {
       const existing = await this.organizationService.getOrganizationStatus(organizationId);
-      this.assertOrgAccessible(actingUser, existing);
+      this.assertOrgAccessible(actingUser, existing, capacity);
 
       await this.organizationService.updateOrganization(organizationId, {
         status: 'rejected',
@@ -899,6 +917,10 @@ export class AdminService {
     }
   }
 
+  listStaffTeams() {
+    return this.authService.listStaffTeams();
+  }
+
   getStaffSummary() {
     return this.authService.getStaffSummary();
   }
@@ -911,22 +933,28 @@ export class AdminService {
     }
   }
 
-  /** Platform administrators get the full Employees list. A KYC reviewer reaches this route only
-   *  to pick an assignee, so it gets names, roles, coverage and workload — not staff phone
-   *  numbers, emails or referral data. */
+  /** Platform administrators get the full Team members list. A KYC reviewer reaches this route
+   *  only to pick an assignee (e.g. the online verifier handing over to a physical agent), so it
+   *  gets names, team, job title, region and workload — not phone numbers, emails, employee IDs
+   *  or referral data. `team` wins over the legacy `role` filter when both are sent. */
   async listStaff(actingUser: AuthenticatedUser, input: ListStaffInput) {
     try {
-      const page = await this.authService.listStaffUsers(input);
+      const { role, team, ...rest } = input;
+      const page = await this.authService.listStaffUsers({ ...rest, team: team ?? role });
       if (isPlatformAdministrator(actingUser)) return page;
       return {
         ...page,
-        items: page.items.map(({ id, fullName, role, coverage, workload }) => ({
-          id,
-          fullName,
-          role,
-          coverage,
-          workload,
-        })),
+        items: page.items.map(
+          ({ id, fullName, team: memberTeam, role: memberRole, teamRole, region, workload }) => ({
+            id,
+            fullName,
+            team: memberTeam,
+            role: memberRole,
+            teamRole,
+            region,
+            workload,
+          }),
+        ),
       };
     } catch (error) {
       rethrow(error, 'Failed to list staff');

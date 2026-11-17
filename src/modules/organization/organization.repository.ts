@@ -156,18 +156,8 @@ export class OrganizationRepository {
     filters: OrganizationListFilters,
     extra: FindOptionsWhere<OrganizationEntity> = {},
   ): FindOptionsWhere<OrganizationEntity>[] {
-    const {
-      status,
-      excludeDrafts,
-      journeyStage,
-      search,
-      filter,
-      from,
-      to,
-      onlineKycVerifierId,
-      physicalKycAgentId,
-      onlineKycCompleted,
-    } = filters;
+    const { status, excludeDrafts, journeyStage, search, filter, from, to, reviewerUserId } =
+      filters;
 
     const base: FindOptionsWhere<OrganizationEntity> = {};
     const statuses = (status === undefined ? [] : [status].flat()).filter(
@@ -176,19 +166,24 @@ export class OrganizationRepository {
     if (statuses.length) base.status = statuses.length === 1 ? statuses[0] : In(statuses);
     else if (excludeDrafts) base.status = Not('draft');
     if (journeyStage) base.journeyStage = journeyStage;
-    if (onlineKycVerifierId) base.onlineKycVerifierId = onlineKycVerifierId;
-    if (physicalKycAgentId) base.physicalKycAgentId = physicalKycAgentId;
-    if (onlineKycCompleted) base.onlineKycCompletedAt = Not(IsNull());
     const range = resolveDateRange(filter, from, to);
     if (range) base.createdAt = Between(range.from, range.to);
     Object.assign(base, extra);
 
-    return search
+    // TypeORM ORs the entries of a where-array — so each OR'd condition (reviewer role × search
+    // field) becomes its own entry, all sharing `base`.
+    const reviewerScopes: FindOptionsWhere<OrganizationEntity>[] = reviewerUserId
       ? [
-          { ...base, name: ILike(`%${search}%`) },
-          { ...base, companyLegalName: ILike(`%${search}%`) },
+          { onlineKycVerifierId: reviewerUserId },
+          { physicalKycAgentId: reviewerUserId, onlineKycCompletedAt: Not(IsNull()) },
         ]
-      : [base];
+      : [{}];
+    const searches: FindOptionsWhere<OrganizationEntity>[] = search
+      ? [{ name: ILike(`%${search}%`) }, { companyLegalName: ILike(`%${search}%`) }]
+      : [{}];
+    return reviewerScopes.flatMap((scope) =>
+      searches.map((match) => ({ ...base, ...scope, ...match })),
+    );
   }
 
   async update(
@@ -269,7 +264,7 @@ export class OrganizationRepository {
   // Batched for AuthService.listStaffUsers — "workload" here means KYC review assignments not
   // yet completed, the only staff-assignment relationship this schema has (see
   // onlineKycVerifierId/physicalKycAgentId on OrganizationEntity). Staff outside the
-  // online_kyc_desk/offline_kyc_desk roles never appear as either, so they end up with 0.
+  // KYC reviewer teams (Approval/Admin) never appear as either, so they end up with 0.
   async countPendingKycAssignmentsByStaffIds(staffIds: string[]): Promise<Map<string, number>> {
     if (staffIds.length === 0) return new Map();
     const [onlineRows, physicalRows] = await Promise.all([

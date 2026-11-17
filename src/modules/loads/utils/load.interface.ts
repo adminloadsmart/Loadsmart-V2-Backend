@@ -227,6 +227,8 @@ export interface StagePathLoad {
   postingType: LoadPostingType;
   status: LoadStatus;
   deliveryIssueSettledAt: Date | null;
+  /** Only on a cancelled load. */
+  cancelledFromStage?: LoadStatus | null;
 }
 
 /** What a truck can be tracked with (tracking-source.ts's initialTrackingSource). */

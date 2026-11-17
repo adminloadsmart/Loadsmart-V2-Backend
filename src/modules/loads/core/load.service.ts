@@ -28,7 +28,7 @@ import { msg } from '../../../shared/i18n/translate';
 import { redisManager } from '../../../db/redis';
 import { MAX_OTP_ATTEMPTS } from '../../auth/auth.constants';
 import { paginate, Paginated, PaginationInput } from '../../../shared/utils/pagination';
-import { LoadRepository, UpdateLoadData } from './load.repository';
+import { LoadRepository, UpdateLoadData, LoadListCounts } from './load.repository';
 import type {
   PodCardLoad,
   PodCardLoadRef,
@@ -94,6 +94,7 @@ import {
   TripStepperStep,
   TripIncident,
   buildIncident,
+  AmountDue,
 } from '../utils/trip-view';
 import { DEFAULT_LOCALE, Locale } from '../../../shared/i18n/locales';
 import { DriverTripNotifier } from '../utils/load-alert.interface';
@@ -107,7 +108,7 @@ const EWAY_BILL_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2-hour expiry alert
 export interface ListTripsResult extends Paginated<TripListRow> {
   /** Tab counts for the whole tenant (scoped by the same non-group filters as the list itself),
    *  independent of which `group` — if any — the caller requested. */
-  counts: { active: number; completed: number; open: number };
+  counts: LoadListCounts;
 }
 
 /** Home Live Loads row — a trips-list row plus how far along its route the load is. */
@@ -701,7 +702,10 @@ export class LoadService {
   getEwayBillExpiry(load: LoadEntity): EwayBillExpiry {
     if (!load.ewayBillGeneratedAt) return { expiresAt: null, expired: false };
     const expiresAt = new Date(load.ewayBillGeneratedAt.getTime() + EWAY_BILL_VALIDITY_MS);
-    const stillMoving = !UNLOADED_LOAD_STATUSES.includes(load.status) && load.status !== 'closed';
+    const stillMoving =
+      !UNLOADED_LOAD_STATUSES.includes(load.status) &&
+      load.status !== 'closed' &&
+      load.status !== 'cancelled';
     return { expiresAt: expiresAt.toISOString(), expired: stillMoving && new Date() > expiresAt };
   }
 
@@ -1926,6 +1930,13 @@ export class LoadService {
   /** Trips Home-page list — one row per load with its route/customer/vehicle-source resolved,
    *  plus tenant-wide Active/Completed tab counts (independent of which group, if any, was
    *  requested) so the UI can render both tab badges from a single call. */
+  /** Set by the loads module once LoadPaymentService exists: what a list row shows as due. */
+  private amountDueResolver?: (load: LoadEntity) => Promise<AmountDue | null>;
+
+  setAmountDueResolver(resolver: (load: LoadEntity) => Promise<AmountDue | null>): void {
+    this.amountDueResolver = resolver;
+  }
+
   async list(
     tenantId: string | string[],
     input: ListLoadsInput,
@@ -1947,9 +1958,15 @@ export class LoadService {
         }),
       ]);
       const assignments = await this.tripAssignments(items);
+      const due = this.amountDueResolver
+        ? await Promise.all(items.map((load) => this.amountDueResolver!(load)))
+        : items.map(() => null);
       return {
         ...paginate(
-          items.map((load) => toTripListRow(load, locale, assignments.get(load.id))),
+          items.map((load, index) => ({
+            ...toTripListRow(load, locale, assignments.get(load.id)),
+            amountDue: due[index],
+          })),
           total,
           input,
         ),

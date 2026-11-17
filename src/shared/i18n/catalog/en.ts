@@ -51,6 +51,7 @@ export const en = {
       invoice_generated: 'Invoice generated',
       payment: 'Payment',
       closed: 'Closed',
+      cancelled: 'Cancelled',
     },
     source: {
       ownFleet: 'Own fleet',

@@ -32,6 +32,13 @@ export const TRUCK_CANCELLABLE_STAGES: readonly LoadStatus[] = [
   'reached_loading',
 ];
 
+/** "Cancel should exist up to the point the truck is loaded." */
+export const LOAD_CANCELLABLE_STAGES: readonly LoadStatus[] = [
+  'created',
+  'bids_received',
+  ...TRUCK_CANCELLABLE_STAGES,
+];
+
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export interface MoneyLoad {

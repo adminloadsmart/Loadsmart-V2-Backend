@@ -290,6 +290,8 @@ export class LoadsController {
 
   // --- Payments ---
 
+  nextAction = async (req: Request<LoadParams>, res: Response) =>
+    respond(res, await this.loadPaymentService.nextAction(requireTenantId(req), req.params.loadId));
   moneySummary = async (req: Request<LoadParams>, res: Response) =>
     respond(res, await this.loadPaymentService.summary(requireTenantId(req), req.params.loadId));
 

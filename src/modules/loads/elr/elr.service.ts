@@ -11,6 +11,7 @@ import { buildElrContent } from './elr-content';
 import { renderElrPdf } from './elr-pdf';
 import { ElrEditInput, ElrInput, GeneratedElr } from '../utils/elr.interface';
 import { ElrAction, LoadElrRevisionEntity } from './load-elr-revision.entity';
+import { ElrSeriesEntity } from './elr-series.entity';
 
 /** The one e-LR series across Loadsmart (loads.elr_series). */
 const ELR_SERIES = 'loadsmart';
@@ -22,19 +23,18 @@ export const formatElrNumber = (prefix: string, value: number) =>
 /** The next number in the series — the row is locked for the transaction, so two issues never
  *  share a number, and a cancelled number is never handed out again. */
 async function nextElrNumber(manager: EntityManager): Promise<string> {
-  // TypeORM's Postgres driver answers an UPDATE … RETURNING with [rows, rowCount].
-  const result = (await manager.query(
-    `UPDATE "loads"."elr_series" SET "next_number" = "next_number" + 1
-      WHERE "series" = $1 RETURNING "prefix", "next_number" - 1 AS "number"`,
-    [ELR_SERIES],
-  )) as unknown[];
-  const rows = (Array.isArray(result[0]) ? result[0] : result) as {
-    prefix: string;
-    number: number;
-  }[];
-  const row = rows[0];
+  // One atomic UPDATE … RETURNING: the row lock is held to the end of the transaction.
+  const result = await manager
+    .createQueryBuilder()
+    .update(ElrSeriesEntity)
+    .set({ nextNumber: () => 'next_number + 1' })
+    .where('series = :series', { series: ELR_SERIES })
+    .returning(['prefix', 'nextNumber'])
+    .execute();
+  const row = (result.raw as { prefix: string; next_number: number }[])[0];
   if (!row) throw new Error('The e-LR series is not set up');
-  return formatElrNumber(row.prefix, Number(row.number));
+  // RETURNING gives the bumped value; the number just taken is one below it.
+  return formatElrNumber(row.prefix, Number(row.next_number) - 1);
 }
 
 /**

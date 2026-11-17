@@ -57,11 +57,12 @@ import {
 @Entity({ schema: 'loads', name: 'loads' })
 @Index('loads_tenant_id_idx', ['tenantId'])
 @Index('loads_tenant_status_idx', ['tenantId', 'status'])
-// Route invariants (migration LoadThirteenStages): a load past Bids received has a route; own
-// fleet is routed own_fleet from posting; only an indent posting can be on the indent route.
+// Route invariants (migration LoadThirteenStages): a load past Bids received has a route (one
+// cancelled before any award has none); own fleet is routed own_fleet from posting; only an
+// indent posting can be on the indent route.
 @Check(
   'loads_route_known_after_award',
-  `"route" IS NOT NULL OR "status" IN ('created', 'bids_received')`,
+  `"route" IS NOT NULL OR "status" IN ('created', 'bids_received', 'cancelled')`,
 )
 @Check(
   'loads_own_fleet_route',
@@ -556,6 +557,14 @@ export class LoadEntity {
 
   @Column({ name: 'balance_paid_at', type: 'timestamptz', nullable: true })
   balancePaidAt!: Date | null;
+
+  /** The load was cancelled (loads.load_cancellations has the reason and who). */
+  @Column({ name: 'cancelled_at', type: 'timestamptz', nullable: true })
+  cancelledAt!: Date | null;
+
+  /** The stage it was cancelled from — the stepper stops there. */
+  @Column({ name: 'cancelled_from_stage', type: 'varchar', length: 32, nullable: true })
+  cancelledFromStage!: LoadStatus | null;
 
   @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })
   closedAt!: Date | null;

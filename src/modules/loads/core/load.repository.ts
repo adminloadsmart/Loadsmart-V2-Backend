@@ -42,6 +42,15 @@ import type {
   TripCardLoad,
   TripCardRef,
 } from '../../driver/portal/driver-portal.types';
+
+/** Tab counts plus one count per stage (the Stages sidebar). */
+export interface LoadListCounts {
+  active: number;
+  completed: number;
+  open: number;
+  cancelled: number;
+  byStatus: Partial<Record<LoadStatus, number>>;
+}
 import { AwardOutcome, LoadAwardOutcomeEntity } from '../entities/load-award-outcome.entity';
 
 // A single tenant for staff, several for a driver linked to more than one fleet.
@@ -196,14 +205,13 @@ export class LoadRepository {
    *  point, else its requisition's. Null for a posting picked up at a typed address. */
   async loadingPointIdOf(load: LoadEntity): Promise<string | null> {
     if (load.loadingPointId) return load.loadingPointId;
-    const [row] = (await this.loads.manager.query(
-      `SELECT COALESCE(p."pickup_loading_point_id", r."loading_point_id") AS "pointId"
-         FROM "loads"."loads" l
-         LEFT JOIN "loads"."load_postings" p ON p."id" = l."posting_id"
-         LEFT JOIN "loads"."requisitions" r ON r."id" = l."requisition_id"
-        WHERE l."id" = $1 AND l."tenant_id" = $2`,
-      [load.id, load.tenantId],
-    )) as { pointId: string | null }[];
+    const row = await this.loads
+      .createQueryBuilder('l')
+      .leftJoin('l.posting', 'p')
+      .leftJoin('l.requisition', 'r')
+      .select('COALESCE(p.pickupLoadingPointId, r.loadingPointId)', 'pointId')
+      .where('l.id = :id AND l.tenantId = :tenantId', { id: load.id, tenantId: load.tenantId })
+      .getRawOne<{ pointId: string | null }>();
     return row?.pointId ?? null;
   }
 
@@ -440,6 +448,9 @@ export class LoadRepository {
       return [
         { ...scoped, code: like },
         { ...scoped, title: like },
+        // The LR number and the truck — the list shows the LR first when there is one.
+        { ...scoped, elrNumber: like },
+        { ...scoped, vehicleNumber: like },
         ...(group === 'upcoming' && !source.posting
           ? [{ ...base, requisition: { ...requisitionWhere, customer: { name: like } } }]
           : []),
@@ -503,7 +514,7 @@ export class LoadRepository {
       | 'driverId'
       | 'search'
     >,
-  ): Promise<{ active: number; completed: number; open: number }> {
+  ): Promise<LoadListCounts> {
     const base: FindOptionsWhere<LoadEntity> = { tenantId: scopeToTenants(tenantId) };
     if (filters.requisitionId) base.requisitionId = filters.requisitionId;
     if (filters.postingType) base.postingType = filters.postingType;
@@ -516,6 +527,8 @@ export class LoadRepository {
       ? [
           { ...base, code: ILike(`%${filters.search}%`) },
           { ...base, title: ILike(`%${filters.search}%`) },
+          { ...base, elrNumber: ILike(`%${filters.search}%`) },
+          { ...base, vehicleNumber: ILike(`%${filters.search}%`) },
           { ...base, requisition: { customer: { name: ILike(`%${filters.search}%`) } } },
           { ...base, posting: { customer: { name: ILike(`%${filters.search}%`) } } },
         ]
@@ -536,17 +549,20 @@ export class LoadRepository {
       .getRawMany<{ status: LoadStatus; count: string }>();
     const completedStatuses: readonly string[] = COMPLETED_LOAD_STATUSES;
     const activeStatuses: readonly string[] = ACTIVE_TAB_LOAD_STATUSES;
-    return rows.reduce(
+    return rows.reduce<LoadListCounts>(
       (acc, row) => {
         const count = Number(row.count);
-        if (completedStatuses.includes(row.status)) acc.completed += count;
+        // The Stages sidebar: one count per stage, Cancelled included.
+        acc.byStatus[row.status] = (acc.byStatus[row.status] ?? 0) + count;
+        if (row.status === 'cancelled') acc.cancelled += count;
+        else if (completedStatuses.includes(row.status)) acc.completed += count;
         else {
           acc.open += count;
           if (activeStatuses.includes(row.status)) acc.active += count;
         }
         return acc;
       },
-      { active: 0, completed: 0, open: 0 },
+      { active: 0, completed: 0, open: 0, cancelled: 0, byStatus: {} },
     );
   }
 

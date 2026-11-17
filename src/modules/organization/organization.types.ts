@@ -122,11 +122,11 @@ export interface OrganizationListFilters {
   filter?: DateFilter;
   from?: string;
   to?: string;
-  // Role-scoping — see AdminService.listOrganizations, the only caller that sets these (for
-  // online_kyc_desk/offline_kyc_desk callers; platform_admin leaves them undefined).
-  onlineKycVerifierId?: string;
-  physicalKycAgentId?: string;
-  onlineKycCompleted?: boolean;
+  // Reviewer scoping — see AdminService.reviewerScopeFilter, the only caller that sets it (for KYC
+  // reviewer teams; platform_admin leaves it undefined). Matches orgs where this user is the online
+  // verifier, OR the physical agent once online KYC is complete (the physical agent must not see
+  // an org before it's handed over).
+  reviewerUserId?: string;
 }
 
 export interface OrganizationQueueSummary {
@@ -161,5 +161,5 @@ export interface ReferralCodeSummary {
 export interface ReferralCodeOwner {
   id: string;
   fullName: string | null;
-  coverage: string | null;
+  region: string | null;
 }

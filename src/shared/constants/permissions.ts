@@ -8,13 +8,16 @@ export const ADMIN_ORGANIZATIONS_MANAGE = 'admin.organizations.manage';
 export const ORGANIZATION_PROFILE_MANAGE = 'organization.profile.manage';
 export const MASTERS_WRITE = 'masters.write';
 
-// Not referenced by any requirePermission(...) call yet — seeded onto sales/online_kyc_desk/
-// offline_kyc_desk/load_console so those roles have a meaningful starting bundle ahead of the
+// Not referenced by any requirePermission(...) call yet — seeded onto the sales and ops
+// team roles so those roles have a meaningful starting bundle ahead of the
 // modules that will eventually enforce them.
 export const KYC_ONLINE_VERIFY = 'kyc.online.verify';
 export const KYC_ONLINE_REJECT = 'kyc.online.reject';
 export const KYC_OFFLINE_VERIFY = 'kyc.offline.verify';
 export const KYC_OFFLINE_REJECT = 'kyc.offline.reject';
+// Admin-team only: see every organization in the KYC queue (not just ones assigned to you), act on
+// any of them, and assign/reassign reviewers — the notes' "Super Admin — everything".
+export const KYC_OVERSEE = 'kyc.oversee';
 export const LOADS_CONSOLE_ACCESS = 'loads.console.access';
 export const SALES_LEADS_MANAGE = 'sales.leads.manage';
 
@@ -63,8 +66,9 @@ export const COMPLIANCE_MANAGE = 'compliance.manage';
 // assigned and LS_N_0017 assignment blocked on compliance (the LS_N sheet's "trip.track").
 export const TRIP_TRACK = 'trip.track';
 
-// Loadsmart ops console (loadsmart-ops/) — one key per ops team on a Loadsmart load. Platform
-// scope: each ls_* role holds its own team's key, load_console (the console lead) holds them all.
+// Loadsmart ops console (loadsmart-ops/) — keys grouped into team bundles in db/role-catalog.ts.
+// Platform scope. A key is not a team: e.g. Placement holds LS_PLACEMENT + LS_MARGIN_VIEW, and the
+// Admin team holds every one of them.
 // The Approval team is the KYC desks (online_kyc_desk / offline_kyc_desk hold LS_APPROVAL).
 export const LS_APPROVAL = 'loadsmart.approval'; // reviews shippers, posts a load for a shipper
 export const LS_PLACEMENT = 'loadsmart.placement'; // sourcing, Loadsmart's price, truck, memo
@@ -76,3 +80,12 @@ export const LS_PAYABLES = 'loadsmart.payables'; // carrier advance and balance,
 // admin can grant either key to a named person (POST /roles/users/:userId/permissions).
 export const LS_MONEY_APPROVE = 'loadsmart.money.approve'; // approves money going out (S01)
 export const LS_SETTINGS_MANAGE = 'loadsmart.settings.manage'; // Super Admin → Settings (S03)
+// Admin-team only (notes §11: "Admin — everything, including Masters (brokers etc.) — no other
+// team needs Masters access"): create/edit partners (brokers) in the ops console.
+export const LS_MASTERS_MANAGE = 'loadsmart.masters.manage';
+// Sees Loadsmart's margin on a load or a shipper's terms (notes §7: "margin figures stay
+// Admin/Placement-only"). Without it, marginPercent is stripped from ops responses.
+export const LS_MARGIN_VIEW = 'loadsmart.margin.view';
+// Admin-team only: change a shipper's margin (PUT /terms) or override it when approving a load.
+// Separate from LS_MARGIN_VIEW — Placement sees margin but must not change a shipper's terms.
+export const LS_MARGIN_MANAGE = 'loadsmart.margin.manage';

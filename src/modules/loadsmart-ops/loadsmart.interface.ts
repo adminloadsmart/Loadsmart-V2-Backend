@@ -18,6 +18,8 @@ import type { LsPartnerBidEntity } from './entities/ls-partner-bid.entity';
 import type { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import type { ElrService } from '../loads/elr/elr.service';
 import type { BillingInstruction } from './billing-rules';
+import type { TrackingClient } from '../../adapters/tracking.client';
+import type { LoadCancelService } from '../loads/sourcing/load-cancel.service';
 import type { ChargeType, PartnerStatus, PartnerType, PodType } from './loadsmart.types';
 
 /** Loadsmart ops shapes — service inputs, views and amounts (value sets live in loadsmart.types.ts). */
@@ -121,9 +123,10 @@ export interface LoadsmartActor {
 /** The sourcing fields a timeline/audit step needs (LsServiceBase.step). */
 export type SourcingRef = Pick<LsSourcingEntity, 'id' | 'tenantId' | 'loadId'>;
 
-/** A shipper's margin and trucker advance (PUT /terms/:tenantId). */
+/** A shipper's margin and trucker advance (PUT /terms/:tenantId). marginPercent is Admin-team
+ *  only (LS_MARGIN_MANAGE); omitted, the shipper's current margin is kept. */
 export interface CommercialTermsInput {
-  marginPercent: number;
+  marginPercent?: number;
   truckerAdvancePercent: number;
   preapprovedCharges?: { head: string; maxAmount?: number | null }[];
   /** Null: the settings' default. */
@@ -255,4 +258,8 @@ export interface LoadsmartOpsModuleDeps {
   loadDocumentService: LoadDocumentService;
   loadPostingService: LoadPostingService;
   elrService: ElrService;
+  /** The live map reads each trip's last position and ETA from the tracking service. */
+  trackingClient: TrackingClient;
+  /** Super Admin approves or rejects a shipper's cancellation of a load Loadsmart has won. */
+  loadCancelService: LoadCancelService;
 }

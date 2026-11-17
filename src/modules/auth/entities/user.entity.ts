@@ -11,6 +11,7 @@ import {
 import { OrganizationEntity } from '../../organization/entities/organization.entity';
 import { RoleEntity } from '../../roles/entities/role.entity';
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
+import type { SalesType } from '../../../shared/constants/roles';
 
 @Entity({ schema: 'auth', name: 'users' })
 @Index('users_email_active_unique', ['email'], { unique: true, where: '"deleted_at" IS NULL' })
@@ -23,6 +24,12 @@ import { LoadingPointEntity } from '../../masters/loading-point/entities/loading
   unique: true,
   where: '"deleted_at" IS NULL',
 })
+@Index('users_employee_id_team_active_unique', ['employeeId', 'roleId'], {
+  unique: true,
+  where: '"deleted_at" IS NULL AND "employee_id" IS NOT NULL',
+})
+@Index('users_reports_to_user_id_idx', ['reportsToUserId'])
+@Index('users_asm_user_id_idx', ['asmUserId'])
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -64,10 +71,40 @@ export class UserEntity {
   @JoinColumn({ name: 'role_id' })
   role!: RoleEntity;
 
-  // Which city/region a platform-scope operational staff member (sales, KYC desk, load
-  // console) covers. Null for org-signup users — this is a staff-only concept.
+  // ── Team-member profile (platform staff only; null for org users) — notes §4 ──
+  // The region a team member covers. (Column was `coverage` before the teams rework.)
   @Column({ type: 'varchar', nullable: true })
-  coverage!: string | null;
+  region!: string | null;
+
+  // HR employee ID. Unique per team among active users (users_employee_id_team_active_unique) —
+  // not globally, since a person on two teams gets two accounts with the same employee ID.
+  @Column({ name: 'employee_id', type: 'varchar', nullable: true })
+  employeeId!: string | null;
+
+  // Job title within the team (TEAM_ROLES) — no access effect; the team (role) decides access.
+  @Column({ name: 'team_role', type: 'varchar', nullable: true })
+  teamRole!: string | null;
+
+  @Column({ name: 'reports_to_user_id', type: 'uuid', nullable: true })
+  reportsToUserId!: string | null;
+
+  @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'reports_to_user_id' })
+  reportsTo!: UserEntity | null;
+
+  // Sales team only: shipper_sales | tracker_sales, the state they cover, and their ASM.
+  @Column({ name: 'sales_type', type: 'varchar', nullable: true })
+  salesType!: SalesType | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  state!: string | null;
+
+  @Column({ name: 'asm_user_id', type: 'uuid', nullable: true })
+  asmUserId!: string | null;
+
+  @ManyToOne(() => UserEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'asm_user_id' })
+  asm!: UserEntity | null;
 
   // Bumped by role.service.ts's assignRole/grantPermission/revokePermission whenever this user's
   // authority changes. Embedded in the access token at issuance and compared against the live

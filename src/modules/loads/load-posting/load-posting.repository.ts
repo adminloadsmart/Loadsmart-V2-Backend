@@ -13,6 +13,7 @@ import { TruckTypeEntity } from '../../masters/truck-type/entities/truck-type.en
 import { VehicleEntity } from '../../masters/vehicle/entities/vehicle.entity';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
+import { LoadBidEntity } from '../bids/load-bid.entity';
 import { LoadDraftEntity } from './entities/load-draft.entity';
 import { CustomerContractEntity } from './entities/customer-contract.entity';
 import { MessageStatus, RecipientType } from './utils/load-posting.types';
@@ -96,6 +97,25 @@ export class LoadPostingRepository {
   async createPosting(data: CreatePostingData, manager: EntityManager): Promise<LoadPostingEntity> {
     const repo = manager.getRepository(LoadPostingEntity);
     return repo.save(repo.create(data));
+  }
+
+  /** An edit of a posted load (LoadPostingService.editPosting / editDetails). */
+  async updatePosting(
+    tenantId: string,
+    id: string,
+    data: Partial<CreatePostingData>,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = manager?.getRepository(LoadPostingEntity) ?? this.postings;
+    await repo.update({ id, tenantId }, data as never);
+  }
+
+  /** How many bids the posting's loads have had — any bid locks the full edit. */
+  async countBids(tenantId: string, loadIds: string[]): Promise<number> {
+    if (!loadIds.length) return 0;
+    return this.postings.manager
+      .getRepository(LoadBidEntity)
+      .countBy({ tenantId, loadId: In(loadIds) });
   }
 
   findPostingByIdempotencyKey(tenantId: string, idempotencyKey: string) {

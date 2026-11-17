@@ -94,6 +94,55 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/loads/{loadId}/bids/{bidId}/counter`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.counterBid',
+    ...manageDispatch(
+      'Counter a live bid with your own rate (and a note). The bid waits for the answer — Accept ' +
+        'stays off until it is recorded; a new counter replaces one still waiting. A counter on ' +
+        "Loadsmart's bid goes to Loadsmart's Placement team, which answers on its console.",
+    ),
+    request: { params: v.counterBid.shape.params, body: json(v.counterBid.shape.body) },
+    responses: {
+      200: { description: 'The bid, with its counter and rate history' },
+      409: { description: 'Not a live bid, or a bid is already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/bids/{bidId}/counter-response`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.answerCounter',
+    ...manageDispatch(
+      "Record the transporter's answer to your counter, given by phone. Accepted: the counter " +
+        "becomes the bid's rate. Not for Loadsmart's bid — Loadsmart answers that itself.",
+    ),
+    request: { params: v.answerCounter.shape.params, body: json(v.answerCounter.shape.body) },
+    responses: {
+      200: { description: 'The bid' },
+      409: { description: 'No counter waiting, or a Loadsmart bid', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/bids/{bidId}/reject`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.rejectBid',
+    ...manageDispatch(
+      "Reject a live bid, with an optional reason. Rejecting Loadsmart's bid lets its Placement " +
+        'team send another.',
+    ),
+    request: { params: v.rejectBid.shape.params, body: json(v.rejectBid.shape.body) },
+    responses: {
+      200: { description: 'The rejected bid' },
+      409: { description: 'Not a live bid, or a bid is already accepted', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/loads/{loadId}/indent/accept`,
     tags: [TAGS.LOADS],
     operationId: 'loads.recordIndentAcceptance',
@@ -201,6 +250,45 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       400: { description: 'Not an active reason code', ...errorContent },
       409: {
         description: 'Not between Truck assigned and Loaded, or not this route',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: `${BASE}/loads/{loadId}/cancellation`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.cancellationOptions',
+    ...authenticated(
+      'What the cancel form needs: `canCancel` and `blocker`, `needsLoadsmartApproval` (a load ' +
+        'Loadsmart has won waits for Super Admin), the request `pending`, the `latest` one with ' +
+        'its decision, `cancelledAt` / `cancelledFromStage`, and the active `reasonCodes` (code, ' +
+        'label) — the same list a truck cancellation uses.',
+    ),
+    request: { params: v.listTruckCancellations.shape.params },
+    responses: { 200: { description: 'Cancellation options' } },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/cancel`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.cancelLoad',
+    ...manageDispatch(
+      'Cancel the whole load, any time before Loaded, with an active reason code from Settings. ' +
+        'Own transporter, indent, own fleet and market loads nobody has won: cancelled at once ' +
+        '(outcome `cancelled`) — open bids are rejected, an open memo withdrawn, an own-fleet truck ' +
+        'freed. A load Loadsmart has won: a request Super Admin approves or rejects on the ops ' +
+        'console (outcome `pending`). Cancelled loads sit outside the 13 stages, in the ' +
+        '`cancelled` status group.',
+    ),
+    request: { params: v.cancelLoad.shape.params, body: json(v.cancelLoad.shape.body) },
+    responses: {
+      200: { description: '{ outcome, load, cancellation }' },
+      400: { description: 'Not an active reason code', ...errorContent },
+      409: {
+        description: 'Already Loaded or cancelled, or a request is already waiting',
         ...errorContent,
       },
     },

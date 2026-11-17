@@ -41,6 +41,9 @@ export function acceptBlocker(bid: BidLike, now: Date): string | null {
   const status = effectiveBidStatus(bid, now);
   if (status === 'expired') return 'This bid has expired — bids expire 4 hours after posting';
   if (status !== 'received') return `This bid is already ${status}`;
+  if (bid.counterStatus === 'pending') {
+    return `Waiting for the answer to your counter of ₹${Number(bid.counterRate)} — record it first`;
+  }
   if (!bid.vehicleNumber) return 'Ask the transporter for the truck number';
   if (bid.truckVerified === false) {
     return 'The truck failed the govt portal checks — ask the transporter for another truck';

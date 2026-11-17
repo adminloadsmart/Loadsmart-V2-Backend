@@ -21,6 +21,9 @@ import { ELR_EDIT_REASONS } from '../loads/elr/load-elr-revision.entity';
 import { booleanString } from '../../shared/validators/boolean-string';
 import { TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
 import { TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
+import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
+import { LOAD_STATUSES } from '../loads/utils/loads.types';
+import { MSME_CREDIT_DAYS_CAP } from '../settings/settings.types';
 import { postLoadBody } from '../loads/load-posting/load-posting.validators';
 
 const uuid = z.string().uuid();
@@ -61,7 +64,7 @@ export const loadsmartValidators = {
     params: z.object({ tenantId: uuid }),
     body: z
       .object({
-        marginPercent: percent,
+        marginPercent: percent.optional(),
         truckerAdvancePercent: percent,
         // "Preapproved loading and unloading charges" — approved as Loadsmart raises them.
         preapprovedCharges: z
@@ -76,7 +79,7 @@ export const loadsmartValidators = {
           .max(20)
           .optional(),
         // Billing: credit days from invoice receipt, POD type, billing instructions.
-        creditDays: z.number().int().min(0).max(90).nullable().optional(),
+        creditDays: z.number().int().min(0).max(MSME_CREDIT_DAYS_CAP).nullable().optional(),
         podType: z.enum(POD_TYPES).optional(),
         billingInstructions: z
           .array(
@@ -461,6 +464,66 @@ export const loadsmartValidators = {
       .strict(),
   }),
 
+  // Super Admin on a shipper's cancellation of a Loadsmart load (a reason to reject).
+  decideCancellation: z.object({
+    params: z.object({ cancellationId: uuid }),
+    body: z
+      .object({
+        decision: z.enum(['approved', 'rejected']),
+        note: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
+  }),
+
+  answerShipperCounter: z.object({
+    params: z.object({ loadId: uuid, bidId: uuid }),
+    body: z
+      .object({
+        accepted: z.boolean(),
+        // Required when the counter leaves less than the minimum margin.
+        negotiationNote: z.string().trim().min(1).max(1000).optional(),
+      })
+      .strict(),
+  }),
+
+  // --- Cross-team views ---
+  allLoads: z.object({
+    query: z
+      .object({
+        status: z
+          .union([z.enum(LOAD_STATUSES), z.array(z.enum(LOAD_STATUSES))])
+          .transform((value) => (Array.isArray(value) ? value : [value]))
+          .optional(),
+        tenantId: uuid.optional(),
+        team: z.enum(CONSOLE_TEAMS).optional(),
+        q: z.string().trim().min(2).max(50).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .strict(),
+  }),
+  analytics: z.object({
+    query: z
+      .object({ from: z.coerce.date(), to: z.coerce.date() })
+      .strict()
+      .refine((query) => query.from < query.to, { message: 'from must be before to', path: ['to'] })
+      .refine((query) => query.to.getTime() - query.from.getTime() <= 366 * 24 * 60 * 60 * 1000, {
+        message: 'At most a year at a time',
+        path: ['to'],
+      }),
+  }),
+  liveMap: z.object({
+    query: z
+      .object({
+        q: z.string().trim().min(2).max(50).optional(),
+        status: z
+          .union([z.enum(LIVE_STATUSES), z.array(z.enum(LIVE_STATUSES))])
+          .transform((value) => (Array.isArray(value) ? value : [value]))
+          .optional(),
+      })
+      .strict(),
+  }),
+
   // --- Shipper side, on /v1/loads ---
   decideCharge: z.object({
     params: z.object({ loadId: uuid, chargeId: uuid }),
@@ -468,6 +531,25 @@ export const loadsmartValidators = {
       .object({
         decision: z.enum(['approved', 'rejected', 'queried']),
         reason: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
+  }),
+  decideCharges: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        decisions: z
+          .array(
+            z
+              .object({
+                chargeId: uuid,
+                decision: z.enum(['approved', 'rejected', 'queried']),
+                reason: z.string().trim().min(1).max(500).optional(),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(50),
       })
       .strict(),
   }),

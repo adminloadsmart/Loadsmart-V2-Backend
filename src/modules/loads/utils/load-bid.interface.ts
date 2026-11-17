@@ -1,4 +1,10 @@
-import type { BidSource, BidStatus, LoadStatus } from './loads.types';
+import type {
+  BidCounterStatus,
+  BidRateStep,
+  BidSource,
+  BidStatus,
+  LoadStatus,
+} from './loads.types';
 import type { LoadBidEntity } from '../bids/load-bid.entity';
 import type { LoadEntity } from '../entities/load.entity';
 import type { LoadParams } from './load.interface';
@@ -20,6 +26,9 @@ export type LoadsmartBidAcceptedHook = (
   actorId: string,
 ) => Promise<void>;
 
+/** The shipper countered or rejected Loadsmart's own bid (Placement picks it up). */
+export type LoadsmartBidEventHook = (bid: LoadBidEntity, load: LoadEntity) => Promise<void>;
+
 /** What the bid rules (bid-rules.ts) read from a bid. */
 export interface BidLike {
   id: string;
@@ -32,6 +41,9 @@ export interface BidLike {
   truckVerified: boolean | null;
   expiresAt: Date | null;
   createdAt: Date;
+  /** A counter-offer waiting for the bidder's answer keeps Accept off. */
+  counterStatus?: BidCounterStatus | null;
+  counterRate?: string | null;
 }
 
 export type CreateLoadBidData = Pick<
@@ -48,7 +60,8 @@ export type CreateLoadBidData = Pick<
   | 'expiresAt'
   | 'enteredBy'
   | 'entryReason'
->;
+> &
+  Partial<Pick<LoadBidEntity, 'rateHistory'>>;
 
 export interface RecordBidInput {
   transporterId: string;
@@ -78,6 +91,26 @@ export interface BidView {
   entryReason: string | null;
   expiresAt: string | null;
   createdAt: string;
+  /** The shipper's counter-offer and where it stands; null when there's none. */
+  counter: {
+    rate: string;
+    note: string | null;
+    status: BidCounterStatus;
+    at: string;
+    answeredAt: string | null;
+  } | null;
+  rejectionReason: string | null;
+  /** Every rate the bid has carried, oldest first — the table shows only the latest. */
+  history: BidRateStep[];
+}
+
+export interface CounterBidInput {
+  rate: number;
+  note?: string;
+}
+
+export interface CounterAnswerInput {
+  accepted: boolean;
 }
 
 export interface LoadBidsView {

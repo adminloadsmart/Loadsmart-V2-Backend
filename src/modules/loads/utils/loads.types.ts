@@ -132,6 +132,9 @@ export const LOAD_STATUSES = [
   'invoice_generated', // 11 · Money — Loadsmart's invoice issued / the transporter's uploaded
   'payment', // 12 · Money — the shipper's payment recorded, with proof
   'closed', // 13
+  // Outside the 13: the shipper cancelled the load before it was Loaded (a Loadsmart load once
+  // Super Admin approves). Nothing moves it on.
+  'cancelled',
 ] as const;
 
 /** Stages 11–12 — every route but own fleet. */
@@ -154,15 +157,25 @@ export const UNLOADED_LOAD_STATUSES: readonly LoadStatus[] = [
  *  are picked when posting) and closes from Delivered — nothing to invoice or pay. */
 export const OWN_FLEET_STAGES: readonly LoadStatus[] = LOAD_STATUSES.filter(
   (status) =>
-    status !== 'created' && status !== 'bids_received' && !MONEY_LOAD_STATUSES.includes(status),
+    status !== 'created' &&
+    status !== 'bids_received' &&
+    status !== 'cancelled' &&
+    !MONEY_LOAD_STATUSES.includes(status),
+);
+/** The 13 stages a load goes through — every status but Cancelled. */
+export const LIFECYCLE_STAGES: readonly LoadStatus[] = LOAD_STATUSES.filter(
+  (status) => status !== 'cancelled',
 );
 
 /** Trips Home-page tab boundary — a delivered load is deliberately NOT completed: it only counts
  *  as done once staff has accepted its E-POD, any delivery issue is settled (and, for market
  *  loads, both advance and balance are paid) and LoadService.closeLoad has flipped it to 'closed'. */
 export const COMPLETED_LOAD_STATUSES: readonly LoadStatus[] = ['closed'];
+/** "A place for cancelled loads to go" — their own tab, never Active, Open or Completed. */
+export const CANCELLED_LOAD_STATUSES: readonly LoadStatus[] = ['cancelled'];
 export const ACTIVE_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
-  (status) => !COMPLETED_LOAD_STATUSES.includes(status),
+  (status) =>
+    !COMPLETED_LOAD_STATUSES.includes(status) && !CANCELLED_LOAD_STATUSES.includes(status),
 );
 /** Trips "Active" tab — the trip is still being executed. Once the truck has unloaded (either
  *  delivered stage, or a money stage after it) the trip moves to Open, where it stays until its
@@ -173,7 +186,7 @@ export const ACTIVE_TAB_LOAD_STATUSES: readonly LoadStatus[] = ACTIVE_LOAD_STATU
 /** Driver-app "Open Trips" tab — every status except 'closed'. Named separately from
  *  ACTIVE_LOAD_STATUSES (equal today) since they serve different audiences and may diverge. */
 export const OPEN_LOAD_STATUSES: readonly LoadStatus[] = LOAD_STATUSES.filter(
-  (status) => status !== 'closed',
+  (status) => status !== 'closed' && status !== 'cancelled',
 );
 /** Driver-app "Upcoming" tab — not yet moving. */
 export const UPCOMING_LOAD_STATUSES: readonly LoadStatus[] = [
@@ -204,6 +217,7 @@ export const ARRIVED_AT_DELIVERY_STATUSES: readonly LoadStatus[] = [
   'reached_unloading',
   ...UNLOADED_LOAD_STATUSES,
   'closed',
+  'cancelled',
 ];
 
 /** Stages a truck can be flagged "Detention detected" in — on the trip, before it has unloaded
@@ -221,13 +235,14 @@ export const DETENTION_FLAGGABLE_STATUSES: readonly LoadStatus[] = [
 export const MAX_CARGO_VALUE_PER_TONNE = 10_000_000;
 /** Upper bound on a driver issue report's expected delay — 7 days, in minutes (LS_N_0037). */
 export const MAX_ISSUE_ETA_IMPACT_MINUTES = 7 * 24 * 60;
-export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming'] as const;
+export const LOAD_STATUS_GROUPS = ['active', 'completed', 'open', 'upcoming', 'cancelled'] as const;
 export type LoadStatusGroup = (typeof LOAD_STATUS_GROUPS)[number];
 export const LOAD_STATUS_GROUP_FILTERS: Record<LoadStatusGroup, readonly LoadStatus[]> = {
   active: ACTIVE_TAB_LOAD_STATUSES,
   completed: COMPLETED_LOAD_STATUSES,
   open: OPEN_LOAD_STATUSES,
   upcoming: UPCOMING_LOAD_STATUSES,
+  cancelled: CANCELLED_LOAD_STATUSES,
 };
 
 /** Stages set by hand through PATCH /loads/:id/status (staff) or the driver app — there is no
@@ -248,6 +263,13 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'DOCUMENT_REVIEWED',
   'CHARGE_ADDED',
   'TRUCK_CANCELLED',
+  'BID_COUNTERED',
+  'BID_COUNTER_ANSWERED',
+  'BID_REJECTED',
+  'LOAD_CANCELLED',
+  'LOAD_CANCEL_REQUESTED',
+  'LOAD_CANCEL_REJECTED',
+  'LOAD_EDITED',
   'PAYMENT_RECORDED',
   'ISSUE_REPORTED',
   'POD_REVIEWED',
@@ -310,6 +332,19 @@ export const DRIVING_LICENCE_DOC_LABEL = 'Driving licence';
  *  past its window reads (and is saved) as `expired`. */
 export const BID_STATUSES = ['received', 'accepted', 'rejected', 'expired'] as const;
 export type BidStatus = (typeof BID_STATUSES)[number];
+
+/** The shipper's counter-offer on a live bid: `pending` until the bidder answers (by phone for a
+ *  transporter, recorded by the shipper; on the console for Loadsmart's own bid). */
+export const BID_COUNTER_STATUSES = ['pending', 'accepted', 'declined'] as const;
+export type BidCounterStatus = (typeof BID_COUNTER_STATUSES)[number];
+
+/** One step in a bid's rate history — every rate it has carried stays on the bid. */
+export interface BidRateStep {
+  at: string;
+  by: string | null;
+  kind: 'bid' | 'revised' | 'counter' | 'counter_accepted' | 'counter_declined';
+  rate: string;
+}
 
 /** How the bid reached Loadsmart — `web` is the shipper typing in a rate given by phone (and,
  *  for indent, the transporter's acceptance); `whatsapp` arrives with the WhatsApp buttons. */

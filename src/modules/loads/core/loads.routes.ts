@@ -181,6 +181,11 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
   );
   // Where the load's money stands, and charges with proof (own transporter / indent).
   router.get(
+    '/loads/:loadId/next-action',
+    validate(loadPaymentValidators.summary),
+    asyncHandler(controller.nextAction),
+  );
+  router.get(
     '/loads/:loadId/money',
     requirePermission(PAYMENTS_MANAGE, DISPATCH_PLANNING_MANAGE),
     validate(loadPaymentValidators.summary),

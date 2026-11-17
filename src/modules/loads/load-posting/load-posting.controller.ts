@@ -5,6 +5,7 @@ import { LoadPostingService } from './load-posting.service';
 import { LoadPostingLookupService } from './load-posting-lookup.service';
 import { CustomerContractService } from './customer-contract.service';
 import { LoadDraftService } from './load-draft.service';
+import type { EditPostingDetailsInput } from './utils/load-posting.interface';
 import {
   ContractsQueryInput,
   CreateContractInput,
@@ -31,6 +32,31 @@ export class LoadPostingController {
     );
     respond(res, result, result.duplicate ? 200 : 201);
   };
+
+  /** Edit everything, until bids come in — the same body as posting. */
+  editPosting = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.postingService.editPosting(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!,
+        req.params.postingId as string,
+        req.body as PostLoadInput,
+      ),
+    );
+
+  /** After bids: the reporting time and the area of the pickup and drop. */
+  editDetails = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.postingService.editDetails(
+        requireTenantId(req),
+        req.user!.id,
+        req.params.postingId as string,
+        req.body as EditPostingDetailsInput,
+      ),
+    );
 
   getPosting = async (req: Request, res: Response) =>
     respond(

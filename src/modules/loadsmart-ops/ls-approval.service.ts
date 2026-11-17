@@ -4,6 +4,7 @@ import { PermissionHolder } from '../../shared/middleware/require-permission.mid
 import { AuditService } from '../audit/audit.service';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
+import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { LoadPostingService, PostLoadResult } from '../loads/load-posting/load-posting.service';
 import { PostLoadInput } from '../loads/load-posting/utils/load-posting.interface';
 import { StorageService } from '../storage/storage.service';
@@ -37,10 +38,10 @@ export class LsApprovalService {
     idempotencyKey?: string,
   ): Promise<PostLoadResult> {
     try {
-      const [org] = (await this.dataSource.query(
-        `SELECT "status" FROM "auth"."organizations" WHERE "id" = $1`,
-        [tenantId],
-      )) as { status: string }[];
+      const org = await this.dataSource.getRepository(OrganizationEntity).findOne({
+        where: { id: tenantId },
+        select: { id: true, status: true },
+      });
       if (!org) throw new NotFoundError(`Shipper ${tenantId} not found`);
       if (org.status !== 'active') {
         throw new ConflictError('The shipper is not approved yet — they cannot have loads posted');

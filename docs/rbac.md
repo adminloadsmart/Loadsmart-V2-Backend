@@ -36,7 +36,13 @@ erDiagram
         varchar email "nullable"
         varchar password_hash "nullable"
         uuid role_id "FK, NOT NULL"
-        varchar coverage "nullable — staff's city/region"
+        varchar region "nullable — team member's region (was coverage)"
+        varchar employee_id "nullable — unique per team among active users"
+        varchar team_role "nullable — job title within the team (TEAM_ROLES)"
+        uuid reports_to_user_id "nullable FK users"
+        varchar sales_type "sales team only — shipper_sales | tracker_sales"
+        varchar state "sales team only"
+        uuid asm_user_id "sales team only — FK users (their ASM)"
     }
     RoleEntity {
         uuid id
@@ -95,9 +101,35 @@ See [§9](#9-known-gaps--deliberate-trade-offs).
 Defined in [db/role-catalog.ts](../src/db/role-catalog.ts) (`PERMISSIONS` and `ROLES`, pure
 data) and seeded by [db/seed-roles.ts](../src/db/seed-roles.ts) (`npm run seed:roles`). Nothing
 else ever inserts a row into `auth.roles`. **`role-catalog.ts` is the authoritative list.** The
-table below shows a few roles for orientation and is not exhaustive. The org teammate roles
-(`sales_cs`, `dispatch`, `documents_ops`, `finance_accounts`) and the Loadsmart ops roles
-(`ls_*`, `load_console`) are all there.
+table below shows the platform side in full and a few org roles; the org teammate roles
+(`sales_cs`, `dispatch`, `documents_ops`, `finance_accounts`) are in the file.
+
+### Platform staff = teams (16 Nov Figma notes §4/§11)
+
+Platform staff are **team members**: each holds exactly one team role (one `role_id`), so "strictly
+one team per person" holds by construction. The **team decides all access**. The member's job
+title within the team (`users.team_role`, values in `TEAM_ROLES`) has no access effect.
+`platform_admin` is **not** a team: it is the single owner account.
+
+| Role (team) | Who gets it | Permissions (each team also gets `loads.console.access`, `storage.files.read/upload`) |
+|---|---|---|
+| `platform_admin` (owner) | Bootstrapped once ([§8](#8-bootstrapping)); never through the API | **None seeded** — superuser bypass is code-level, see [§4](#4-the-permission-catalog). The only account that manages team members, roles/grants, referral codes and org status. |
+| `ls_admin` (Admin — the notes' "Super Admin") | `POST /v1/admin/staff` | **Computed**: every ops team's keys + `loadsmart.masters.manage` + `loadsmart.margin.view` + `loadsmart.margin.manage` + `kyc.oversee` (whole KYC queue, assigns reviewers). Never `admin.organizations.manage` (that would make it an owner) and no sales keys. |
+| `ls_approval` | `POST /v1/admin/staff` | `loadsmart.approval`, `kyc.online.verify/reject`, `kyc.offline.verify/reject` (Approval verifies onboarding — replaces the old KYC desks) |
+| `ls_placement` | `POST /v1/admin/staff` | `loadsmart.placement`, `loadsmart.verification` (truck/DL check before the memo), `loadsmart.margin.view` |
+| `ls_tracking` | `POST /v1/admin/staff` | `loadsmart.tracking` |
+| `ls_payables` | `POST /v1/admin/staff` | `loadsmart.payables`, `loadsmart.pod` (original POD) |
+| `ls_receivables` | `POST /v1/admin/staff` | `loadsmart.receivables` |
+| `ls_cs` | `POST /v1/admin/staff` | `loadsmart.cs` (screens on hold this build) |
+| `sales` | `POST /v1/admin/staff` | `sales.leads.manage`, `customers.create` |
+
+Retired by migration `1794200000000-StaffTeamMembers`: `online_kyc_desk`, `offline_kyc_desk`
+→ `ls_approval`; `ls_verification` → `ls_placement`; `ls_pod` → `ls_payables`; `load_console`
+(the migration refuses to run while an active user still holds it).
+
+Roles (`TEAM_ROLES`, the design's Role picker): **Team member** → one ops team; **Salesperson** /
+**ASM** → `sales`; **Super Admin** (here: Admin, `admin`) → `ls_admin`. Sales members also carry `sales_type` (shipper/tracker), `state` and, for
+a salesperson, their ASM.
 
 | Role | Scope | Who gets it | Permissions |
 |---|---|---|---|
@@ -152,7 +184,7 @@ writes/actions.
 ### JWT shape
 
 ```json
-{ "id": "...", "tenantId": null, "role": "online_kyc_desk", "permissions": ["kyc.online.verify", "kyc.online.reject"], "jti": "...", "purpose": "access", "exp": 1234567890 }
+{ "id": "...", "tenantId": null, "role": "ls_approval", "permissions": ["loadsmart.approval", "kyc.online.verify", "kyc.online.reject", "kyc.offline.verify", "kyc.offline.reject", "loads.console.access", "storage.files.read", "storage.files.upload"], "jti": "...", "purpose": "access", "exp": 1234567890 }
 ```
 
 `purpose: "access"` marks this as a real access token — `authMiddleware` rejects any bearer token
@@ -213,7 +245,7 @@ throws, and direct grants through `user_permissions` silently stop working.
 Role names are still the right tool for:
 - **Governance of RBAC itself**: `assertCanManage` / `assertCanView` (§6), and org-teammate
   invite/manage in `auth.service.ts`.
-- **Identity checks on a target user**: "is this assignee an online KYC desk?", "is this
+- **Identity checks on a target user**: "is this assignee on a KYC reviewer team?", "is this
   referral-code owner a sales person?", "find the org's owner".
 - **Scope**: `PLATFORM_SCOPE_ROLES` in tenant-scope and storage (platform user vs tenant user).
 - **Notification audiences**: `recipientRoles` in the notification catalog.
@@ -418,23 +450,37 @@ cleaned up through the API instead of needing direct DB access).
 ### Platform administrators
 
 - **`isPlatformAdministrator(user)`** (`require-permission.middleware.ts`) is true for the
-  `platform_admin` role **or** anyone holding `admin.organizations.manage`. The key is
-  grantable, and every admin-authority decision uses this check: `assertCanManage`,
-  `assertCanView`, the role catalog, `AdminService`'s org scoping, and the staff list. Checks about
-  a *target's* identity (is the target a platform_admin, a KYC desk or sales) stay role-based.
-- **`platform_admin` accounts come only from `seed:platform-admin`.** No API path assigns,
-  edits, demotes or deletes one: `/roles` refuses (above), `/admin/staff` covers only
-  `STAFF_ASSIGNABLE_ROLES` targets, and `updateStaff` loads its target with `findStaffUserById`,
-  so it can never repoint an org user's or an admin's phone or email.
-- **Staff creation checks its direct grants first** (`RoleService.assertPlatformPermissionIds`),
-  so a bad or organization-scope permission ID can't leave a half-created account.
+  `platform_admin` role **or** anyone holding `admin.organizations.manage`. Every admin-authority
+  decision uses it: `assertCanManage`, `assertCanView`, the role catalog, `AdminService`'s org
+  scoping, and the staff list. Checks about a *target's* identity (is the target a
+  platform_admin, a KYC reviewer or sales) stay role-based.
+- **There is exactly one platform admin.** `platform_admin` accounts come only from
+  `seed:platform-admin`; no API path assigns, edits, demotes or deletes one (`/roles` refuses,
+  `/admin/staff` only targets team roles, `DELETE /auth/account` refuses platform accounts).
+  `admin.organizations.manage` is never grantable (`RoleService.grantPermission` refuses it, and
+  the teams migration removed any existing direct grant), so no one else becomes an admin.
+- **The Admin team (`ls_admin`) is not a platform admin.** It can do everything every ops team
+  can, plus masters and margin, but cannot manage team members, roles/grants, referral codes or
+  org status.
+- **One team per person**: `grantPermission` refuses a team key (`loadsmart.*`, `kyc.*`) for a
+  team member — move them to that team instead.
 - **KYC review scoping** (`AdminService.reviewerScopeFilter` / `assertOrgAccessible`):
-  - platform administrators see every organization;
-  - an offline desk sees its assignments once online KYC is done;
-  - everyone else sees only organizations assigned to them. Only desk roles can be assigned, so a
-    non-desk staff member granted a KYC key sees none. There is never an unscoped list.
-- **`GET /admin/staff` for a KYC reviewer** returns `id`, `fullName`, `role`, `coverage` and
-  `workload` only, without phone, email or referral data.
+  - platform administrators and the Admin team (`kyc.oversee`) see every organization and act on
+    any of them in any capacity; both can assign the online verifier;
+  - an Approval reviewer (Approval/Admin team member — the only assignable teams) sees an org where they are
+    the online verifier, or the physical agent once online KYC is complete. Never an unscoped list;
+  - each action also checks the **capacity** it belongs to: online-only actions (verify/upload a
+    document, assign the physical agent, approve, deny) need the online verifier; the physical
+    approval needs the physical agent; reject and reads accept either. (The old desks were kept
+    apart by holding different keys; one team now holds both, so this is checked in the service.)
+- **`GET /admin/staff` for a KYC reviewer** returns `id`, `fullName`, `team`, `role`, `teamRole`,
+  `region` and `workload` only, without phone, email, employee ID or referral data.
+- **Ops console** (`/v1/loadsmart-ops`): partners (brokers) are a master — listing them needs
+  Placement or `loadsmart.masters.manage`, creating/editing needs `loadsmart.masters.manage`
+  (Admin only). Margin (`marginPercent`, `effectiveMarginPercent`) is stripped from every ops
+  response unless the caller holds `loadsmart.margin.view` (Placement, Admin). Changing margin
+  (`marginPercent` on `PUT /terms/:tenantId` or `POST /sourcings/:id/approve`) needs
+  `loadsmart.margin.manage` — Admin team only; Approval saves terms without it (margin kept).
 
 ## 7. API surface
 
@@ -453,47 +499,64 @@ None of these carry a flat `requirePermission(...)` gate — authorization is co
 (`assertCanViewCatalog`/`assertCanManage`/`assertCanView`), which a static permission list can't
 express. The two catalog-listing endpoints used to be open to any authenticated user; role names
 and permission keys/descriptions aren't customer data, but they do reveal internal authorization
-structure an ordinary staff account (`sales`/KYC desk/`load_console`) has no reason to see.
+structure an ordinary team member has no reason to see.
 
-### `modules/admin/` — mounted at `/v1/admin`, blanket `requirePermission(ADMIN_ORGANIZATIONS_MANAGE)`
+### `modules/admin/` — mounted at `/v1/admin`, gated per route
+
+Staff, referral-code, assignment and org-status routes need `admin.organizations.manage` (the
+platform admin). KYC review routes also admit KYC reviewers (Approval/Admin teams) by key, with
+the per-org ownership/capacity check in `AdminService.assertOrgAccessible`. `GET /admin/staff` is
+open to reviewers too (field-filtered, see §6).
 
 | Method & path | Purpose |
 |---|---|
-| `GET/PATCH /v1/admin/organizations[...]` | Cross-tenant org management |
-| `POST /v1/admin/staff` | Provision an internal staff account — see [§7.1](#71-post-v1adminstaff-in-detail) |
-| `GET /v1/admin/staff` | List staff (paginated, searchable) |
+| `GET/PATCH /v1/admin/organizations[...]` | Cross-tenant org management and KYC review |
+| `POST /v1/admin/staff` | Add a team member — see [§7.1](#71-post-v1adminstaff-in-detail) |
+| `GET /v1/admin/staff` | List team members (filters: `search`, `team`, `teamRole`, `region`, `status`) |
+| `GET /v1/admin/staff/teams` | Teams for the form: `{ id, name, teamRoles, capabilities }` |
+| `GET /v1/admin/staff/summary` | Per-team cards — same population as the list |
+| `PATCH /v1/admin/staff/:id` | Edit a team member (same rules as create, on the merged record) |
+| `DELETE /v1/admin/staff/:id` | Remove a team member |
 
 #### 7.1 `POST /v1/admin/staff` in detail
 
 ```json
 {
   "fullName": "Priya Sharma",
+  "employeeId": "LS-0142",
   "phoneNumber": "9123456780",
-  "email": "priya.kyc@company.com",
-  "roleId": "<uuid, must resolve to sales/online_kyc_desk/offline_kyc_desk/load_console>",
-  "coverage": "Mumbai",
-  "permissionIds": ["<optional, extra permission ids beyond the role>"]
+  "email": "priya@loadsmart.in",
+  "roleId": "<uuid of a team role: ls_admin | ls_approval | ls_placement | ls_tracking | ls_cs | ls_receivables | ls_payables | sales>",
+  "teamRole": "team_member",
+  "reportsToUserId": "<optional uuid — an active team member or the platform admin>",
+  "region": "Mumbai",
+  "sales": { "salesType": "shipper_sales", "state": "MH", "asmUserId": "<uuid>" }
 }
 ```
 
-- `roleId` is checked against `STAFF_ASSIGNABLE_ROLES`
-  ([shared/constants/roles.ts](../src/shared/constants/roles.ts)) — `platform_admin`/`org_admin`
-  explicitly rejected (400).
-- Phone and email are both pre-checked for collisions (409) — self-signup can rely on OTP proving
-  phone ownership; this path can't, so both are checked.
-- The password is **not** admin-supplied — `AuthService.generatePassword()` generates one
-  server-side and hashes it the same way as every other password in this codebase (bcrypt, cost
-  10). See [§9](#9-known-gaps--deliberate-trade-offs) for the gap this currently leaves open.
-- The account authenticates via the **existing** `POST /v1/auth/login` (email + password) — this
-  endpoint never issues a token, since the admin isn't the one logging in.
-- `permissionIds` grants are **not transactional** with account creation — reuses
-  `RoleService.grantPermission` in a loop, so the account is still created even if one id in the
-  list is bad; the error names which id failed, and it can be retried alone via
-  `POST /v1/roles/users/:id/permissions`.
-- Response's `permissions` field is the account's full effective list (role ∪ granted), computed
-  via `getEffectivePermissions`, not hand-assembled from the request.
-- Every create/grant is audit-logged (`STAFF_CREATED`, `PERMISSION_GRANTED`) with real
-  before/after data in `audit.audit_logs`.
+- `roleId` is the team — checked against `STAFF_TEAMS`; `platform_admin`/`org_admin` rejected (400).
+- `teamRole` must be a job title of that team (`TEAM_ROLES`) — e.g. `asm` only on `sales`.
+- `sales` is required on the sales team and rejected elsewhere; a `salesperson` needs an
+  `asmUserId` pointing at an active sales-team `asm`; an `asm` has none.
+- `reportsToUserId` can't be the member, must be active staff or the platform admin, and can't
+  create a cycle (checked on update by walking the chain).
+- Phone and email are unique among active users (409). `employeeId` is unique **per team** (409) —
+  the notes' one exception (a person on CS + Tracking) gets a second account on the other team.
+- **No password, no per-member permissions.** Team members sign in with mobile + OTP
+  (`POST /v1/auth/login/otp/request` with `portal: "platform"`); password login, `POST
+  /auth/password` and setting a password via `/auth/user-details` are all refused for them. Access
+  is the team bundle only.
+- An SMS/email invite is sent (`StaffInviteSender`, reusing the MSG91 team-invite templates with
+  org name "Loadsmart") — best-effort, never fails the hire. Sent directly rather than through the
+  notifications module, which is tenant-scoped.
+- A sales hire also gets a referral code (best-effort), as does moving someone onto sales.
+- **Update** (`PATCH`) refuses a team change that would orphan work: open KYC reviews (leaving
+  Approval/Admin), active referral codes (leaving sales), salespeople under them (no longer an
+  ASM). Changing the phone revokes the member's sessions.
+- **Delete** refuses while KYC reviews, direct reports, ASM reports or active referral codes still
+  point at the member.
+- Every create/update/delete is audit-logged (`STAFF_CREATED`, `STAFF_UPDATED`, `STAFF_DELETED`)
+  with before/after data.
 
 ## 8. Bootstrapping
 
@@ -555,9 +618,10 @@ Worth knowing before you assume something is a bug:
   re-auth now" isn't wireable into `grantPermission`/`revokePermission`/`assignRole` without adding
   that bookkeeping first — see §5's frontend guidance for the workaround that needs no backend
   change (poll `GET /v1/roles/users/:userId/permissions` instead of trusting the JWT).
-- **A freshly created staff account has no way to learn its own password.** `POST /v1/admin/staff`
-  generates one server-side (§7.1) but never returns it in the response, and there's no
-  notification module wired up yet to email/SMS it anywhere either.
+- **Team-member invites have no 24h reminder.** Org teammate invites get one through the
+  notifications module; staff invites go straight through MSG91 (the notifications pipeline is
+  tenant-scoped and staff have no tenant), so a reminder would need its own delayed job.
+
 
 ## 10. How to / common changes
 
@@ -574,10 +638,14 @@ Worth knowing before you assume something is a bug:
    `hasPermission(actor, ...)` where a service branches on it. Don't add a `role ===` check
    instead (see §5's rule).
 
-**Add a brand-new fixed role** (platform or organization scope): add it to `role-catalog.ts`'s
-`ROLES` array with its starting permission bundle, re-seed. If it's a staff-assignable
-platform-scope role, also add its name to `STAFF_ASSIGNABLE_ROLES`
-(`shared/constants/roles.ts`) so `POST /v1/admin/staff` can hand it out.
+**Add a brand-new fixed role** (organization scope): add it to `role-catalog.ts`'s `ROLES`
+array with its starting permission bundle, re-seed.
+
+**Add a new staff team**: add its bundle to `OPS_TEAM_BUNDLES` in `role-catalog.ts` (the Admin
+team picks it up automatically), its name to `STAFF_TEAMS` and its job titles to `TEAM_ROLES`
+(`shared/constants/roles.ts`), and a migration inserting the role row if existing data must move
+onto it. Re-seed.
 
 **Give one specific user extra powers without a new role**: `POST /v1/roles/users/:id/permissions`
-with `{ permissionId }` (or `permissionIds` at creation time via `POST /v1/admin/staff`).
+with `{ permissionId }`. For team members this is limited to non-team keys (not `loadsmart.*` /
+`kyc.*`) — one team per person — and `admin.organizations.manage` is never grantable.

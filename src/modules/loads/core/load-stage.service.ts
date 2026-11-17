@@ -216,7 +216,7 @@ export class LoadStageService {
       await this.onStageEntered?.(updated, to);
 
       const delivered = DELIVERED_LOAD_STATUSES.includes(to);
-      if ((delivered || to === 'closed') && updated.vehicleId) {
+      if ((delivered || to === 'closed' || to === 'cancelled') && updated.vehicleId) {
         // Own-fleet loads carry a vehicleId — release it back to idle as soon as the load is
         // delivered so it can take the next load; closing repeats the write harmlessly. Tracking
         // moves have no actor, so fall back to the load's last editor.
@@ -224,7 +224,7 @@ export class LoadStageService {
         if (releasedBy) {
           await this.vehicleService.setOperationalStatus(tenantId, releasedBy, updated.vehicleId, {
             operationalStatus: 'idle',
-            reason: `Load ${loadId} ${delivered ? 'delivered' : 'closed'}`,
+            reason: `Load ${loadId} ${delivered ? 'delivered' : to}`,
           });
         }
       }

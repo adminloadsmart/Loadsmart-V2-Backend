@@ -16,7 +16,7 @@ import { RoleEntity } from '../roles/entities/role.entity';
 import { UserPermissionEntity } from '../roles/entities/user-permission.entity';
 import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { NotFoundError } from '../../shared/errors';
-import { STAFF_ASSIGNABLE_ROLES } from '../../shared/constants/roles';
+import { STAFF_ASSIGNABLE_ROLES, type SalesType } from '../../shared/constants/roles';
 import { LoginPortal, DevicePlatform, StaffMemberRole } from './auth.types';
 
 export class AuthRepository {
@@ -110,8 +110,15 @@ export class AuthRepository {
       email?: string | null;
       passwordHash?: string | null;
       fullName?: string | null;
-      coverage?: string | null;
       whatsappOptIn?: boolean | null;
+      // Team-member profile (platform staff only) — see UserEntity.
+      region?: string | null;
+      employeeId?: string | null;
+      teamRole?: string | null;
+      reportsToUserId?: string | null;
+      salesType?: SalesType | null;
+      state?: string | null;
+      asmUserId?: string | null;
     },
     manager?: EntityManager,
   ): Promise<UserEntity> {
@@ -123,7 +130,13 @@ export class AuthRepository {
       email: data.email ?? null,
       passwordHash: data.passwordHash ?? null,
       fullName: data.fullName ?? null,
-      coverage: data.coverage ?? null,
+      region: data.region ?? null,
+      employeeId: data.employeeId ?? null,
+      teamRole: data.teamRole ?? null,
+      reportsToUserId: data.reportsToUserId ?? null,
+      salesType: data.salesType ?? null,
+      state: data.state ?? null,
+      asmUserId: data.asmUserId ?? null,
       whatsappOptIn: data.whatsappOptIn ?? true,
       deletedAt: null,
     });
@@ -133,40 +146,50 @@ export class AuthRepository {
     return (await users.findOne({ where: { id: saved.id }, relations: { role: true } }))!;
   }
 
-  // Platform-scope staff (sales/KYC desk/load console/platform_admin) specifically — not just
-  // "tenantId IS NULL", since an org_admin mid-self-signup (hasn't completed their company
-  // profile yet) also has a null tenantId at that point without being staff. role.scope is the
-  // real distinguishing field.
+  // Team members specifically — tenant-less users on a STAFF_TEAMS role. Not just "tenantId IS
+  // NULL", since an org_admin mid-self-signup also has a null tenantId; and never platform_admin
+  // (the owner account isn't a team member row). Shared by listStaffUsers and listAllStaffRoles so
+  // the list total and the summary cards always count the same people.
+  private staffQuery(alias = 'user') {
+    return this.users
+      .createQueryBuilder(alias)
+      .innerJoinAndSelect(`${alias}.role`, 'role')
+      .where(`${alias}.tenant_id IS NULL`)
+      .andWhere(`${alias}.deleted_at IS NULL`)
+      .andWhere('role.scope = :scope', { scope: 'platform' })
+      .andWhere('role.name IN (:...staffRoles)', { staffRoles: [...STAFF_ASSIGNABLE_ROLES] });
+  }
+
   async listStaffUsers(filters: {
     search?: string;
-    role?: string;
+    team?: string;
+    teamRole?: string;
+    region?: string;
+    status?: 'invited' | 'active';
     page: number;
     limit: number;
   }): Promise<{ items: UserEntity[]; total: number }> {
-    const { search, role, page, limit } = filters;
-    const qb = this.users
-      .createQueryBuilder('user')
-      .innerJoinAndSelect('user.role', 'role')
-      .where('user.tenant_id IS NULL')
-      .andWhere('user.deleted_at IS NULL')
-      .andWhere('role.scope = :scope', { scope: 'platform' })
+    const { search, team, teamRole, region, status, page, limit } = filters;
+    const qb = this.staffQuery()
+      .leftJoinAndSelect('user.reportsTo', 'reportsTo')
+      .leftJoinAndSelect('user.asm', 'asm')
       .orderBy('user.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
     if (search) {
-      qb.andWhere('(user.full_name ILIKE :search OR user.email ILIKE :search)', {
-        search: `%${search}%`,
-      });
+      qb.andWhere(
+        `(user.full_name ILIKE :search OR user.email ILIKE :search
+          OR user.phone_number ILIKE :search OR user.employee_id ILIKE :search)`,
+        { search: `%${search}%` },
+      );
     }
-    // Narrows to a specific role (e.g. 'online_kyc_desk') — used by the admin UI to populate
-    // the KYC verifier/agent assignment dropdowns with only eligible staff. Otherwise only the
-    // hireable roles — the platform admin's own account isn't an employee row.
-    if (role) {
-      qb.andWhere('role.name = :role', { role });
-    } else {
-      qb.andWhere('role.name IN (:...staffRoles)', { staffRoles: STAFF_ASSIGNABLE_ROLES });
-    }
+    // One team — e.g. the KYC assignment dropdowns ask for ls_approval.
+    if (team) qb.andWhere('role.name = :team', { team });
+    if (teamRole) qb.andWhere('user.team_role = :teamRole', { teamRole });
+    if (region) qb.andWhere('user.region ILIKE :region', { region });
+    if (status === 'invited') qb.andWhere('user.last_signed_in_at IS NULL');
+    if (status === 'active') qb.andWhere('user.last_signed_in_at IS NOT NULL');
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
@@ -180,19 +203,60 @@ export class AuthRepository {
         deletedAt: IsNull(),
         role: { name: In([...STAFF_ASSIGNABLE_ROLES]) },
       },
+      relations: { role: true, reportsTo: true, asm: true },
+    });
+  }
+
+  // Every team member's id + team, unpaged — for the Team members screen's per-team cards
+  // (AuthService.getStaffSummary). Same population as listStaffUsers (see staffQuery).
+  async listAllStaffRoles(): Promise<StaffMemberRole[]> {
+    const staff = await this.staffQuery().select(['user.id', 'role.id', 'role.name']).getMany();
+    return staff.map((member) => ({ id: member.id, role: member.role.name }));
+  }
+
+  // Active, tenant-less users among `ids` (team members and the platform_admin owner) — the
+  // eligible targets for reports-to / ASM.
+  findActivePlatformUsersByIds(ids: string[]): Promise<UserEntity[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.users.find({
+      where: { id: In(ids), tenantId: IsNull(), deletedAt: IsNull() },
       relations: { role: true },
     });
   }
 
-  // Every platform staff member's id + role, unpaged — for the Employees screen's per-role
-  // cards (AuthService.getStaffSummary). Staff counts are small (tens, not thousands).
-  async listAllStaffRoles(): Promise<StaffMemberRole[]> {
-    const staff = await this.users.find({
-      select: { id: true, role: { name: true } },
-      where: { tenantId: IsNull(), deletedAt: IsNull(), role: { scope: 'platform' } },
+  // An active team member already using this employee ID on this team (roleId) — see the
+  // users_employee_id_team_active_unique index.
+  findActiveByEmployeeIdOnTeam(employeeId: string, roleId: string): Promise<UserEntity | null> {
+    return this.users.findOne({
+      where: { employeeId, roleId, deletedAt: IsNull() },
       relations: { role: true },
     });
-    return staff.map((member) => ({ id: member.id, role: member.role.name }));
+  }
+
+  // Active users whose reports-to / ASM is this user — blocks deleting (or moving) someone people
+  // still report into.
+  countDirectReports(userId: string): Promise<number> {
+    return this.users.count({ where: { reportsToUserId: userId, deletedAt: IsNull() } });
+  }
+
+  countAsmReports(userId: string): Promise<number> {
+    return this.users.count({ where: { asmUserId: userId, deletedAt: IsNull() } });
+  }
+
+  // The reports-to chain upward from `userId` (ids only, nearest first), capped — for the
+  // no-cycle check in AuthService.
+  async reportsToChain(userId: string, maxDepth: number): Promise<string[]> {
+    const chain: string[] = [];
+    let current: string | null = userId;
+    while (current && chain.length < maxDepth) {
+      const row: { reportsToUserId: string | null } | null = await this.users.findOne({
+        select: { id: true, reportsToUserId: true },
+        where: { id: current },
+      });
+      current = row?.reportsToUserId ?? null;
+      if (current) chain.push(current);
+    }
+    return chain;
   }
 
   // Organization-scope counterpart to listStaffUsers above — every user (org_admin plus invited
@@ -311,7 +375,13 @@ export class AuthRepository {
       designation: string | null;
       manualDesignation: string | null;
       department: string | null;
-      coverage: string;
+      region: string;
+      employeeId: string;
+      teamRole: string;
+      reportsToUserId: string | null;
+      salesType: SalesType | null;
+      state: string | null;
+      asmUserId: string | null;
     }>,
     manager?: EntityManager,
   ): Promise<UserEntity> {

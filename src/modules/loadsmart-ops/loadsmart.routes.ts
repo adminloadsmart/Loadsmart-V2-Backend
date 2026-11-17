@@ -13,31 +13,36 @@ import {
   LS_RECEIVABLES,
   LS_SETTINGS_MANAGE,
   LS_TRACKING,
+  LS_MASTERS_MANAGE,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
 import { loadsmartValidators as v } from './loadsmart.validators';
 
+// One key per ops team (each team's own primary key — see db/role-catalog.ts's OPS_TEAM_BUNDLES);
+// the Admin team holds all of them.
 const ANY_TEAM = [LS_APPROVAL, LS_PLACEMENT, LS_TRACKING, LS_CS, LS_RECEIVABLES, LS_PAYABLES];
 
-/** /v1/loadsmart-ops — the ops console. Each team's routes are gated by its own permission
- *  (platform_admin passes every gate). */
+/** /v1/loadsmart-ops — the ops console. Each team's routes are gated by its team's permissions
+ *  (platform_admin passes every gate). Margin is stripped from every response for teams without
+ *  LS_MARGIN_VIEW — see LoadsmartOpsController.out. */
 export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
   const router = Router();
   const team = (...keys: string[]): RequestHandler => requirePermission(...keys);
   const anyTeam = team(...ANY_TEAM);
 
-  // Partners and each shipper's commercial terms.
-  router.get('/partners', anyTeam, asyncHandler(c.listPartners));
+  // Partners (brokers) are a master: only the Admin team manages them (notes §11 — "no other team
+  // needs Masters access"). Placement may list them to add a broker matching missed (§6).
+  router.get('/partners', team(LS_PLACEMENT, LS_MASTERS_MANAGE), asyncHandler(c.listPartners));
   router.post(
     '/partners',
-    team(LS_PLACEMENT),
+    team(LS_MASTERS_MANAGE),
     validate(v.createPartner),
     asyncHandler(c.createPartner),
   );
   router.patch(
     '/partners/:partnerId',
-    team(LS_PLACEMENT),
+    team(LS_MASTERS_MANAGE),
     validate(v.updatePartner),
     asyncHandler(c.updatePartner),
   );
@@ -147,6 +152,13 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_PLACEMENT),
     validate(v.sendBid),
     asyncHandler(c.sendBid),
+  );
+  // The shipper countered Loadsmart's bid — Placement answers.
+  router.post(
+    '/loads/:loadId/bids/:bidId/counter-response',
+    team(LS_PLACEMENT),
+    validate(v.answerShipperCounter),
+    asyncHandler(c.answerShipperCounter),
   );
   router.post(
     '/loads/:loadId/driver',
@@ -385,6 +397,36 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.partnerBalance),
   );
 
+  // Cross-team views. Every team reads All loads (money as it may see it); Super Admin has the
+  // approvals queue and analytics; Tracking and Super Admin the live map.
+  router.get('/all-loads', anyTeam, validate(v.allLoads), asyncHandler(c.allLoads));
+  router.get('/all-loads/:loadId', anyTeam, validate(v.load), asyncHandler(c.loadPanel));
+  router.get('/approvals', team(LS_MONEY_APPROVE), asyncHandler(c.approvals));
+  // A shipper's cancellation of a load Loadsmart has won waits for Super Admin.
+  router.get(
+    '/cancellation-requests',
+    team(LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    asyncHandler(c.cancellationRequests),
+  );
+  router.post(
+    '/cancellation-requests/:cancellationId/decision',
+    team(LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    validate(v.decideCancellation),
+    asyncHandler(c.decideCancellation),
+  );
+  router.get(
+    '/analytics',
+    team(LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    validate(v.analytics),
+    asyncHandler(c.analytics),
+  );
+  router.get(
+    '/live-map',
+    team(LS_TRACKING, LS_MONEY_APPROVE, LS_SETTINGS_MANAGE),
+    validate(v.liveMap),
+    asyncHandler(c.liveMap),
+  );
+
   router.get('/loads/:loadId', anyTeam, validate(v.load), asyncHandler(c.loadDetail));
   return router;
 }
@@ -403,6 +445,12 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     canSeeChargesAndClaims,
     validate(v.load),
     asyncHandler(c.listCharges),
+  );
+  router.post(
+    '/loads/:loadId/charges/decisions',
+    canDispatch,
+    validate(v.decideCharges),
+    asyncHandler(c.decideCharges),
   );
   router.post(
     '/loads/:loadId/charges/:chargeId/decision',

@@ -40,7 +40,7 @@ export type OrganizationOnboardingStep = (typeof ORGANIZATION_ONBOARDING_STEPS)[
 // OrganizationJourneyStageService.recordTransition as a side effect of submit/assign/complete/
 // approve/reject — see organization-journey-stage.service.ts. Same single-source-of-truth
 // convention as the two enums above. online_kyc_completed is the handover moment to
-// offline_kyc_desk (set as a side effect of AdminService.verifyOrganizationDocument, once every
+// the physical agent (set as a side effect of AdminService.verifyOrganizationDocument, once every
 // submitted document is verified); physical_kyc_completed is the offline agent's approval landing
 // back with the source verifier (set by AdminService.approvePhysicalKyc) — see
 // organization.constants.ts's JOURNEY_STAGE_ORDER for the forward-only ordering these two
@@ -174,8 +174,9 @@ export class OrganizationEntity {
   referralCode!: ReferralCodeEntity | null;
 
   // The two staff members responsible for reviewing this org — one per KYC track. These are also
-  // the authorization scope for the online_kyc_desk/offline_kyc_desk roles: AdminService's
-  // assertOrgAccessible only lets a reviewer act on an org where they're the one assigned here
+  // the authorization scope for KYC reviewers (Approval/Admin team members): AdminService's
+  // assertOrgAccessible only lets a reviewer act on an org where they're the one assigned here,
+  // and only in that capacity (online verifier vs physical agent)
   // (platform_admin is exempt from this check). See admin.routes.ts for the per-route permission
   // gates and admin.service.ts for the ownership check itself.
   @Column({ name: 'online_kyc_verifier_id', type: 'uuid', nullable: true })
@@ -195,7 +196,7 @@ export class OrganizationEntity {
   // Completion markers — distinct from the assignment fields above (which only say *who's*
   // reviewing, not whether they're done). onlineKycCompletedAt is set as a side effect of
   // AdminService.verifyOrganizationDocument once every submitted document is verified; it's the
-  // handover moment to offline_kyc_desk — until it's set, assertOrgAccessible hides the org from
+  // handover moment to the physical agent — until it's set, assertOrgAccessible hides the org from
   // the assigned physical agent entirely. physicalKycApprovedAt is set by
   // AdminService.approvePhysicalKyc, and then gates AdminService.approveOrganization granting
   // platform access (status → 'active'), alongside the existing all-documents-verified check.

@@ -54,6 +54,7 @@ export const hi = {
       invoice_generated: 'इनवॉइस बना',
       payment: 'भुगतान',
       closed: 'बंद',
+      cancelled: 'रद्द',
     },
     source: {
       ownFleet: 'अपना फ्लीट',

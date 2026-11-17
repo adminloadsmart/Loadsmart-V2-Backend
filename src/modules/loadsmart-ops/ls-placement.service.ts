@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { LS_MONEY_APPROVE } from '../../shared/constants/permissions';
-import { LOAD_CONSOLE } from '../../shared/constants/roles';
+import { ADMIN_TEAM, PLACEMENT_TEAM } from '../../shared/constants/roles';
 import {
   hasPermission,
   PermissionHolder,
@@ -28,7 +28,7 @@ const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const istMidnight = (now: Date) =>
   new Date(now.getTime() - ((now.getTime() + IST_OFFSET_MS) % DAY_MS));
 
-const PLACEMENT_ROLES = ['ls_placement', LOAD_CONSOLE];
+const PLACEMENT_ROLES = [PLACEMENT_TEAM, ADMIN_TEAM];
 
 export interface PartnerClaimsInput {
   lanes: { fromCity: string; toCity: string }[];

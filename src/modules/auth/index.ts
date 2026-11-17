@@ -15,6 +15,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { createAuthPublicRoutes, createAuthProtectedRoutes } from './auth.routes';
 import { NotificationTriggers } from '../notifications/notifications.interface';
+import { StaffInviteSender } from './staff-invite.sender';
 
 export function createAuthModule(
   dataSource: DataSource,
@@ -34,6 +35,8 @@ export function createAuthModule(
     otpService: OtpService;
     // LS_N_0002 "signup received" — see auth.service.ts's submitOrganization.
     notificationTriggers: NotificationTriggers;
+    // SMS/email invite for a new team member (POST /admin/staff) — see staff-invite.sender.ts.
+    staffInviteSender: StaffInviteSender;
   },
 ) {
   const repository = new AuthRepository(dataSource);
@@ -51,6 +54,7 @@ export function createAuthModule(
     deps.otpService,
     dataSource,
     deps.notificationTriggers,
+    deps.staffInviteSender,
   );
   const controller = new AuthController(service);
   const publicRouter = createAuthPublicRoutes(controller);
