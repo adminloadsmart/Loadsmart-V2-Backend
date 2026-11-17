@@ -114,7 +114,7 @@ title within the team (`users.team_role`, values in `TEAM_ROLES`) has no access 
 | Role (team) | Who gets it | Permissions (each team also gets `loads.console.access`, `storage.files.read/upload`) |
 |---|---|---|
 | `platform_admin` (owner) | Bootstrapped once ([§8](#8-bootstrapping)); never through the API | **None seeded** — superuser bypass is code-level, see [§4](#4-the-permission-catalog). The only account that manages team members, roles/grants, referral codes and org status. |
-| `ls_admin` (Admin — the notes' "Super Admin") | `POST /v1/admin/staff` | **Computed**: every ops team's keys + `loadsmart.masters.manage` + `loadsmart.margin.view` + `loadsmart.margin.manage` + `kyc.oversee` (whole KYC queue, assigns reviewers). Never `admin.organizations.manage` (that would make it an owner) and no sales keys. |
+| `ls_admin` (Admin — the notes' "Super Admin") | `POST /v1/admin/staff` | **Computed**: every ops team's keys + `loadsmart.masters.manage` + `loadsmart.margin.view` + `loadsmart.margin.manage` + `kyc.oversee` (whole KYC queue, assigns reviewers) + `loadsmart.money.approve` (carrier advances, balances, charges) + `loadsmart.settings.manage` (Load module settings, owner reassignment). No other team holds the last two. Never `admin.organizations.manage` (that would make it an owner) and no sales keys. |
 | `ls_approval` | `POST /v1/admin/staff` | `loadsmart.approval`, `kyc.online.verify/reject`, `kyc.offline.verify/reject` (Approval verifies onboarding — replaces the old KYC desks) |
 | `ls_placement` | `POST /v1/admin/staff` | `loadsmart.placement`, `loadsmart.verification` (truck/DL check before the memo), `loadsmart.margin.view` |
 | `ls_tracking` | `POST /v1/admin/staff` | `loadsmart.tracking` |
@@ -131,20 +131,11 @@ Roles (`TEAM_ROLES`, the design's Role picker): **Team member** → one ops team
 **ASM** → `sales`; **Super Admin** (here: Admin, `admin`) → `ls_admin`. Sales members also carry `sales_type` (shipper/tracker), `state` and, for
 a salesperson, their ASM.
 
+Organization-scope roles (the platform teams are in the table above; `loadsmart.money.approve` and
+`loadsmart.settings.manage` are held by the Admin team only):
+
 | Role | Scope | Who gets it | Permissions |
 |---|---|---|---|
-| `platform_admin` | platform | Bootstrapped once ([§8](#8-bootstrapping)); never self-service | **None seeded** — superuser bypass is code-level, see [§4](#4-the-permission-catalog) |
-| `sales` | platform | Created via `POST /v1/admin/staff` | `sales.leads.manage` |
-| `online_kyc_desk` | platform | Created via `POST /v1/admin/staff` | `kyc.online.verify`, `kyc.online.reject`, `loadsmart.approval` |
-| `offline_kyc_desk` | platform | Created via `POST /v1/admin/staff` | `kyc.offline.verify`, `kyc.offline.reject`, `loadsmart.approval` |
-| `load_console` | platform | Created via `POST /v1/admin/staff` | `loads.console.access` and every Loadsmart team key |
-| `ls_placement`, `ls_tracking`, `ls_cs`, `ls_receivables`, `ls_payables` | platform | Created via `POST /v1/admin/staff` | Its own `loadsmart.<team>` key, `loads.console.access` |
-
-The Load module's **Approval** team is the KYC desks (they hold `loadsmart.approval`); it has no
-role of its own. `ls_approval`, `ls_verification` and `ls_pod` were retired (their users moved to
-`online_kyc_desk`, `ls_placement` and `ls_payables`). **Super Admin** is `platform_admin`: the keys
-`loadsmart.money.approve` and `loadsmart.settings.manage` are in no role's bundle, so only the
-bypass passes them, unless a platform admin grants one to a named person.
 | `org_admin` | organization | Self-signup only (`POST /v1/auth/verify-otp`) — or promoted by an existing `org_admin` in the same org via `PATCH /v1/roles/users/:id/role` | `organization.profile.manage`, `masters.write` |
 
 **Adding a new role** = add a row to `role-catalog.ts`'s `ROLES` array + re-run
@@ -481,6 +472,16 @@ cleaned up through the API instead of needing direct DB access).
   response unless the caller holds `loadsmart.margin.view` (Placement, Admin). Changing margin
   (`marginPercent` on `PUT /terms/:tenantId` or `POST /sourcings/:id/approve`) needs
   `loadsmart.margin.manage` — Admin team only; Approval saves terms without it (margin kept).
+  Money in the ops console (`console-rules.ts` `moneyVisibility`, `redact-money.ts`): Tracking and
+  Payables see carrier money only, Receivables and Approval shipper money only, CS none; load detail
+  strips what the caller's team may not see, partner bank details included.
+  Tracking-team routes (`loadsmart.tracking`): charges (shipper approves first, then Super Admin
+  decides on `…/ls-charges/:chargeId/admin-decision`, `loadsmart.money.approve`), the carrier advance
+  (raise → Super Admin decides → Payables pays with a UTR and/or the payment advice), self-claim
+  (`POST /loads/:id/tracking/claim`; Placement has `POST /sourcings/:id/claim`; moving either owner is
+  `loadsmart.settings.manage`), the call log, paper upload (never replaces the shipper's copy), the
+  console POD (no approval step), `GET /tracking/inbox`. In-app notices for staff are the ops inbox
+  (`GET /loadsmart-ops/notifications`), because `/notifications` is tenant-only.
 
 ## 7. API surface
 

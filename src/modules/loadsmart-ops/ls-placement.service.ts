@@ -1,3 +1,4 @@
+import { IsNull } from 'typeorm';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { LS_MONEY_APPROVE } from '../../shared/constants/permissions';
 import { ADMIN_TEAM, PLACEMENT_TEAM } from '../../shared/constants/roles';
@@ -277,6 +278,34 @@ export class LsPlacementService extends LsServiceBase {
       return this.getRoster();
     } catch (error) {
       rethrow(error, 'Failed to save the Placement roster');
+    }
+  }
+
+  /** A Placement member takes a load nobody owns ("self-claim"). An owned load stays with its owner
+   *  until Super Admin moves it. */
+  async claim(actorId: string, sourcingId: string) {
+    try {
+      const sourcing = await this.assertSourcing(sourcingId);
+      const now = this.now();
+      const result = await this.repository.sourcings.update(
+        { id: sourcing.id, placementOwnerId: IsNull() },
+        { placementOwnerId: actorId, placementAssignedAt: now },
+      );
+      if (!result.affected) {
+        throw new ConflictError(
+          sourcing.placementOwnerId === actorId
+            ? 'This load is already yours'
+            : 'Another Placement member already owns this load',
+        );
+      }
+      await this.step(sourcing, actorId, 'placement_owner_claimed', 'LS_PLACEMENT_ASSIGNED', {
+        from: null,
+        to: actorId,
+        by: 'self_claim',
+      });
+      return this.repository.findSourcing(sourcing.id);
+    } catch (error) {
+      rethrow(error, 'Failed to claim the load');
     }
   }
 

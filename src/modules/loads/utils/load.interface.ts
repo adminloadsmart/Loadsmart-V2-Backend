@@ -45,6 +45,8 @@ export interface ConfirmLoadingInput {
   invoiceFileKey?: string;
   ewayBillNumber?: string;
   ewayBillFileKey?: string;
+  /** Validity date printed on the e-way bill. */
+  ewayBillExpiresAt?: Date;
   elrNumber?: string;
   elrFileKey?: string;
   /** Non-mandatory — up to 3 photos of the loaded truck (back + sides). Never gates the

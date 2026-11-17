@@ -99,6 +99,43 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.moveOwner),
     asyncHandler(c.moveOwner),
   );
+  // Tracking attaches the papers it holds (the shipper's copy takes precedence) and records a POD
+  // Loadsmart captured itself (no approval step, unlike a driver-app POD).
+  router.patch(
+    '/loads/:loadId/documents',
+    team(LS_TRACKING),
+    validate(v.uploadPapers),
+    asyncHandler(c.uploadPapers),
+  );
+  router.patch(
+    '/loads/:loadId/pod',
+    team(LS_TRACKING),
+    validate(v.uploadPod),
+    asyncHandler(c.uploadPod),
+  );
+  // The documents page: view, download and search by load, LR / e-LR number or series.
+  router.get('/documents', anyTeam, validate(v.documentsPage), asyncHandler(c.documentsPage));
+  // Tracking's call log: every call about a load, with the truck's location and ETA when given.
+  router.post(
+    '/loads/:loadId/calls',
+    team(LS_TRACKING),
+    validate(v.logCall),
+    asyncHandler(c.logCall),
+  );
+  router.get('/loads/:loadId/calls', anyTeam, validate(v.listCalls), asyncHandler(c.listCalls));
+  // "Claim this load as mine" — Placement takes an unowned sourcing, Tracking an unowned load.
+  router.post(
+    '/sourcings/:sourcingId/claim',
+    team(LS_PLACEMENT),
+    validate(v.moveOwnerParams),
+    asyncHandler(c.claimPlacement),
+  );
+  router.post(
+    '/loads/:loadId/tracking/claim',
+    team(LS_TRACKING),
+    validate(v.load),
+    asyncHandler(c.claimTracking),
+  );
   router.post(
     '/sourcings/:sourcingId/lost',
     team(LS_PLACEMENT),
@@ -185,6 +222,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.confirmMemo),
     asyncHandler(c.confirmMemo),
   );
+  router.get(
+    '/tracking/inbox',
+    team(LS_TRACKING),
+    validate(v.trackingInbox),
+    asyncHandler(c.trackingInbox),
+  );
   router.get('/tracking-queue', team(LS_TRACKING), asyncHandler(c.trackingQueue));
   router.put(
     '/loads/:loadId/unloading-details',
@@ -216,6 +259,13 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_TRACKING),
     validate(v.raiseCharge),
     asyncHandler(c.raiseCharge),
+  );
+  // The second approval: Super Admin, after the shipper has approved the charge.
+  router.post(
+    '/loads/:loadId/ls-charges/:chargeId/admin-decision',
+    team(LS_MONEY_APPROVE),
+    validate(v.chargeAdminDecision),
+    asyncHandler(c.decideChargeAsAdmin),
   );
   router.post(
     '/loads/:loadId/ls-charges/:chargeId/reply',
@@ -250,7 +300,7 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
   router.post(
     '/loads/:loadId/partner-advance/raise',
     team(LS_TRACKING),
-    validate(v.load),
+    validate(v.raiseAdvance),
     asyncHandler(c.raisePartnerAdvance),
   );
   // Super Admin approves money going out; Payables sees what is approved to pay.
@@ -259,6 +309,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_MONEY_APPROVE, LS_PAYABLES),
     validate(v.partnerPayments),
     asyncHandler(c.partnerPayments),
+  );
+  router.get(
+    '/loads/:loadId/partner-payments',
+    team(LS_TRACKING, LS_PAYABLES, LS_MONEY_APPROVE),
+    validate(v.load),
+    asyncHandler(c.partnerPaymentsOfLoad),
   );
   router.post(
     '/partner-payments/:paymentId/decision',
@@ -402,6 +458,16 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_PAYABLES),
     validate(v.partnerPayment),
     asyncHandler(c.partnerBalance),
+  );
+
+  // The member's own in-app inbox (the shared notifications module is tenant-only).
+  router.get('/notifications', anyTeam, validate(v.notifications), asyncHandler(c.notifications));
+  router.post('/notifications/read-all', anyTeam, asyncHandler(c.readAllNotifications));
+  router.post(
+    '/notifications/:notificationId/read',
+    anyTeam,
+    validate(v.notification),
+    asyncHandler(c.readNotification),
   );
 
   // Cross-team views. Every team reads All loads (money as it may see it); Super Admin has the

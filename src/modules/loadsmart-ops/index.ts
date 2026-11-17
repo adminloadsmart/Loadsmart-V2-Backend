@@ -9,6 +9,9 @@ import { LsShipperService } from './ls-shipper.service';
 import { LsPlacementService } from './ls-placement.service';
 import { LsApprovalService } from './ls-approval.service';
 import { LsTrackingService } from './ls-tracking.service';
+import { LsStaffNotifier } from './ls-staff-notifier';
+import { LsCallLogService } from './ls-call-log.service';
+import { LS_SETTINGS_MANAGE } from '../../shared/constants/permissions';
 import { LsCsService } from './ls-cs.service';
 import { LsReceivablesService } from './ls-receivables.service';
 import { LsPayablesService } from './ls-payables.service';
@@ -44,7 +47,9 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.loadService,
     deps.loadStageService,
     deps.loadDocumentService,
+    deps.storageService,
   );
+  const staffNotifier = new LsStaffNotifier(repository);
   const loadPaymentRepository = new LoadPaymentRepository(dataSource);
   const codeSequenceRepository = new CodeSequenceRepository(dataSource);
   const shipper = new LsShipperService(
@@ -56,6 +61,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     new LoadMemoRepository(dataSource),
     deps.storageService,
     deps.settings,
+    staffNotifier,
   );
 
   // Placement (brokers, round robin, inbox, lost, memo) and Approval (post for a shipper).
@@ -82,6 +88,14 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.storageService,
     deps.loadDocumentService,
     deps.elrService,
+    staffNotifier,
+  );
+
+  const callLog = new LsCallLogService(
+    repository,
+    deps.loadActivityService,
+    deps.auditService,
+    deps.trackingClient,
   );
 
   // Delivery and money: CS claims, Receivables, Payables.
@@ -116,6 +130,8 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.loadRepository,
     deps.loadStageService,
     deps.settings,
+    deps.storageService,
+    deps.loadDocumentService,
   );
 
   // Cross-team read views: All loads, Super Admin approvals, analytics, live map.
@@ -158,7 +174,29 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     if (to === 'cancelled') await sourcing.markCancelled(load);
   });
 
+  // The e-way bill alert (shipper's LS_N_0025) also reaches Super Admin and the load's Tracking owner.
+  const notifyEwayBillAtRisk = async (
+    _tenantId: string,
+    context: { loadId: string; expiresAt: string; etaAt?: string | null; code?: string },
+  ) => {
+    const sourcing = await repository.findSourcingByLoad(context.loadId);
+    if (!sourcing) return; // not a Loadsmart load
+    const code = sourcing.load?.code ?? context.code ?? context.loadId;
+    const notice = {
+      type: 'eway_bill.at_risk',
+      title: `E-way bill may expire before delivery — ${code}`,
+      body: context.etaAt
+        ? `The ETA of ${code} is past its e-way bill's expiry (${context.expiresAt}).`
+        : `${code} has no live ETA and its e-way bill expires at ${context.expiresAt}.`,
+      loadId: context.loadId,
+      metadata: { expiresAt: context.expiresAt, etaAt: context.etaAt ?? null },
+    };
+    await staffNotifier.notifyPermission([LS_SETTINGS_MANAGE], notice);
+    await staffNotifier.notifyUsers([sourcing.trackingOwnerId], notice);
+  };
+
   return {
+    notifyEwayBillAtRisk,
     sourcingService: sourcing,
     settlementService: settlement,
     shipperService: shipper,
@@ -173,6 +211,8 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
         receivables,
         payables,
         consoleViews,
+        staffNotifier,
+        callLog,
       ),
     ),
     shipperRouter: createLoadsmartShipperRoutes(new LoadsmartShipperController(shipper)),

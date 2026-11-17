@@ -23,6 +23,8 @@ import {
   LS_MARGIN_MANAGE,
   LS_MARGIN_VIEW,
   LS_MASTERS_MANAGE,
+  LS_MONEY_APPROVE,
+  LS_SETTINGS_MANAGE,
   SALES_LEADS_MANAGE,
 } from '../../shared/constants/permissions';
 import { STAFF_TEAMS, TEAM_ROLES } from '../../shared/constants/roles';
@@ -75,6 +77,16 @@ describe('team catalog (db/role-catalog.ts)', () => {
       expect.arrayContaining([LS_MASTERS_MANAGE, LS_MARGIN_VIEW, LS_MARGIN_MANAGE]),
     );
     expect(ADMIN_TEAM_BUNDLE.every((key) => admin.includes(key))).toBe(true);
+  });
+
+  it('makes the Admin team the Super Admin: only it approves money and holds settings', () => {
+    expect(bundleOf('ls_admin')).toEqual(
+      expect.arrayContaining([LS_MONEY_APPROVE, LS_SETTINGS_MANAGE]),
+    );
+    for (const team of STAFF_TEAMS.filter((t) => t !== 'ls_admin')) {
+      expect(bundleOf(team)).not.toContain(LS_MONEY_APPROVE);
+      expect(bundleOf(team)).not.toContain(LS_SETTINGS_MANAGE);
+    }
   });
 
   it('never makes the Admin team a platform admin or a salesperson', () => {
@@ -681,7 +693,9 @@ describe('ops console access by team', () => {
         new LoadsmartOpsController(
           sourcing as never,
           settlement as never,
-          // placement, approval, tracking, cs, receivables, payables, console — unused here
+          // placement, approval, tracking, cs, receivables, payables, console, staff inbox, call log — unused here
+          {} as never,
+          {} as never,
           {} as never,
           {} as never,
           {} as never,
@@ -717,7 +731,8 @@ describe('ops console access by team', () => {
     const loadId = '00000000-0000-4000-8000-000000000001';
     const tracking = await request(appFor('ls_tracking')).get(`/loads/${loadId}`);
     expect(tracking.status).toBe(200);
-    expect(tracking.body.data.sourcing).toEqual({ id: 's-1', shipperPrice: '1000' });
+    // Tracking sees carrier money only: the shipper's price is gone too, so margin can't be worked out.
+    expect(tracking.body.data.sourcing).toEqual({ id: 's-1' });
     const placement = await request(appFor('ls_placement')).get(`/loads/${loadId}`);
     expect(placement.body.data.sourcing.marginPercent).toBe('8.00');
     const admin = await request(appFor('ls_admin')).get(`/loads/${loadId}`);

@@ -36,6 +36,7 @@ export const confirmLoadingBody = z
     invoiceFileKey: z.string().trim().min(1).optional(),
     ewayBillNumber: z.string().trim().min(1).max(50).optional(),
     ewayBillFileKey: z.string().trim().min(1).optional(),
+    ewayBillExpiresAt: z.coerce.date().optional(),
     elrNumber: z.string().trim().max(50).optional(),
     elrFileKey: z.string().trim().min(1).optional(),
     loadingPhotoFileKeys: z.array(z.string().trim().min(1)).max(3).optional(),
@@ -49,6 +50,10 @@ export const confirmLoadingBody = z
   .refine(
     (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
     'ewayBillNumber and ewayBillFileKey must be submitted together',
+  )
+  .refine(
+    (data) => data.ewayBillExpiresAt === undefined || data.ewayBillFileKey !== undefined,
+    'ewayBillExpiresAt cannot be submitted without ewayBillFileKey',
   )
   .refine(
     (data) => data.elrNumber === undefined || data.elrFileKey !== undefined,

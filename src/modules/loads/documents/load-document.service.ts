@@ -15,6 +15,7 @@ import {
   ExtraDocument,
   LoadDocumentView,
   POD_DOCUMENT_TYPES,
+  SHIPPER_PRECEDENCE_TYPES,
 } from './load-document.types';
 
 /**
@@ -205,6 +206,7 @@ export class LoadDocumentService {
       reviewedBy: doc.reviewedBy,
       reviewedAt: doc.reviewedAt?.toISOString() ?? null,
       extracted: doc.extracted,
+      referenceOnly: doc.source === 'console' && SHIPPER_PRECEDENCE_TYPES.includes(doc.docType),
     };
   }
 }

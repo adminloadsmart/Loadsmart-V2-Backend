@@ -317,6 +317,9 @@ export const ADMIN_TEAM_ONLY_KEYS = [
   LS_MARGIN_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
   KYC_OVERSEE,
+  // Super Admin: the Admin team approves money going out and owns the Load module settings.
+  LS_MONEY_APPROVE,
+  LS_SETTINGS_MANAGE,
 ];
 export const ADMIN_TEAM_BUNDLE = [
   ...new Set([...Object.values(OPS_TEAM_BUNDLES).flat(), ...ADMIN_TEAM_ONLY_KEYS]),

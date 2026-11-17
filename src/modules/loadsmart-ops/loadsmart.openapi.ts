@@ -230,7 +230,8 @@ const ROWS: Row[] = [
     op: 'loadsmart.payPartnerAdvance',
     permissions: [LS_PAYABLES],
     schema: v.partnerPayment,
-    description: 'Payables pays the carrier advance Super Admin approved, recording the UTR.',
+    description:
+      'Payables pays the carrier advance Super Admin approved, recording the UTR, the payment advice (`proofFileKey`, purpose loads/payment-proof), or both.',
   },
   {
     method: 'put',
@@ -289,7 +290,8 @@ const ROWS: Row[] = [
     op: 'loadsmart.moveOwner',
     permissions: [LS_SETTINGS_MANAGE],
     schema: v.moveOwner,
-    description: 'Move a load to another Placement member.',
+    description:
+      "Move a load to another team member: Placement's owner by default, or Tracking's with `team: 'tracking'`.",
   },
   {
     method: 'post',
@@ -323,7 +325,7 @@ const ROWS: Row[] = [
     permissions: [LS_TRACKING],
     schema: v.raiseCharge,
     description:
-      'Tracking raises a charge with proof. A head the shipper pre-approved (within its amount) is approved as raised; otherwise the shipper approves, rejects or queries it.',
+      "Tracking raises a charge (type, amount, optional remark; the proof file is optional). The shipper approves, rejects or queries it first (a head the shipper pre-approved skips this step), then Super Admin decides — only an admin-approved charge reaches the invoice and the carrier's pay.",
   },
   {
     method: 'post',
@@ -373,9 +375,9 @@ const ROWS: Row[] = [
     path: `${OPS}/loads/{loadId}/partner-advance/raise`,
     op: 'loadsmart.raisePartnerAdvance',
     permissions: [LS_TRACKING],
-    schema: v.load,
+    schema: v.raiseAdvance,
     description:
-      "Tracking raises the carrier advance once Loaded: the broker's advance % (or the default) of the trip plus approved loading-side charges, less TDS. A rejected advance can be raised again.",
+      "Tracking raises the carrier advance once Loaded: the broker's advance % (or the default) of the trip plus approved loading-side charges, less TDS. `chargeIds` picks which approved loading-side charges go with it (default: all not yet sent); the rest are paid with the balance. A rejected advance, or one still waiting (raised / on hold), can be raised again with a different set. Payables and Super Admin get an in-app notice.",
   },
   {
     method: 'get',
@@ -746,6 +748,118 @@ const ROWS: Row[] = [
     op: 'loads.documentsBundle',
     schema: v.load,
     description: 'Every document on the load with download URLs, the load memo and the payments.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/ls-charges/{chargeId}/admin-decision`,
+    op: 'loadsmart.decideChargeAsAdmin',
+    permissions: [LS_MONEY_APPROVE],
+    schema: v.chargeAdminDecision,
+    description:
+      "Super Admin's decision on a charge the shipper approved (status pending_admin): approved or rejected (with a reason).",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/loads/{loadId}/partner-payments`,
+    op: 'loadsmart.partnerPaymentsOfLoad',
+    permissions: [LS_TRACKING, LS_PAYABLES, LS_MONEY_APPROVE],
+    schema: v.load,
+    description:
+      "The load's carrier advance and balance: status, amounts, line items, decision reason, UTR and a `proofUrl` for the payment advice — what Tracking passes to the broker.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/notifications`,
+    op: 'loadsmart.notifications',
+    permissions: ANY_TEAM,
+    schema: v.notifications,
+    description:
+      "The team member's own in-app notices (advance raised / decided / paid, charges waiting for Super Admin, e-way bill at risk, load assigned), with the unread count.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/notifications/read-all`,
+    op: 'loadsmart.readAllNotifications',
+    permissions: ANY_TEAM,
+    description: "Marks all of the member's notices read.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/notifications/{notificationId}/read`,
+    op: 'loadsmart.readNotification',
+    permissions: ANY_TEAM,
+    schema: v.notification,
+    description: 'Marks one notice read.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/claim`,
+    op: 'loadsmart.claimPlacement',
+    permissions: [LS_PLACEMENT],
+    schema: v.moveOwnerParams,
+    description: 'A Placement member takes a load nobody owns. 409 when it is already owned.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/tracking/claim`,
+    op: 'loadsmart.claimTracking',
+    permissions: [LS_TRACKING],
+    schema: v.load,
+    description:
+      '"Claim this load as mine": a Tracking member takes a load nobody runs yet. 409 when owned.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/tracking/inbox`,
+    op: 'loadsmart.trackingInbox',
+    permissions: [LS_TRACKING],
+    schema: v.trackingInbox,
+    description:
+      "Tracking's dashboard: loads on the road, the same table as All loads, with owners. `mine` and `unclaimed` narrow it; counts give all / mine / unclaimed. Carrier money only, no margin.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/calls`,
+    op: 'loadsmart.logCall',
+    permissions: [LS_TRACKING],
+    schema: v.logCall,
+    description:
+      "Logs a call about the load. It can carry the truck's current location and its ETA to the loading (or unloading) point; with SIM/GPS tracking on and no location given, the tracking service's fresh position is used.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/loads/{loadId}/calls`,
+    op: 'loadsmart.listCalls',
+    permissions: ANY_TEAM,
+    schema: v.listCalls,
+    description: "The load's call log, newest first.",
+  },
+  {
+    method: 'patch',
+    path: `${OPS}/loads/{loadId}/documents`,
+    op: 'loadsmart.uploadPapers',
+    permissions: [LS_TRACKING],
+    schema: v.uploadPapers,
+    description:
+      "Tracking attaches the invoice, e-way bill (with `ewayBillExpiresAt`) and signed LR when the shipper hasn't. A copy the shipper or driver already uploaded is never replaced (409 — review it instead). Tracking's own copies are approved as they are attached and show to the shipper as `referenceOnly` until the shipper uploads its own.",
+  },
+  {
+    method: 'patch',
+    path: `${OPS}/loads/{loadId}/pod`,
+    op: 'loadsmart.uploadPod',
+    permissions: [LS_TRACKING],
+    schema: v.uploadPod,
+    description:
+      'Records a POD Loadsmart captured itself (front, optional back) with the outcome: delivered_ok, or delivered_with_issues with an issueType (damage, shortage, pilferage) and a remark. No approval step; a driver-app POD still waits for POST /pod/decision.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/documents`,
+    op: 'loadsmart.documentsPage',
+    permissions: ANY_TEAM,
+    schema: v.documentsPage,
+    description:
+      'Documents of every Loadsmart load, each with a view/download link. Search `q` by load code, LR / e-LR or invoice number; `series` by e-LR prefix (e.g. LSLR).',
   },
 ];
 
