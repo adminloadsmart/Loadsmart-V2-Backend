@@ -286,6 +286,11 @@ export class LsShipperService extends LsServiceBase {
         { type: 'weighing_slip', label: 'Weighing slip', key: load.weighingSlipFileKey },
         { type: 'pod_front', label: 'POD front', key: load.podFileKey },
         { type: 'pod_back', label: 'POD back', key: load.podBackFileKey },
+        {
+          type: 'transporter_invoice',
+          label: "Transporter's invoice",
+          key: load.transporterInvoiceFileKey,
+        },
       ];
       const invoice = await this.repository.findInvoice(tenantId, loadId);
       if (invoice?.fileKey) {
