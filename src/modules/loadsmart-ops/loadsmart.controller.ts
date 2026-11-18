@@ -14,7 +14,8 @@ import { LsPlacementService } from './ls-placement.service';
 import { LsApprovalService } from './ls-approval.service';
 import { LsTrackingService } from './ls-tracking.service';
 import { LsCsService } from './ls-cs.service';
-import { LsReceivablesService } from './ls-receivables.service';
+import { LsReceivablesService, ReceivablesBoardQuery } from './ls-receivables.service';
+import type { GstTreatment } from './receivables-rules';
 import { LsPayablesService, OriginalPodFilter } from './ls-payables.service';
 import { AllLoadsQuery, LsConsoleService } from './ls-console.service';
 import { LsStaffNotifier } from './ls-staff-notifier';
@@ -439,9 +440,46 @@ export class LoadsmartOpsController {
   receivablesInbox = async (req: Request, res: Response) =>
     this.out(req, res, await this.receivables.inbox());
   invoicePreview = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    this.out(req, res, await this.receivables.preview(req.params.loadId));
+    this.out(
+      req,
+      res,
+      await this.receivables.preview(
+        req.params.loadId,
+        ((req.validatedQuery ?? {}) as { gstTreatment?: GstTreatment }).gstTreatment,
+      ),
+    );
   issueInvoice = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    this.out(req, res, await this.receivables.issue(actorOf(req), req.params.loadId), 201);
+    this.out(
+      req,
+      res,
+      await this.receivables.issue(
+        actorOf(req),
+        req.params.loadId,
+        (req.body as { gstTreatment?: GstTreatment } | undefined)?.gstTreatment,
+      ),
+      201,
+    );
+  receivablesBoard = async (req: Request, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.receivables.board((req.validatedQuery ?? {}) as ReceivablesBoardQuery),
+    );
+  receivableLoad = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.receivables.loadDetail(req.params.loadId));
+  recordLoadReceipt = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.receivables.recordLoadReceipt(actorOf(req), req.params.loadId, req.body),
+      201,
+    );
+  recordPayerPod = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.receivables.recordPayerPod(req.user!.id, req.params.invoiceId!, req.body),
+    );
   invoiceDelivery = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,

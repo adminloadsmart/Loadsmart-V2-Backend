@@ -6,6 +6,12 @@ import {
   InvoiceSendChannel,
   InvoiceStatus,
 } from '../loadsmart.types';
+import {
+  BALANCE_PAYERS,
+  BalancePayer,
+  PAYER_POD_STATUSES,
+  PayerPodStatus,
+} from '../receivables-rules';
 
 /** Loadsmart's invoice to the shipper for one load (R02) — drafted from the load by the system,
  *  issued by Receivables on the POD image (or the original, for shippers who need it). Amounts per
@@ -89,6 +95,40 @@ export class LsInvoiceEntity {
 
   @Column({ name: 'settled_at', type: 'timestamptz', nullable: true })
   settledAt!: Date | null;
+
+  /** Who the balance is collected from (the shipper's terms when issued) and their name. */
+  @Column({
+    name: 'balance_payer',
+    type: 'enum',
+    enum: [...BALANCE_PAYERS],
+    enumName: 'ls_balance_payer_enum',
+    default: 'shipper',
+  })
+  balancePayer!: BalancePayer;
+
+  @Column({ name: 'balance_payer_name', type: 'varchar', length: 200, nullable: true })
+  balancePayerName!: string | null;
+
+  /** The original POD on its way from Loadsmart to the balance payer. */
+  @Column({
+    name: 'payer_pod_status',
+    type: 'enum',
+    enum: [...PAYER_POD_STATUSES],
+    default: 'not_sent',
+  })
+  payerPodStatus!: PayerPodStatus;
+
+  @Column({ name: 'payer_pod_courier', type: 'varchar', length: 100, nullable: true })
+  payerPodCourier!: string | null;
+
+  @Column({ name: 'payer_pod_docket', type: 'varchar', length: 100, nullable: true })
+  payerPodDocket!: string | null;
+
+  @Column({ name: 'payer_pod_sent_at', type: 'timestamptz', nullable: true })
+  payerPodSentAt!: Date | null;
+
+  @Column({ name: 'payer_pod_received_at', type: 'timestamptz', nullable: true })
+  payerPodReceivedAt!: Date | null;
 
   @Column({ name: 'file_key', type: 'text', nullable: true })
   fileKey!: string | null;
