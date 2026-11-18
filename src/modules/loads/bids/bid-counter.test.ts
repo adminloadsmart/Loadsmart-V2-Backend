@@ -195,6 +195,17 @@ describe("the shipper's next action", () => {
       shipperActionFor(action({ status: 'reached_unloading', route: 'indent', advancePaidAt: NOW }))
         .kind,
     ).toBe('upload_pod');
+    // The front alone is a POD (the back is optional) — e.g. a driver-app upload.
+    expect(
+      shipperActionFor(
+        action({
+          status: 'reached_unloading',
+          route: 'indent',
+          advancePaidAt: NOW,
+          podFileKey: 'pod-front.jpg',
+        }),
+      ).kind,
+    ).not.toBe('upload_pod');
     expect(
       shipperActionFor(
         action({ status: 'delivered_ok', route: 'own_transporter', advancePaidAt: NOW }),

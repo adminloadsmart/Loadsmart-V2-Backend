@@ -5,6 +5,7 @@ import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { LoadMemoEntity } from '../loads/memo/load-memo.entity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
+import { PostAddress } from '../loads/load-posting/utils/load-posting.types';
 import { BID_WINDOW_MS, bidWindowClosesAt } from '../loads/bids/bid-rules';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { SettingsReader } from '../settings/settings.types';
@@ -66,6 +67,31 @@ function istDayStart(now: Date): Date {
   const ist = new Date(now.getTime() + IST_OFFSET_MS);
   ist.setUTCHours(0, 0, 0, 0);
   return new Date(ist.getTime() - IST_OFFSET_MS);
+}
+
+/** A posting address as the load page shows it: "Plot 66, Gate 1" / "Focal point, Rajpura" /
+ *  "Punjab – 140401", plus the raw parts. */
+function fullAddress(address: PostAddress | null | undefined) {
+  if (!address) return null;
+  const join = (parts: (string | null | undefined)[], sep: string) =>
+    parts.filter((part) => part && part.trim()).join(sep) || null;
+  const line1 = address.addressLine1 ?? null;
+  const line2 = join([address.areaLocality, address.city], ', ');
+  const line3 = join([address.state, address.pinCode], ' – ');
+  return {
+    label: address.label ?? null,
+    addressLine1: address.addressLine1 ?? null,
+    areaLocality: address.areaLocality ?? null,
+    city: address.city ?? null,
+    state: address.state ?? null,
+    pinCode: address.pinCode ?? null,
+    latitude: address.latitude ?? null,
+    longitude: address.longitude ?? null,
+    line1,
+    line2,
+    line3,
+    full: join([line1, line2, line3], ', '),
+  };
 }
 
 /**
@@ -211,6 +237,8 @@ export class LsPlacementBoardService extends LsServiceBase {
         requirements: {
           pickup: posting?.pickupAddress?.label ?? posting?.pickupAddress?.city ?? null,
           drop: posting?.dropAddress?.label ?? posting?.dropAddress?.city ?? null,
+          pickupAddress: fullAddress(posting?.pickupAddress),
+          dropAddress: fullAddress(posting?.dropAddress),
           truckType: load.truckType?.name ?? load.feetWheels ?? null,
           truckLengthFt: posting?.truckLengthFt ? Number(posting.truckLengthFt) : null,
           goods: posting?.commodityName ?? null,

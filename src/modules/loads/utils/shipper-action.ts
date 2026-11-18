@@ -89,7 +89,7 @@ export function shipperActionFor(load: ShipperActionInput): ShipperAction {
   if (pays && load.status !== 'created' && !load.advancePaidAt && loadedOrLater(load.status)) {
     if (Number(load.advancePercentage ?? 0) > 0) return { kind: 'record_advance' };
   }
-  if (load.status === 'reached_unloading' && (!load.podFileKey || !load.podBackFileKey)) {
+  if (load.status === 'reached_unloading' && !load.podFileKey) {
     return { kind: 'upload_pod' };
   }
   if (load.status === 'delivered_with_issues' && own && !load.deliveryIssueSettledAt) {

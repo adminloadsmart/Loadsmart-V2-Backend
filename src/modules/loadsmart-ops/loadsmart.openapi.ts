@@ -285,7 +285,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT, LS_SETTINGS_MANAGE],
     schema: v.sourcing,
     description:
-      "Placement's load page: the queue row, Load requirements (pickup, drop, truck and length, goods and weight, report by, shipper balance terms), Pricing guidance (expected price, shipper price, market rate = median carrier trip amount on the lane over 90 days, rate ceiling = the highest carrier rate that keeps Settings' margin floor), the bid window (hours, closes at, closed), when the requirement went out, the rate handoff (broker, chosen rate, price to the shipper), the latest bid per broker, the call list, the memo (state, truck, driver, licence) and team contacts.",
+      "Placement's load page: the queue row, Load requirements (pickup, drop, full pickup and drop addresses, truck and length, goods and weight, report by, shipper balance terms), Pricing guidance (expected price, shipper price, market rate = median carrier trip amount on the lane over 90 days, rate ceiling = the highest carrier rate that keeps Settings' margin floor), the bid window (hours, closes at, closed), when the requirement went out, the rate handoff (broker, chosen rate, price to the shipper), the latest bid per broker, the call list, the memo (state, truck, driver, licence) and team contacts.",
   },
   {
     method: 'post',
