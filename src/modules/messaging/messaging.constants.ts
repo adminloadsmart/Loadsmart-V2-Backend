@@ -47,6 +47,7 @@ export const CUSTOMER_SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const MESSAGING_QUEUES = {
   outbound: 'whatsapp-outbound',
   inbound: 'whatsapp-inbound',
+  schedules: 'whatsapp-schedules',
 } as const;
 
 /** Under Meta's 80 msg/s default throughput. */
@@ -115,6 +116,7 @@ export const SUPPRESSED_REASONS = {
 /** Session prompts that must become a template once the 24-h window has closed (finding G1). */
 export const PROMPT_FALLBACK_TEMPLATES = {
   rate_request: null,
+  price_request: null,
   dispatch_request: null,
   slip_request: null,
 } as const;
@@ -144,6 +146,7 @@ export const MESSAGING_ACTORS = {
   loadPosting: 'system:load-posting',
   notifications: 'system:notifications',
   replyRouter: 'whatsapp:reply-router',
+  loadNotices: 'system:load-notices',
 } as const;
 
 /** A WhatsApp report that means the offer reached the transporter (load_recipients → sent). */
@@ -177,3 +180,57 @@ export const REPORTING_TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
   minute: '2-digit',
   timeZone: 'Asia/Kolkata',
 };
+
+// ---- Load notices on WhatsApp (catalog LS_N_0069, 0107–0130): memo, confirmations, papers,
+// payments and the original POD.
+
+/** The daily original POD follow-up (LS_N_0115 reminders, LS_N_0116 penalty), 10:00 IST. */
+export const ORIGINAL_POD_FOLLOW_UP_JOB = 'original-pod-follow-ups';
+export const ORIGINAL_POD_FOLLOW_UP_CRON = '0 10 * * *';
+export const ORIGINAL_POD_FOLLOW_UP_TIME_ZONE = 'Asia/Kolkata';
+/** LS_N_0115 reminders, in days before the original POD is due: the catalog's "day 10, day 18
+ *  and day 20" for a 20-day due date, kept relative to the settings' due days. */
+export const ORIGINAL_POD_REMINDER_DAYS_BEFORE_DUE = [10, 2, 0] as const;
+/** LS_N_0116: the day after the due date, then every 7 days until the original is received. */
+export const ORIGINAL_POD_PENALTY_REPEAT_DAYS = 7;
+/** Original POD tracker statuses the partner is still chased in (not sent yet, not reachable). */
+export const ORIGINAL_POD_CHASED_STATUSES = ['yet_to_dispatch', 'not_contactable'] as const;
+/** A follow-up already sent within this window is not sent again (one per day, even if the job
+ *  re-runs). */
+export const FOLLOW_UP_DEDUPE_WINDOW_MS = 20 * 60 * 60 * 1000;
+
+/** {{payment_head}} on LS_N_0112, per Loadsmart partner payment type. */
+export const PARTNER_PAYMENT_HEADS = { advance: 'Advance', balance: 'Balance' } as const;
+
+/** {{issue_type}} on LS_N_0114, per the POD's shortage / damage value. */
+export const POD_ISSUE_LABELS: Record<string, string> = {
+  shortage: 'a shortage',
+  damage: 'damage',
+  wet: 'wet goods',
+  both: 'shortage and damage',
+  pilferage: 'pilferage',
+};
+
+/** {{pod_due_date}}: "25 Nov", India time. */
+export const DUE_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'Asia/Kolkata',
+};
+
+/** The load stage a memo waits at for the shipper's acceptance (accepting it moves the load to
+ *  Truck assigned). */
+export const MEMO_WAITING_LOAD_STATUS = 'bids_received';
+
+/** A load bid still open for the shipper to accept. */
+export const LIVE_BID_STATUS = 'received';
+/** {{truck_type}} when the posting names no truck length. */
+export const TRUCK_LABEL_FALLBACK = 'Truck';
+/** LS_N_0103: the first bid at once, then at most one roll-up per this interval. */
+export const BIDS_ROLLUP_INTERVAL_MS = 30 * 60 * 1000;
+/** The delayed roll-up job on the whatsapp-schedules queue, one per load (jobId prefix + load id;
+ *  BullMQ job ids must not contain ':'). */
+export const BIDS_ROLLUP_JOB = 'bids-received-rollup';
+export const BIDS_ROLLUP_JOB_ID_PREFIX = 'bids-rollup-';
+/** The Loadsmart sourcing status once Loadsmart's bid won the load (its partner is on the truck). */
+export const LOADSMART_WON_SOURCING_STATUS = 'won';

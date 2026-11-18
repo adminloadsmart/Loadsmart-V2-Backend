@@ -77,6 +77,10 @@ export class Msg91WhatsappProvider implements WhatsappProvider {
         message.templateName,
         message.bodyVariables,
         message.languageCode,
+        {
+          ...(message.headerDocument ? { headerDocument: message.headerDocument } : {}),
+          ...(message.urlButtons?.length ? { urlButtons: message.urlButtons } : {}),
+        },
       ),
     );
   }

@@ -8,6 +8,7 @@ import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { tripAmount } from './loadsmart-rules';
 import { SourcingRef } from './loadsmart.interface';
+import { LoadPartyNotifier } from '../loads/utils/load-party-notifier.interface';
 
 /** What the Loadsmart services share: the repository, the load's timeline and the audit log. */
 export abstract class LsServiceBase {
@@ -17,6 +18,13 @@ export abstract class LsServiceBase {
     protected readonly auditService: AuditService,
     protected readonly now: () => Date = () => new Date(),
   ) {}
+
+  /** Tells the partner on WhatsApp about payments and the original POD (modules/messaging). */
+  protected notifyParties?: LoadPartyNotifier;
+
+  setPartyNotifier(notifier: LoadPartyNotifier): void {
+    this.notifyParties = notifier;
+  }
 
   protected async assertSourcing(id: string): Promise<LsSourcingEntity> {
     const sourcing = await this.repository.findSourcing(id);

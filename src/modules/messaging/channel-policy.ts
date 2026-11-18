@@ -15,6 +15,8 @@ export interface ChannelPolicyInput {
   } | null;
   /** Drivers only: registered on the driver app. */
   driverHasApp?: boolean;
+  /** A shipper message the catalog sends before the memo (LS_N_0067, LS_N_0103). */
+  allowedBeforeMemo?: boolean;
 }
 
 export interface ChannelPolicyResult {
@@ -26,7 +28,8 @@ export interface ChannelPolicyResult {
  * The channel rules of the load module spec (p.30 "Channel rules", p.31–32 "Key messages"):
  * 1. Shipper: actions → WhatsApp + app; updates → app only (WhatsApp dropped; email/SMS stay where
  *    the type lists them — the rule is about WhatsApp's cost).
- * 2. Shipper: no WhatsApp about a load before its load memo (loads with a memo step only).
+ * 2. Shipper: no WhatsApp about a load before its load memo (loads with a memo step only) —
+ *    except the catalog's LS_N_0067 (Loadsmart's bid) and LS_N_0103 (bids received).
  * 3. Driver: the driver app if registered, else WhatsApp (SMS stays — the SIM consent link).
  * 4. Receiver: SMS only.
  * 5. Broker / transporter / Loadsmart partner: WhatsApp only.
@@ -56,7 +59,9 @@ function dropReason(input: ChannelPolicyInput, channel: PolicyChannel): string |
     case 'shipper_user':
       if (channel !== 'whatsapp') return null;
       if (input.intent === 'update') return SUPPRESSED_REASONS.updateAppOnly;
-      if (input.load?.hasMemoStep && !input.load.memoSent) return SUPPRESSED_REASONS.beforeLoadMemo;
+      if (input.load?.hasMemoStep && !input.load.memoSent && !input.allowedBeforeMemo) {
+        return SUPPRESSED_REASONS.beforeLoadMemo;
+      }
       return null;
     default:
       return null;

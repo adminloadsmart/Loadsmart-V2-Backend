@@ -156,6 +156,45 @@ describe('OutboundMessageService', () => {
     expect(queue.jobs[0].options?.jobId).toBe('log-1');
   });
 
+  it('carries a dynamic URL button value and a document header to the provider', async () => {
+    await service(undefined, { LS_N_0110: 'ls_n_0110', LS_N_0112: 'ls_n_0112' }).sendTemplate({
+      ...loadFields,
+      recipient,
+      templateKey: 'LS_N_0110',
+      variables: {
+        load_id: 'LS-2001',
+        from_area: 'Delhi',
+        to_area: 'Jaipur',
+        vehicle_no: 'PB10AB1234',
+        reporting_time: '15 Nov, 10:00 am',
+        driver_name: 'Ramesh',
+        load_uuid: 'load-uuid',
+      },
+    });
+    expect(queue.jobs[0].payload.content).toMatchObject({
+      type: 'template',
+      bodyVariables: ['LS-2001', 'Delhi', 'Jaipur', 'PB10AB1234', '15 Nov, 10:00 am', 'Ramesh'],
+      urlButtons: [{ position: 1, value: 'load-uuid' }],
+    });
+    expect(store.logs[0]).toMatchObject({ kind: 'template', templateKey: 'LS_N_0110' });
+  });
+
+  it('keeps WhatsApp off for a driver on the driver app (channel rules)', async () => {
+    const result = await service(undefined, { LS_N_0130: 'ls_n_0130' }).sendTemplate({
+      ...loadFields,
+      recipient: { kind: 'driver', refId: 'driver-1', name: 'Ramesh', phone: '9000000002' },
+      templateKey: 'LS_N_0130',
+      variables: {
+        vehicle_no: 'PB10AB1234',
+        destination: 'Ludhiana',
+        destination_query: '30.9,75.8',
+      },
+      driverHasApp: true,
+    });
+    expect(result).toMatchObject({ status: 'suppressed', suppressedReason: 'driver_uses_app' });
+    expect(queue.jobs).toHaveLength(0);
+  });
+
   it('suppresses a template that is not configured yet', async () => {
     const result = await service(undefined, {}).sendTemplate({
       ...loadFields,
@@ -386,5 +425,43 @@ describe('OutboundMessageService — channel rules', () => {
       variables: requirementVars,
     });
     expect(transporter.status).toBe('queued');
+  });
+
+  it("Loadsmart's bid (LS_N_0067) and bids received (LS_N_0103) still reach the shipper before the memo", async () => {
+    const outbound = new OutboundMessageService(store, queue, optedIn, {
+      provider: fakeProvider({ ok: true, providerMessageId: 'wamid.OUT', providerRequestId: null }),
+      providerName: 'msg91',
+      templateNames: { LS_N_0067: 'ls_n_0067', LS_N_0103: 'ls_n_0103' },
+      templateLanguage: 'en',
+      now: () => NOW,
+      loadFacts: { forLoad: async () => ({ hasMemoStep: true, memoSent: false }) },
+    });
+    const shipper = {
+      kind: 'shipper_user' as const,
+      refId: 'user-1',
+      name: 'Anita',
+      phone: '9876543210',
+    };
+    const bid = await outbound.sendTemplate({
+      ...loadFields,
+      tenantId: 'tenant-1',
+      recipient: shipper,
+      templateKey: 'LS_N_0067',
+      variables: {
+        origin: 'Delhi',
+        destination: 'Jaipur',
+        truck_type: '32 ft',
+        reporting_time: '15 Nov, 10:00 am',
+        price: '47,500',
+      },
+    });
+    const bids = await outbound.sendTemplate({
+      ...loadFields,
+      tenantId: 'tenant-1',
+      recipient: shipper,
+      templateKey: 'LS_N_0103',
+      variables: { origin: 'Delhi', destination: 'Jaipur', bid_count: '2', best_rate: '41,000' },
+    });
+    expect([bid.status, bids.status]).toEqual(['queued', 'queued']);
   });
 });

@@ -10,6 +10,7 @@ export type WhatsappProviderName = (typeof WHATSAPP_PROVIDERS)[number];
 export const OUTBOUND_MESSAGE_KINDS = [
   'offer',
   'rate_request',
+  'price_request',
   'dispatch_request',
   'slip_request',
   'picker',
@@ -121,7 +122,13 @@ export const RECIPIENT_LOAD_STAGES = [
 export type RecipientLoadStage = (typeof RECIPIENT_LOAD_STAGES)[number];
 
 /** Follow-up questions the router asks after an action (sent by the outbound side, Part 4). */
-export const REPLY_PROMPTS = ['rate_request', 'dispatch_request', 'slip_request'] as const;
+export const REPLY_PROMPTS = [
+  'rate_request',
+  // The shipper's counter to Loadsmart's bid (LS_N_0067 Counter): "Type your price in ₹".
+  'price_request',
+  'dispatch_request',
+  'slip_request',
+] as const;
 export type ReplyPrompt = (typeof REPLY_PROMPTS)[number];
 
 /** Every channel a message can go out on (the app's in-app card is not a channel here — it is

@@ -138,6 +138,10 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.storageService,
     deps.loadDocumentService,
   );
+  if (deps.partyNotifier) {
+    tracking.setPartyNotifier(deps.partyNotifier);
+    payables.setPartyNotifier(deps.partyNotifier);
+  }
 
   // Cross-team read views: All loads, Super Admin approvals, analytics, live map.
   const consoleRepository = new ConsoleRepository(dataSource);

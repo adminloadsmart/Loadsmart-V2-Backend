@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NormalizedMessage, NormalizedStatus } from '../whatsapp-provider.interface';
 import { Msg91WebhookParser } from './msg91-webhook.parser';
 import { Msg91WhatsappProvider, sendResultOf } from './msg91-whatsapp.provider';
+import { templateExtraComponents } from '../../../../adapters/msg91.client';
 
 /**
  * Fixtures follow MSG91's "How to Receive WhatsApp Delivery Reports via Webhook (New)": `direction`
@@ -260,6 +261,7 @@ describe('Msg91WhatsappProvider', () => {
       'ls_new_load_rate_v1',
       ['Delhi', 'Jaipur'],
       'en',
+      {},
     ]);
     expect(calls[1]).toMatchObject([
       'session',
@@ -288,5 +290,46 @@ describe('Msg91WhatsappProvider', () => {
       errorCode: 'network',
       retryable: true,
     });
+  });
+});
+
+describe('MSG91 template extras', () => {
+  it('passes a document header and URL-button values to the client', async () => {
+    const calls: unknown[][] = [];
+    const provider = new Msg91WhatsappProvider({
+      postWhatsappTemplate: async (...args: unknown[]) => {
+        calls.push(args);
+        return { httpStatus: 200, skipped: false, body: { status: 'success', hasError: false } };
+      },
+      postWhatsappSession: async () => ({ httpStatus: 200, skipped: false, body: null }),
+    } as never);
+    await provider.sendTemplate('919876543210', {
+      templateName: 'ls_n_0112',
+      languageCode: 'en',
+      bodyVariables: ['LS-1'],
+      headerDocument: { link: 'https://files.example/proof.pdf', filename: 'LS-1 proof.pdf' },
+      urlButtons: [{ position: 2, value: 'load-uuid' }],
+    });
+    expect(calls[0][4]).toEqual({
+      headerDocument: { link: 'https://files.example/proof.pdf', filename: 'LS-1 proof.pdf' },
+      urlButtons: [{ position: 2, value: 'load-uuid' }],
+    });
+  });
+
+  it('builds header_1 (document) and button_N (url) slots', () => {
+    expect(
+      templateExtraComponents({
+        headerDocument: { link: 'https://files.example/proof.pdf', filename: 'proof.pdf' },
+        urlButtons: [{ position: 2, value: 'load-uuid' }],
+      }),
+    ).toEqual({
+      header_1: {
+        type: 'document',
+        value: 'https://files.example/proof.pdf',
+        filename: 'proof.pdf',
+      },
+      button_2: { subtype: 'url', type: 'text', value: 'load-uuid' },
+    });
+    expect(templateExtraComponents({})).toEqual({});
   });
 });
