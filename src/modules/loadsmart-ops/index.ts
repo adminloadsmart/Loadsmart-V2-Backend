@@ -205,6 +205,23 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     await staffNotifier.notifyUsers([sourcing.trackingOwnerId], notice);
   };
 
+  const placementBoard = new LsPlacementBoardService(
+    repository,
+    deps.loadActivityService,
+    deps.auditService,
+    dataSource,
+    deps.settings,
+    consoleRepository,
+    sourcing,
+  );
+  // Lane matching: board offers, Placement's matched list and the requirement go only to the
+  // brokers on the load's lane (modules/lane-matching).
+  if (deps.brokerMatcher) {
+    sourcing.setBrokerMatching(deps.brokerMatcher, staffNotifier);
+    placement.setBrokerMatcher(deps.brokerMatcher);
+    placementBoard.setBrokerMatcher(deps.brokerMatcher);
+  }
+
   return {
     notifyEwayBillAtRisk,
     sourcingService: sourcing,
@@ -223,15 +240,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
         consoleViews,
         staffNotifier,
         callLog,
-        new LsPlacementBoardService(
-          repository,
-          deps.loadActivityService,
-          deps.auditService,
-          dataSource,
-          deps.settings,
-          consoleRepository,
-          sourcing,
-        ),
+        placementBoard,
         new LsShipperDirectoryService(dataSource, sourcing),
       ),
     ),

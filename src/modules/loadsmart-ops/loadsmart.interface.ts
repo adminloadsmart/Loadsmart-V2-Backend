@@ -1,4 +1,5 @@
 import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
+import type { LaneMatchService } from '../lane-matching';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
 import type { LoadPostingLookupService } from '../loads/load-posting/load-posting-lookup.service';
@@ -223,6 +224,15 @@ export interface LoadBoardOffer {
   /** Load weight in tonnes, as posted (null when not given). */
   weightTonnes: string | null;
   pickupAt: Date | null;
+  /** The brokers on the load's lane (lane-matching) — the only ones the offer goes to. */
+  partners: BoardPartner[];
+}
+
+/** A partner a board offer goes to. */
+export interface BoardPartner {
+  id: string;
+  name: string;
+  phone: string;
 }
 
 /** Tells partners about a load on the board (WhatsApp, from the messaging module). Must not
@@ -352,4 +362,12 @@ export interface LoadsmartOpsModuleDeps {
   loadCancelService: LoadCancelService;
   /** Tells the partner on WhatsApp about payments and the original POD (modules/messaging). */
   partyNotifier?: LoadPartyNotifier;
+  /** Which of Loadsmart's brokers run a load's lane (modules/lane-matching). */
+  brokerMatcher?: BrokerMatcher;
 }
+
+/** Loadsmart's brokers on a load's lane, best first (LaneMatchService.matchBrokers). */
+export type BrokerMatcher = Pick<
+  LaneMatchService,
+  'matchBrokers' | 'matchBrokersMany' | 'partnerForBroker'
+>;

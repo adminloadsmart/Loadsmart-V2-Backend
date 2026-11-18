@@ -78,7 +78,8 @@ export interface PostLoadInput {
   vehicleId?: string;
   /** Own fleet: a driver other than the truck's linked one — must be idle. */
   driverId?: string;
-  /** Market fleet: the ticked transporters (Loadsmart is always added). */
+  /** Ignored: a market load goes to the transporters on its lane (lane-matching). Still accepted
+   *  so older clients keep working. */
   transporterIds?: string[];
   /** Indent: the one contracted transporter. */
   transporterId?: string;

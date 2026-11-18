@@ -44,7 +44,7 @@ import {
 import { TypeormTransporterOfferStore } from './integration/transporter-load-store';
 import { CompositeReplyActions } from './integration/composite-reply-actions';
 import { PartnerBoardGateway, PartnerReplyActions } from './integration/partner-reply-actions';
-import { PartnerBoardNotifier, PartnerDirectory } from './integration/partner-board-notifier';
+import { PartnerBoardNotifier } from './integration/partner-board-notifier';
 import { LoadRecipientStatusListener } from './integration/load-recipient-status.listener';
 import { LoadPartyWhatsapp } from './integration/load-party-whatsapp';
 import { FileLinker, MemoGateway, ShipperBidGateway } from './integration/load-notices.interface';
@@ -89,8 +89,9 @@ export interface MessagingModule {
   }): void;
   /** The load-flow WhatsApp notices (memo, confirmations, papers, payments, original POD). */
   createLoadNotices(deps: { settings: SettingsReader; linkFile: FileLinker }): LoadNotices;
-  /** Sends loads posted on Loadsmart's board to partners (LsSourcingService.setLoadBoardNotifier). */
-  createPartnerBoardNotifier(partners: PartnerDirectory): PartnerBoardNotifier;
+  /** Sends loads posted on Loadsmart's board to the partners on their lane
+   *  (LsSourcingService.setLoadBoardNotifier). */
+  createPartnerBoardNotifier(): PartnerBoardNotifier;
 }
 
 /** MSG91 sends when MSG91_AUTH_KEY and MSG91_WHATSAPP_INTEGRATED_NUMBER are set; otherwise every
@@ -197,8 +198,8 @@ export function createMessagingModule(dataSource: DataSource): MessagingModule {
       });
       pipeline.useHandler(createWhatsappReplyRouter(dataSource, actions, replySender));
     },
-    createPartnerBoardNotifier(partners) {
-      return new PartnerBoardNotifier(partners, outbound);
+    createPartnerBoardNotifier() {
+      return new PartnerBoardNotifier(outbound);
     },
     createLoadNotices({ settings, linkFile }) {
       const schedules = createJobQueue(MESSAGING_QUEUES.schedules);

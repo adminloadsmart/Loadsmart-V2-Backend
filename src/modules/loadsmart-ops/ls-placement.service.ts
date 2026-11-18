@@ -1,4 +1,5 @@
-import { IsNull } from 'typeorm';
+import { In, IsNull } from 'typeorm';
+import { routeOf } from '../lane-matching';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
 import { LS_MONEY_APPROVE } from '../../shared/constants/permissions';
 import { ADMIN_TEAM, PLACEMENT_TEAM } from '../../shared/constants/roles';
@@ -14,13 +15,14 @@ import { SettingsReader } from '../settings/settings.types';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LsServiceBase } from './ls-base';
 import { LoadsmartRepository } from './loadsmart.repository';
+import type { BrokerMatcher } from './loadsmart.interface';
 import {
   nextOnDuty,
   PLACEMENT_BUCKETS,
   PlacementBucket,
   placementBucket,
   RankedBroker,
-  rankBrokers,
+  placementBrokerList,
 } from './placement-rules';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -175,8 +177,16 @@ export class LsPlacementService extends LsServiceBase {
     }
   }
 
-  /** "Matched brokers come ticked, with why they matched (lane claimed, truck type claimed),
-   *  loads placed on this lane, rating." Every active broker is listed; matched ones first. */
+  private brokerMatcher?: BrokerMatcher;
+
+  /** Which of Loadsmart's brokers run a load's lane (modules/lane-matching). */
+  setBrokerMatcher(matcher: BrokerMatcher): void {
+    this.brokerMatcher = matcher;
+  }
+
+  /** "Matched brokers come ticked, with why they matched, loads placed on this lane, rating."
+   *  The brokers on the load's lane (lane-matching: runs the lane, or the load is on its way),
+   *  best first, then any Placement added by hand. */
   async matchBrokers(
     sourcingId: string,
   ): Promise<{ lane: object; brokers: (RankedBroker & { added: boolean })[] }> {
@@ -186,17 +196,16 @@ export class LsPlacementService extends LsServiceBase {
       const posting = load.postingId
         ? await this.repository.findPosting(load.tenantId, load.postingId)
         : null;
-      const truck = load.truckTypeId
-        ? await this.repository.loadTruckType(load.tenantId, load.truckTypeId)
-        : null;
       const lane = {
         fromCity: posting?.pickupAddress?.city ?? null,
+        fromState: posting?.pickupAddress?.state ?? null,
         toCity: posting?.dropAddress?.city ?? null,
-        bodyType: truck?.bodyType ?? null,
-        capacityTons: truck?.capacityTons ?? null,
+        toState: posting?.dropAddress?.state ?? null,
       };
-      const [partners, onLane, ratings, added] = await Promise.all([
-        this.repository.listBrokersWithClaims(),
+      const [matches, onLane, ratings, addedRows] = await Promise.all([
+        this.brokerMatcher
+          ? this.brokerMatcher.matchBrokers(routeOf(posting?.pickupAddress, posting?.dropAddress))
+          : Promise.resolve([]),
         lane.fromCity && lane.toCity
           ? this.repository.loadsOnLane(lane.fromCity, lane.toCity)
           : Promise.resolve(new Map<string, number>()),
@@ -204,27 +213,20 @@ export class LsPlacementService extends LsServiceBase {
         // Brokers Placement put on this load's list by hand ("Add broker").
         this.repository.sourcingBrokers.findBy({ sourcingId }),
       ]);
-      const addedIds = new Set(added.map((row) => row.partnerId));
-      const brokers = rankBrokers(
-        lane,
-        partners.map((partner) => ({
+      const addedPartners = addedRows.length
+        ? await this.repository.partners.findBy({ id: In(addedRows.map((row) => row.partnerId)) })
+        : [];
+      const brokers = placementBrokerList(
+        matches,
+        addedPartners.map((partner) => ({
           partnerId: partner.id,
           name: partner.name,
           phone: partner.phone,
-          lanes: partner.lanes ?? [],
-          truckTypes: partner.truckTypes ?? [],
         })),
         onLane,
         ratings,
       );
-      const withAdded = brokers.map((broker) => ({
-        ...broker,
-        matched: broker.matched || addedIds.has(broker.partnerId),
-        added: addedIds.has(broker.partnerId),
-      }));
-      // Matched (including added by hand) first, keeping the ranking within each group.
-      withAdded.sort((a, b) => Number(b.matched) - Number(a.matched));
-      return { lane, brokers: withAdded };
+      return { lane, brokers };
     } catch (error) {
       rethrow(error, 'Failed to match brokers');
     }

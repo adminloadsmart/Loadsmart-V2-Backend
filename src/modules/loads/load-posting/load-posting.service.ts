@@ -48,6 +48,11 @@ import { SettingsReader } from '../../settings/settings.types';
 import { buildPostMessage } from './utils/post-message';
 import { driverUnavailableReason } from './utils/driver-availability';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
+import { describeMatch, routeOf } from '../../lane-matching/lane-match-rules';
+import type {
+  LaneMatchService,
+  TransporterLaneMatch,
+} from '../../lane-matching/lane-match.service';
 import {
   AssignmentComplianceService,
   assignmentBlockedError,
@@ -83,7 +88,13 @@ export interface PostLoadResult {
   complianceWarnings: string[];
   /** True when an earlier request with the same idempotency key already posted this load. */
   duplicate: boolean;
+  /** Market fleet: the transporters the load went to, and why ("Runs Pune → Delhi"). Empty when
+   *  none of the shipper's transporters runs the lane — the shipper is told. */
+  laneMatches?: { transporterId: string; name: string; reason: string }[];
 }
+
+/** The shipper's transporters on a load's lane (LaneMatchService.matchTransporters). */
+export type TransporterMatcher = Pick<LaneMatchService, 'matchTransporters'>;
 
 /**
  * Shipper "Post a load": one posting, one Load per truck, in a single transaction. Handles the
@@ -95,6 +106,13 @@ export interface PostLoadResult {
  * Sending the message to transporters is behind LoadDispatchNotifier and happens after commit.
  */
 export class LoadPostingService {
+  private transporterMatcher?: TransporterMatcher;
+
+  /** Lane matching: a market load goes only to the shipper's transporters on its lane. */
+  setTransporterMatcher(matcher: TransporterMatcher): void {
+    this.transporterMatcher = matcher;
+  }
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly repository: LoadPostingRepository,
@@ -185,12 +203,20 @@ export class LoadPostingService {
       let assignedDriverName: string | null = null;
       let complianceWarnings: string[] = [];
 
+      let laneMatches: TransporterLaneMatch[] = [];
       if (input.mode === 'market_fleet') {
-        const ids = [...new Set(input.transporterIds ?? [])];
-        transporters = await this.repository.findActiveTransporters(tenantId, ids);
-        if (transporters.length !== ids.length) {
-          throw new ValidationError('One or more transporters were not found or are inactive');
-        }
+        // No picking: the load goes to the shipper's transporters whose lane covers it (runs the
+        // lane, or the load lies on its way). `transporterIds` from older clients is ignored.
+        laneMatches = this.transporterMatcher
+          ? await this.transporterMatcher.matchTransporters(
+              tenantId,
+              routeOf(pickup.address, drop.address),
+            )
+          : [];
+        transporters = await this.repository.findActiveTransporters(
+          tenantId,
+          laneMatches.map((match) => match.transporterId),
+        );
       } else if (input.mode === 'indent') {
         const contract = await this.assertIndentContract(tenantId, customer, pickup, drop, input);
         transporters = [contract.transporter];
@@ -444,6 +470,17 @@ export class LoadPostingService {
           );
         }
       }
+      if (input.mode === 'market_fleet' && !laneMatches.length) {
+        // None of the shipper's transporters runs this lane: only Loadsmart got the load.
+        for (const load of result.loads) {
+          await this.onLoadEvent?.({
+            kind: 'no_transporter_on_lane',
+            tenantId,
+            loadId: load.id,
+            at: new Date(),
+          });
+        }
+      }
       if (input.mode === 'own_fleet') {
         await this.notifyDriver(tenantId, result.loads);
         for (const load of result.loads) {
@@ -477,6 +514,15 @@ export class LoadPostingService {
             : null,
         complianceWarnings,
         duplicate: false,
+        ...(input.mode === 'market_fleet'
+          ? {
+              laneMatches: laneMatches.map((match) => ({
+                transporterId: match.transporterId,
+                name: match.name,
+                reason: describeMatch(match.match),
+              })),
+            }
+          : {}),
       };
     } catch (error) {
       rethrow(error, "Couldn't post the load. Check your connection and try again.");

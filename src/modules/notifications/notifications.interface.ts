@@ -189,7 +189,10 @@ export type LoadEvent =
   | AssignmentBlockedEvent
   /** Every stage move (LoadStageService.transition) — load.stage_changed for the stages that have
    *  no notification of their own (STAGE_CHANGED_CARD_LABELS). */
-  | { kind: 'stage_changed'; tenantId: string; loadId: string; to: LoadStatus; at: Date };
+  | { kind: 'stage_changed'; tenantId: string; loadId: string; to: LoadStatus; at: Date }
+  /** A market load posted with none of the shipper's transporters on its lane (lane-matching) —
+   *  only Loadsmart got it. load.no_transporter_on_lane. */
+  | { kind: 'no_transporter_on_lane'; tenantId: string; loadId: string; at: Date };
 
 /** Who did something on a load: the assigned driver (driver app) or a staff user. */
 export type LoadPersonRef = { driverId: string } | { userId: string };

@@ -2,10 +2,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { BrokerEntity } from '../../loads/brokers/broker.entity';
 import { LsPartnerLaneEntity } from './ls-partner-lane.entity';
 import { LsPartnerTruckTypeEntity } from './ls-partner-truck-type.entity';
 import { PARTNER_STATUSES, PARTNER_TYPES, PartnerStatus, PartnerType } from '../loadsmart.types';
@@ -13,6 +17,7 @@ import { PARTNER_STATUSES, PARTNER_TYPES, PartnerStatus, PartnerType } from '../
 /** One of Loadsmart's partners — a fleet owner or broker it sources trucks from. Platform-wide
  *  (no tenant): the same partner serves every shipper's Loadsmart loads. */
 @Entity({ schema: 'loads', name: 'ls_partners' })
+@Index('ls_partners_broker_uq', ['brokerId'], { unique: true, where: '"broker_id" IS NOT NULL' })
 export class LsPartnerEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -22,6 +27,15 @@ export class LsPartnerEntity {
 
   @Column({ type: 'varchar', length: 15 })
   phone!: string;
+
+  /** The loads.brokers row this partner stands for — brokers are the master Placement matches
+   *  loads against (lane-matching); a matched broker gets this partner row for its bids. */
+  @Column({ name: 'broker_id', type: 'uuid', nullable: true })
+  brokerId!: string | null;
+
+  @ManyToOne(() => BrokerEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'broker_id', foreignKeyConstraintName: 'FK_ls_partners_broker' })
+  broker?: BrokerEntity | null;
 
   @Column({ name: 'partner_type', type: 'enum', enum: [...PARTNER_TYPES] })
   partnerType!: PartnerType;

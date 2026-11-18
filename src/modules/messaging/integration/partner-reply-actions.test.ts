@@ -21,6 +21,10 @@ const boardLoad = (overrides: Partial<LoadBoardOffer> = {}): LoadBoardOffer => (
   truckLabel: '24 ft',
   weightTonnes: '18.00',
   pickupAt: new Date(Date.UTC(2026, 10, 15, 4, 30)),
+  partners: [
+    { id: 'partner-A', name: 'A', phone: '9876543210' },
+    { id: 'partner-B', name: 'B', phone: '9876543211' },
+  ],
   ...overrides,
 });
 
@@ -176,27 +180,19 @@ describe('CompositeReplyActions', () => {
 });
 
 describe('PartnerBoardNotifier', () => {
-  it('sends the board load to every active partner, by rate or as a quote request', async () => {
+  it('sends the board load to the partners on its lane, by rate or as a quote request', async () => {
     const sent: { templateKey: string; refId: string | null; variables: Record<string, string> }[] =
       [];
-    const notifier = new PartnerBoardNotifier(
-      {
-        listActivePartners: async () => [
-          { id: 'partner-A', name: 'A', phone: '9876543210' },
-          { id: 'partner-B', name: 'B', phone: '9876543211' },
-        ],
+    const notifier = new PartnerBoardNotifier({
+      sendOffer: async (request) => {
+        sent.push({
+          templateKey: request.templateKey,
+          refId: request.recipient.refId,
+          variables: request.variables,
+        });
+        return { messageLogId: 'log', status: 'queued' } as OutboundResult;
       },
-      {
-        sendOffer: async (request) => {
-          sent.push({
-            templateKey: request.templateKey,
-            refId: request.recipient.refId,
-            variables: request.variables,
-          });
-          return { messageLogId: 'log', status: 'queued' } as OutboundResult;
-        },
-      },
-    );
+    });
     await notifier.postedToBoard(boardLoad());
     expect(sent.map((item) => `${item.templateKey}:${item.refId}`)).toEqual([
       'LS_N_0105:partner-A',
@@ -213,5 +209,8 @@ describe('PartnerBoardNotifier', () => {
     });
     await notifier.postedToBoard(boardLoad({ partnerRate: null }));
     expect(sent[2].templateKey).toBe('LS_N_0106');
+    // No partner on the lane: nothing goes out.
+    await notifier.postedToBoard(boardLoad({ partners: [] }));
+    expect(sent).toHaveLength(4);
   });
 });

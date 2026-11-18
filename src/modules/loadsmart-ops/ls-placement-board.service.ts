@@ -31,7 +31,8 @@ import {
   requirementMessage,
   whatsappLink,
 } from './placement-board-rules';
-import { rankBrokers } from './placement-rules';
+import { routeOf } from '../lane-matching';
+import type { BrokerMatcher } from './loadsmart.interface';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -113,6 +114,23 @@ export class LsPlacementBoardService extends LsServiceBase {
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
+  }
+
+  private brokerMatcher?: BrokerMatcher;
+
+  /** Which of Loadsmart's brokers run each load's lane (modules/lane-matching). */
+  setBrokerMatcher(matcher: BrokerMatcher): void {
+    this.brokerMatcher = matcher;
+  }
+
+  /** The brokers on each sourcing's lane, in the same order (empty without a matcher). */
+  private async laneMatchesFor(sourcings: readonly LsSourcingEntity[]) {
+    if (!this.brokerMatcher) return sourcings.map(() => []);
+    return this.brokerMatcher.matchBrokersMany(
+      sourcings.map((sourcing) =>
+        routeOf(sourcing.load.posting?.pickupAddress, sourcing.load.posting?.dropAddress),
+      ),
+    );
   }
 
   // --- Work queue ----------------------------------------------------------------------------
@@ -308,9 +326,18 @@ export class LsPlacementBoardService extends LsServiceBase {
   // --- Brokers -------------------------------------------------------------------------------
 
   /** "Add broker": puts a broker on this load's matched list by hand. */
-  async addBroker(actorId: string, sourcingId: string, partnerId: string) {
+  async addBroker(
+    actorId: string,
+    sourcingId: string,
+    pick: { partnerId?: string; brokerId?: string },
+  ) {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
+      // A broker from the broker master gets its partner row (where its bids are kept) first.
+      const partnerId = pick.brokerId
+        ? await this.brokerMatcher?.partnerForBroker(pick.brokerId)
+        : pick.partnerId;
+      if (!partnerId) throw new NotFoundError('Broker not found or not approved');
       const partner = await this.repository.partners.findOneBy({ id: partnerId });
       if (!partner || partner.status !== 'active') throw new NotFoundError('Broker not found');
       const repo = this.dataSource.getRepository(LsSourcingBrokerEntity);
@@ -570,42 +597,15 @@ export class LsPlacementBoardService extends LsServiceBase {
     };
   }
 
-  /** Brokers matched by truck type or lane, plus any added by hand. */
+  /** Brokers on the load's lane (lane-matching), plus any added by hand. */
   private async matchedPartnerIds(sourcing: LsSourcingEntity): Promise<string[]> {
-    const [{ brokers }, added] = await Promise.all([
-      this.matchFor(sourcing),
+    const [[matches], added] = await Promise.all([
+      this.laneMatchesFor([sourcing]),
       this.addedBrokers([sourcing.id]),
     ]);
     return [
-      ...new Set([
-        ...brokers.filter((broker) => broker.matched).map((broker) => broker.partnerId),
-        ...(added.get(sourcing.id) ?? []),
-      ]),
+      ...new Set([...matches.map((broker) => broker.partnerId), ...(added.get(sourcing.id) ?? [])]),
     ];
-  }
-
-  private async matchFor(sourcing: LsSourcingEntity) {
-    const load = sourcing.load;
-    const lane = {
-      fromCity: load.posting?.pickupAddress?.city ?? null,
-      toCity: load.posting?.dropAddress?.city ?? null,
-      bodyType: load.truckType?.bodyType ?? null,
-      capacityTons: load.truckType?.capacityTons ?? null,
-    };
-    const partners = await this.repository.listBrokersWithClaims();
-    const brokers = rankBrokers(
-      lane,
-      partners.map((partner) => ({
-        partnerId: partner.id,
-        name: partner.name,
-        phone: partner.phone,
-        lanes: partner.lanes ?? [],
-        truckTypes: partner.truckTypes ?? [],
-      })),
-      new Map(),
-      new Map(),
-    );
-    return { lane, brokers };
   }
 
   /** The median carrier trip amount on this lane over the last 90 days, from won loads. */
@@ -645,7 +645,7 @@ export class LsPlacementBoardService extends LsServiceBase {
     const ids = sourcings.map((sourcing) => sourcing.id);
     const loadIds = sourcings.map((sourcing) => sourcing.loadId);
     const tenantIds = [...new Set(sourcings.map((sourcing) => sourcing.tenantId))];
-    const [orgs, bids, memos, added, brokerPool] = await Promise.all([
+    const [orgs, bids, memos, added, laneMatches] = await Promise.all([
       this.dataSource
         .getRepository(OrganizationEntity)
         .find({ where: { id: In(tenantIds) }, select: { id: true, name: true } }),
@@ -655,34 +655,16 @@ export class LsPlacementBoardService extends LsServiceBase {
         order: { sentAt: 'DESC' },
       }),
       this.addedBrokers(ids),
-      this.repository.listBrokersWithClaims(),
+      this.laneMatchesFor(sourcings),
     ]);
     const now = this.now();
-    const candidates = brokerPool.map((partner) => ({
-      partnerId: partner.id,
-      name: partner.name,
-      phone: partner.phone,
-      lanes: partner.lanes ?? [],
-      truckTypes: partner.truckTypes ?? [],
-    }));
-    return sourcings.map((sourcing) => {
+    return sourcings.map((sourcing, index) => {
       const load: LoadEntity = sourcing.load;
       const posting = load.posting;
       const tonnes = Number(load.plannedCapacityTonnes);
       const rate = load.expectedRate ?? load.freightValue;
-      const matched = rankBrokers(
-        {
-          fromCity: posting?.pickupAddress?.city ?? null,
-          toCity: posting?.dropAddress?.city ?? null,
-          bodyType: load.truckType?.bodyType ?? null,
-          capacityTons: load.truckType?.capacityTons ?? null,
-        },
-        candidates,
-        new Map(),
-        new Map(),
-      ).filter((broker) => broker.matched);
       const matchedIds = new Set([
-        ...matched.map((broker) => broker.partnerId),
+        ...laneMatches[index].map((broker) => broker.partnerId),
         ...(added.get(sourcing.id) ?? []),
       ]);
       const latestMemo = memos.find((memo) => memo.loadId === load.id) ?? null;

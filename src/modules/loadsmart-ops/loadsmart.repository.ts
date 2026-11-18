@@ -144,15 +144,6 @@ export class LoadsmartRepository {
 
   // --- Placement ---------------------------------------------------------------------------
 
-  /** Active brokers with the lanes and truck types they claim. */
-  listBrokersWithClaims(): Promise<LsPartnerEntity[]> {
-    return this.partners.find({
-      where: { partnerType: 'broker', status: 'active' },
-      relations: { lanes: true, truckTypes: true },
-      order: { name: 'ASC' },
-    });
-  }
-
   /** Loads each partner won on this lane (by the posting's pickup and drop city). */
   async loadsOnLane(fromCity: string, toCity: string): Promise<Map<string, number>> {
     const rows = await this.sourcings

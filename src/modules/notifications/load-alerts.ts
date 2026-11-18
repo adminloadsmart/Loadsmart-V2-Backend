@@ -29,6 +29,7 @@ import {
   VehicleHaltedContext,
   VehicleInTransitContext,
   StageChangedContext,
+  NoTransporterOnLaneContext,
   VehicleLoadedContext,
   VehicleNotReportedContext,
   VehicleReachedDropContext,
@@ -99,6 +100,12 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
             loadId,
             stage: event.to,
             changedAt: event.at.toISOString(),
+          });
+          return;
+        case 'no_transporter_on_lane':
+          await triggers.enqueue('load.no_transporter_on_lane', tenantId, {
+            loadId,
+            postedAt: event.at.toISOString(),
           });
           return;
         case 'at_plant':
@@ -338,6 +345,16 @@ export function createLoadAlertResolvers(
     ): Promise<StageChangedContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot || snapshot.status !== context.stage) return null;
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
+    },
+
+    /** load.no_transporter_on_lane — the load's code and route; null once it is gone. */
+    noTransporterOnLane: async (
+      tenantId: string,
+      context: NoTransporterOnLaneContext,
+    ): Promise<NoTransporterOnLaneContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot) return null;
       return { ...context, ...summaryOf(context.loadId, snapshot) };
     },
 
