@@ -28,6 +28,7 @@ import {
   TripCompletedContext,
   VehicleHaltedContext,
   VehicleInTransitContext,
+  StageChangedContext,
   VehicleLoadedContext,
   VehicleNotReportedContext,
   VehicleReachedDropContext,
@@ -46,6 +47,7 @@ import {
   MS_PER_HOUR,
   TRIP_COMPLETED_FALLBACK_MS,
   MS_PER_MINUTE,
+  STAGE_CHANGED_CARD_LABELS,
   VEHICLE_HALT_SAME_SPOT_M,
   VEHICLE_HALT_SAME_SPOT_SIM_M,
 } from './notifications.constants';
@@ -89,6 +91,14 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
           await triggers.enqueue('load.vehicle_in_transit', tenantId, {
             loadId,
             departedAt: event.at.toISOString(),
+          });
+          return;
+        case 'stage_changed':
+          if (!STAGE_CHANGED_CARD_LABELS[event.to]) return;
+          await triggers.enqueue('load.stage_changed', tenantId, {
+            loadId,
+            stage: event.to,
+            changedAt: event.at.toISOString(),
           });
           return;
         case 'at_plant':
@@ -318,6 +328,17 @@ export function createLoadAlertResolvers(
         console.warn('E-way bill staff alert failed', error);
       }
       return alert;
+    },
+
+    /** load.stage_changed — the load's code / vehicle / route; null if the load moved on since
+     *  (a quick double move sends only the card for where it is now). */
+    stageChanged: async (
+      tenantId: string,
+      context: StageChangedContext,
+    ): Promise<StageChangedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== context.stage) return null;
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
     },
 
     /** LS_N_0024 — the load's documents and cargo, and who confirmed loading. */

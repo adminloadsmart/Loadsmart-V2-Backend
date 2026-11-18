@@ -71,6 +71,15 @@ export interface RecordBidInput {
   reason: string;
 }
 
+/** A transporter's own reply on WhatsApp: a rate (Accept at the target rate, or typed), the truck
+ *  number, or both ("Type your rate in ₹ and the truck number"). */
+export interface WhatsappBidInput {
+  transporterId: string;
+  /** Omitted when only the truck number arrives for a rate already quoted. */
+  rate?: number;
+  vehicleNumber?: string;
+}
+
 export interface BidView {
   id: string;
   /** `loadsmart` bids are shown first and highlighted, without the partner's name. */

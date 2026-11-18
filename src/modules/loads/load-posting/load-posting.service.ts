@@ -30,7 +30,7 @@ import { LoadStatus } from '../utils/loads.types';
 import { LOAD_CANCELLABLE_STAGES } from '../money/money-rules';
 import { LoadPostingEntity } from './entities/load-posting.entity';
 import { LoadRecipientEntity } from './entities/load-recipient.entity';
-import { LoadDispatchNotifier } from './load-dispatch-notifier';
+import { DispatchOffer, LoadDispatchNotifier } from './load-dispatch-notifier';
 import {
   DropInput,
   NewAddressInput,
@@ -431,6 +431,7 @@ export class LoadPostingService {
         result.posting,
         result.recipients,
         transporters,
+        result.loads,
       );
       if (input.mode === 'market_fleet') {
         try {
@@ -907,6 +908,7 @@ export class LoadPostingService {
     posting: LoadPostingEntity,
     recipients: LoadRecipientEntity[],
     transporters: TransporterEntity[],
+    loads: LoadEntity[],
   ): Promise<LoadRecipientEntity[]> {
     if (!recipients.length || !posting.messageText) return recipients;
     try {
@@ -914,6 +916,7 @@ export class LoadPostingService {
         tenantId,
         postingId: posting.id,
         text: posting.messageText,
+        offer: dispatchOfferOf(posting, loads),
         recipients: recipients.map((recipient) => {
           const transporter = transporters.find((item) => item.id === recipient.transporterId);
           return {
@@ -1327,4 +1330,25 @@ export class LoadPostingService {
       duplicate: true,
     };
   }
+}
+
+/** Short place text for an offer: area or city, with the PIN code when known. */
+function placeLabel(address: PostAddress): string {
+  const place = address.areaLocality || address.city || address.label;
+  return address.pinCode ? `${place} ${address.pinCode}` : place;
+}
+
+/** The posting as the structured offer a WhatsApp template needs — no shipper or customer name. */
+function dispatchOfferOf(posting: LoadPostingEntity, loads: LoadEntity[]): DispatchOffer {
+  return {
+    mode: posting.mode,
+    priceMode: posting.priceMode,
+    rate: posting.rate,
+    pickupLabel: placeLabel(posting.pickupAddress),
+    dropLabel: posting.dropAddress.city || placeLabel(posting.dropAddress),
+    truckLabel: posting.truckLengthFt ? `${posting.truckLengthFt} ft` : 'Truck',
+    weightTonnes: posting.weightTonnes,
+    pickupAt: posting.pickupAt,
+    loads: loads.map((load) => ({ loadId: load.id, loadCode: load.code })),
+  };
 }

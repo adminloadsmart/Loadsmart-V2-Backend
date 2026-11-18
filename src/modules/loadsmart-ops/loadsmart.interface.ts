@@ -191,6 +191,29 @@ export interface PartnerBidInput {
   vehicleNumber?: string;
 }
 
+/** A load just posted on the load board, as partners may see it — Loadsmart's margin taken
+ *  out, never the shipper's name. */
+export interface LoadBoardOffer {
+  sourcingId: string;
+  tenantId: string;
+  loadId: string;
+  loadCode: string;
+  /** The partner target rate; null when the shipper asked for quotes. */
+  partnerRate: string | null;
+  pickupLabel: string;
+  dropLabel: string;
+  truckLabel: string;
+  /** Load weight in tonnes, as posted (null when not given). */
+  weightTonnes: string | null;
+  pickupAt: Date | null;
+}
+
+/** Tells partners about a load on the board (WhatsApp, from the messaging module). Must not
+ *  throw — the load is already posted. */
+export interface LoadBoardNotifier {
+  postedToBoard(offer: LoadBoardOffer): Promise<void>;
+}
+
 /** Placement sends one partner bid to the shipper as Loadsmart's. */
 export interface SendBidInput {
   partnerBidId: string;

@@ -78,6 +78,7 @@ import { LoadDraftEntity } from '../modules/loads/load-posting/entities/load-dra
 import { CustomerContractEntity } from '../modules/loads/load-posting/entities/customer-contract.entity';
 import { LoadBidEntity } from '../modules/loads/bids/load-bid.entity';
 import { LoadMemoEntity } from '../modules/loads/memo/load-memo.entity';
+import { LoadCallEntity } from '../modules/loads/calls/load-call.entity';
 import { LoadVerificationEntity } from '../modules/loads/verification/load-verification.entity';
 import { LsPartnerEntity } from '../modules/loadsmart-ops/entities/ls-partner.entity';
 import { LsPartnerLaneEntity } from '../modules/loadsmart-ops/entities/ls-partner-lane.entity';
@@ -100,6 +101,8 @@ import { LoadClaimEntity } from '../modules/loadsmart-ops/entities/load-claim.en
 import { LoadRatingEntity } from '../modules/loadsmart-ops/entities/load-rating.entity';
 import { LsInvoiceEntity } from '../modules/loadsmart-ops/entities/ls-invoice.entity';
 import { LoadAwardOutcomeEntity } from '../modules/loads/entities/load-award-outcome.entity';
+import { MessageLogEntity } from '../modules/messaging/entities/message-log.entity';
+import { WhatsappInboundEntity } from '../modules/messaging/entities/whatsapp-inbound.entity';
 import { SavedViewEntity } from '../modules/analytics/saved-views/saved-view.entity';
 import { SettingsVersionEntity } from '../modules/settings/settings-version.entity';
 
@@ -190,6 +193,7 @@ export const AppDataSource = new DataSource({
     CustomerContractEntity,
     LoadBidEntity,
     LoadMemoEntity,
+    LoadCallEntity,
     LoadVerificationEntity,
     LsPartnerEntity,
     LsPartnerLaneEntity,
@@ -212,6 +216,8 @@ export const AppDataSource = new DataSource({
     LoadRatingEntity,
     LsInvoiceEntity,
     LoadAwardOutcomeEntity,
+    MessageLogEntity,
+    WhatsappInboundEntity,
     // analytics module
     SavedViewEntity,
     // settings module (Super Admin → Settings)

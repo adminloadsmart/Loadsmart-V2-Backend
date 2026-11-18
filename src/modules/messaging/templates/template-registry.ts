@@ -1,0 +1,288 @@
+import {
+  MessageIntent,
+  MessageRecipientKind,
+  OfferAction,
+  OutboundMessageKind,
+} from '../messaging.types';
+
+/**
+ * The load-flow WhatsApp templates of today's tasks 7 and 8, keyed by their id in the load-flow
+ * notification catalog (LS_N_…; "Load flow notifications" sheet). Wording, tokens and buttons are
+ * the catalog's. Each key maps to its approved MSG91 template name through env
+ * (MSG91_WHATSAPP_TEMPLATE_<KEY>).
+ *
+ * In MSG91 the template is created with named variables {{var_1}}, {{var_2}}… in the order of
+ * `variables` below (the same convention as every other Loadsmart WhatsApp template — see
+ * msg91BodyOf). All are Utility templates; at most 3 buttons; a body never starts or ends with a
+ * variable (MSG91 / Meta reject those).
+ */
+
+/** A template button. A quick reply with `action` is acted on when tapped (the reply router reads
+ *  the tapped message and this title); one without is shown but not handled yet; `url` buttons
+ *  open a link. */
+export interface TemplateButton {
+  title: string;
+  action?: OfferAction;
+  url?: boolean;
+}
+
+export interface TemplateDefinition {
+  audience: MessageRecipientKind[];
+  intent: MessageIntent;
+  category: 'UTILITY' | 'MARKETING';
+  /** What a reply to this template answers (drives the reply router). */
+  kind: OutboundMessageKind;
+  /** Catalog tokens in template order: {{var_1}} = variables[0], and so on. */
+  variables: readonly string[];
+  /** The catalog wording, with {{token}} placeholders. */
+  body: string;
+  buttons?: readonly TemplateButton[];
+  headerDocument?: boolean;
+}
+
+const BROKER: MessageRecipientKind[] = ['partner'];
+const TRANSPORTER: MessageRecipientKind[] = ['transporter'];
+const OFFER_REPLIES = [
+  { title: 'Accept', action: 'accept' },
+  { title: 'Negotiate', action: 'negotiate' },
+  { title: 'Reject', action: 'reject' },
+] as const satisfies readonly TemplateButton[];
+const QUOTE_REPLIES = [
+  { title: 'Give rate', action: 'give_rate' },
+  { title: 'Reject', action: 'reject' },
+] as const satisfies readonly TemplateButton[];
+
+export const TEMPLATE_REGISTRY = {
+  // ---- Task 7: requirement, quotes, indent, memo
+  LS_N_0105: {
+    audience: BROKER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['from_area', 'to_area', 'truck_type', 'weight', 'reporting_time', 'rate'],
+    body: 'New load from Loadsmart: {{from_area}} to {{to_area}}, {{truck_type}}, {{weight}} t, reporting {{reporting_time}}. Rate ₹{{rate}}. Are you interested?',
+    buttons: OFFER_REPLIES,
+  },
+  LS_N_0106: {
+    audience: BROKER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['from_area', 'to_area', 'truck_type', 'weight', 'reporting_time'],
+    body: 'New load from Loadsmart: {{from_area}} to {{to_area}}, {{truck_type}}, {{weight}} t, reporting {{reporting_time}}. Send us your best rate.',
+    buttons: QUOTE_REPLIES,
+  },
+  LS_N_0119: {
+    audience: TRANSPORTER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['shipper_name', 'origin', 'destination', 'truck_type', 'reporting_time', 'price'],
+    body: 'New load from {{shipper_name}}: {{origin}} to {{destination}}, {{truck_type}}, reporting {{reporting_time}}. Price ₹{{price}}. Are you interested?',
+    buttons: OFFER_REPLIES,
+  },
+  // The catalog's "Ask for quotes variant" of LS_N_0119.
+  LS_N_0119_QUOTE: {
+    audience: TRANSPORTER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['shipper_name', 'origin', 'destination', 'truck_type', 'reporting_time'],
+    body: 'New load from {{shipper_name}}: {{origin}} to {{destination}}, {{truck_type}}, reporting {{reporting_time}}. Send us your rate.',
+    buttons: QUOTE_REPLIES,
+  },
+  LS_N_0120: {
+    audience: TRANSPORTER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['shipper_name', 'origin', 'destination', 'truck_type', 'reporting_time', 'rate'],
+    body: 'New indent from {{shipper_name}}: {{origin}} to {{destination}}, {{truck_type}}, reporting {{reporting_time}}. Contract rate ₹{{rate}}. Will you take it?',
+    buttons: [
+      { title: 'Accept', action: 'accept' },
+      { title: 'Reject', action: 'reject' },
+    ],
+  },
+  LS_N_0069: {
+    audience: ['shipper_user'],
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['vehicle_no', 'driver_name', 'price', 'origin', 'destination', 'expiry_time'],
+    body: 'Your load memo is ready: truck {{vehicle_no}}, driver {{driver_name}}, ₹{{price}} for {{origin}} to {{destination}}. Accept it by {{expiry_time}} to confirm the truck.',
+    buttons: [
+      { title: 'Accept memo', action: 'accept' },
+      { title: 'View memo', url: true },
+    ],
+  },
+
+  // ---- Task 8: confirmations, papers approved, payment advice, POD, balance on hold
+  LS_N_0107: {
+    audience: BROKER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['rate', 'from_area', 'to_area'],
+    body: 'Your rate of ₹{{rate}} for {{from_area}} to {{to_area}} is accepted. Reply with the truck number, driver name, driver mobile and DL number.',
+  },
+  LS_N_0121: {
+    audience: TRANSPORTER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['rate', 'origin', 'destination', 'shipper_name'],
+    body: "Your rate of ₹{{rate}} for {{origin}} to {{destination}} is accepted by {{shipper_name}}. Reply with the truck number, driver name, mobile, DL number and the driver's date of birth.",
+  },
+  LS_N_0110: {
+    audience: BROKER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['load_id', 'from_area', 'to_area', 'vehicle_no', 'reporting_time', 'driver_name'],
+    body: 'Confirmed: load {{load_id}}, {{from_area}} to {{to_area}}. Truck {{vehicle_no}} must report by {{reporting_time}}. Driver {{driver_name}} has the loading point.',
+    buttons: [{ title: 'Track truck', url: true }],
+  },
+  LS_N_0123: {
+    audience: TRANSPORTER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['shipper_name', 'vehicle_no', 'origin', 'destination', 'reporting_time'],
+    body: 'Confirmed by {{shipper_name}}: truck {{vehicle_no}} for {{origin}} to {{destination}}. Report by {{reporting_time}}. Track the trip with this link.',
+    buttons: [{ title: 'Track truck', url: true }],
+  },
+  LS_N_0130: {
+    audience: ['driver'],
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['vehicle_no', 'destination'],
+    body: 'Papers approved for truck {{vehicle_no}}. You can leave for {{destination}} now.',
+    buttons: [{ title: 'Get directions', url: true }],
+  },
+  LS_N_0112: {
+    audience: BROKER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['load_id', 'vehicle_no', 'payment_head', 'net_amount', 'tds_amount', 'utr'],
+    body: 'Payment sent for load {{load_id}}, truck {{vehicle_no}}. {{payment_head}}: ₹{{net_amount}} after ₹{{tds_amount}} TDS. UTR {{utr}}. The payment proof is attached.',
+    headerDocument: true,
+  },
+  LS_N_0126: {
+    audience: TRANSPORTER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['shipper_name', 'amount', 'vehicle_no', 'utr'],
+    body: 'Payment recorded by {{shipper_name}}: ₹{{amount}} for truck {{vehicle_no}}, UTR {{utr}}. The proof is attached.',
+    headerDocument: true,
+  },
+  LS_N_0115: {
+    audience: BROKER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['load_id', 'pod_due_date'],
+    body: 'Load {{load_id}} is delivered. Send the original POD to Loadsmart, Mohali by {{pod_due_date}}. After that, ₹100 a day comes off your balance.',
+    buttons: [{ title: 'Sent by courier' }, { title: 'Bringing it' }],
+  },
+  LS_N_0116: {
+    audience: BROKER,
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['load_id', 'penalty_amount'],
+    body: 'The original POD for load {{load_id}} is late. ₹100 a day now comes off your balance, ₹{{penalty_amount}} so far. Please send it today.',
+    buttons: [{ title: 'Sent by courier' }],
+  },
+  LS_N_0117: {
+    audience: BROKER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['load_id'],
+    body: "We've received the original POD for load {{load_id}}. Your balance payment is in process.",
+  },
+  LS_N_0124: {
+    audience: TRANSPORTER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['vehicle_no', 'origin', 'destination', 'shipper_name'],
+    body: 'The POD for truck {{vehicle_no}}, {{origin}} to {{destination}}, is received by {{shipper_name}}. Thank you.',
+  },
+  LS_N_0114: {
+    audience: BROKER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['load_id', 'issue_type'],
+    body: "Load {{load_id}} was delivered with {{issue_type}} noted on the POD. Your balance is on hold until it's settled. Our team will call you.",
+  },
+} as const satisfies Record<string, TemplateDefinition>;
+
+export type TemplateKey = keyof typeof TEMPLATE_REGISTRY;
+
+export function getTemplateDefinition(templateKey: TemplateKey): TemplateDefinition {
+  return TEMPLATE_REGISTRY[templateKey];
+}
+
+export function isTemplateKey(value: string | null | undefined): value is TemplateKey {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(TEMPLATE_REGISTRY, value as string);
+}
+
+/** Body variables in template order; a missing value is a programming error, not a send failure. */
+export function orderTemplateVariables(
+  templateKey: TemplateKey,
+  values: Record<string, string>,
+): string[] {
+  return getTemplateDefinition(templateKey).variables.map((variableName) => {
+    const value = values[variableName];
+    if (value === undefined || value === '') {
+      throw new Error(`Template ${templateKey} needs variable "${variableName}"`);
+    }
+    return value;
+  });
+}
+
+/** The quick-reply actions a template offers, in button order. */
+export function offerActionsOf(templateKey: TemplateKey): OfferAction[] {
+  return (getTemplateDefinition(templateKey).buttons ?? []).flatMap((button) =>
+    button.action ? [button.action] : [],
+  );
+}
+
+/** The action of a tapped quick-reply button, from its text (MSG91 returns the button text). */
+export function actionOfButtonTitle(
+  templateKey: TemplateKey,
+  title: string | null,
+): OfferAction | null {
+  if (!title) return null;
+  const wanted = title.trim().toLowerCase();
+  const button = (getTemplateDefinition(templateKey).buttons ?? []).find(
+    (candidate) => candidate.title.toLowerCase() === wanted,
+  );
+  return button?.action ?? null;
+}
+
+/** The message text as sent, for the sent-log (message_log.rendered_text). */
+export function renderTemplateBody(
+  templateKey: TemplateKey,
+  values: Record<string, string>,
+): string {
+  return getTemplateDefinition(templateKey).body.replace(
+    /\{\{(\w+)\}\}/g,
+    (_match, token: string) => values[token] ?? `{{${token}}}`,
+  );
+}
+
+/** The body as it must be created in MSG91: catalog tokens replaced by {{var_1}}, {{var_2}}… in
+ *  `variables` order (what MSG91 fills from body_var_N). */
+export function msg91BodyOf(templateKey: TemplateKey): string {
+  const { body, variables } = getTemplateDefinition(templateKey);
+  return body.replace(
+    /\{\{(\w+)\}\}/g,
+    (_match, token: string) => `{{var_${variables.indexOf(token) + 1}}}`,
+  );
+}

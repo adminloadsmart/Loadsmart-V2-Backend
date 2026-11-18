@@ -288,8 +288,36 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'LOADING_CONTACT_CHANGED',
   'UNLOADING_DETAILS_SAVED',
   'LOADING_POINT_CHANGED',
+  'CALL_LOGGED',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
+
+/** Log a call (load module spec p.36): who was spoken to — one or more of these. */
+export const CALL_PARTIES = [
+  'shipper',
+  'driver',
+  'broker',
+  'shipper_sales',
+  'trucker_sales',
+] as const;
+export type CallParty = (typeof CALL_PARTIES)[number];
+
+/** Outcome of a call: not picked up / picked up / a price was given. */
+export const CALL_OUTCOMES = ['not_picked_up', 'picked_up', 'price'] as const;
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+/** Who logged a call: the shipper's own team, or one of Loadsmart's teams. */
+export const CALL_TEAMS = [
+  'shipper',
+  'approval',
+  'placement',
+  'tracking',
+  'cs',
+  'receivables',
+  'payables',
+] as const;
+export type CallTeam = (typeof CALL_TEAMS)[number];
+export type LoadsmartCallTeam = Exclude<CallTeam, 'shipper'>;
 
 export const LOAD_PAYMENT_TYPES = ['advance', 'balance'] as const;
 export type LoadPaymentType = (typeof LOAD_PAYMENT_TYPES)[number];

@@ -254,3 +254,15 @@ export const LOCATION_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const GOOGLE_MAPS_PIN_URL = 'https://maps.google.com/?q=';
 /** LS_N_0029's {{4}} ("last detected at …") when the trip has had no position at all. */
 export const NO_TRIP_POSITION_LOCATION = 'the start of this trip (no GPS received since)';
+
+/** "Every stage change sends the shipper an in-app notification" (load module spec p.30). These
+ *  stages get the generic load.stage_changed card; every other stage already has its own type
+ *  (truck assigned, reached loading, loaded, in transit, reached unloading, delivered / POD). */
+export const STAGE_CHANGED_CARD_LABELS: Partial<Record<LoadStatus, string>> = {
+  bids_received: 'Bids received',
+  in_transit_loading: 'On the way to loading',
+  invoice_generated: 'Invoice generated',
+  payment: 'Payment received, being verified',
+  closed: 'Load closed',
+  cancelled: 'Load cancelled',
+};

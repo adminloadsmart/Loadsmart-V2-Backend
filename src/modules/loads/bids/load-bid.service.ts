@@ -28,7 +28,9 @@ import {
   LoadsmartBidEventHook,
   LoadsmartBidInput,
   RecordBidInput,
+  WhatsappBidInput,
 } from '../utils/load-bid.interface';
+import { BidChannel } from '../utils/loads.types';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
 
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
@@ -41,7 +43,8 @@ const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase(
  * it to Truck assigned (load-memo.service.ts). Expiry is applied whenever bids are read or accepted, so no scheduled
  * job is needed for it. Every stage move goes through LoadStageService as a trigger.
  *
- * Until WhatsApp arrives (Phase 4), bids reach this service through the shipper's web entry.
+ * Bids reach this service through the shipper's web entry and, since the WhatsApp integration,
+ * from the transporter's own replies (recordWhatsappBid, channel `whatsapp`).
  */
 export class LoadBidService {
   constructor(
@@ -486,6 +489,106 @@ export class LoadBidService {
     }
   }
 
+  /** The transporter's own WhatsApp reply (Accept at the target rate, or a typed rate). Same bid
+   *  as a web quote, with channel `whatsapp` and no entering user. Unlike a phone rate the shipper
+   *  types in there is no 30-minute wait — the transporter is quoting directly — but the 4-hour
+   *  window still applies. A transporter quoting again revises its live bid; the truck number is
+   *  still asked for and entered as today (setBidTruck). */
+  async recordWhatsappBid(
+    tenantId: string,
+    loadId: string,
+    input: WhatsappBidInput,
+  ): Promise<BidView> {
+    try {
+      const load = await this.assertLoad(tenantId, loadId);
+      if (load.postingType !== 'market_fleet')
+        throw new ConflictError('Only market fleet loads take bids');
+      if (load.status !== 'created' && load.status !== 'bids_received') {
+        throw new ConflictError('This load already has a truck — it no longer takes bids');
+      }
+      const now = this.now();
+      const sentAt = await this.sentAtOf(load);
+      const closesAt = bidWindowClosesAt(sentAt);
+      if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
+
+      let recipientId: string | null = null;
+      if (load.postingId) {
+        const recipient = await this.bidRepository.findTransporterRecipient(
+          tenantId,
+          load.postingId,
+          input.transporterId,
+        );
+        if (!recipient) throw new ConflictError("This load wasn't sent to that transporter");
+        recipientId = recipient.id;
+      }
+      const vehicleNumber = input.vehicleNumber ? normalizePlate(input.vehicleNumber) : null;
+      if (vehicleNumber) await this.assertTruckFree(load, vehicleNumber);
+      const live = await this.bidRepository.findLive(tenantId, loadId, input.transporterId);
+      if (!live && input.rate === undefined) {
+        throw new ConflictError('The truck number came before any rate for this load');
+      }
+      const rate = input.rate === undefined ? live!.rate : String(input.rate);
+      const rateChanged = !live || rate !== live.rate;
+      // No entering user: the transporter quoted on WhatsApp (channel `whatsapp`).
+      const step = {
+        at: now.toISOString(),
+        by: null,
+        kind: live ? ('revised' as const) : ('bid' as const),
+        rate,
+      };
+      const saved = live
+        ? await this.bidRepository.update(live, {
+            rate,
+            ...(rateChanged
+              ? {
+                  rateHistory: [...(live.rateHistory ?? []), step] as never,
+                  // A new rate from the transporter replaces any counter still waiting.
+                  ...(live.counterStatus === 'pending'
+                    ? { counterStatus: null, counterRate: null }
+                    : {}),
+                }
+              : {}),
+            vehicleNumber: vehicleNumber ?? live.vehicleNumber,
+            truckVerified:
+              vehicleNumber && vehicleNumber !== live.vehicleNumber ? null : live.truckVerified,
+          })
+        : await this.bidRepository.create({
+            tenantId,
+            loadId,
+            recipientId,
+            source: 'transporter',
+            lsPartnerBidId: null,
+            transporterId: input.transporterId,
+            rate,
+            vehicleNumber,
+            channel: 'whatsapp',
+            expiresAt: closesAt,
+            enteredBy: null,
+            entryReason: 'Quoted by the transporter on WhatsApp',
+            rateHistory: [step],
+          });
+      // The truck is checked on VAHAN at once, as for a web bid ("Vahan runs at once").
+      const bid = await this.checkBidTruck(saved);
+      await this.recordBidActivity(load, null, bid, {
+        revised: Boolean(live),
+        channel: 'whatsapp',
+      });
+      return this.toView(bid, now, null);
+    } catch (error) {
+      rethrow(error, 'Failed to record the WhatsApp bid');
+    }
+  }
+
+  /** The transporter's live bid on a load, if any (expired ones excluded). */
+  async findLiveTransporterBid(
+    tenantId: string,
+    loadId: string,
+    transporterId: string,
+  ): Promise<LoadBidEntity | null> {
+    const live = await this.bidRepository.findLive(tenantId, loadId, transporterId);
+    return live && effectiveBidStatus(live, this.now()) === 'received' ? live : null;
+  }
+
   /** "Ask for the number" — the transporter's truck number arrives after its rate. */
   async setBidTruck(
     tenantId: string,
@@ -524,9 +627,11 @@ export class LoadBidService {
    *  to Bids received on the indent route (`indent_accepted`), and the memo follows. */
   async recordIndentAcceptance(
     tenantId: string,
-    actorId: string,
+    actorId: string | null,
     loadId: string,
     vehicleNumberInput: string,
+    /** `whatsapp` when the contracted transporter accepted on WhatsApp (no entering user). */
+    channel: BidChannel = 'web',
   ): Promise<BidView> {
     try {
       const load = await this.assertLoad(tenantId, loadId);
@@ -559,10 +664,13 @@ export class LoadBidService {
         transporterId: load.transporterId,
         rate: load.freightValue,
         vehicleNumber,
-        channel: 'web',
+        channel,
         expiresAt: null,
         enteredBy: actorId,
-        entryReason: 'Indent accepted by the contracted transporter',
+        entryReason:
+          channel === 'whatsapp'
+            ? 'Indent accepted by the contracted transporter on WhatsApp'
+            : 'Indent accepted by the contracted transporter',
       });
       const bid = await this.checkBidTruck(created);
       await this.stageService.transition({
@@ -659,7 +767,7 @@ export class LoadBidService {
 
   private async recordBidActivity(
     load: LoadEntity,
-    actorId: string,
+    actorId: string | null,
     bid: LoadBidEntity,
     extra: Record<string, unknown>,
   ): Promise<void> {
