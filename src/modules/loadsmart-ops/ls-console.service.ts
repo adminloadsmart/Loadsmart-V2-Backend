@@ -1,4 +1,4 @@
-import { DataSource, In, MoreThanOrEqual } from 'typeorm';
+import { DataSource, In, IsNull, Not } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
 import { PermissionHolder } from '../../shared/middleware/require-permission.middleware';
 import { TrackingClient } from '../../adapters/tracking.client';
@@ -10,6 +10,7 @@ import { LoadStatus } from '../loads/utils/loads.types';
 import { istDateOf } from '../loads/verification/verification-rules';
 import { SettingsReader } from '../settings/settings.types';
 import { AllLoadsFilter, AllLoadsRow, ConsoleRepository } from './console.repository';
+import { SHIPPER_PRECEDENCE_TYPES } from '../loads/documents/load-document.types';
 import {
   ConsoleTeam,
   LiveStatus,
@@ -37,7 +38,10 @@ const LIVE_STAGES: LoadStatus[] = [
 ];
 /** How many trips the live map asks tracking about at once. */
 const TRACKING_CONCURRENCY = 8;
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** The truck is expected after the e-way bill runs out. */
+export function etaPastExpiry(expiresAt: Date | null, etaAt: Date | null): boolean {
+  return Boolean(expiresAt && etaAt && etaAt.getTime() > expiresAt.getTime());
+}
 
 export interface AllLoadsQuery extends AllLoadsFilter {
   team?: ConsoleTeam;
@@ -88,23 +92,66 @@ export class LsConsoleService {
       counts,
       page,
       limit,
-      items: withTeam.slice((page - 1) * limit, page * limit).map(({ row, team }) => ({
-        loadId: row.loadId,
-        code: row.code,
-        shipper: { tenantId: row.tenantId, name: row.shipperName },
-        route: { fromCity: row.fromCity, toCity: row.toCity },
-        loadingAt: row.pickupAt,
-        truck: {
-          vehicleNumber: row.vehicleNumber,
-          driverName: row.driverName,
-          carrier: row.partnerName,
-        },
-        movement: { status: row.status, since: row.lastStageAt },
-        money: this.money(see, row.shipperTrip, row.carrierTrip),
-        carrierAdvance: see.carrier ? (row.advanceStatus ?? 'not_raised') : undefined,
-        invoice: see.shipper ? (row.invoiceStatus ?? 'not_issued') : undefined,
-        team,
-      })),
+      items: withTeam
+        .slice((page - 1) * limit, page * limit)
+        .map(({ row, team }) => this.loadItem(row, team, see)),
+    };
+  }
+
+  /** Tracking's dashboard: the loads on the road, the same table as every other team's All loads,
+   *  with who runs each one. "Mine" and "unclaimed" narrow it; there are no margin figures, and
+   *  Tracking sees carrier money only (moneyVisibility). */
+  async trackingInbox(
+    actor: PermissionHolder & { id: string },
+    query: Omit<AllLoadsQuery, 'team'> & { mine?: boolean; unclaimed?: boolean },
+  ) {
+    const { mine, unclaimed, ...filter } = query;
+    const rows = await this.consoleRepository.allLoads(filter);
+    const see = moneyVisibility(actor);
+    const onTheRoad = rows
+      .map((row) => ({ row, team: this.teamOf(row) }))
+      .filter((item) => item.team === 'tracking');
+    const counts = {
+      all: onTheRoad.length,
+      mine: onTheRoad.filter((item) => item.row.trackingOwnerId === actor.id).length,
+      unclaimed: onTheRoad.filter((item) => !item.row.trackingOwnerId).length,
+    };
+    const shown = onTheRoad.filter(
+      (item) =>
+        (!mine || item.row.trackingOwnerId === actor.id) &&
+        (!unclaimed || !item.row.trackingOwnerId),
+    );
+    const limit = Math.min(query.limit ?? 50, 200);
+    const page = Math.max(query.page ?? 1, 1);
+    return {
+      total: shown.length,
+      counts,
+      page,
+      limit,
+      items: shown
+        .slice((page - 1) * limit, page * limit)
+        .map(({ row, team }) => this.loadItem(row, team, see)),
+    };
+  }
+
+  private loadItem(row: AllLoadsRow, team: ConsoleTeam, see: ReturnType<typeof moneyVisibility>) {
+    return {
+      loadId: row.loadId,
+      code: row.code,
+      shipper: { tenantId: row.tenantId, name: row.shipperName },
+      route: { fromCity: row.fromCity, toCity: row.toCity },
+      loadingAt: row.pickupAt,
+      truck: {
+        vehicleNumber: row.vehicleNumber,
+        driverName: row.driverName,
+        carrier: row.partnerName,
+      },
+      movement: { status: row.status, since: row.lastStageAt },
+      money: this.money(see, row.shipperTrip, row.carrierTrip),
+      carrierAdvance: see.carrier ? (row.advanceStatus ?? 'not_raised') : undefined,
+      invoice: see.shipper ? (row.invoiceStatus ?? 'not_issued') : undefined,
+      owners: { placement: row.placementOwnerId, tracking: row.trackingOwnerId },
+      team,
     };
   }
 
@@ -118,16 +165,46 @@ export class LsConsoleService {
     if (!sourcing) throw new NotFoundError(`Loadsmart load ${loadId} not found`);
     const load = sourcing.load;
     const see = moneyVisibility(actor);
-    const [milestones, events, shipperPayments, partnerPayments, claim, invoice, originalPod] =
-      await Promise.all([
-        this.history.find({ where: { loadId }, order: { enteredAt: 'ASC' } }),
-        this.loadActivityService.listByLoad(sourcing.tenantId, loadId),
-        this.loadPaymentRepository.listByLoad(sourcing.tenantId, loadId),
-        this.repository.partnerPayments.findBy({ sourcingId: sourcing.id }),
-        this.repository.findClaim(loadId),
-        this.repository.findInvoice(sourcing.tenantId, loadId),
-        this.repository.originalPods.findOneBy({ loadId }),
-      ]);
+    const [
+      milestones,
+      events,
+      shipperPayments,
+      partnerPayments,
+      claim,
+      invoice,
+      originalPod,
+      simConsent,
+      trip,
+      lastCallWithLocation,
+      lastCallWithEta,
+      currentDocuments,
+      charges,
+    ] = await Promise.all([
+      this.history.find({ where: { loadId }, order: { enteredAt: 'ASC' } }),
+      this.loadActivityService.listByLoad(sourcing.tenantId, loadId),
+      this.loadPaymentRepository.listByLoad(sourcing.tenantId, loadId),
+      this.repository.partnerPayments.findBy({ sourcingId: sourcing.id }),
+      this.repository.findClaim(loadId),
+      this.repository.findInvoice(sourcing.tenantId, loadId),
+      this.repository.originalPods.findOneBy({ loadId }),
+      this.consoleRepository.simConsentOf(loadId),
+      this.trackingClient
+        .getTrip(sourcing.tenantId, loadId)
+        .catch(() => ({ eta: null, position: null })),
+      this.repository.callLogs.findOne({
+        where: { loadId, locationSource: Not(IsNull()) },
+        order: { calledAt: 'DESC' },
+      }),
+      this.repository.callLogs.findOne({
+        where: { loadId, etaAt: Not(IsNull()) },
+        order: { calledAt: 'DESC' },
+      }),
+      this.repository.loadDocuments.find({
+        where: { loadId, supersededAt: IsNull() },
+        order: { createdAt: 'ASC' },
+      }),
+      this.repository.listCharges(sourcing.tenantId, loadId),
+    ]);
     const tonnes = Number(load.plannedCapacityTonnes);
     const shipperTrip = load.freightValue
       ? tripAmount(Number(load.freightValue), load.freightType, tonnes)
@@ -138,9 +215,25 @@ export class LsConsoleService {
     const advance = partnerPayments.find((payment) => payment.paymentType === 'advance');
     const balance = partnerPayments.find((payment) => payment.paymentType === 'balance');
     const posting = load.posting;
-    const shipperName = await this.consoleRepository.shipperName(sourcing.tenantId);
+    const shipper = await this.consoleRepository.shipperDetails(sourcing.tenantId);
+    const shipperName = shipper?.name ?? null;
+    const staff = await this.consoleRepository.staffContacts([
+      sourcing.placementOwnerId,
+      sourcing.trackingOwnerId,
+      shipper?.salesUserId ?? null,
+    ]);
+    const contactOf = (id: string | null) => (id ? (staff.get(id) ?? null) : null);
     return {
-      load: { id: load.id, code: load.code, status: load.status, route: load.route },
+      load: {
+        id: load.id,
+        code: load.code,
+        status: load.status,
+        route: load.route,
+        // Where the truck loads and unloads, in full (the posting holds the addresses).
+        source: posting?.pickupAddress ?? null,
+        destination: posting?.dropAddress ?? null,
+        loadingAt: posting?.pickupAt ?? null,
+      },
       team: teamHolding({
         sourcingStatus: sourcing.status,
         loadStatus: load.status,
@@ -179,18 +272,59 @@ export class LsConsoleService {
         invoiceValue: see.shipper ? load.invoiceValue : undefined,
         ewayBillNumber: load.ewayBillNumber,
         ewayBillGeneratedAt: load.ewayBillGeneratedAt,
+        // The validity date typed with the e-way bill; at risk when the truck's ETA (tracking's,
+        // else the one Tracking heard on a call) is past it.
+        ewayBillExpiresAt: load.ewayBillExpiresAt,
+        ewayBillAtRisk: etaPastExpiry(
+          load.ewayBillExpiresAt,
+          trip.eta?.etaAt ?? lastCallWithEta?.etaAt ?? null,
+        ),
         elrNumber: load.elrNumber,
       },
+      // What is on the load's register now, who put it there and where it stands.
+      documents: currentDocuments.map((doc) => ({
+        id: doc.id,
+        docType: doc.docType,
+        version: doc.version,
+        source: doc.source,
+        reviewStatus: doc.reviewStatus,
+        referenceOnly: doc.source === 'console' && SHIPPER_PRECEDENCE_TYPES.includes(doc.docType),
+      })),
+      charges: charges.map((charge) => ({
+        id: charge.id,
+        type: charge.chargeType,
+        amount: charge.amount,
+        status: charge.status,
+        raisedByParty: charge.raisedByParty,
+        withAdvance: charge.partnerPaymentId !== null,
+      })),
       // "Contact details are never masked in the console."
       people: {
-        driver: { name: load.driverName, phone: load.driverNumber },
+        driver: {
+          name: load.driverName,
+          phone: load.driverNumber,
+          licenceNumber: load.driverLicenceNumber,
+        },
+        truck: { vehicleNumber: load.vehicleNumber },
         carrier: sourcing.partner
           ? { name: sourcing.partner.name, phone: sourcing.partner.phone }
           : null,
         truckerSales: sourcing.partner?.truckerSalesName
           ? { name: sourcing.partner.truckerSalesName, phone: sourcing.partner.truckerSalesPhone }
           : null,
-        shipper: { tenantId: sourcing.tenantId, name: shipperName ?? null },
+        shipper: {
+          tenantId: sourcing.tenantId,
+          name: shipperName,
+          legalName: shipper?.legalName ?? null,
+          contactName: shipper?.contactName ?? null,
+          city: shipper?.city ?? null,
+          state: shipper?.state ?? null,
+        },
+        // The sales member whose referral code the shipper signed up with.
+        shipperSales: contactOf(shipper?.salesUserId ?? null),
+        // Who runs the load: the Placement owner (round robin or claimed) and the Tracking owner.
+        placement: contactOf(sourcing.placementOwnerId),
+        tracking: contactOf(sourcing.trackingOwnerId),
         loadingContact: { name: load.loadingContactName, phone: load.loadingContactPhone },
         receiver: { name: load.unloadingContactName, phone: load.unloadingContactPhone },
       },
@@ -200,6 +334,33 @@ export class LsConsoleService {
       originalPod: originalPod
         ? { status: originalPod.status, penalty: originalPod.penaltyAmount }
         : null,
+      // The truck now: SIM/GPS tracking when it has a fresh fix, otherwise what Tracking last
+      // heard on a call. Consent is the driver's answer to the SIM-tracking SMS.
+      tracking: {
+        simConsent,
+        position: trip.position
+          ? { source: 'tracking', ...trip.position }
+          : lastCallWithLocation
+            ? {
+                source: 'call',
+                lat: lastCallWithLocation.latitude ? Number(lastCallWithLocation.latitude) : null,
+                lng: lastCallWithLocation.longitude ? Number(lastCallWithLocation.longitude) : null,
+                placeName: lastCallWithLocation.locationLabel,
+                recordedAt: lastCallWithLocation.calledAt,
+              }
+            : null,
+        eta: trip.eta
+          ? { source: 'tracking', ...trip.eta }
+          : lastCallWithEta
+            ? {
+                source: 'call',
+                etaAt: lastCallWithEta.etaAt,
+                target: lastCallWithEta.etaTarget,
+                recordedAt: lastCallWithEta.calledAt,
+              }
+            : null,
+        lastCall: lastCallWithLocation ?? lastCallWithEta ?? null,
+      },
       latestEvents: events.slice(-15).reverse(),
     };
   }
@@ -246,20 +407,17 @@ export class LsConsoleService {
           : null,
       });
     }
-    // "Every charge Tracking raises up to the POD also reaches Super Admin straight away."
+    // Charges the shipper approved (or pre-approved) wait here for Super Admin's decision.
     const charges = await this.repository.charges.find({
-      where: {
-        raisedByParty: 'loadsmart',
-        createdAt: MoreThanOrEqual(new Date(now.getTime() - 7 * DAY_MS)),
-      },
-      order: { createdAt: 'DESC' },
+      where: { raisedByParty: 'loadsmart', status: 'pending_admin' },
+      order: { createdAt: 'ASC' },
       take: 200,
     });
     return {
       advances: items.filter((item) => item.payment.paymentType === 'advance'),
       balances: items.filter((item) => item.payment.paymentType === 'balance'),
       cancellations: await this.cancellationRequests(),
-      recentCharges: charges,
+      pendingCharges: charges,
     };
   }
 

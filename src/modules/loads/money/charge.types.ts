@@ -27,8 +27,15 @@ export const TRANSPORTER_CHARGE_HEADS = CHARGE_HEADS.filter(
 export type TransporterChargeHead = (typeof TRANSPORTER_CHARGE_HEADS)[number];
 
 /** `queried`: the shipper asked about it (with a reason); Loadsmart's reply puts it back to
- *  `raised`. */
-export const CHARGE_STATUSES = ['raised', 'queried', 'approved', 'rejected'] as const;
+ *  `raised`. `pending_admin`: a Loadsmart-raised charge the shipper approved (or pre-approved) that
+ *  now waits for Super Admin — only `approved` counts toward the invoice and the carrier's pay. */
+export const CHARGE_STATUSES = [
+  'raised',
+  'queried',
+  'pending_admin',
+  'approved',
+  'rejected',
+] as const;
 export type ChargeStatus = (typeof CHARGE_STATUSES)[number];
 
 /** Who raised the charge — Loadsmart's team, or the shipper (approved as it is entered). */

@@ -51,6 +51,46 @@ export interface BundleDocument {
   label: string;
   fileKey: string;
   downloadUrl: string | null;
+  /** Loadsmart's own copy of a paper the shipper hasn't uploaded — the shipper's takes over. */
+  referenceOnly?: boolean;
+}
+
+/** The loading papers Tracking attaches itself (the shipper's copy always takes precedence). */
+export interface PapersInput {
+  invoiceNumber?: string;
+  invoiceFileKey?: string;
+  ewayBillNumber?: string;
+  ewayBillFileKey?: string;
+  /** The validity date printed on the e-way bill. */
+  ewayBillExpiresAt?: Date;
+  elrNumber?: string;
+  elrFileKey?: string;
+}
+
+/** A POD Loadsmart's own team captured: no approval step, so the outcome is given with it. */
+export interface ConsolePodInput {
+  podFileKey: string;
+  podBackFileKey?: string;
+  outcome: 'delivered_ok' | 'delivered_with_issues';
+  /** Required with `delivered_with_issues`. */
+  issueType?: 'damage' | 'shortage' | 'pilferage';
+  remark?: string;
+  receiverName?: string;
+  quantityReceived?: number;
+  numberOfTonnesShort?: number;
+}
+
+export interface DocumentsPageQuery {
+  /** Load code, LR / e-LR number or invoice number. */
+  q?: string;
+  /** An e-LR series prefix, e.g. LSLR. */
+  series?: string;
+  docType?: string;
+  from?: Date;
+  to?: Date;
+  includeHistory?: boolean;
+  page?: number;
+  limit?: number;
 }
 
 export interface PartnerInput {
@@ -162,6 +202,13 @@ export interface SendBidInput {
 /** A bank/UPI payment reference. */
 export interface UtrInput {
   utrReference: string;
+}
+
+/** What Payables records when it pays a carrier: the UTR, the payment advice, or both. */
+export interface PartnerPayInput {
+  utrReference?: string;
+  /** Uploaded by the Payables member for purpose loads/payment-proof. */
+  proofFileKey?: string;
 }
 
 /** The shipper's decision on a charge Loadsmart raised. */

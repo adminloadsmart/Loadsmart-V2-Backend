@@ -14,6 +14,9 @@ import {
   UNCLAIMED_STATUSES,
   PARTNER_STATUSES,
   PARTNER_TYPES,
+  CALL_CONTACTS,
+  CALL_OUTCOMES,
+  ETA_TARGETS,
 } from './loadsmart.types';
 import { reviewDocumentBody } from '../loads/documents/load-document.validators';
 import { elrIssueBody, reviewPodBody, unloadingDetailsBody } from '../loads/core/load.validators';
@@ -36,7 +39,17 @@ const mobile = z
   .regex(/^\d{10}$/, 'Must be a 10-digit mobile number');
 const percent = z.number().min(0).max(100);
 const money = z.number().nonnegative();
-const utr = z.object({ utrReference: z.string().trim().min(1).max(100) }).strict();
+/** Paying a carrier: the UTR, the payment advice, or both — at least one. */
+const partnerPay = z
+  .object({
+    utrReference: z.string().trim().min(1).max(100).optional(),
+    proofFileKey: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict()
+  .refine((body) => body.utrReference || body.proofFileKey, {
+    message: 'Give the UTR or upload the payment advice',
+    path: ['utrReference'],
+  });
 
 const partnerBody = z
   .object({
@@ -154,7 +167,7 @@ export const loadsmartValidators = {
       })
       .strict(),
   }),
-  partnerPayment: z.object({ params: loadParams, body: utr }),
+  partnerPayment: z.object({ params: loadParams, body: partnerPay }),
 
   // --- Tracking: charges, e-LR, the carrier advance ---
   raiseCharge: z.object({
@@ -164,9 +177,25 @@ export const loadsmartValidators = {
         head: z.enum(TRANSPORTER_CHARGE_HEADS),
         amount: z.number().positive().max(100_000_000),
         remark: z.string().trim().min(1).max(500).optional(),
-        proofFileKey: z.string().trim().min(1),
+        proofFileKey: z.string().trim().min(1).optional(),
       })
       .strict(),
+  }),
+  chargeAdminDecision: z.object({
+    params: z.object({ loadId: uuid, chargeId: uuid }),
+    body: z
+      .object({
+        decision: z.enum(['approved', 'rejected']),
+        reason: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
+  }),
+  raiseAdvance: z.object({
+    params: loadParams,
+    body: z
+      .object({ chargeIds: z.array(uuid).min(1).max(20).optional() })
+      .strict()
+      .default({}),
   }),
   replyToChargeQuery: z.object({
     params: z.object({ loadId: uuid, chargeId: uuid }),
@@ -284,9 +313,13 @@ export const loadsmartValidators = {
       })
       .strict(),
   }),
+  moveOwnerParams: z.object({ params: sourcingParams }),
   moveOwner: z.object({
     params: sourcingParams,
-    body: z.object({ ownerId: uuid }).strict(),
+    // `team` says whose owner moves: Placement's (the default) or Tracking's.
+    body: z
+      .object({ ownerId: uuid, team: z.enum(['placement', 'tracking']).default('placement') })
+      .strict(),
   }),
   markLost: z.object({
     params: sourcingParams,
@@ -488,6 +521,17 @@ export const loadsmartValidators = {
       .strict(),
   }),
 
+  // --- The member's own inbox ---
+  notifications: z.object({
+    query: z
+      .object({
+        unreadOnly: booleanString.optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .strict(),
+  }),
+  notification: z.object({ params: z.object({ notificationId: uuid }) }),
+
   // --- Cross-team views ---
   allLoads: z.object({
     query: z
@@ -498,6 +542,119 @@ export const loadsmartValidators = {
           .optional(),
         tenantId: uuid.optional(),
         team: z.enum(CONSOLE_TEAMS).optional(),
+        q: z.string().trim().min(2).max(50).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .strict(),
+  }),
+  uploadPapers: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        invoiceNumber: z.string().trim().min(1).max(50).optional(),
+        invoiceFileKey: z.string().trim().min(1).optional(),
+        ewayBillNumber: z.string().trim().min(1).max(50).optional(),
+        ewayBillFileKey: z.string().trim().min(1).optional(),
+        ewayBillExpiresAt: z.coerce.date().optional(),
+        elrNumber: z.string().trim().min(1).max(50).optional(),
+        elrFileKey: z.string().trim().min(1).optional(),
+      })
+      .strict()
+      .refine((b) => (b.invoiceNumber === undefined) === (b.invoiceFileKey === undefined), {
+        message: 'invoiceNumber and invoiceFileKey must be submitted together',
+        path: ['invoiceNumber'],
+      })
+      .refine((b) => (b.ewayBillNumber === undefined) === (b.ewayBillFileKey === undefined), {
+        message: 'ewayBillNumber and ewayBillFileKey must be submitted together',
+        path: ['ewayBillNumber'],
+      })
+      .refine((b) => b.ewayBillExpiresAt === undefined || b.ewayBillFileKey !== undefined, {
+        message: 'ewayBillExpiresAt needs the e-way bill',
+        path: ['ewayBillExpiresAt'],
+      })
+      .refine((b) => b.elrNumber === undefined || b.elrFileKey !== undefined, {
+        message: 'elrNumber needs elrFileKey',
+        path: ['elrNumber'],
+      })
+      .refine((b) => b.invoiceFileKey || b.ewayBillFileKey || b.elrFileKey, {
+        message: 'Attach at least one paper',
+      }),
+  }),
+  uploadPod: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        podFileKey: z.string().trim().min(1),
+        podBackFileKey: z.string().trim().min(1).optional(),
+        outcome: z.enum(['delivered_ok', 'delivered_with_issues']),
+        issueType: z.enum(['damage', 'shortage', 'pilferage']).optional(),
+        remark: z.string().trim().min(1).max(1000).optional(),
+        receiverName: z.string().trim().min(1).max(150).optional(),
+        quantityReceived: z.number().positive().max(1000).optional(),
+        numberOfTonnesShort: z.number().min(0).max(1000).optional(),
+      })
+      .strict()
+      .refine((b) => b.outcome !== 'delivered_with_issues' || (b.issueType && b.remark), {
+        message: 'Give the issue type and a remark when delivered with issues',
+        path: ['issueType'],
+      })
+      .refine((b) => b.outcome === 'delivered_with_issues' || !b.issueType, {
+        message: 'An issue type goes with "delivered with issues"',
+        path: ['issueType'],
+      }),
+  }),
+  documentsPage: z.object({
+    query: z
+      .object({
+        q: z.string().trim().min(2).max(50).optional(),
+        series: z.string().trim().min(1).max(20).optional(),
+        docType: z.string().trim().min(1).max(30).optional(),
+        from: z.coerce.date().optional(),
+        to: z.coerce.date().optional(),
+        includeHistory: booleanString.optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .strict(),
+  }),
+  logCall: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        contact: z.enum(CALL_CONTACTS),
+        phone: z.string().trim().min(5).max(20).optional(),
+        outcome: z.enum(CALL_OUTCOMES),
+        note: z.string().trim().min(1).max(1000).optional(),
+        locationLabel: z.string().trim().min(1).max(200).optional(),
+        latitude: z.number().min(-90).max(90).optional(),
+        longitude: z.number().min(-180).max(180).optional(),
+        etaAt: z.coerce.date().optional(),
+        etaTarget: z.enum(ETA_TARGETS).optional(),
+      })
+      .strict()
+      .refine((body) => (body.latitude === undefined) === (body.longitude === undefined), {
+        message: 'Give both latitude and longitude',
+        path: ['longitude'],
+      })
+      .refine((body) => !body.etaTarget || body.etaAt, {
+        message: 'etaTarget needs etaAt',
+        path: ['etaAt'],
+      }),
+  }),
+  listCalls: z.object({
+    params: loadParams,
+    query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional() }).strict(),
+  }),
+  trackingInbox: z.object({
+    query: z
+      .object({
+        status: z
+          .union([z.enum(LOAD_STATUSES), z.array(z.enum(LOAD_STATUSES))])
+          .transform((value) => (Array.isArray(value) ? value : [value]))
+          .optional(),
+        mine: booleanString.optional(),
+        unclaimed: booleanString.optional(),
         q: z.string().trim().min(2).max(50).optional(),
         page: z.coerce.number().int().min(1).optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),

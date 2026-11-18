@@ -1,3 +1,5 @@
+import { IsNull } from 'typeorm';
+import { SHIPPER_PRECEDENCE_TYPES } from '../loads/documents/load-document.types';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { isLoadsmartLoad } from '../loads/utils/load-stages';
 import { AuditService } from '../audit/audit.service';
@@ -12,6 +14,9 @@ import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { ChargeType, LOADING_SIDE_HEADS } from './loadsmart.types';
 import { LsServiceBase } from './ls-base';
+import { LsStaffNotifier } from './ls-staff-notifier';
+import { chargeNeedsAdmin } from './ls-tracking.service';
+import { LS_MONEY_APPROVE } from '../../shared/constants/permissions';
 import { SettingsReader } from '../settings/settings.types';
 import {
   AddChargeInput,
@@ -64,6 +69,7 @@ export class LsShipperService extends LsServiceBase {
     private readonly storageService: StorageService,
     /** Loadsmart's bank account for Pay invoice (Super Admin → Settings). */
     private readonly settings: SettingsReader,
+    private readonly notifier: LsStaffNotifier,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -136,12 +142,14 @@ export class LsShipperService extends LsServiceBase {
           `reason is required to ${input.decision === 'queried' ? 'query' : 'reject'} a charge`,
         );
       }
+      // Approving is the shipper's half: the charge then waits for Super Admin, and only an
+      // admin-approved charge reaches the invoice and the carrier's pay.
       const result = await this.repository.charges.update(
         { id: chargeId, status: 'raised' },
         input.decision === 'queried'
           ? { status: 'queried', queryReason: input.reason!, queriedAt: this.now() }
           : {
-              status: input.decision,
+              status: input.decision === 'approved' ? 'pending_admin' : input.decision,
               decidedBy: actorId,
               decidedAt: this.now(),
               rejectionReason: input.reason ?? null,
@@ -167,6 +175,21 @@ export class LsShipperService extends LsServiceBase {
         resourceType: 'load',
         newData: { loadId, chargeId, decision: input.decision },
       });
+      const code = (await this.loadRepository.findById(tenantId, loadId))?.code ?? loadId;
+      if (input.decision === 'approved') {
+        await this.notifier.notifyPermission(
+          [LS_MONEY_APPROVE],
+          chargeNeedsAdmin(code, charge, charge.chargeType),
+        );
+      } else {
+        await this.notifier.notifyUsers([charge.raisedBy], {
+          type: `charge.shipper_${input.decision}`,
+          title: `Shipper ${input.decision === 'queried' ? 'queried' : 'rejected'} a charge — ${code}`,
+          body: `The ${charge.chargeType.replace(/_/g, ' ')} charge of ₹${charge.amount} on ${code}: ${input.reason}.`,
+          loadId,
+          metadata: { chargeId, decision: input.decision, reason: input.reason },
+        });
+      }
       return (await this.repository.charges.findOneBy({ id: chargeId }))!;
     } catch (error) {
       rethrow(error, 'Failed to decide the charge');
@@ -301,6 +324,17 @@ export class LsShipperService extends LsServiceBase {
         });
       }
       const payments = await this.loadPaymentRepository.listByLoad(tenantId, loadId);
+      // Loadsmart's own copy of a paper the shipper hasn't uploaded is for reference only.
+      const referenceTypes = new Set(
+        (
+          await this.repository.loadDocuments.find({
+            where: { loadId, source: 'console', supersededAt: IsNull() },
+            select: { docType: true },
+          })
+        )
+          .map((doc) => doc.docType)
+          .filter((type) => SHIPPER_PRECEDENCE_TYPES.includes(type)),
+      );
 
       const documents: BundleDocument[] = [];
       for (const documentKey of documentKeys) {
@@ -314,6 +348,7 @@ export class LsShipperService extends LsServiceBase {
           label: documentKey.label,
           fileKey: documentKey.key,
           downloadUrl,
+          ...(referenceTypes.has(documentKey.type as never) ? { referenceOnly: true } : {}),
         });
       }
       return {

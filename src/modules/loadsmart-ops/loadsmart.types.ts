@@ -129,3 +129,26 @@ export const DEFAULT_TDS_PERCENT = 1;
 /** How a shipper asked Loadsmart to post a load for them. */
 export const ON_BEHALF_CHANNELS = ['whatsapp', 'call', 'email'] as const;
 export type OnBehalfChannel = (typeof ON_BEHALF_CHANNELS)[number];
+
+// --- Tracking: call log ---
+
+/** Who Tracking called about a load. */
+export const CALL_CONTACTS = ['driver', 'broker', 'other'] as const;
+export type CallContact = (typeof CALL_CONTACTS)[number];
+
+export const CALL_OUTCOMES = [
+  'connected',
+  'no_answer',
+  'busy',
+  'switched_off',
+  'wrong_number',
+] as const;
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+/** Which stop an ETA given on a call is for. */
+export const ETA_TARGETS = ['loading', 'unloading'] as const;
+export type EtaTarget = (typeof ETA_TARGETS)[number];
+
+/** Where a call's location came from: typed by Tracking, or read from SIM/GPS tracking. */
+export const LOCATION_SOURCES = ['call', 'tracking'] as const;
+export type LocationSource = (typeof LOCATION_SOURCES)[number];

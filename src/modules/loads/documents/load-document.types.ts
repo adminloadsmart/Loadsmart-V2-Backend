@@ -82,6 +82,14 @@ export const POD_DOCUMENT_TYPES: readonly LoadDocumentType[] = [
   'damage_photo',
 ];
 
+/** The three loading papers Tracking can upload itself: its copy is reference-only to the shipper
+ *  until the shipper uploads one, which then takes precedence. */
+export const SHIPPER_PRECEDENCE_TYPES: readonly LoadDocumentType[] = [
+  'invoice',
+  'eway_bill',
+  'signed_lr',
+];
+
 /** Checked by Loadsmart on a Loadsmart load before it moves on. */
 export const LOADSMART_REVIEWED_TYPES: readonly LoadDocumentType[] = [
   'invoice',
@@ -125,4 +133,7 @@ export interface LoadDocumentView {
   reviewedBy: string | null;
   reviewedAt: string | null;
   extracted: Record<string, unknown> | null;
+  /** Loadsmart's own copy of a paper the shipper hasn't uploaded — shown to the shipper for
+   *  reference; the shipper's upload replaces it and takes precedence. */
+  referenceOnly: boolean;
 }

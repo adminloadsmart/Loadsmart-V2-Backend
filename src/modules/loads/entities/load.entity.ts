@@ -264,6 +264,12 @@ export class LoadEntity {
   @Column({ name: 'eway_bill_generated_at', type: 'timestamptz', nullable: true })
   ewayBillGeneratedAt!: Date | null;
 
+  /** The e-way bill's validity date, typed when it is uploaded. When set it drives the expiry
+   *  alert (the ETA past it alerts the admin team and the shipper); null falls back to the
+   *  generated-at placeholder. */
+  @Column({ name: 'eway_bill_expires_at', type: 'timestamptz', nullable: true })
+  ewayBillExpiresAt!: Date | null;
+
   @Column({ name: 'elr_number', type: 'varchar', length: 50, nullable: true })
   elrNumber!: string | null;
 

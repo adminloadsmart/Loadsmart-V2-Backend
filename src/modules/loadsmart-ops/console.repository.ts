@@ -1,4 +1,5 @@
-import { DataSource, SelectQueryBuilder } from 'typeorm';
+import { DataSource, In, SelectQueryBuilder } from 'typeorm';
+import { UserEntity } from '../auth/entities/user.entity';
 import { LoadBidEntity } from '../loads/bids/load-bid.entity';
 import { LoadDocumentEntity } from '../loads/documents/load-document.entity';
 import { LoadStageHistoryEntity } from '../loads/entities/load-stage-history.entity';
@@ -35,6 +36,8 @@ export interface AllLoadsRow {
   sourcingStatus: SourcingStatus;
   tenantId: string;
   shipperName: string | null;
+  trackingOwnerId: string | null;
+  placementOwnerId: string | null;
   loadId: string;
   code: string;
   status: LoadStatus;
@@ -53,6 +56,29 @@ export interface AllLoadsRow {
   balanceStatus: PartnerPaymentStatus | null;
   lastStageAt: Date | null;
   updatedAt: Date;
+}
+
+/** Driver SIM-tracking consent as the tracking service holds it. `consentStatus` is the operator's
+ *  answer (pending, allowed, not_registered, denied, unsupported); `state` is the trip's. */
+export interface SimConsent {
+  state: string;
+  consentStatus: string;
+  operator: string | null;
+  suggestion: string | null;
+  requestedAt: Date | null;
+  lastCheckedAt: Date | null;
+  expiresAt: Date | null;
+  endReason: string | null;
+}
+
+/** A team member as shown beside a load. */
+export interface StaffContact {
+  id: string;
+  name: string | null;
+  phone: string;
+  employeeId: string | null;
+  region: string | null;
+  salesType: string | null;
 }
 
 export interface AllLoadsFilter {
@@ -120,6 +146,8 @@ export class ConsoleRepository {
         's.id AS "sourcingId"',
         's.status AS "sourcingStatus"',
         's.tenantId AS "tenantId"',
+        's.trackingOwnerId AS "trackingOwnerId"',
+        's.placementOwnerId AS "placementOwnerId"',
         'o.name AS "shipperName"',
         'l.id AS "loadId"',
         'l.code AS "code"',
@@ -158,6 +186,79 @@ export class ConsoleRepository {
       });
     }
     return query.getRawMany<AllLoadsRow>();
+  }
+
+  /** The shipper organisation as the Tracking screen shows it, with the sales member whose
+   *  referral code it signed up with (its shipper-sales contact), if any. */
+  async shipperDetails(tenantId: string) {
+    const org = await this.dataSource.getRepository(OrganizationEntity).findOne({
+      where: { id: tenantId },
+      relations: { referralCode: true },
+    });
+    if (!org) return null;
+    return {
+      name: org.name,
+      legalName: org.companyLegalName,
+      contactName: org.orgAdminName,
+      city: org.city ?? org.operationalCity,
+      state: org.state,
+      salesUserId: org.referralCode?.ownerUserId ?? null,
+    };
+  }
+
+  /** Team members by id, for naming the people on a load: owners, sales contacts. */
+  async staffContacts(userIds: (string | null)[]) {
+    const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+    if (!ids.length) return new Map<string, StaffContact>();
+    const users = await this.dataSource.getRepository(UserEntity).find({
+      where: { id: In(ids) },
+      select: {
+        id: true,
+        fullName: true,
+        phoneNumber: true,
+        employeeId: true,
+        region: true,
+        salesType: true,
+      },
+    });
+    return new Map(
+      users.map((user) => [
+        user.id,
+        {
+          id: user.id,
+          name: user.fullName,
+          phone: user.phoneNumber,
+          employeeId: user.employeeId,
+          region: user.region,
+          salesType: user.salesType,
+        },
+      ]),
+    );
+  }
+
+  /** The driver's SIM-tracking consent for a load, from the tracking service's `sim_trips` table
+   *  (same database). Null when SIM tracking was never asked for, or the table isn't there. */
+  async simConsentOf(loadId: string): Promise<SimConsent | null> {
+    try {
+      const row = await this.dataSource
+        .createQueryBuilder()
+        .select('st.state', 'state')
+        .addSelect('st.operator_consent_status', 'consentStatus')
+        .addSelect('st.operator', 'operator')
+        .addSelect('st.operator_consent_suggestion', 'suggestion')
+        .addSelect('st.consent_requested_at', 'requestedAt')
+        .addSelect('st.consent_last_checked_at', 'lastCheckedAt')
+        .addSelect('st.consent_expires_at', 'expiresAt')
+        .addSelect('st.end_reason', 'endReason')
+        .from('tracking.sim_trips', 'st')
+        .where('st.load_id = :loadId', { loadId })
+        .orderBy('st.created_at', 'DESC')
+        .limit(1)
+        .getRawOne<SimConsent>();
+      return row ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async shipperName(tenantId: string): Promise<string | null> {

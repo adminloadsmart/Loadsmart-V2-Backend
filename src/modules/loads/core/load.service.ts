@@ -189,7 +189,8 @@ function assertNotLoadsmartClaim(load: LoadEntity, viaClaim: boolean): void {
 }
 
 /** Who a document upload came from: the driver app (the actor is the driver) or a user. */
-function documentActor(actorId: string, driverOwnerId?: string): DocumentActor {
+function documentActor(actorId: string, driverOwnerId?: string, console = false): DocumentActor {
+  if (console) return { userId: actorId, source: 'console' };
   return driverOwnerId
     ? { userId: null, driverId: actorId, source: 'driver_app' }
     : { userId: actorId, source: 'web' };
@@ -504,6 +505,8 @@ export class LoadService {
       // Stamped when the e-way bill is actually uploaded (this call), not whenever the last
       // document happens to land — getEwayBillExpiry's 2-hour clock runs from generation time.
       fields.ewayBillGeneratedAt = new Date();
+      // The validity date printed on the bill; a new bill with none clears the old one's.
+      fields.ewayBillExpiresAt = input.ewayBillExpiresAt ?? null;
     }
     if (input.elrNumber !== undefined) fields.elrNumber = nextElrNumber ?? null;
     if (input.elrFileKey !== undefined) fields.elrFileKey = input.elrFileKey;
@@ -636,6 +639,37 @@ export class LoadService {
     }
   }
 
+  /** Loadsmart's Tracking team attaches the loading papers it holds (invoice, e-way bill, signed
+   *  LR) from the ops console. Same checks and writes as the shipper's upload, recorded with the
+   *  `console` source; the caller (LsSettlementService.uploadPapers) has already adopted the files
+   *  into the shipper's tenant and decided they may be attached. */
+  async saveConsoleDocuments(
+    tenantId: string,
+    actorId: string,
+    actorRole: string,
+    loadId: string,
+    input: ConfirmLoadingInput,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.status === 'closed') {
+        throw new ConflictError('Documents cannot be changed once a load is closed');
+      }
+      const fields = await this.buildDocumentFields(tenantId, actorId, actorRole, load, input);
+      const updated = await this.documents.save(
+        tenantId,
+        load,
+        fields,
+        documentActor(actorId, undefined, true),
+      );
+      await this.recordDocumentUpload(tenantId, loadId, actorId, input);
+      await this.notifyEwayBillGenerated(tenantId, loadId, fields, updated);
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to save the load documents');
+    }
+  }
+
   /** A (re)generated e-way bill gets its own expiry alert; an older bill's alert drops itself. */
   private async notifyEwayBillGenerated(
     tenantId: string,
@@ -701,7 +735,10 @@ export class LoadService {
    *  pushed notification. // TODO: wire a real alert once queue infra exists. */
   getEwayBillExpiry(load: LoadEntity): EwayBillExpiry {
     if (!load.ewayBillGeneratedAt) return { expiresAt: null, expired: false };
-    const expiresAt = new Date(load.ewayBillGeneratedAt.getTime() + EWAY_BILL_VALIDITY_MS);
+    // The validity date typed with the upload; the 2-hour placeholder only when none was given.
+    const expiresAt =
+      load.ewayBillExpiresAt ??
+      new Date(load.ewayBillGeneratedAt.getTime() + EWAY_BILL_VALIDITY_MS);
     const stillMoving =
       !UNLOADED_LOAD_STATUSES.includes(load.status) &&
       load.status !== 'closed' &&
@@ -1027,6 +1064,8 @@ export class LoadService {
     loadId: string,
     input: UploadPodInput,
     driverOwnerId?: string,
+    /** Recorded by Loadsmart's own team from the ops console (the register's source). */
+    fromConsole = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
@@ -1146,7 +1185,7 @@ export class LoadService {
         tenantId,
         current,
         { ...podFields, updatedBy: actorId },
-        documentActor(actorId, driverOwnerId),
+        documentActor(actorId, driverOwnerId, fromConsole),
         input.stampedInvoiceFileKey
           ? [{ docType: 'stamped_invoice', fileKey: input.stampedInvoiceFileKey }]
           : [],
