@@ -49,6 +49,8 @@ export type MatchReason = 'lane' | 'en_route' | 'truck_type';
 
 export interface RankedBroker {
   partnerId: string;
+  /** The broker-master row (loads.brokers) behind this partner, when there is one. */
+  brokerId: string | null;
   name: string;
   phone: string;
   /** Ticked in Placement's list: on the load's lane, or added by hand. */
@@ -66,17 +68,19 @@ export interface RankedBroker {
 export function placementBrokerList(
   matches: readonly {
     partnerId: string;
+    brokerId: string;
     name: string;
     phone: string;
     match: { kind: 'lane' | 'en_route'; lane: string; offRouteKm: number };
   }[],
-  added: readonly { partnerId: string; name: string; phone: string }[],
+  added: readonly { partnerId: string; brokerId: string | null; name: string; phone: string }[],
   loadsOnLane: ReadonlyMap<string, number>,
   ratings: ReadonlyMap<string, number>,
 ): (RankedBroker & { added: boolean })[] {
   const addedIds = new Set(added.map((partner) => partner.partnerId));
   const onLane = matches.map((broker) => ({
     partnerId: broker.partnerId,
+    brokerId: broker.brokerId,
     name: broker.name,
     phone: broker.phone,
     matched: true,
@@ -91,6 +95,7 @@ export function placementBrokerList(
     .filter((partner) => !listed.has(partner.partnerId))
     .map((partner) => ({
       partnerId: partner.partnerId,
+      brokerId: partner.brokerId,
       name: partner.name,
       phone: partner.phone,
       matched: true,

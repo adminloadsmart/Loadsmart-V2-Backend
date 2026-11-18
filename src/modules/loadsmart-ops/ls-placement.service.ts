@@ -220,6 +220,7 @@ export class LsPlacementService extends LsServiceBase {
         matches,
         addedPartners.map((partner) => ({
           partnerId: partner.id,
+          brokerId: partner.brokerId,
           name: partner.name,
           phone: partner.phone,
         })),
