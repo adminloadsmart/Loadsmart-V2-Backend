@@ -13,6 +13,7 @@ import {
   LS_TRACKING,
   LS_MASTERS_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
+  LS_DRIVER_VERIFY_MANUAL,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { TAGS, authenticated, json, permissionGated } from '../../shared/openapi/core';
@@ -180,6 +181,15 @@ const ROWS: Row[] = [
     schema: v.verifyTruckManually,
     description:
       "VAHAN couldn't be reached for the truck on a Loadsmart load — the Admin team checks the RC by hand (rcChecked, optional paper expiry dates). The memo goes out once every check passes.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/verifications/driver/manual`,
+    op: 'loadsmart.verifyDriverManually',
+    permissions: [LS_DRIVER_VERIFY_MANUAL],
+    schema: v.verifyDriverManually,
+    description:
+      "Sarathi couldn't confirm the driver's licence on a Loadsmart load (not reachable, or no match) — the Admin team checks it by hand (licenceChecked, optional validity date). The memo goes out once every check passes.",
   },
   {
     method: 'post',
@@ -461,10 +471,46 @@ const ROWS: Row[] = [
   },
   {
     method: 'get',
+    path: `${OPS}/receivables/loads`,
+    op: 'loadsmart.receivablesBoard',
+    permissions: [LS_RECEIVABLES],
+    schema: v.receivablesBoard,
+    description:
+      "The Receivables board: every Loadsmart load from the truck loaded to the shipper's money closing, one row each — load and LR, shipper and route, invoice, amount (invoice total, else freight + approved charges), who pays the balance (shipper or consignee), balance due date and status (advance_due, advance_paid, pod_image_in, invoice_generated, awaiting_original_pod, pod_in_transit, pod_received_by_payer, invoice_paid_closed, short_excess) — with a count per status. Filter by status (repeatable), shipper, or search load, LR, shipper, consignee, invoice or POD docket.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/receivables/loads/{loadId}`,
+    op: 'loadsmart.receivableLoad',
+    permissions: [LS_RECEIVABLES],
+    schema: v.load,
+    description:
+      "One load's receivables page: the freight invoice (freight, approved loading charges, GST treatment, invoice total, advance received and remaining, balance remaining and due date, what still blocks Generate invoice), the shipper's agreement (advance payer, %, where the % comes from — terms, the load, or Settings — expected advance, credit days, balance trigger image/original, balance payer), the charges, the receipt history (advances and balance receipts with their payment advice), payments the shipper reported, and delivery / POD (image, review, the original at Loadsmart and on to the payer).",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/receivables/loads/{loadId}/receipts`,
+    op: 'loadsmart.recordLoadReceipt',
+    permissions: [LS_RECEIVABLES],
+    schema: v.recordLoadReceipt,
+    description:
+      "Record receipt: `advance` — the shipper's advance, from the truck loaded until the invoice is out (it comes off the invoice); refused once received in full or when no advance is agreed. `balance` — money against the invoice (as POST /invoices/{id}/receipts; paidThrough defaults to company_account). The UTR is required; proofFileKey is the payment advice uploaded for loads/payment-proof, filed on the load. loadPaymentId confirms a payment the shipper reported in the app. Returns the load's receivables page.",
+  },
+  {
+    method: 'patch',
+    path: `${OPS}/invoices/{invoiceId}/payer-pod`,
+    op: 'loadsmart.recordPayerPod',
+    permissions: [LS_RECEIVABLES],
+    schema: v.payerPod,
+    description:
+      "The original POD sent on from Loadsmart to whoever pays the balance (shippers billed on the original): in_transit with courier and docket, then received. Returns the load's receivables page.",
+  },
+  {
+    method: 'get',
     path: `${OPS}/loads/{loadId}/invoice/preview`,
     op: 'loadsmart.invoicePreview',
     permissions: [LS_RECEIVABLES],
-    schema: v.load,
+    schema: v.invoicePreview,
     description:
       "The invoice as it would be issued now — freight, approved charges with billing instructions applied, GST (reverse charge; CGST + SGST inside Loadsmart's state, IGST outside), advance received, balance due — and what still stops it.",
   },
@@ -473,9 +519,9 @@ const ROWS: Row[] = [
     path: `${OPS}/loads/{loadId}/invoice`,
     op: 'loadsmart.issueInvoice',
     permissions: [LS_RECEIVABLES],
-    schema: v.load,
+    schema: v.issueInvoice,
     description:
-      'Issue the invoice (LSI-nnnn, PDF) once the POD image is approved, no charge is waiting, and — for shippers billed on the original — the original POD is in. Delivered (with or without issues) → Invoice generated.',
+      "gstTreatment (reverse_charge / forward_charge) overrides Settings for this invoice; the balance payer is taken from the shipper's terms. Issue the invoice (LSI-nnnn, PDF) once the POD image is approved, no charge is waiting, and — for shippers billed on the original — the original POD is in. Delivered (with or without issues) → Invoice generated.",
   },
   {
     method: 'patch',

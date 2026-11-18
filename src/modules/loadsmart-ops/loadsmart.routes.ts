@@ -15,6 +15,7 @@ import {
   LS_TRACKING,
   LS_MASTERS_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
+  LS_DRIVER_VERIFY_MANUAL,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
@@ -217,6 +218,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.verifyTruckManually),
   );
   router.post(
+    '/loads/:loadId/verifications/driver/manual',
+    team(LS_DRIVER_VERIFY_MANUAL),
+    validate(v.verifyDriverManually),
+    asyncHandler(c.verifyDriverManually),
+  );
+  router.post(
     '/loads/:loadId/memo/confirm',
     team(LS_PLACEMENT),
     validate(v.confirmMemo),
@@ -366,17 +373,42 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
 
   // Receivables — inbox, invoice builder, receipts, unclaimed payments.
   router.get('/receivables/inbox', team(LS_RECEIVABLES), asyncHandler(c.receivablesInbox));
+  // The board (one row per load with its status) and one load's receivables page.
+  router.get(
+    '/receivables/loads',
+    team(LS_RECEIVABLES),
+    validate(v.receivablesBoard),
+    asyncHandler(c.receivablesBoard),
+  );
+  router.get(
+    '/receivables/loads/:loadId',
+    team(LS_RECEIVABLES),
+    validate(v.load),
+    asyncHandler(c.receivableLoad),
+  );
+  router.post(
+    '/receivables/loads/:loadId/receipts',
+    team(LS_RECEIVABLES),
+    validate(v.recordLoadReceipt),
+    asyncHandler(c.recordLoadReceipt),
+  );
   router.get(
     '/loads/:loadId/invoice/preview',
     team(LS_RECEIVABLES),
-    validate(v.load),
+    validate(v.invoicePreview),
     asyncHandler(c.invoicePreview),
   );
   router.post(
     '/loads/:loadId/invoice',
     team(LS_RECEIVABLES),
-    validate(v.load),
+    validate(v.issueInvoice),
     asyncHandler(c.issueInvoice),
+  );
+  router.patch(
+    '/invoices/:invoiceId/payer-pod',
+    team(LS_RECEIVABLES),
+    validate(v.payerPod),
+    asyncHandler(c.recordPayerPod),
   );
   router.patch(
     '/invoices/:invoiceId/delivery',

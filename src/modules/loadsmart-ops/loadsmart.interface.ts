@@ -1,3 +1,4 @@
+import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
 import type { LoadDocumentService } from '../loads/documents/load-document.service';
 import type { SettingsReader } from '../settings/settings.types';
@@ -174,6 +175,10 @@ export interface CommercialTermsInput {
   podType?: PodType;
   billingInstructions?: BillingInstruction[];
   billingNote?: string | null;
+  /** The shipper's advance to Loadsmart, % of freight + approved loading charges. Null: the
+   *  load's own advance %, else the settings' default. */
+  shipperAdvancePercent?: number | null;
+  balancePayer?: BalancePayer;
 }
 
 /** Approval team posts the load on the board, optionally changing the terms. */

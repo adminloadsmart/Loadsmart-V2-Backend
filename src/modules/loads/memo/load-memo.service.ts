@@ -16,7 +16,11 @@ import {
   NameDriverInput,
   NameDriverResult,
 } from '../utils/load-memo.interface';
-import { LoadChecksView, ManualTruckCheckInput } from '../utils/load-verification.interface';
+import {
+  LoadChecksView,
+  ManualDriverCheckInput,
+  ManualTruckCheckInput,
+} from '../utils/load-verification.interface';
 import { LoadStageService } from '../core/load-stage.service';
 import { isLoadsmartLoad } from '../utils/load-stages';
 import { StorageService } from '../../storage/storage.service';
@@ -309,7 +313,12 @@ export class LoadMemoService {
       if (!(await this.verification.hasManualPass(tenantId, load))) {
         await this.verification.verifyTruck(tenantId, load.id, load.vehicleNumber);
       }
-      if (load.driverLicenceNumber && load.driverDateOfBirth) {
+      // Same for a licence an admin verified by hand while Sarathi couldn't confirm it.
+      if (
+        load.driverLicenceNumber &&
+        load.driverDateOfBirth &&
+        !(await this.verification.hasManualDriverPass(tenantId, load))
+      ) {
         await this.verification.verifyDriver(tenantId, load, {
           licenceNumber: load.driverLicenceNumber,
           dateOfBirth: load.driverDateOfBirth,
@@ -380,6 +389,52 @@ export class LoadMemoService {
       return await this.sendIfClear(load, actorId, checks);
     } catch (error) {
       rethrow(error, 'Failed to verify the truck manually');
+    }
+  }
+
+  /** Sarathi couldn't confirm the driver's licence (not reachable, or no match), so an admin
+   *  verifies it by hand (the licence checkbox, an optional validity date). Then, as after a
+   *  rerun, the memo goes out if everything passes. On a Loadsmart load only Loadsmart's Admin team
+   *  does this. */
+  async verifyDriverManually(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: ManualDriverCheckInput,
+    asLoadsmart = false,
+  ): Promise<NameDriverResult> {
+    try {
+      const load = await this.assertMemoLoad(tenantId, loadId);
+      if (isLoadsmartLoad(load) && !asLoadsmart) {
+        throw new ConflictError("On a Loadsmart load, Loadsmart's team verifies the driver");
+      }
+      const check = await this.verification.recordManualDriverCheck(tenantId, load, actorId, input);
+      const checks = await this.verification.checksForLoad(tenantId, load);
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'DRIVER_VERIFIED_MANUALLY',
+        null,
+        null,
+        { licenceNumber: load.driverLicenceNumber, status: check.status, failures: check.failures },
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_DRIVER_VERIFIED_MANUALLY',
+        resourceType: 'load_verification',
+        newData: {
+          id: check.id,
+          loadId,
+          licenceNumber: load.driverLicenceNumber,
+          status: check.status,
+          note: input.note ?? null,
+        },
+      });
+      return await this.sendIfClear(load, actorId, checks);
+    } catch (error) {
+      rethrow(error, 'Failed to verify the driver manually');
     }
   }
 

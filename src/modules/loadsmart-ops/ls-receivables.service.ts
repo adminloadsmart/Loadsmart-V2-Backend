@@ -7,17 +7,23 @@ import { CodeSequenceRepository } from '../loads/code-sequence/code-sequence.rep
 import { LoadRepository } from '../loads/core/load.repository';
 import { LoadStageService } from '../loads/core/load-stage.service';
 import { renderElrPdf } from '../loads/elr/elr-pdf';
+import { LoadDocumentService } from '../loads/documents/load-document.service';
 import { LoadEntity } from '../loads/entities/load.entity';
+import { LoadPaymentEntity } from '../loads/entities/load-payment.entity';
 import { LoadPaymentRepository } from '../loads/payments/load-payment.repository';
 import { istDateOf } from '../loads/verification/verification-rules';
 import { SettingsReader } from '../settings/settings.types';
+import { OrganizationEntity } from '../organization/entities/organization.entity';
+import { LsCommercialTermsEntity } from './entities/ls-commercial-terms.entity';
 import { LsInvoiceEntity } from './entities/ls-invoice.entity';
+import { LsOriginalPodEntity } from './entities/ls-original-pod.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LsUnclaimedPaymentEntity } from './entities/ls-unclaimed-payment.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import {
   INVOICE_SETTLED_STATUSES,
   InvoiceSendChannel,
+  LOADING_SIDE_HEADS,
   LOADSMART_SEQUENCE_SCOPE,
   PaymentModeIn,
   ReceiptChannel,
@@ -35,6 +41,16 @@ import {
   reconcile,
 } from './billing-rules';
 import { tripAmount } from './loadsmart-rules';
+import { attachPaymentProof } from './ls-payment-proof';
+import {
+  GstTreatment,
+  PayerPodStatus,
+  RECEIVABLE_LOAD_STATUSES,
+  RECEIVABLE_STATUSES,
+  ReceivableStatus,
+  expectedAdvance,
+  receivableStatus,
+} from './receivables-rules';
 import { LsServiceBase } from './ls-base';
 import { LoadsmartActor } from './loadsmart.interface';
 
@@ -57,7 +73,69 @@ export interface ReceiptInput {
   shortfallNote?: string;
   /** The payment the shipper reported in the app that this receipt verifies. */
   loadPaymentId?: string;
+  /** The payment advice, uploaded for purpose loads/payment-proof. */
+  proofFileKey?: string;
 }
+
+/** "Record receipt" on a load (R01 drawer): the shipper's advance, or money against the invoice. */
+export interface LoadReceiptInput {
+  paymentType: 'advance' | 'balance';
+  amount: number;
+  receivedOn: string;
+  utrReference: string;
+  paidThrough?: ReceiptChannel;
+  proofFileKey?: string;
+  tdsCut?: number;
+  shortfallReason?: ShortfallReason;
+  shortfallNote?: string;
+  /** A payment the shipper reported in the app that this receipt confirms. */
+  loadPaymentId?: string;
+}
+
+/** The original POD sent on from Loadsmart to the balance payer. */
+export interface PayerPodInput {
+  status: Exclude<PayerPodStatus, 'not_sent'>;
+  courierName?: string;
+  docketNumber?: string;
+  /** The IST date it went out / arrived; default today. */
+  on?: string;
+}
+
+export interface ReceivablesBoardQuery {
+  status?: ReceivableStatus[];
+  tenantId?: string;
+  q?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** Where the shipper's advance % comes from: its onboarding terms, the load as posted, or the
+ *  settings' default. */
+type AdvanceSource = 'terms' | 'load' | 'settings';
+
+/** Everything the board and the load page compute from — gathered once per load. */
+interface ReceivableFacts {
+  sourcing: LsSourcingEntity;
+  load: LoadEntity;
+  shipperName: string | null;
+  consignee: { name: string | null; city: string | null };
+  route: { from: string | null; to: string | null };
+  terms: LsCommercialTermsEntity | null;
+  invoice: LsInvoiceEntity | null;
+  originalPod: LsOriginalPodEntity | null;
+  advancePayments: LoadPaymentEntity[];
+  freight: number;
+  approvedLoadingCharges: number;
+  approvedCharges: number;
+  advancePercent: number;
+  advanceSource: AdvanceSource;
+  advanceExpected: number;
+  advanceReceived: number;
+  status: ReceivableStatus;
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
+const BOARD_CAP = 1000;
 
 export interface UnclaimedInput {
   amount: number;
@@ -93,6 +171,8 @@ export class LsReceivablesService extends LsServiceBase {
     private readonly codeSequenceRepository: CodeSequenceRepository,
     private readonly storageService: StorageService,
     private readonly settings: SettingsReader,
+    /** Files a receipt's payment advice in the load's documents register. */
+    private readonly loadDocumentService: LoadDocumentService | null = null,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -159,19 +239,19 @@ export class LsReceivablesService extends LsServiceBase {
   // --- Invoice builder (R02) -----------------------------------------------------------------
 
   /** The draft as it would be issued now, with anything that stops it. */
-  async preview(loadId: string): Promise<InvoicePreview> {
+  async preview(loadId: string, gstTreatment?: GstTreatment): Promise<InvoicePreview> {
     const sourcing = await this.assertWonLoad(loadId);
-    return this.buildPreview(sourcing);
+    return this.buildPreview(sourcing, gstTreatment);
   }
 
-  async issue(actor: LoadsmartActor, loadId: string) {
+  async issue(actor: LoadsmartActor, loadId: string, gstTreatment?: GstTreatment) {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       const load = sourcing.load;
       if (await this.repository.findInvoice(sourcing.tenantId, loadId)) {
         throw new ConflictError('This load is already invoiced');
       }
-      const preview = await this.buildPreview(sourcing);
+      const preview = await this.buildPreview(sourcing, gstTreatment);
       if (preview.blockers.length || !preview.draft) {
         throw new ConflictError(`Not ready to invoice: ${preview.blockers.join('; ')}`);
       }
@@ -253,6 +333,7 @@ export class LsReceivablesService extends LsServiceBase {
           lines: draft.lines,
           gstSplit: draft.split,
           creditDays: preview.creditDays,
+          ...(await this.balancePayerOf(sourcing)),
           fileKey: file.key,
           issuedBy: actor.id,
         }),
@@ -347,6 +428,8 @@ export class LsReceivablesService extends LsServiceBase {
           throw new ConflictError('That reported payment is already matched');
         }
       }
+      if (input.proofFileKey)
+        await this.fileProof(actorId, invoice.tenantId, invoice.loadId, input.proofFileKey);
       return await this.saveReceipt(actorId, invoice, input, null);
     } catch (error) {
       rethrow(error, 'Failed to record the receipt');
@@ -440,6 +523,518 @@ export class LsReceivablesService extends LsServiceBase {
     }
   }
 
+  // --- Receivables board and load page (R01) -------------------------------------------------
+
+  /** Every Loadsmart load from the truck loaded to the shipper's money closing — one row each,
+   *  with its status, the amount, who pays the balance and when — plus a count per status. */
+  async board(query: ReceivablesBoardQuery) {
+    const sourcings = await this.repository.sourcings.find({
+      where: {
+        status: 'won',
+        ...(query.tenantId ? { tenantId: query.tenantId } : {}),
+        load: { status: In([...RECEIVABLE_LOAD_STATUSES]) },
+      },
+      relations: { load: { posting: true, requisition: { customerDeliveryPoint: true } } },
+      order: { updatedAt: 'DESC' },
+      take: BOARD_CAP,
+    });
+    const facts = await this.factsFor(sourcings);
+    const q = query.q?.toLowerCase();
+    const searched = q
+      ? facts.filter((fact) =>
+          [
+            fact.load.code,
+            fact.load.elrNumber,
+            fact.shipperName,
+            fact.consignee.name,
+            fact.invoice?.invoiceNumber,
+            fact.invoice?.payerPodDocket,
+          ].some((value) => value?.toLowerCase().includes(q)),
+        )
+      : facts;
+    const counts = Object.fromEntries(RECEIVABLE_STATUSES.map((status) => [status, 0])) as Record<
+      ReceivableStatus,
+      number
+    >;
+    for (const fact of searched) counts[fact.status] += 1;
+    const shown = query.status?.length
+      ? searched.filter((fact) => query.status!.includes(fact.status))
+      : searched;
+    const limit = Math.min(query.limit ?? 50, 200);
+    const page = Math.max(query.page ?? 1, 1);
+    return {
+      total: shown.length,
+      all: searched.length,
+      counts,
+      page,
+      limit,
+      items: shown.slice((page - 1) * limit, page * limit).map((fact) => this.boardRow(fact)),
+    };
+  }
+
+  /** The load's receivables page: freight invoice, the shipper's agreement and who pays, charges,
+   *  receipt history, and delivery / POD. */
+  async loadDetail(loadId: string) {
+    const sourcing = await this.repository.sourcings.findOne({
+      where: { loadId },
+      relations: { load: { posting: true, requisition: { customerDeliveryPoint: true } } },
+    });
+    if (!sourcing || sourcing.status !== 'won') {
+      throw new NotFoundError(`Loadsmart load ${loadId} not found`);
+    }
+    const [fact] = await this.factsFor([sourcing]);
+    const { load, invoice, terms } = fact;
+    const [charges, payments, receipts, preview] = await Promise.all([
+      this.repository.listCharges(sourcing.tenantId, loadId),
+      this.loadPaymentRepository.listByLoad(sourcing.tenantId, loadId),
+      invoice
+        ? this.repository.receipts.find({
+            where: { invoiceId: invoice.id },
+            order: { createdAt: 'ASC' },
+          })
+        : Promise.resolve([]),
+      invoice ? Promise.resolve(null) : this.buildPreview(sourcing),
+    ]);
+    const settings = (await this.settings.forLoad(load)).values;
+    const balanceRemaining = invoice ? Number(invoice.openAmount ?? invoice.balanceDue) : null;
+    return {
+      ...this.boardRow(fact),
+      agreement: {
+        advancePayer: { type: 'shipper' as const, name: fact.shipperName },
+        advancePercent: fact.advancePercent,
+        advanceSource: fact.advanceSource,
+        advanceExpected: fact.advanceExpected,
+        advanceCalculation: `${fact.advancePercent}% of freight + shipper-approved loading charges`,
+        balanceDueTermsDays:
+          invoice?.creditDays ?? terms?.creditDays ?? settings.defaultShipperCreditDays,
+        balancePaymentTrigger: terms?.podType ?? 'image',
+        balancePayer: this.balancePayerView(fact),
+        followUp: invoice ? (invoice.followUp ? 'follow_up' : 'invoiced') : 'not_yet_invoiced',
+        billingInstructions: terms?.billingInstructions ?? [],
+        billingNote: terms?.billingNote ?? null,
+      },
+      freightInvoice: {
+        shipperFreight: fact.freight,
+        approvedLoadingCharges: fact.approvedLoadingCharges,
+        approvedCharges: fact.approvedCharges,
+        freightPlusApprovedCharges: round2(fact.freight + fact.approvedCharges),
+        gstTreatment: invoice?.gstSplit
+          ? invoice.gstSplit.reverseCharge
+            ? 'reverse_charge'
+            : 'forward_charge'
+          : null,
+        defaultGstTreatment: settings.gstReverseCharge ? 'reverse_charge' : 'forward_charge',
+        invoiceTotal: invoice ? Number(invoice.totalAmount) : null,
+        advanceReceived: fact.advanceReceived,
+        advanceRemaining: round2(Math.max(fact.advanceExpected - fact.advanceReceived, 0)),
+        balanceRemaining,
+        balanceDueDate: invoice?.dueDate ?? null,
+        invoice: invoice
+          ? {
+              id: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              status: invoice.status,
+              fileKey: invoice.fileKey,
+              sentVia: invoice.sentVia,
+              receivedOn: invoice.receivedOn,
+              createdAt: invoice.createdAt,
+            }
+          : null,
+        // What still stops "Generate invoice" (empty once it can be issued).
+        blockers: preview?.blockers ?? [],
+      },
+      charges: charges.map((charge) => ({
+        id: charge.id,
+        head: charge.chargeType,
+        amount: Number(charge.amount),
+        status: charge.status,
+        paidWith: LOADING_SIDE_HEADS.includes(charge.chargeType) ? 'advance' : 'balance',
+        includedInInvoice: charge.status === 'approved',
+      })),
+      receipts: [
+        ...payments
+          .filter((payment) => payment.paymentType === 'advance')
+          .map((payment) => ({
+            id: payment.id,
+            paymentType: 'advance' as const,
+            amount: Number(payment.amount),
+            receivedOn: payment.paymentDate,
+            utrReference: payment.utrReference,
+            paidThrough: null,
+            proofFileKey: payment.proofFileKey,
+            verificationStatus: payment.verificationStatus,
+            recordedAt: payment.createdAt,
+          })),
+        ...receipts.map((receipt) => ({
+          id: receipt.id,
+          paymentType: 'balance' as const,
+          amount: Number(receipt.amount),
+          receivedOn: receipt.receivedOn,
+          utrReference: receipt.utrReference,
+          paidThrough: receipt.paidThrough,
+          proofFileKey: receipt.proofFileKey,
+          verificationStatus: 'verified' as const,
+          tdsCut: Number(receipt.tdsCut),
+          shortfallReason: receipt.shortfallReason,
+          recordedAt: receipt.createdAt,
+        })),
+      ].sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime()),
+      // What the shipper reported paying in the app, waiting for Receivables to confirm.
+      reportedPayments: payments.filter(
+        (payment) =>
+          payment.verificationStatus === 'pending' ||
+          (payment.paymentType === 'advance' && payment.verificationStatus === null),
+      ),
+      delivery: {
+        podImage: load.podFileKey ? 'submitted' : 'not_submitted',
+        podStatus: load.podStatus,
+        deliveredAt: load.deliveredAt,
+        originalPod: {
+          // The carrier's original reaching Loadsmart (Payables' tracker).
+          atLoadsmart: this.originalAtLoadsmart(fact),
+          trackerStatus: fact.originalPod?.status ?? null,
+          // Then on to whoever pays the balance.
+          toPayer: invoice?.payerPodStatus ?? 'not_sent',
+          courierName: invoice?.payerPodCourier ?? null,
+          docketNumber: invoice?.payerPodDocket ?? null,
+          sentAt: invoice?.payerPodSentAt ?? null,
+          receivedAt: invoice?.payerPodReceivedAt ?? null,
+        },
+        issue:
+          load.shortageOrDamage && load.shortageOrDamage !== 'none' ? load.shortageOrDamage : null,
+      },
+    };
+  }
+
+  /** "Record receipt": the shipper's advance (from the truck loaded until the invoice — it is
+   *  taken off the invoice), or money against the invoice once it is out. */
+  async recordLoadReceipt(actor: LoadsmartActor, loadId: string, input: LoadReceiptInput) {
+    try {
+      const sourcing = await this.assertWonLoad(loadId);
+      const load = sourcing.load;
+      const invoice = await this.repository.findInvoice(sourcing.tenantId, loadId);
+
+      if (input.paymentType === 'balance') {
+        if (!invoice) {
+          throw new ConflictError(
+            'Generate the invoice first — the balance is received against it',
+          );
+        }
+        await this.recordReceipt(actor.id, invoice.id, {
+          amount: input.amount,
+          receivedOn: input.receivedOn,
+          paidThrough: input.paidThrough ?? 'company_account',
+          utrReference: input.utrReference,
+          tdsCut: input.tdsCut,
+          shortfallReason: input.shortfallReason,
+          shortfallNote: input.shortfallNote,
+          loadPaymentId: input.loadPaymentId,
+          proofFileKey: input.proofFileKey,
+        });
+        return this.loadDetail(loadId);
+      }
+
+      if (invoice) {
+        throw new ConflictError(
+          'The invoice is out and already takes the advance off — record this as a balance receipt',
+        );
+      }
+      if (!load.loadingConfirmedAt) {
+        throw new ConflictError('The advance is due once the truck is loaded');
+      }
+      if (input.receivedOn > istDateOf(this.now())) {
+        throw new ValidationError('The receipt date cannot be in the future');
+      }
+      const [fact] = await this.factsFor([sourcing]);
+      if (fact.advanceExpected <= 0) {
+        throw new ConflictError('No advance is agreed with this shipper');
+      }
+      if (fact.advanceReceived + 0.005 >= fact.advanceExpected) {
+        throw new ConflictError('The advance is already received in full');
+      }
+      if (input.proofFileKey) {
+        await this.fileProof(actor.id, sourcing.tenantId, loadId, input.proofFileKey);
+      }
+      const now = this.now();
+      let paymentId: string;
+      if (input.loadPaymentId) {
+        // Confirms the advance the shipper reported in the app.
+        const reported = await this.loadPaymentRepository.findById(
+          sourcing.tenantId,
+          loadId,
+          input.loadPaymentId,
+        );
+        if (!reported || reported.paymentType !== 'advance') {
+          throw new NotFoundError('That reported advance is not on this load');
+        }
+        const verified = await this.loadPaymentRepository.markReportedVerified(
+          sourcing.tenantId,
+          reported.id,
+          actor.id,
+          now,
+        );
+        if (!verified) throw new ConflictError('That reported advance is already checked');
+        paymentId = reported.id;
+      } else {
+        const payment = await this.loadPaymentRepository.create({
+          tenantId: sourcing.tenantId,
+          loadId,
+          transporterId: null,
+          paymentType: 'advance',
+          amount: input.amount.toFixed(2),
+          utrReference: input.utrReference.trim(),
+          proofFileKey: input.proofFileKey ?? null,
+          paymentDate: input.receivedOn,
+          verificationStatus: 'verified',
+          verifiedBy: actor.id,
+          verifiedAt: now,
+          recordedBy: actor.id,
+        });
+        paymentId = payment.id;
+      }
+      if (!load.advancePaidAt) {
+        await this.loadRepository.update(sourcing.tenantId, loadId, {
+          advancePaidAt: now,
+          updatedBy: actor.id,
+        });
+      }
+      await this.loadActivityService.record(
+        sourcing.tenantId,
+        loadId,
+        actor.id,
+        'PAYMENT_RECORDED',
+        null,
+        'advance',
+        { amount: input.amount, utrReference: input.utrReference, by: 'loadsmart_receivables' },
+      );
+      await this.auditService.log({
+        tenantId: sourcing.tenantId,
+        userId: actor.id,
+        action: 'LS_RECEIPT_RECORDED',
+        resourceType: 'load_payment',
+        newData: { id: paymentId, loadId, paymentType: 'advance', amount: input.amount },
+      });
+      return this.loadDetail(loadId);
+    } catch (error) {
+      rethrow(error, 'Failed to record the receipt');
+    }
+  }
+
+  /** The original POD on its way from Loadsmart to whoever pays the balance: sent (courier and
+   *  docket), then received. Only for shippers billed on the original. */
+  async recordPayerPod(actorId: string, invoiceId: string, input: PayerPodInput) {
+    try {
+      const invoice = await this.assertInvoice(invoiceId);
+      const terms = await this.repository.terms.findOneBy({ tenantId: invoice.tenantId });
+      if (terms?.podType !== 'original') {
+        throw new ConflictError(
+          'This shipper is billed on the POD image — no original goes to them',
+        );
+      }
+      if (input.status === 'in_transit' && invoice.payerPodStatus === 'received') {
+        throw new ConflictError('The payer already has the original POD');
+      }
+      const today = istDateOf(this.now());
+      if (input.on && input.on > today) {
+        throw new ValidationError('The date cannot be in the future');
+      }
+      const at = input.on ? new Date(`${input.on}T12:00:00+05:30`) : this.now();
+      await this.repository.invoices.update(
+        { id: invoice.id },
+        input.status === 'in_transit'
+          ? {
+              payerPodStatus: 'in_transit',
+              payerPodSentAt: at,
+              ...(input.courierName ? { payerPodCourier: input.courierName } : {}),
+              ...(input.docketNumber ? { payerPodDocket: input.docketNumber } : {}),
+            }
+          : {
+              payerPodStatus: 'received',
+              payerPodReceivedAt: at,
+              ...(invoice.payerPodSentAt ? {} : { payerPodSentAt: at }),
+              ...(input.courierName ? { payerPodCourier: input.courierName } : {}),
+              ...(input.docketNumber ? { payerPodDocket: input.docketNumber } : {}),
+            },
+      );
+      await this.auditService.log({
+        tenantId: invoice.tenantId,
+        userId: actorId,
+        action: 'LS_PAYER_POD_UPDATED',
+        resourceType: 'ls_invoice',
+        oldData: { id: invoice.id, payerPodStatus: invoice.payerPodStatus },
+        newData: { id: invoice.id, ...input },
+      });
+      return this.loadDetail(invoice.loadId);
+    } catch (error) {
+      rethrow(error, 'Failed to update the original POD');
+    }
+  }
+
+  /** Gathers what the board and the load page need for these loads, a few queries for all. */
+  private async factsFor(sourcings: LsSourcingEntity[]): Promise<ReceivableFacts[]> {
+    if (!sourcings.length) return [];
+    const loadIds = sourcings.map((sourcing) => sourcing.loadId);
+    const tenantIds = [...new Set(sourcings.map((sourcing) => sourcing.tenantId))];
+    const [invoices, termsRows, orgs, originalPods, charges, payments] = await Promise.all([
+      this.repository.invoices.findBy({ loadId: In(loadIds) }),
+      this.repository.terms.findBy({ tenantId: In(tenantIds) }),
+      this.dataSource
+        .getRepository(OrganizationEntity)
+        .find({ where: { id: In(tenantIds) }, select: { id: true, name: true } }),
+      this.repository.originalPods.findBy({ loadId: In(loadIds) }),
+      this.repository.charges.findBy({ loadId: In(loadIds), status: 'approved' }),
+      this.dataSource
+        .getRepository(LoadPaymentEntity)
+        .findBy({ loadId: In(loadIds), paymentType: 'advance' }),
+    ]);
+    const facts: ReceivableFacts[] = [];
+    for (const sourcing of sourcings) {
+      const load = sourcing.load;
+      const terms = termsRows.find((row) => row.tenantId === sourcing.tenantId) ?? null;
+      const invoice = invoices.find((row) => row.loadId === load.id) ?? null;
+      const originalPod = originalPods.find((row) => row.loadId === load.id) ?? null;
+      const loadCharges = charges.filter((charge) => charge.loadId === load.id);
+      const approvedCharges = round2(
+        loadCharges.reduce((sum, charge) => sum + Number(charge.amount), 0),
+      );
+      const approvedLoadingCharges = round2(
+        loadCharges
+          .filter((charge) => LOADING_SIDE_HEADS.includes(charge.chargeType))
+          .reduce((sum, charge) => sum + Number(charge.amount), 0),
+      );
+      const freight = load.freightValue
+        ? tripAmount(
+            Number(load.freightValue),
+            load.freightType,
+            Number(load.plannedCapacityTonnes),
+          )
+        : 0;
+      const settings = (await this.settings.forLoad(load)).values;
+      const { percent, source } = advancePercentOf(
+        terms,
+        load,
+        settings.defaultShipperAdvancePercent,
+      );
+      const advancePayments = payments.filter(
+        (payment) => payment.loadId === load.id && payment.verificationStatus !== 'rejected',
+      );
+      const advanceReceived = round2(
+        advancePayments
+          .filter((payment) => payment.verificationStatus !== 'pending')
+          .reduce((sum, payment) => sum + Number(payment.amount), 0),
+      );
+      const advanceExpected = invoice
+        ? Number(invoice.advanceReceived) ||
+          expectedAdvance(percent, freight, approvedLoadingCharges)
+        : expectedAdvance(percent, freight, approvedLoadingCharges);
+      const fact: ReceivableFacts = {
+        sourcing,
+        load,
+        shipperName: orgs.find((org) => org.id === sourcing.tenantId)?.name ?? null,
+        consignee: consigneeOf(load),
+        route: {
+          from: load.posting?.pickupAddress?.city ?? null,
+          to:
+            load.posting?.dropAddress?.city ??
+            load.requisition?.customerDeliveryPoint?.city ??
+            null,
+        },
+        terms,
+        invoice,
+        originalPod,
+        advancePayments,
+        freight,
+        approvedLoadingCharges,
+        approvedCharges,
+        advancePercent: percent,
+        advanceSource: source,
+        advanceExpected,
+        advanceReceived,
+        status: 'advance_due',
+      };
+      fact.status = receivableStatus({
+        loadStatus: load.status,
+        podIn: Boolean(load.podFileKey),
+        invoiceStatus: invoice?.status ?? null,
+        needsOriginalPod: terms?.podType === 'original',
+        originalPodAtLoadsmart: this.originalAtLoadsmart(fact),
+        payerPodStatus: invoice?.payerPodStatus ?? 'not_sent',
+        advanceExpected,
+        advanceReceived,
+      });
+      facts.push(fact);
+    }
+    return facts;
+  }
+
+  private boardRow(fact: ReceivableFacts) {
+    const { load, invoice } = fact;
+    return {
+      loadId: load.id,
+      code: load.code,
+      lrNumber: load.elrNumber,
+      loadStatus: load.status,
+      tenantId: fact.sourcing.tenantId,
+      shipperName: fact.shipperName,
+      route: fact.route,
+      invoice: invoice
+        ? { id: invoice.id, invoiceNumber: invoice.invoiceNumber, status: invoice.status }
+        : null,
+      // The invoice total once it is out; before that freight + approved charges.
+      amount: invoice ? Number(invoice.totalAmount) : round2(fact.freight + fact.approvedCharges),
+      balancePayer: this.balancePayerView(fact),
+      balanceDueDate: invoice?.dueDate ?? null,
+      status: fact.status,
+    };
+  }
+
+  private balancePayerView(fact: ReceivableFacts) {
+    const type = fact.invoice?.balancePayer ?? fact.terms?.balancePayer ?? 'shipper';
+    return {
+      type,
+      name:
+        fact.invoice?.balancePayerName ??
+        (type === 'consignee'
+          ? [fact.shipperName, fact.consignee.name].filter(Boolean).join(' · ') || null
+          : fact.shipperName),
+    };
+  }
+
+  /** Who the invoice's balance is collected from, as the shipper's terms say when it is issued. */
+  private async balancePayerOf(sourcing: LsSourcingEntity) {
+    const [fact] = await this.factsFor([
+      (await this.repository.sourcings.findOne({
+        where: { id: sourcing.id },
+        relations: { load: { posting: true, requisition: { customerDeliveryPoint: true } } },
+      }))!,
+    ]);
+    const view = this.balancePayerView({ ...fact, invoice: null });
+    return { balancePayer: view.type, balancePayerName: view.name };
+  }
+
+  private originalAtLoadsmart(fact: Pick<ReceivableFacts, 'load' | 'originalPod'>): boolean {
+    return (
+      Boolean(fact.load.originalPodReceivedAt) || fact.originalPod?.status === 'received_filed'
+    );
+  }
+
+  /** Adopts the payment advice the staff member uploaded and files it on the load. */
+  private async fileProof(actorId: string, tenantId: string, loadId: string, fileKey: string) {
+    if (!this.loadDocumentService) {
+      throw new ConflictError('Payment advice files are not available on this server');
+    }
+    const load = await this.loadRepository.findById(tenantId, loadId);
+    if (!load) throw new NotFoundError(`Load ${loadId} not found`);
+    await attachPaymentProof(
+      this.storageService,
+      this.loadDocumentService,
+      actorId,
+      tenantId,
+      load,
+      fileKey,
+    );
+  }
+
   // --- Shared --------------------------------------------------------------------------------
 
   /** LoadsmartBilling for LoadPaymentService — what the shipper still owes on the invoice. */
@@ -474,6 +1069,7 @@ export class LsReceivablesService extends LsServiceBase {
         shortfallNote: input.shortfallNote?.trim() || null,
         loadPaymentId: input.loadPaymentId ?? null,
         unclaimedPaymentId,
+        proofFileKey: input.proofFileKey ?? null,
         recordedBy: actorId,
       }),
     );
@@ -553,7 +1149,10 @@ export class LsReceivablesService extends LsServiceBase {
     return (await this.repository.invoices.findOneBy({ id: invoice.id }))!;
   }
 
-  private async buildPreview(sourcing: LsSourcingEntity): Promise<InvoicePreview> {
+  private async buildPreview(
+    sourcing: LsSourcingEntity,
+    gstTreatment?: GstTreatment,
+  ): Promise<InvoicePreview> {
     const load = sourcing.load;
     const [terms, resolved, charges, payments, shipperState] = await Promise.all([
       this.repository.terms.findOneBy({ tenantId: sourcing.tenantId }),
@@ -598,11 +1197,17 @@ export class LsReceivablesService extends LsServiceBase {
               .map((charge) => ({ head: charge.chargeType, amount: Number(charge.amount) })),
             instructions: terms?.billingInstructions ?? [],
             gstPercent: settings.gstPercent,
-            reverseCharge: settings.gstReverseCharge,
+            // The invoice's own choice, else Settings' default.
+            reverseCharge: gstTreatment
+              ? gstTreatment === 'reverse_charge'
+              : settings.gstReverseCharge,
             loadsmartStateCode: settings.loadsmartGstStateCode,
             shipperStateCode: shipperState,
             advanceReceived: payments
-              .filter((payment) => payment.paymentType === 'advance')
+              .filter(
+                (payment) =>
+                  payment.paymentType === 'advance' && payment.verificationStatus !== 'rejected',
+              )
               .reduce((sum, payment) => sum + Number(payment.amount), 0),
           })
         : null;
@@ -648,4 +1253,28 @@ export class LsReceivablesService extends LsServiceBase {
     }
     return row;
   }
+}
+
+/** The shipper's advance %: its onboarding terms, else what the load was posted with, else the
+ *  settings' default. */
+function advancePercentOf(
+  terms: LsCommercialTermsEntity | null,
+  load: LoadEntity,
+  settingsDefault: number,
+): { percent: number; source: AdvanceSource } {
+  if (terms?.shipperAdvancePercent != null) {
+    return { percent: Number(terms.shipperAdvancePercent), source: 'terms' };
+  }
+  if (load.advancePercentage != null) {
+    return { percent: Number(load.advancePercentage), source: 'load' };
+  }
+  return { percent: settingsDefault, source: 'settings' };
+}
+
+/** The drop — the consignee who may pay the balance. */
+function consigneeOf(load: LoadEntity): { name: string | null; city: string | null } {
+  const point = load.requisition?.customerDeliveryPoint;
+  if (point) return { name: point.location, city: point.city ?? null };
+  const drop = load.posting?.dropAddress;
+  return { name: drop?.label ?? null, city: drop?.city ?? null };
 }

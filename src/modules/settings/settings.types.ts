@@ -48,6 +48,10 @@ const settingsShape = {
   minReportingLeadMinutes: minutes(0, 7 * DAY_MINUTES),
   /** The load memo expires this long after it is sent. */
   memoExpiryMinutes: minutes(5, DAY_MINUTES),
+  /** The advance a shipper pays Loadsmart, as a % of freight + approved loading charges, when
+   *  neither its onboarding terms nor the load set one. 0: no advance. */
+  // Optional on save (consoles built before it keep working); 0 when left out.
+  defaultShipperAdvancePercent: z.number().min(0).max(100).default(0),
   /** Broker advance as a % of carrier freight (85% or 80% per carrier needs Super Admin). */
   defaultCarrierAdvancePercent: z.number().min(0).max(100),
   /** Original POD due this many days after delivery … */
@@ -130,6 +134,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   marginFloorPercent: 2,
   minReportingLeadMinutes: 30,
   memoExpiryMinutes: 60,
+  defaultShipperAdvancePercent: 0,
   defaultCarrierAdvancePercent: 90,
   originalPodDueDays: 15,
   originalPodPenaltyPerDay: 100,

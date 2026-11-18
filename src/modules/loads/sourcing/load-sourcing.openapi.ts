@@ -2,6 +2,7 @@ import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import {
   DISPATCH_PLANNING_MANAGE,
   TRUCK_VERIFY_MANUAL,
+  DRIVER_VERIFY_MANUAL,
 } from '../../../shared/constants/permissions';
 import { API_VERSION_PREFIX } from '../../../shared/constants/api';
 import {
@@ -201,7 +202,9 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { params: v.getChecks.shape.params },
     responses: {
-      200: { description: '{ truck, driver, clear, blockers, truckManualAllowed }' },
+      200: {
+        description: '{ truck, driver, clear, blockers, truckManualAllowed, driverManualAllowed }',
+      },
     },
   });
 
@@ -246,6 +249,34 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       201: { description: '{ memo, checks } — memo sent' },
       409: {
         description: 'Check not unavailable, Loadsmart load, own fleet, or no award',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/verifications/driver/manual`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.verifyDriverManually',
+    ...permissionGated(
+      [DRIVER_VERIFY_MANUAL],
+      "Sarathi couldn't confirm the driver's licence — it wasn't reachable, or found no match " +
+        '(`driverManualAllowed` on GET /verifications) — so an org admin checks the licence by ' +
+        'hand. A validity date entered is still checked (expired fails it); the licence class is ' +
+        "not. Saved with `source: 'manual'` and `verifiedBy`; a later rerun keeps it. If every " +
+        'check then passes, the memo goes out (201). An expired licence or the wrong class on ' +
+        'Sarathi cannot be overridden. Not on Loadsmart loads.',
+    ),
+    request: {
+      params: v.verifyDriverManually.shape.params,
+      body: json(v.verifyDriverManually.shape.body),
+    },
+    responses: {
+      200: { description: '{ memo: null, checks } — still blocked' },
+      201: { description: '{ memo, checks } — memo sent' },
+      409: {
+        description: 'Sarathi verdict, no driver yet, Loadsmart load, own fleet, or no award',
         ...errorContent,
       },
     },
