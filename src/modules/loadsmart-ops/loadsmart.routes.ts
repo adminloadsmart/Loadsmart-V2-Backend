@@ -15,6 +15,7 @@ import {
   LS_TRACKING,
   LS_MASTERS_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
+  LS_DRIVER_VERIFY_MANUAL,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { LoadsmartOpsController, LoadsmartShipperController } from './loadsmart.controller';
@@ -215,6 +216,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_TRUCK_VERIFY_MANUAL),
     validate(v.verifyTruckManually),
     asyncHandler(c.verifyTruckManually),
+  );
+  router.post(
+    '/loads/:loadId/verifications/driver/manual',
+    team(LS_DRIVER_VERIFY_MANUAL),
+    validate(v.verifyDriverManually),
+    asyncHandler(c.verifyDriverManually),
   );
   router.post(
     '/loads/:loadId/memo/confirm',

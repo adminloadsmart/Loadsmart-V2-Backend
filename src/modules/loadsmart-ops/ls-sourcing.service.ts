@@ -27,7 +27,10 @@ import {
 } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
 import { AcceptMemoInput, NameDriverInput } from '../loads/utils/load-memo.interface';
-import type { ManualTruckCheckInput } from '../loads/utils/load-verification.interface';
+import type {
+  ManualDriverCheckInput,
+  ManualTruckCheckInput,
+} from '../loads/utils/load-verification.interface';
 import {
   ApproveSourcingInput,
   CommercialTermsInput,
@@ -697,6 +700,13 @@ export class LsSourcingService extends LsServiceBase {
   async verifyTruckManually(actorId: string, loadId: string, input: ManualTruckCheckInput) {
     const sourcing = await this.assertWonLoad(loadId);
     return this.memoService.verifyTruckManually(sourcing.tenantId, actorId, loadId, input, true);
+  }
+
+  /** Sarathi can't confirm the driver's licence on a Loadsmart load — the Admin team checks it by
+   *  hand. */
+  async verifyDriverManually(actorId: string, loadId: string, input: ManualDriverCheckInput) {
+    const sourcing = await this.assertWonLoad(loadId);
+    return this.memoService.verifyDriverManually(sourcing.tenantId, actorId, loadId, input, true);
   }
 
   /** "Shipper accepted on a call → mark confirmed" — Placement records the memo acceptance. */

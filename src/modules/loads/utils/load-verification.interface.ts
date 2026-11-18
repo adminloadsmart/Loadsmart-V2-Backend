@@ -36,7 +36,7 @@ export interface CheckView {
   /** Only the failures are shown to the shipper. */
   failures: string[];
   notes: string[];
-  /** 'manual' when an admin verified the truck by hand while VAHAN was down. */
+  /** 'manual' when an admin verified it by hand (VAHAN down, or Sarathi couldn't confirm). */
   source: LoadVerificationEntity['source'];
   verifiedBy: string | null;
   /** Truck only: RC, fitness, insurance, PUC and permit validity dates; null for a driver or when
@@ -55,6 +55,18 @@ export interface LoadChecksView {
   /** The truck check couldn't run on VAHAN, so an admin (trucks.verify_manual, or
    *  loadsmart.truck.verify_manual on a Loadsmart load) may verify it by hand. */
   truckManualAllowed: boolean;
+  /** Sarathi couldn't confirm the licence (not found, or not reachable), so an admin
+   *  (drivers.verify_manual, or loadsmart.driver.verify_manual on a Loadsmart load) may verify
+   *  it by hand. A Sarathi verdict — expired, or the wrong class — can't be overridden. */
+  driverManualAllowed: boolean;
+}
+
+/** An admin's manual licence check: they saw the licence (the checkbox), plus its validity date if
+ *  they read it off the card (an expired date still fails the check). */
+export interface ManualDriverCheckInput {
+  licenceChecked: true;
+  validUntil?: string;
+  note?: string;
 }
 
 /** An admin's manual truck check while VAHAN is down: the RC checkbox, plus any paper expiry

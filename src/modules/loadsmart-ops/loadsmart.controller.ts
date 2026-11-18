@@ -377,6 +377,12 @@ export class LoadsmartOpsController {
       res,
       await this.sourcing.verifyTruckManually(req.user!.id, req.params.loadId, req.body),
     );
+  verifyDriverManually = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.sourcing.verifyDriverManually(req.user!.id, req.params.loadId, req.body),
+    );
   confirmMemo = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,

@@ -27,7 +27,10 @@ import { TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
 import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
 import { LOAD_STATUSES } from '../loads/utils/loads.types';
 import { MSME_CREDIT_DAYS_CAP } from '../settings/settings.types';
-import { manualTruckCheckBody } from '../loads/sourcing/load-sourcing.validators';
+import {
+  manualDriverCheckBody,
+  manualTruckCheckBody,
+} from '../loads/sourcing/load-sourcing.validators';
 import { postLoadBody } from '../loads/load-posting/load-posting.validators';
 
 const uuid = z.string().uuid();
@@ -252,6 +255,7 @@ export const loadsmartValidators = {
   }),
   rerunChecks: z.object({ params: loadParams }),
   verifyTruckManually: z.object({ params: loadParams, body: manualTruckCheckBody }),
+  verifyDriverManually: z.object({ params: loadParams, body: manualDriverCheckBody }),
 
   // --- Placement ---
   partnerClaims: z.object({

@@ -17,11 +17,31 @@ import {
   DriverCheckInput,
   DriverCheckLoad,
   LoadChecksView,
+  ManualDriverCheckInput,
   ManualTruckCheckInput,
   TruckCheckLoad,
   TruckPapers,
   VehicleRegistryClient,
 } from '../utils/load-verification.interface';
+
+/** Sarathi had no match for the licence and date of birth — it couldn't confirm it either way, so
+ *  an admin may verify it by hand (unlike an expired licence or the wrong class). */
+export const DL_NOT_FOUND_FAILURE =
+  'Licence not found on Sarathi — check the licence number and date of birth';
+
+/** Sarathi couldn't confirm the licence: it wasn't reachable, or it found no match. Only then may
+ *  an admin verify the driver by hand. */
+export function driverManualAllowedFor(
+  check: Pick<LoadVerificationEntity, 'status' | 'failures' | 'source'> | null,
+): boolean {
+  if (!check || check.source === 'manual') return false;
+  if (check.status === 'unavailable') return true;
+  return (
+    check.status === 'failed' &&
+    check.failures.length > 0 &&
+    check.failures.every((failure) => failure === DL_NOT_FOUND_FAILURE)
+  );
+}
 
 /** A conclusive check of the same truck/licence this recent is reused instead of a new lookup. */
 const REUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -192,16 +212,34 @@ export class LoadVerificationService {
   ): Promise<LoadVerificationEntity> {
     try {
       const now = this.now();
-      const result = await this.dlClient.lookupDrivingLicence(
-        input.licenceNumber,
-        input.dateOfBirth,
-      );
       const grossVehicleWeightKg = await this.grossWeightOf(tenantId, load);
+      let result: Awaited<ReturnType<DlVerificationClient['lookupDrivingLicence']>>;
+      try {
+        result = await this.dlClient.lookupDrivingLicence(input.licenceNumber, input.dateOfBirth);
+      } catch (error) {
+        // Sarathi down or erroring: record that the check couldn't run (it blocks the memo until
+        // it's run again or an admin verifies the licence by hand) instead of failing the request.
+        const reason = error instanceof UlipError ? error.code : 'LOOKUP_FAILED';
+        console.warn(`Sarathi licence check could not run for load ${load.id} (${reason})`);
+        return await this.repository.create({
+          tenantId,
+          loadId: load.id,
+          bidId: null,
+          subject: 'driver',
+          subjectRef: input.licenceNumber,
+          status: 'unavailable',
+          failures: [],
+          notes: [`Sarathi check could not run (${reason})`],
+          grossVehicleWeightKg,
+          details: null,
+          checkedAt: now,
+        });
+      }
 
       const failures: string[] = [];
       const notes: string[] = [];
       if (result.status === 'manual_review') {
-        failures.push('Licence not found on Sarathi — check the licence number and date of birth');
+        failures.push(DL_NOT_FOUND_FAILURE);
       }
       const expiry = licenceExpiryFailure(result.validUntil, istDateOf(now));
       if (expiry) failures.push(expiry);
@@ -234,6 +272,76 @@ export class LoadVerificationService {
     } catch (error) {
       rethrow(error, 'Failed to verify the driver');
     }
+  }
+
+  /**
+   * Sarathi couldn't confirm the load's driver licence (not reachable, or no match), so an admin
+   * checks the licence by hand. Allowed only then — an expired licence or the wrong class is a
+   * Sarathi verdict and can't be overridden. A validity date they enter is still checked.
+   */
+  async recordManualDriverCheck(
+    tenantId: string,
+    load: DriverCheckLoad & { driverLicenceNumber?: string | null },
+    actorId: string,
+    input: ManualDriverCheckInput,
+  ): Promise<LoadVerificationEntity> {
+    try {
+      if (!load.driverLicenceNumber) throw new ConflictError('Name the driver first');
+      const latest = await this.repository.findLatestForLoad(tenantId, load.id, 'driver');
+      if (!latest || latest.subjectRef !== load.driverLicenceNumber) {
+        throw new ConflictError(
+          "Run the licence check first — manual verification is only for when Sarathi can't confirm it",
+        );
+      }
+      if (latest.status === 'passed') throw new ConflictError('The licence check already passed');
+      if (!driverManualAllowedFor(latest)) {
+        throw new ConflictError(
+          "Sarathi failed this licence, so it can't be verified manually — name another driver",
+        );
+      }
+      const now = this.now();
+      const failures: string[] = [];
+      const expiry = licenceExpiryFailure(input.validUntil, istDateOf(now));
+      if (expiry) failures.push(expiry);
+      const notes = [
+        latest.status === 'unavailable'
+          ? 'Verified manually: Sarathi was unavailable, the licence was checked by hand'
+          : 'Verified manually: Sarathi had no match, the licence was checked by hand',
+        'Licence class not checked on Sarathi',
+      ];
+      if (input.note) notes.push(input.note);
+      return await this.repository.create({
+        tenantId,
+        loadId: load.id,
+        bidId: null,
+        subject: 'driver',
+        subjectRef: load.driverLicenceNumber,
+        status: statusOf(failures),
+        failures,
+        notes,
+        grossVehicleWeightKg: latest.grossVehicleWeightKg,
+        details: { licenceChecked: true, validUntil: toIsoDay(input.validUntil) },
+        source: 'manual',
+        verifiedBy: actorId,
+        checkedAt: now,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to verify the driver manually');
+    }
+  }
+
+  /** The load's latest driver check is a manual pass of its current licence. */
+  async hasManualDriverPass(
+    tenantId: string,
+    load: { id: string; driverLicenceNumber?: string | null },
+  ): Promise<boolean> {
+    if (!load.driverLicenceNumber) return false;
+    const latest = await this.repository.findLatestForLoad(tenantId, load.id, 'driver');
+    return (
+      latest?.source === 'manual' &&
+      latest.status === 'passed' &&
+      latest.subjectRef === load.driverLicenceNumber
+    );
   }
 
   private async grossWeightOf(tenantId: string, load: DriverCheckLoad): Promise<number | null> {
@@ -295,6 +403,7 @@ export class LoadVerificationService {
         clear: blockers.length === 0,
         blockers,
         truckManualAllowed: truck?.status === 'unavailable',
+        driverManualAllowed: driverManualAllowedFor(driver),
       };
     } catch (error) {
       rethrow(error, 'Failed to read the load checks');
@@ -320,7 +429,7 @@ export function checksBlockers(
       blockers.push(
         label === 'Truck'
           ? `Truck check could not run on ${portal} — run the checks again or verify the truck manually`
-          : `${label} check could not run on ${portal} — run the checks again`,
+          : `${label} check could not run on ${portal} — run the checks again or verify the licence manually`,
       );
     }
   }

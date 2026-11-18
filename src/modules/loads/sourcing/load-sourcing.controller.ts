@@ -9,7 +9,10 @@ import { RecordBidInput, LoadBidParams } from '../utils/load-bid.interface';
 import { CancelLoadInput, LoadCancelService } from './load-cancel.service';
 import type { CounterAnswerInput, CounterBidInput } from '../utils/load-bid.interface';
 import { AcceptMemoInput, NameDriverInput } from '../utils/load-memo.interface';
-import type { ManualTruckCheckInput } from '../utils/load-verification.interface';
+import type {
+  ManualDriverCheckInput,
+  ManualTruckCheckInput,
+} from '../utils/load-verification.interface';
 
 /** Bids, indent acceptance, driver and load memo — Sourcing (stages 1–3) for market and indent. */
 export class LoadSourcingController {
@@ -165,6 +168,16 @@ export class LoadSourcingController {
       req.user!.id,
       req.params.loadId,
       req.body as ManualTruckCheckInput,
+    );
+    respond(res, result, result.memo ? 201 : 200);
+  };
+
+  verifyDriverManually = async (req: Request<LoadParams>, res: Response) => {
+    const result = await this.memoService.verifyDriverManually(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      req.body as ManualDriverCheckInput,
     );
     respond(res, result, result.memo ? 201 : 200);
   };
