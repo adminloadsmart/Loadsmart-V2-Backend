@@ -13,17 +13,18 @@ export const MANUAL_RATE_DELAY_MS = 30 * 60 * 1000;
 /** "The load memo expires 1 hour after it is sent." */
 export const MEMO_TTL_MS = 60 * 60 * 1000;
 
-export function bidWindowClosesAt(sentAt: Date): Date {
-  return new Date(sentAt.getTime() + BID_WINDOW_MS);
+/** `extraMinutes`: hours Placement added to this posting's window ("Extend bid window"). */
+export function bidWindowClosesAt(sentAt: Date, extraMinutes = 0): Date {
+  return new Date(sentAt.getTime() + BID_WINDOW_MS + extraMinutes * 60 * 1000);
 }
 
 /** Why the shipper can't type in a phone rate right now, or null when they can. */
-export function manualRateError(sentAt: Date, now: Date): string | null {
+export function manualRateError(sentAt: Date, now: Date, extraMinutes = 0): string | null {
   const opensAt = new Date(sentAt.getTime() + MANUAL_RATE_DELAY_MS);
   if (now < opensAt) {
     return `A rate given by phone can be entered from ${opensAt.toISOString()}, 30 minutes after the load was sent`;
   }
-  if (now >= bidWindowClosesAt(sentAt)) {
+  if (now >= bidWindowClosesAt(sentAt, extraMinutes)) {
     return 'Bidding on this load has closed — bids expire 4 hours after posting';
   }
   return null;

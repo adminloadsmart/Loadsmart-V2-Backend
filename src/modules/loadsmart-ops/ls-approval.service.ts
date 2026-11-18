@@ -6,6 +6,7 @@ import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
 import { LoadPostingService, PostLoadResult } from '../loads/load-posting/load-posting.service';
+import { LoadPostingLookupService } from '../loads/load-posting/load-posting-lookup.service';
 import { PostLoadInput } from '../loads/load-posting/utils/load-posting.interface';
 import { StorageService } from '../storage/storage.service';
 
@@ -26,10 +27,76 @@ export class LsApprovalService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly postingService: LoadPostingService,
+    private readonly lookupService: LoadPostingLookupService,
     private readonly storageService: StorageService,
     private readonly loadActivityService: LoadActivityService,
     private readonly auditService: AuditService,
   ) {}
+
+  /** The shippers a load can be posted for: name, city and whether they are approved yet (only an
+   *  approved shipper can have loads posted), with the time of their latest load. */
+  async listShippers(search: string | undefined, limit: number) {
+    try {
+      const query = this.dataSource
+        .getRepository(OrganizationEntity)
+        .createQueryBuilder('org')
+        .select([
+          'org.id',
+          'org.name',
+          'org.companyLegalName',
+          'org.operationalCity',
+          'org.city',
+          'org.status',
+        ])
+        .where('org.status IN (:...statuses)', { statuses: ['active', 'pending'] })
+        .orderBy('org.name', 'ASC')
+        .take(limit);
+      if (search) {
+        query.andWhere(
+          '(org.name ILIKE :search OR org.companyLegalName ILIKE :search OR org.city ILIKE :search)',
+          { search: `%${search}%` },
+        );
+      }
+      const orgs = await query.getMany();
+      const lastLoads = orgs.length
+        ? await this.dataSource
+            .getRepository(LoadPostingEntity)
+            .createQueryBuilder('posting')
+            .select('posting.tenantId', 'tenantId')
+            .addSelect('MAX(posting.createdAt)', 'lastLoadAt')
+            .where('posting.tenantId IN (:...ids)', { ids: orgs.map((org) => org.id) })
+            .groupBy('posting.tenantId')
+            .getRawMany<{ tenantId: string; lastLoadAt: Date }>()
+        : [];
+      const lastLoadAt = new Map(lastLoads.map((row) => [row.tenantId, row.lastLoadAt]));
+      return orgs.map((org) => ({
+        id: org.id,
+        name: org.name ?? org.companyLegalName ?? 'Unnamed shipper',
+        city: org.operationalCity ?? org.city ?? null,
+        status: org.status,
+        lastLoadAt: lastLoadAt.get(org.id) ?? null,
+      }));
+    } catch (error) {
+      rethrow(error, 'Failed to list the shippers');
+    }
+  }
+
+  /** The posting form's pickers, read inside the chosen shipper's account. */
+  readonly pickers = {
+    rules: () => this.postingService.postingRules(),
+    recentCustomers: (tenantId: string, limit: number) =>
+      this.lookupService.recentCustomers(tenantId, limit),
+    customers: (tenantId: string, search: string | undefined, limit: number) =>
+      this.lookupService.searchCustomers(tenantId, search, limit),
+    unloadingPoints: (tenantId: string, customerId: string, search?: string) =>
+      this.lookupService.unloadingPoints(tenantId, customerId, search),
+    loadingPoints: (tenantId: string, search?: string) =>
+      this.lookupService.loadingPoints(tenantId, search),
+    commodities: (tenantId: string, search?: string) =>
+      this.lookupService.commodities(tenantId, search),
+    truckOptions: (filters: Parameters<LoadPostingLookupService['truckOptions']>[0]) =>
+      this.lookupService.truckOptions(filters),
+  };
 
   async postForShipper(
     actor: PermissionHolder & { id: string },

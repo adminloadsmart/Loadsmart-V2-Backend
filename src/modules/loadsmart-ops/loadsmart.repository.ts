@@ -21,6 +21,8 @@ import { LsInvoiceEntity } from './entities/ls-invoice.entity';
 import { LsPartnerBidEntity } from './entities/ls-partner-bid.entity';
 import { LsPartnerPaymentEntity } from './entities/ls-partner-payment.entity';
 import { LoadDocumentEntity } from '../loads/documents/load-document.entity';
+import { LsPartnerBidResponseEntity } from './entities/ls-partner-bid-response.entity';
+import { LsSourcingBrokerEntity } from './entities/ls-sourcing-broker.entity';
 import { LsCallLogEntity } from './entities/ls-call-log.entity';
 import { LsStaffNotificationEntity } from './entities/ls-staff-notification.entity';
 import { UserPermissionEntity } from '../roles/entities/user-permission.entity';
@@ -50,6 +52,8 @@ export class LoadsmartRepository {
   readonly originalPods: Repository<LsOriginalPodEntity>;
   readonly staffNotifications: Repository<LsStaffNotificationEntity>;
   readonly callLogs: Repository<LsCallLogEntity>;
+  readonly partnerBidResponses: Repository<LsPartnerBidResponseEntity>;
+  readonly sourcingBrokers: Repository<LsSourcingBrokerEntity>;
   readonly loadDocuments: Repository<LoadDocumentEntity>;
   private readonly postings: Repository<LoadPostingEntity>;
 
@@ -73,6 +77,8 @@ export class LoadsmartRepository {
     this.originalPods = dataSource.getRepository(LsOriginalPodEntity);
     this.staffNotifications = dataSource.getRepository(LsStaffNotificationEntity);
     this.callLogs = dataSource.getRepository(LsCallLogEntity);
+    this.partnerBidResponses = dataSource.getRepository(LsPartnerBidResponseEntity);
+    this.sourcingBrokers = dataSource.getRepository(LsSourcingBrokerEntity);
     this.loadDocuments = dataSource.getRepository(LoadDocumentEntity);
   }
 

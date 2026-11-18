@@ -693,7 +693,10 @@ describe('ops console access by team', () => {
         new LoadsmartOpsController(
           sourcing as never,
           settlement as never,
-          // placement, approval, tracking, cs, receivables, payables, console, staff inbox, call log — unused here
+          // placement, approval, tracking, cs, receivables, payables, console, staff inbox, call log,
+          // placement board, shipper directory — unused here
+          {} as never,
+          {} as never,
           {} as never,
           {} as never,
           {} as never,

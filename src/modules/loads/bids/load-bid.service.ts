@@ -100,7 +100,8 @@ export class LoadBidService {
         throw new ConflictError('This load already has a truck — it no longer takes bids');
       }
       const now = this.now();
-      const closesAt = bidWindowClosesAt(await this.sentAtOf(load));
+      const window = await this.windowOf(load);
+      const closesAt = bidWindowClosesAt(window.sentAt, window.extraMinutes);
       if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
       await this.assertTruckFree(load, input.vehicleNumber);
 
@@ -154,10 +155,14 @@ export class LoadBidService {
 
   /** When the load went out to transporters — the posting time, or the load's own creation for
    *  a load planned from a requisition. */
-  private async sentAtOf(load: LoadEntity): Promise<Date> {
-    if (!load.postingId) return load.createdAt;
+  /** When the load went out for bids, and any hours Placement added to its window. */
+  private async windowOf(load: LoadEntity): Promise<{ sentAt: Date; extraMinutes: number }> {
+    if (!load.postingId) return { sentAt: load.createdAt, extraMinutes: 0 };
     const posting = await this.bidRepository.findPosting(load.tenantId, load.postingId);
-    return posting?.createdAt ?? load.createdAt;
+    return {
+      sentAt: posting?.createdAt ?? load.createdAt,
+      extraMinutes: posting?.bidWindowExtraMinutes ?? 0,
+    };
   }
 
   private async assertTruckFree(load: LoadEntity, vehicleNumber: string): Promise<void> {
@@ -390,7 +395,9 @@ export class LoadBidService {
         loadStatus: load.status,
         biddingClosesAt:
           load.postingType === 'market_fleet'
-            ? bidWindowClosesAt(await this.sentAtOf(load)).toISOString()
+            ? await this.windowOf(load).then((window) =>
+                bidWindowClosesAt(window.sentAt, window.extraMinutes).toISOString(),
+              )
             : null,
         bids: [
           ...ranked.map((bid, index) => this.toView(bid, now, index + 1)),
@@ -426,8 +433,8 @@ export class LoadBidService {
       }
 
       const now = this.now();
-      const sentAt = await this.sentAtOf(load);
-      const timingError = manualRateError(sentAt, now);
+      const { sentAt, extraMinutes } = await this.windowOf(load);
+      const timingError = manualRateError(sentAt, now, extraMinutes);
       if (timingError) throw new ConflictError(timingError);
 
       await this.transporterService.getTransporter(tenantId, input.transporterId);
@@ -475,7 +482,7 @@ export class LoadBidService {
             rate,
             vehicleNumber,
             channel: 'web',
-            expiresAt: bidWindowClosesAt(sentAt),
+            expiresAt: bidWindowClosesAt(sentAt, extraMinutes),
             enteredBy: actorId,
             entryReason: input.reason,
             rateHistory: [step],

@@ -75,6 +75,62 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.matchBrokers),
     asyncHandler(c.matchBrokers),
   );
+  // Placement work queue and load page: the queue, the page, brokers added by hand, bid history,
+  // broker calls, extending the bid window and sending the requirement.
+  router.get(
+    '/placement/loads',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.placementBoard),
+    asyncHandler(c.placementBoardList),
+  );
+  router.get(
+    '/placement/loads/:sourcingId',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.sourcing),
+    asyncHandler(c.placementPage),
+  );
+  router.post(
+    '/sourcings/:sourcingId/brokers',
+    team(LS_PLACEMENT),
+    validate(v.addBroker),
+    asyncHandler(c.addBroker),
+  );
+  router.delete(
+    '/sourcings/:sourcingId/brokers/:partnerId',
+    team(LS_PLACEMENT),
+    validate(v.sourcingBroker),
+    asyncHandler(c.removeBroker),
+  );
+  router.get(
+    '/sourcings/:sourcingId/brokers/:partnerId/bid-history',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.sourcingBroker),
+    asyncHandler(c.bidHistory),
+  );
+  router.post(
+    '/sourcings/:sourcingId/broker-calls',
+    team(LS_PLACEMENT),
+    validate(v.brokerCall),
+    asyncHandler(c.logBrokerCall),
+  );
+  router.get(
+    '/sourcings/:sourcingId/broker-calls',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.sourcing),
+    asyncHandler(c.brokerCalls),
+  );
+  router.post(
+    '/sourcings/:sourcingId/bid-window',
+    team(LS_PLACEMENT),
+    validate(v.extendBidWindow),
+    asyncHandler(c.extendBidWindow),
+  );
+  router.post(
+    '/sourcings/:sourcingId/requirement',
+    team(LS_PLACEMENT),
+    validate(v.sendRequirement),
+    asyncHandler(c.sendRequirement),
+  );
 
   // Placement — inbox, round-robin roster (Super Admin), owner, lost, memo withdrawal.
   router.get(
@@ -150,7 +206,112 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.withdrawMemo),
   );
 
-  // Approval — post a load on a shipper's behalf.
+  // Approval — the shipper accounts (read-only): list, profile and one route per tab. Loads use
+  // GET /all-loads?tenantId=.
+  router.get(
+    '/shipper-accounts',
+    team(LS_APPROVAL),
+    validate(v.shipperAccounts),
+    asyncHandler(c.shipperAccounts),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId',
+    team(LS_APPROVAL),
+    validate(v.shipperAccount),
+    asyncHandler(c.shipperAccount),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId/loading-points',
+    team(LS_APPROVAL),
+    validate(v.shipperAccount),
+    asyncHandler(c.shipperAccountLoadingPoints),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId/consignees',
+    team(LS_APPROVAL),
+    validate(v.shipperAccount),
+    asyncHandler(c.shipperAccountConsignees),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId/documents',
+    team(LS_APPROVAL),
+    validate(v.shipperAccount),
+    asyncHandler(c.shipperAccountDocuments),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId/invoices',
+    team(LS_APPROVAL),
+    validate(v.shipperAccount),
+    asyncHandler(c.shipperAccountInvoices),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId/tickets',
+    team(LS_APPROVAL),
+    validate(v.shipperAccount),
+    asyncHandler(c.shipperAccountTickets),
+  );
+  router.put(
+    '/shipper-accounts/:tenantId/terms',
+    team(LS_APPROVAL),
+    validate(v.shipperAccountTerms),
+    asyncHandler(c.saveShipperAccountTerms),
+  );
+  router.get(
+    '/shipper-accounts/:tenantId/activity',
+    team(LS_APPROVAL),
+    validate(v.shipperAccountActivity),
+    asyncHandler(c.shipperAccountActivity),
+  );
+
+  // Approval — post a load on a shipper's behalf: the shipper list, and the form's pickers read
+  // inside the chosen shipper's account.
+  router.get(
+    '/shippers',
+    team(LS_APPROVAL),
+    validate(v.listShippers),
+    asyncHandler(c.listShippers),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/rules',
+    team(LS_APPROVAL),
+    asyncHandler(c.shipperPostingRules),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/recent-customers',
+    team(LS_APPROVAL),
+    validate(v.shipperRecentCustomers),
+    asyncHandler(c.shipperRecentCustomers),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/customers',
+    team(LS_APPROVAL),
+    validate(v.shipperCustomers),
+    asyncHandler(c.shipperCustomers),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/customers/:customerId/unloading-points',
+    team(LS_APPROVAL),
+    validate(v.shipperUnloadingPoints),
+    asyncHandler(c.shipperUnloadingPoints),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/loading-points',
+    team(LS_APPROVAL),
+    validate(v.shipperSearch),
+    asyncHandler(c.shipperLoadingPoints),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/commodities',
+    team(LS_APPROVAL),
+    validate(v.shipperSearch),
+    asyncHandler(c.shipperCommodities),
+  );
+  router.get(
+    '/shippers/:tenantId/posting/truck-options',
+    team(LS_APPROVAL),
+    validate(v.shipperTruckOptions),
+    asyncHandler(c.shipperTruckOptions),
+  );
   router.post(
     '/shippers/:tenantId/loads',
     team(LS_APPROVAL),
@@ -279,6 +440,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     team(LS_TRACKING),
     validate(v.replyToChargeQuery),
     asyncHandler(c.replyToChargeQuery),
+  );
+  router.patch(
+    '/loads/:loadId/details',
+    team(LS_TRACKING),
+    validate(v.editLoadDetails),
+    asyncHandler(c.editLoadDetails),
   );
   router.post(
     '/loads/:loadId/elr',

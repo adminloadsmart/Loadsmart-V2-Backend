@@ -1,5 +1,7 @@
+import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
+import type { LoadPostingLookupService } from '../loads/load-posting/load-posting-lookup.service';
 import type { LoadDocumentService } from '../loads/documents/load-document.service';
 import type { SettingsReader } from '../settings/settings.types';
 import type { AuditService } from '../audit/audit.service';
@@ -179,6 +181,9 @@ export interface CommercialTermsInput {
    *  load's own advance %, else the settings' default. */
   shipperAdvancePercent?: number | null;
   balancePayer?: BalancePayer;
+  shipperAdvanceDays?: number | null;
+  physicalLr?: boolean;
+  physicalLrNote?: string | null;
 }
 
 /** Approval team posts the load on the board, optionally changing the terms. */
@@ -192,8 +197,14 @@ export interface ApproveSourcingInput {
 /** Placement records a partner's rate and truck. */
 export interface PartnerBidInput {
   partnerId: string;
-  rate: number;
+  /** Required for a bid; optional for a decline / no truck / call back. */
+  rate?: number;
   vehicleNumber?: string;
+  /** What the broker said (default `bid`). Only a bid becomes the broker's live bid. */
+  response?: BrokerResponse;
+  /** How it came in (default `manual_entry`). */
+  channel?: BrokerResponseChannel;
+  note?: string;
 }
 
 /** A load just posted on the load board, as partners may see it — Loadsmart's margin taken
@@ -332,6 +343,7 @@ export interface LoadsmartOpsModuleDeps {
   settings: SettingsReader;
   loadDocumentService: LoadDocumentService;
   loadPostingService: LoadPostingService;
+  loadPostingLookupService: LoadPostingLookupService;
   elrService: ElrService;
   /** The live map reads each trip's last position and ETA from the tracking service. */
   trackingClient: TrackingClient;

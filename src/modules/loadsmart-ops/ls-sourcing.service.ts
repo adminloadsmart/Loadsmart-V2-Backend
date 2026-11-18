@@ -153,6 +153,9 @@ export class LsSourcingService extends LsServiceBase {
         terms?.shipperAdvancePercent != null ? Number(terms.shipperAdvancePercent) : null,
       defaultShipperAdvancePercent: values.defaultShipperAdvancePercent,
       balancePayer: terms?.balancePayer ?? 'shipper',
+      shipperAdvanceDays: terms?.shipperAdvanceDays ?? null,
+      physicalLr: terms?.physicalLr ?? false,
+      physicalLrNote: terms?.physicalLrNote ?? null,
       isDefault: !terms,
     };
   }
@@ -194,6 +197,11 @@ export class LsSourcingService extends LsServiceBase {
             }
           : {}),
         ...(input.balancePayer ? { balancePayer: input.balancePayer } : {}),
+        ...(input.shipperAdvanceDays !== undefined
+          ? { shipperAdvanceDays: input.shipperAdvanceDays }
+          : {}),
+        ...(input.physicalLr !== undefined ? { physicalLr: input.physicalLr } : {}),
+        ...(input.physicalLrNote !== undefined ? { physicalLrNote: input.physicalLrNote } : {}),
         updatedBy: actorId,
       });
       await this.auditService.log({
@@ -444,7 +452,43 @@ export class LsSourcingService extends LsServiceBase {
       const partner = await this.repository.partners.findOneBy({ id: input.partnerId });
       if (!partner || partner.status !== 'active') throw new NotFoundError('Partner not found');
 
+      const response = input.response ?? 'bid';
       const vehicleNumber = input.vehicleNumber ? normalizePlate(input.vehicleNumber) : null;
+      // Every response goes in the broker's history ("older offers remain in broker history").
+      const history = await this.repository.partnerBidResponses.save(
+        this.repository.partnerBidResponses.create({
+          sourcingId,
+          partnerId: partner.id,
+          response,
+          rate: input.rate === undefined ? null : String(input.rate),
+          channel: input.channel ?? 'manual_entry',
+          note: input.note?.trim() || null,
+          vehicleNumber,
+          enteredBy: actor.id,
+        }),
+      );
+      if (response !== 'bid') {
+        // A decline, no truck or call back doesn't change the broker's live bid.
+        await this.step(sourcing, actor.id, 'partner_response', 'LS_PARTNER_BID_RECORDED', {
+          responseId: history.id,
+          partnerId: partner.id,
+          response,
+          note: history.note,
+        });
+        const live = await this.repository.partnerBids.findOneBy({
+          sourcingId,
+          partnerId: partner.id,
+          status: 'received',
+        });
+        return {
+          ...(live
+            ? this.partnerBidView({ ...live, partner }, Number(sourcing.marginPercent))
+            : null),
+          response: { id: history.id, response, channel: history.channel, note: history.note },
+        } as PartnerBidView;
+      }
+      if (input.rate === undefined) throw new ValidationError('A bid needs a rate');
+
       let truckVerified: boolean | null = null;
       if (vehicleNumber) {
         const check = await this.verification.verifyTruck(

@@ -101,6 +101,7 @@ describe('claiming a load', () => {
       {} as never,
       {} as never,
       { notifyUsers: vi.fn(), notifyPermission: vi.fn() } as never,
+      {} as never,
     );
     return { service, repository };
   }

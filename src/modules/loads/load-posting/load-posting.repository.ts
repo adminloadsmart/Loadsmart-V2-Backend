@@ -39,6 +39,8 @@ export type CreatePostingData = Omit<
   | 'onBehalfChannel'
   | 'onBehalfRequestedBy'
   | 'onBehalfProofKey'
+  // Starts at 0; only Placement's "Extend bid window" changes it.
+  | 'bidWindowExtraMinutes'
 >;
 
 export interface CreateRecipientData {

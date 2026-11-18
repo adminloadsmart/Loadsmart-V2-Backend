@@ -142,6 +142,9 @@ export const CALL_OUTCOMES = [
   'busy',
   'switched_off',
   'wrong_number',
+  // Placement's broker calls.
+  'not_interested',
+  'call_back_later',
 ] as const;
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 

@@ -26,13 +26,23 @@ import { TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
 import { TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
 import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
 import { BALANCE_PAYERS, GST_TREATMENTS, RECEIVABLE_STATUSES } from './receivables-rules';
+import {
+  BROKER_RESPONSE_CHANNELS,
+  BROKER_RESPONSES,
+  MAX_BID_WINDOW_EXTENSION_HOURS,
+  PLACEMENT_TABS,
+} from './placement-board-rules';
 import { LOAD_STATUSES } from '../loads/utils/loads.types';
 import { MSME_CREDIT_DAYS_CAP } from '../settings/settings.types';
 import {
   manualDriverCheckBody,
   manualTruckCheckBody,
 } from '../loads/sourcing/load-sourcing.validators';
-import { postLoadBody } from '../loads/load-posting/load-posting.validators';
+import {
+  editDetailsBody,
+  loadPostingValidators,
+  postLoadBody,
+} from '../loads/load-posting/load-posting.validators';
 
 const uuid = z.string().uuid();
 const loadParams = z.object({ loadId: uuid });
@@ -134,10 +144,63 @@ export const loadsmartValidators = {
     body: z
       .object({
         partnerId: uuid,
-        rate: z.number().positive(),
+        rate: z.number().positive().optional(),
         vehicleNumber: z.string().trim().min(4).max(20).optional(),
+        // "Record a broker response": what they said, how it came in, a note.
+        response: z.enum(BROKER_RESPONSES).optional(),
+        channel: z.enum(BROKER_RESPONSE_CHANNELS).optional(),
+        note: z.string().trim().max(500).optional(),
+      })
+      .strict()
+      .refine((body) => (body.response ?? 'bid') !== 'bid' || body.rate !== undefined, {
+        message: 'A bid needs a rate',
+        path: ['rate'],
+      }),
+  }),
+  // --- Placement board ---
+  placementBoard: z.object({
+    query: z
+      .object({
+        tab: z.enum(PLACEMENT_TABS).optional(),
+        q: z.string().trim().min(2).max(50).optional(),
+        tenantId: uuid.optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
       })
       .strict(),
+  }),
+  sourcingBroker: z.object({ params: z.object({ sourcingId: uuid, partnerId: uuid }) }),
+  addBroker: z.object({
+    params: sourcingParams,
+    body: z.object({ partnerId: uuid }).strict(),
+  }),
+  brokerCall: z.object({
+    params: sourcingParams,
+    body: z
+      .object({
+        partnerId: uuid,
+        outcome: z.enum(CALL_OUTCOMES),
+        quotedRate: z.number().positive().optional(),
+        remarks: z.string().trim().max(1000).optional(),
+      })
+      .strict(),
+  }),
+  extendBidWindow: z.object({
+    params: sourcingParams,
+    body: z
+      .object({
+        hours: z.number().int().min(1).max(MAX_BID_WINDOW_EXTENSION_HOURS),
+        reason: z.string().trim().max(500).optional(),
+      })
+      .strict(),
+  }),
+  sendRequirement: z.object({
+    params: sourcingParams,
+    body: z
+      .object({ partnerIds: z.array(uuid).min(1).max(100).optional() })
+      .strict()
+      .optional()
+      .default({}),
   }),
   sendBid: z.object({
     params: sourcingParams,
@@ -347,6 +410,86 @@ export const loadsmartValidators = {
   }),
 
   // --- Approval: post a load for a shipper ---
+  listShippers: z.object({
+    query: z
+      .object({
+        search: z.string().trim().min(1).max(100).optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+      })
+      .strict(),
+  }),
+  shipperAccounts: z.object({
+    query: z
+      .object({
+        search: z.string().trim().min(1).max(100).optional(),
+        status: z.string().trim().min(1).max(30).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(100).default(25),
+      })
+      .strict(),
+  }),
+  shipperAccount: z.object({ params: z.object({ tenantId: uuid }) }),
+  // The Edit terms form on a shipper's account: the shipper-facing terms only — margin and the
+  // trucker advance are Loadsmart's and are not touched here.
+  shipperAccountTerms: z.object({
+    params: z.object({ tenantId: uuid }),
+    body: z
+      .object({
+        shipperAdvancePercent: percent.nullable(),
+        shipperAdvanceDays: z.number().int().min(0).max(30).nullable(),
+        balancePayer: z.enum(['shipper', 'consignee']),
+        creditDays: z.number().int().min(0).max(MSME_CREDIT_DAYS_CAP).nullable(),
+        podType: z.enum(POD_TYPES),
+        physicalLr: z.boolean(),
+        physicalLrNote: z.string().trim().max(300).nullable(),
+        preapprovedCharges: z
+          .array(
+            z
+              .object({
+                head: z.enum(TRANSPORTER_CHARGE_HEADS),
+                maxAmount: money.nullable().optional(),
+              })
+              .strict(),
+          )
+          .max(20),
+        billingInstructions: z
+          .array(
+            z.object({ head: z.enum(TRANSPORTER_CHARGE_HEADS), notBilledUnder: money }).strict(),
+          )
+          .max(20),
+        billingNote: z.string().trim().max(1000).nullable(),
+      })
+      .strict(),
+  }),
+  shipperAccountActivity: z.object({
+    params: z.object({ tenantId: uuid }),
+    query: z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) }).strict(),
+  }),
+  shipperRecentCustomers: z.object({
+    params: z.object({ tenantId: uuid }),
+    query: z.object({ limit: z.coerce.number().int().min(1).max(10).default(4) }).strict(),
+  }),
+  shipperCustomers: z.object({
+    params: z.object({ tenantId: uuid }),
+    query: z
+      .object({
+        search: z.string().trim().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(25).default(10),
+      })
+      .strict(),
+  }),
+  shipperUnloadingPoints: z.object({
+    params: z.object({ tenantId: uuid, customerId: uuid }),
+    query: z.object({ search: z.string().trim().min(1).optional() }).strict(),
+  }),
+  shipperSearch: z.object({
+    params: z.object({ tenantId: uuid }),
+    query: z.object({ search: z.string().trim().min(1).optional() }).strict(),
+  }),
+  shipperTruckOptions: z.object({
+    params: z.object({ tenantId: uuid }),
+    query: loadPostingValidators.truckOptions.shape.query,
+  }),
   postForShipper: z.object({
     params: z.object({ tenantId: uuid }),
     body: z
@@ -380,6 +523,8 @@ export const loadsmartValidators = {
     params: loadParams.extend({ documentId: uuid }),
     body: reviewDocumentBody,
   }),
+  /** Tracking edits a load on its desk: the reporting time and the pickup / drop area. */
+  editLoadDetails: z.object({ params: loadParams, body: editDetailsBody }),
   /** Tracking decides the POD on a Loadsmart load — same body as the shipper's review. */
   decidePod: z.object({ params: loadParams, body: reviewPodBody }),
   // --- Customer support: claims ---

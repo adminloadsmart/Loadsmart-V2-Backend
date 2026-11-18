@@ -32,6 +32,14 @@ export class LsCallLogEntity {
   @Column({ type: 'varchar', length: 20, nullable: true })
   phone!: string | null;
 
+  /** The broker called (Placement's broker calls). */
+  @Column({ name: 'partner_id', type: 'uuid', nullable: true })
+  partnerId!: string | null;
+
+  /** The rate the broker quoted on the call. */
+  @Column({ name: 'quoted_rate', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  quotedRate!: string | null;
+
   @Column({ type: 'varchar', length: 20 })
   outcome!: CallOutcome;
 

@@ -36,7 +36,7 @@ const ANY_TEAM = [
 ];
 
 type Row = {
-  method: 'get' | 'post' | 'patch' | 'put';
+  method: 'get' | 'post' | 'patch' | 'put' | 'delete';
   path: string;
   op: string;
   description: string;
@@ -144,7 +144,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.partnerBid,
     description:
-      "Record a partner's rate and truck (checked on VAHAN). Bids from salespeople are refused; quoting again revises the partner's bid.",
+      "Record a broker response: response (bid — the default — declined, no_truck, call_back_later), rate (required for a bid), channel (manual_entry, phone, whatsapp, email), note, and a truck (checked on VAHAN). Every response goes in the broker's bid history; only a bid becomes (or revises) the broker's live bid. Bids from salespeople are refused.",
   },
   {
     method: 'post',
@@ -267,7 +267,85 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.matchBrokers,
     description:
-      'Brokers for a load: matched ones ticked with why (lane, truck type), loads placed on the lane, rating.',
+      'Brokers for a load: matched ones ticked with why (lane, truck type) — and any Placement added by hand (`added`) — loads placed on the lane, rating.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/placement/loads`,
+    op: 'loadsmart.placementBoard',
+    permissions: [LS_PLACEMENT, LS_SETTINGS_MANAGE],
+    schema: v.placementBoard,
+    description:
+      'Placement Work Queue: tiles (loads worked = owned by you, placed, not placed, memo confirmed), a count per tab (all, without_bids, with_bids, placed, mine, pickup_today, memo_sent, memo_confirmed) and one row per load — load and LR, shipper, goods, route, reporting time, truck type, expected price, brokers matched, active bids, memo state (not_sent / sent / expired / accepted). Filter by tab, shipper, or search load, LR, shipper, route or truck. Paged (default 10).',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/placement/loads/{sourcingId}`,
+    op: 'loadsmart.placementPage',
+    permissions: [LS_PLACEMENT, LS_SETTINGS_MANAGE],
+    schema: v.sourcing,
+    description:
+      "Placement's load page: the queue row, Load requirements (pickup, drop, truck and length, goods and weight, report by, shipper balance terms), Pricing guidance (expected price, shipper price, market rate = median carrier trip amount on the lane over 90 days, rate ceiling = the highest carrier rate that keeps Settings' margin floor), the bid window (hours, closes at, closed), when the requirement went out, the rate handoff (broker, chosen rate, price to the shipper), the latest bid per broker, the call list, the memo (state, truck, driver, licence) and team contacts.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/brokers`,
+    op: 'loadsmart.addBroker',
+    permissions: [LS_PLACEMENT],
+    schema: v.addBroker,
+    description: "Add broker: puts an active broker on this load's matched list by hand.",
+  },
+  {
+    method: 'delete',
+    path: `${OPS}/sourcings/{sourcingId}/brokers/{partnerId}`,
+    op: 'loadsmart.removeBroker',
+    permissions: [LS_PLACEMENT],
+    schema: v.sourcingBroker,
+    description: "Takes a broker added by hand off the load's list.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/sourcings/{sourcingId}/brokers/{partnerId}/bid-history`,
+    op: 'loadsmart.bidHistory',
+    permissions: [LS_PLACEMENT, LS_SETTINGS_MANAGE],
+    schema: v.sourcingBroker,
+    description:
+      'Broker bid history: every response the broker gave on the load (bid, declined, no_truck, call_back_later), with rate, channel and note, newest first.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/broker-calls`,
+    op: 'loadsmart.logBrokerCall',
+    permissions: [LS_PLACEMENT],
+    schema: v.brokerCall,
+    description:
+      'Log broker call: outcome (connected = "Picked up", no_answer, busy, switched_off, wrong_number, not_interested, call_back_later), quoted rate, remarks.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/sourcings/{sourcingId}/broker-calls`,
+    op: 'loadsmart.brokerCalls',
+    permissions: [LS_PLACEMENT, LS_SETTINGS_MANAGE],
+    schema: v.sourcing,
+    description: 'Broker call history, grouped by broker, newest first.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/bid-window`,
+    op: 'loadsmart.extendBidWindow',
+    permissions: [LS_PLACEMENT],
+    schema: v.extendBidWindow,
+    description:
+      'Extend bid window: 1–24 more hours (with a reason) on a market load still taking bids. It applies to every bidder; a window that already closed reopens from now.',
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/requirement`,
+    op: 'loadsmart.sendRequirement',
+    permissions: [LS_PLACEMENT],
+    schema: v.sendRequirement,
+    description:
+      "Send Requirement: the message for brokers (no shipper name, no price) and a wa.me link per broker for the console to open — nothing is sent from the server. Records when and to how many. Without partnerIds, the load's matched brokers and any added by hand.",
   },
   {
     method: 'get',
@@ -318,6 +396,149 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.withdrawMemo,
     description: 'Withdraw an open memo with a reason.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts`,
+    op: 'loadsmart.shipperAccounts',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccounts,
+    description:
+      "Approval's Shippers master: every shipper with status, contact, loads in the last 30 days and last load. Filter by status, search by name or city.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}`,
+    op: 'loadsmart.shipperAccount',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccount,
+    description:
+      "One shipper's profile: header, KPIs, company, Loadsmart terms (no margin) and the counts on each tab.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}/loading-points`,
+    op: 'loadsmart.shipperAccountLoadingPoints',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccount,
+    description: "A shipper's loading points for the Shippers master.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}/consignees`,
+    op: 'loadsmart.shipperAccountConsignees',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccount,
+    description: "A shipper's consignees for the Shippers master.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}/documents`,
+    op: 'loadsmart.shipperAccountDocuments',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccount,
+    description: "A shipper's documents for the Shippers master.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}/invoices`,
+    op: 'loadsmart.shipperAccountInvoices',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccount,
+    description: "A shipper's invoices for the Shippers master.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}/tickets`,
+    op: 'loadsmart.shipperAccountTickets',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccount,
+    description: "A shipper's tickets for the Shippers master.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shipper-accounts/{tenantId}/activity`,
+    op: 'loadsmart.shipperAccountActivity',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccountActivity,
+    description: "What happened on a shipper's account, newest first, with who did it.",
+  },
+  {
+    method: 'put',
+    path: `${OPS}/shipper-accounts/{tenantId}/terms`,
+    op: 'loadsmart.saveShipperAccountTerms',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperAccountTerms,
+    description:
+      "Edit a shipper's operations terms: advance, who pays the balance, credit days, POD type, physical LR, preapproved charges and billing rules. Margin and the trucker advance are kept.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers`,
+    op: 'loadsmart.listShippers',
+    permissions: [LS_APPROVAL],
+    schema: v.listShippers,
+    description:
+      "Approval's shipper list for posting a load on their behalf: name, city, whether they are approved (only an approved shipper can have loads posted) and their latest load. Search by name or city.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/recent-customers`,
+    op: 'loadsmart.shipperRecentCustomers',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperRecentCustomers,
+    description:
+      "The shipper's recent customers — the posting form's quick picks, read inside the shipper's account.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/customers`,
+    op: 'loadsmart.shipperCustomers',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperCustomers,
+    description: "Search the shipper's customers by name or code.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/customers/{customerId}/unloading-points`,
+    op: 'loadsmart.shipperUnloadingPoints',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperUnloadingPoints,
+    description: "A customer's saved unloading points (the drop list).",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/loading-points`,
+    op: 'loadsmart.shipperLoadingPoints',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperSearch,
+    description:
+      "The shipper's loading points (the pickup list; also the drop list when there is no customer).",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/commodities`,
+    op: 'loadsmart.shipperCommodities',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperSearch,
+    description: "The shipper's commodity master, with each one's usual packaging.",
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/truck-options`,
+    op: 'loadsmart.shipperTruckOptions',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperTruckOptions,
+    description:
+      'The truck-type picker: body, then tyres or axle, then tonnes, then length — each step narrowed by the earlier picks.',
+  },
+  {
+    method: 'get',
+    path: `${OPS}/shippers/{tenantId}/posting/rules`,
+    op: 'loadsmart.shipperPostingRules',
+    permissions: [LS_APPROVAL],
+    schema: v.shipperRecentCustomers,
+    description: 'The posting timing rules from Settings (earliest reporting time, memo expiry).',
   },
   {
     method: 'post',
@@ -888,6 +1109,15 @@ const ROWS: Row[] = [
     schema: v.uploadPapers,
     description:
       "Tracking attaches the invoice, e-way bill (with `ewayBillExpiresAt`) and signed LR when the shipper hasn't. A copy the shipper or driver already uploaded is never replaced (409 — review it instead). Tracking's own copies are approved as they are attached and show to the shipper as `referenceOnly` until the shipper uploads its own.",
+  },
+  {
+    method: 'patch',
+    path: `${OPS}/loads/{loadId}/details`,
+    op: 'loadsmart.editLoadDetails',
+    permissions: [LS_TRACKING],
+    schema: v.editLoadDetails,
+    description:
+      "Edits a load on Tracking's desk: the reporting time (pickupAt, on the hour or half hour) and the pickup / drop area (address line, locality, PIN, coordinates). The city and state stay. Same stage limits as the shipper's edit after a truck is awarded.",
   },
   {
     method: 'patch',

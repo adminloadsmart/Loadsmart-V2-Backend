@@ -594,6 +594,7 @@ export function buildContainer(dataSource: DataSource): Container {
     settings: settings.service,
     loadDocumentService: loads.loadDocumentService,
     loadPostingService: loads.loadPosting.postingService,
+    loadPostingLookupService: loads.loadPosting.lookupService,
     elrService: loads.elrService,
     trackingClient,
     loadCancelService: loads.loadCancelService,

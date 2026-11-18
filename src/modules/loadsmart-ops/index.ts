@@ -7,12 +7,14 @@ import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';
 import { LsShipperService } from './ls-shipper.service';
 import { LsPlacementService } from './ls-placement.service';
+import { LsShipperDirectoryService } from './ls-shipper-directory.service';
 import { LsApprovalService } from './ls-approval.service';
 import { LsTrackingService } from './ls-tracking.service';
 import { LsStaffNotifier } from './ls-staff-notifier';
 import { LsCallLogService } from './ls-call-log.service';
 import { LS_SETTINGS_MANAGE } from '../../shared/constants/permissions';
 import { LsCsService } from './ls-cs.service';
+import { LsPlacementBoardService } from './ls-placement-board.service';
 import { LsReceivablesService } from './ls-receivables.service';
 import { LsPayablesService } from './ls-payables.service';
 import { LsConsoleService } from './ls-console.service';
@@ -75,6 +77,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
   const approval = new LsApprovalService(
     dataSource,
     deps.loadPostingService,
+    deps.loadPostingLookupService,
     deps.storageService,
     deps.loadActivityService,
     deps.auditService,
@@ -89,6 +92,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.loadDocumentService,
     deps.elrService,
     staffNotifier,
+    deps.loadPostingService,
   );
 
   const callLog = new LsCallLogService(
@@ -136,10 +140,11 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
   );
 
   // Cross-team read views: All loads, Super Admin approvals, analytics, live map.
+  const consoleRepository = new ConsoleRepository(dataSource);
   const consoleViews = new LsConsoleService(
     dataSource,
     repository,
-    new ConsoleRepository(dataSource),
+    consoleRepository,
     deps.loadActivityService,
     loadPaymentRepository,
     deps.trackingClient,
@@ -214,6 +219,16 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
         consoleViews,
         staffNotifier,
         callLog,
+        new LsPlacementBoardService(
+          repository,
+          deps.loadActivityService,
+          deps.auditService,
+          dataSource,
+          deps.settings,
+          consoleRepository,
+          sourcing,
+        ),
+        new LsShipperDirectoryService(dataSource, sourcing),
       ),
     ),
     shipperRouter: createLoadsmartShipperRoutes(new LoadsmartShipperController(shipper)),
