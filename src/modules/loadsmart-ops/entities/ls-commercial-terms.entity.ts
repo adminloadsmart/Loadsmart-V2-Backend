@@ -1,6 +1,7 @@
 import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 import type { BillingInstruction } from '../billing-rules';
 import { POD_TYPES, PodType } from '../loadsmart.types';
+import { BALANCE_PAYERS, BalancePayer } from '../receivables-rules';
 
 export interface PreapprovedCharge {
   head: string;
@@ -30,6 +31,27 @@ export class LsCommercialTermsEntity {
   /** "Balance due (credit days from invoice receipt)" — null: the settings' default. */
   @Column({ name: 'credit_days', type: 'integer', nullable: true })
   creditDays!: number | null;
+
+  /** The advance the shipper pays Loadsmart, as a % of freight + approved loading charges, agreed
+   *  at onboarding. Null: the load's own advance %, else the settings' default. */
+  @Column({
+    name: 'shipper_advance_percent',
+    type: 'numeric',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+  })
+  shipperAdvancePercent!: string | null;
+
+  /** Who settles the balance — the shipper, or the consignee at the drop. */
+  @Column({
+    name: 'balance_payer',
+    type: 'enum',
+    enum: [...BALANCE_PAYERS],
+    enumName: 'ls_balance_payer_enum',
+    default: 'shipper',
+  })
+  balancePayer!: BalancePayer;
 
   /** Bill on the POD image, or wait for the physical original. */
   @Column({ name: 'pod_type', type: 'enum', enum: [...POD_TYPES], default: 'image' })

@@ -25,6 +25,7 @@ import { booleanString } from '../../shared/validators/boolean-string';
 import { TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
 import { TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
 import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
+import { BALANCE_PAYERS, GST_TREATMENTS, RECEIVABLE_STATUSES } from './receivables-rules';
 import { LOAD_STATUSES } from '../loads/utils/loads.types';
 import { MSME_CREDIT_DAYS_CAP } from '../settings/settings.types';
 import {
@@ -105,6 +106,10 @@ export const loadsmartValidators = {
           .max(20)
           .optional(),
         billingNote: z.string().trim().max(1000).nullable().optional(),
+        // The shipper's advance to Loadsmart (% of freight + approved loading charges); null: the
+        // load's own advance %, else Settings' default.
+        shipperAdvancePercent: percent.nullable().optional(),
+        balancePayer: z.enum(BALANCE_PAYERS).optional(),
       })
       .strict(),
   }),
@@ -422,6 +427,67 @@ export const loadsmartValidators = {
         shortfallReason: z.enum(SHORTFALL_REASONS).optional(),
         shortfallNote: z.string().trim().max(500).optional(),
         loadPaymentId: uuid.optional(),
+        // The payment advice, uploaded by the caller for purpose loads/payment-proof.
+        proofFileKey: z.string().trim().min(1).optional(),
+      })
+      .strict(),
+  }),
+
+  // --- Receivables board (R01) ---
+  receivablesBoard: z.object({
+    query: z
+      .object({
+        status: z
+          .union([z.enum(RECEIVABLE_STATUSES), z.array(z.enum(RECEIVABLE_STATUSES))])
+          .transform((value) => (Array.isArray(value) ? value : [value]))
+          .optional(),
+        tenantId: uuid.optional(),
+        /** Load code, LR, shipper, consignee, invoice number or POD docket. */
+        q: z.string().trim().min(2).max(50).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .strict(),
+  }),
+  invoicePreview: z.object({
+    params: loadParams,
+    query: z.object({ gstTreatment: z.enum(GST_TREATMENTS).optional() }).strict(),
+  }),
+  issueInvoice: z.object({
+    params: loadParams,
+    body: z
+      .object({ gstTreatment: z.enum(GST_TREATMENTS).optional() })
+      .strict()
+      .optional()
+      .default({}),
+  }),
+  // "Record receipt" on a load: the shipper's advance before the invoice, or money against it.
+  recordLoadReceipt: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        paymentType: z.enum(['advance', 'balance']),
+        amount: z.number().positive().max(1_000_000_000),
+        receivedOn: isoDateSchema,
+        utrReference: z.string().trim().min(1).max(100),
+        paidThrough: z.enum(RECEIPT_CHANNELS).optional(),
+        proofFileKey: z.string().trim().min(1).optional(),
+        tdsCut: money.optional(),
+        shortfallReason: z.enum(SHORTFALL_REASONS).optional(),
+        shortfallNote: z.string().trim().max(500).optional(),
+        loadPaymentId: uuid.optional(),
+      })
+      .strict(),
+  }),
+  // The original POD sent on from Loadsmart to whoever pays the balance.
+  payerPod: z.object({
+    params: z.object({ invoiceId: uuid }),
+    body: z
+      .object({
+        status: z.enum(['in_transit', 'received']),
+        courierName: z.string().trim().min(1).max(100).optional(),
+        docketNumber: z.string().trim().min(1).max(100).optional(),
+        on: isoDateSchema.optional(),
       })
       .strict(),
   }),

@@ -67,6 +67,24 @@ export class LoadPaymentRepository {
     return !!result.affected;
   }
 
+  /** Verifies a payment the shipper recorded that nobody has checked yet (no status, or pending)
+   *  — Receivables confirming a shipper's advance on a Loadsmart load. */
+  async markReportedVerified(
+    tenantId: string,
+    id: string,
+    verifiedBy: string,
+    verifiedAt: Date,
+  ): Promise<boolean> {
+    const result = await this.payments
+      .createQueryBuilder()
+      .update()
+      .set({ verificationStatus: 'verified', verifiedBy, verifiedAt })
+      .where('tenant_id = :tenantId AND id = :id', { tenantId, id })
+      .andWhere("(verification_status IS NULL OR verification_status = 'pending')")
+      .execute();
+    return !!result.affected;
+  }
+
   listByLoad(tenantId: string, loadId: string): Promise<LoadPaymentEntity[]> {
     return this.payments.find({ where: { tenantId, loadId }, order: { createdAt: 'ASC' } });
   }

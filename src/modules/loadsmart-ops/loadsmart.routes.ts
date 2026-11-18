@@ -373,17 +373,42 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
 
   // Receivables — inbox, invoice builder, receipts, unclaimed payments.
   router.get('/receivables/inbox', team(LS_RECEIVABLES), asyncHandler(c.receivablesInbox));
+  // The board (one row per load with its status) and one load's receivables page.
+  router.get(
+    '/receivables/loads',
+    team(LS_RECEIVABLES),
+    validate(v.receivablesBoard),
+    asyncHandler(c.receivablesBoard),
+  );
+  router.get(
+    '/receivables/loads/:loadId',
+    team(LS_RECEIVABLES),
+    validate(v.load),
+    asyncHandler(c.receivableLoad),
+  );
+  router.post(
+    '/receivables/loads/:loadId/receipts',
+    team(LS_RECEIVABLES),
+    validate(v.recordLoadReceipt),
+    asyncHandler(c.recordLoadReceipt),
+  );
   router.get(
     '/loads/:loadId/invoice/preview',
     team(LS_RECEIVABLES),
-    validate(v.load),
+    validate(v.invoicePreview),
     asyncHandler(c.invoicePreview),
   );
   router.post(
     '/loads/:loadId/invoice',
     team(LS_RECEIVABLES),
-    validate(v.load),
+    validate(v.issueInvoice),
     asyncHandler(c.issueInvoice),
+  );
+  router.patch(
+    '/invoices/:invoiceId/payer-pod',
+    team(LS_RECEIVABLES),
+    validate(v.payerPod),
+    asyncHandler(c.recordPayerPod),
   );
   router.patch(
     '/invoices/:invoiceId/delivery',

@@ -137,6 +137,11 @@ export class LsSourcingService extends LsServiceBase {
       podType: terms?.podType ?? 'image',
       billingInstructions: terms?.billingInstructions ?? [],
       billingNote: terms?.billingNote ?? null,
+      // Null: the load's own advance % (what the shipper posted), else the settings' default.
+      shipperAdvancePercent:
+        terms?.shipperAdvancePercent != null ? Number(terms.shipperAdvancePercent) : null,
+      defaultShipperAdvancePercent: values.defaultShipperAdvancePercent,
+      balancePayer: terms?.balancePayer ?? 'shipper',
       isDefault: !terms,
     };
   }
@@ -171,6 +176,13 @@ export class LsSourcingService extends LsServiceBase {
         ...(input.podType ? { podType: input.podType } : {}),
         ...(input.billingInstructions ? { billingInstructions: input.billingInstructions } : {}),
         ...(input.billingNote !== undefined ? { billingNote: input.billingNote } : {}),
+        ...(input.shipperAdvancePercent !== undefined
+          ? {
+              shipperAdvancePercent:
+                input.shipperAdvancePercent === null ? null : String(input.shipperAdvancePercent),
+            }
+          : {}),
+        ...(input.balancePayer ? { balancePayer: input.balancePayer } : {}),
         updatedBy: actorId,
       });
       await this.auditService.log({

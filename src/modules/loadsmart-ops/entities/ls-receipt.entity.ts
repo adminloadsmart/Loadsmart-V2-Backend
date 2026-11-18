@@ -46,6 +46,10 @@ export class LsReceiptEntity {
   @Column({ name: 'shortfall_note', type: 'varchar', length: 500, nullable: true })
   shortfallNote!: string | null;
 
+  /** The payment advice (PDF or screenshot), filed on the load as `payment_proof`. */
+  @Column({ name: 'proof_file_key', type: 'text', nullable: true })
+  proofFileKey!: string | null;
+
   /** The shipper's reported payment (loads.load_payments) this receipt verifies. */
   @Column({ name: 'load_payment_id', type: 'uuid', nullable: true })
   loadPaymentId!: string | null;

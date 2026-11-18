@@ -110,6 +110,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     codeSequenceRepository,
     deps.storageService,
     deps.settings,
+    deps.loadDocumentService,
   );
   const cs = new LsCsService(
     repository,
