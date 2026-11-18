@@ -142,6 +142,9 @@ export class LsSourcingService extends LsServiceBase {
         terms?.shipperAdvancePercent != null ? Number(terms.shipperAdvancePercent) : null,
       defaultShipperAdvancePercent: values.defaultShipperAdvancePercent,
       balancePayer: terms?.balancePayer ?? 'shipper',
+      shipperAdvanceDays: terms?.shipperAdvanceDays ?? null,
+      physicalLr: terms?.physicalLr ?? false,
+      physicalLrNote: terms?.physicalLrNote ?? null,
       isDefault: !terms,
     };
   }
@@ -183,6 +186,11 @@ export class LsSourcingService extends LsServiceBase {
             }
           : {}),
         ...(input.balancePayer ? { balancePayer: input.balancePayer } : {}),
+        ...(input.shipperAdvanceDays !== undefined
+          ? { shipperAdvanceDays: input.shipperAdvanceDays }
+          : {}),
+        ...(input.physicalLr !== undefined ? { physicalLr: input.physicalLr } : {}),
+        ...(input.physicalLrNote !== undefined ? { physicalLrNote: input.physicalLrNote } : {}),
         updatedBy: actorId,
       });
       await this.auditService.log({

@@ -1,6 +1,7 @@
 import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
+import type { LoadPostingLookupService } from '../loads/load-posting/load-posting-lookup.service';
 import type { LoadDocumentService } from '../loads/documents/load-document.service';
 import type { SettingsReader } from '../settings/settings.types';
 import type { AuditService } from '../audit/audit.service';
@@ -180,6 +181,9 @@ export interface CommercialTermsInput {
    *  load's own advance %, else the settings' default. */
   shipperAdvancePercent?: number | null;
   balancePayer?: BalancePayer;
+  shipperAdvanceDays?: number | null;
+  physicalLr?: boolean;
+  physicalLrNote?: string | null;
 }
 
 /** Approval team posts the load on the board, optionally changing the terms. */
@@ -316,6 +320,7 @@ export interface LoadsmartOpsModuleDeps {
   settings: SettingsReader;
   loadDocumentService: LoadDocumentService;
   loadPostingService: LoadPostingService;
+  loadPostingLookupService: LoadPostingLookupService;
   elrService: ElrService;
   /** The live map reads each trip's last position and ETA from the tracking service. */
   trackingClient: TrackingClient;

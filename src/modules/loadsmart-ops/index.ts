@@ -7,6 +7,7 @@ import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';
 import { LsShipperService } from './ls-shipper.service';
 import { LsPlacementService } from './ls-placement.service';
+import { LsShipperDirectoryService } from './ls-shipper-directory.service';
 import { LsApprovalService } from './ls-approval.service';
 import { LsTrackingService } from './ls-tracking.service';
 import { LsStaffNotifier } from './ls-staff-notifier';
@@ -76,6 +77,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
   const approval = new LsApprovalService(
     dataSource,
     deps.loadPostingService,
+    deps.loadPostingLookupService,
     deps.storageService,
     deps.loadActivityService,
     deps.auditService,
@@ -90,6 +92,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.loadDocumentService,
     deps.elrService,
     staffNotifier,
+    deps.loadPostingService,
   );
 
   const callLog = new LsCallLogService(
@@ -225,6 +228,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
           consoleRepository,
           sourcing,
         ),
+        new LsShipperDirectoryService(dataSource, sourcing),
       ),
     ),
     shipperRouter: createLoadsmartShipperRoutes(new LoadsmartShipperController(shipper)),

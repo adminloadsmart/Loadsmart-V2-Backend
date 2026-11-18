@@ -65,6 +65,17 @@ export class LsCommercialTermsEntity {
   @Column({ name: 'billing_note', type: 'text', nullable: true })
   billingNote!: string | null;
 
+  /** Within how many days of loading the shipper's advance is due. Null: none set. */
+  @Column({ name: 'shipper_advance_days', type: 'integer', nullable: true })
+  shipperAdvanceDays!: number | null;
+
+  /** The shipper needs the physical LR book. */
+  @Column({ name: 'physical_lr', type: 'boolean', default: false })
+  physicalLr!: boolean;
+
+  @Column({ name: 'physical_lr_note', type: 'text', nullable: true })
+  physicalLrNote!: string | null;
+
   @Column({ name: 'updated_by', type: 'uuid', nullable: true })
   updatedBy!: string | null;
 

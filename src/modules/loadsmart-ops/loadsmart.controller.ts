@@ -11,6 +11,7 @@ import { LsSourcingService } from './ls-sourcing.service';
 import { LsSettlementService } from './ls-settlement.service';
 import { LsShipperService } from './ls-shipper.service';
 import { LsPlacementService } from './ls-placement.service';
+import { LsShipperDirectoryService } from './ls-shipper-directory.service';
 import { LsApprovalService } from './ls-approval.service';
 import { LsTrackingService } from './ls-tracking.service';
 import { LsCsService } from './ls-cs.service';
@@ -42,6 +43,7 @@ export class LoadsmartOpsController {
     private readonly staffNotifier: LsStaffNotifier,
     private readonly callLogs: LsCallLogService,
     private readonly placementBoard: LsPlacementBoardService,
+    private readonly shipperDirectory: LsShipperDirectoryService,
   ) {}
 
   // --- Placement work queue and load page ---
@@ -236,6 +238,12 @@ export class LoadsmartOpsController {
         req.body.reply,
       ),
     );
+  editLoadDetails = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.tracking.editLoadDetails(req.user!.id, req.params.loadId, req.body),
+    );
   issueElr = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,
@@ -340,6 +348,101 @@ export class LoadsmartOpsController {
     );
 
   // --- Approval ---
+  listShippers = async (req: Request, res: Response) => {
+    const query = req.validatedQuery as { search?: string; limit: number };
+    this.out(req, res, await this.approvalService.listShippers(query.search, query.limit));
+  };
+  // --- Approval: the shipper accounts (the Shippers master, read-only) ---
+  shipperAccounts = async (req: Request, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.shipperDirectory.list(
+        req.validatedQuery as Parameters<LsShipperDirectoryService['list']>[0],
+      ),
+    );
+  shipperAccount = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.shipperDirectory.profile(req.params.tenantId));
+  shipperAccountLoadingPoints = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.shipperDirectory.loadingPoints(req.params.tenantId));
+  shipperAccountConsignees = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.shipperDirectory.consignees(req.params.tenantId));
+  shipperAccountDocuments = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.shipperDirectory.documents(req.params.tenantId));
+  shipperAccountInvoices = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.shipperDirectory.invoices(req.params.tenantId));
+  shipperAccountTickets = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.shipperDirectory.tickets(req.params.tenantId));
+  saveShipperAccountTerms = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.shipperDirectory.saveTerms(req.user!.id, req.params.tenantId, req.body),
+    );
+  shipperAccountActivity = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.shipperDirectory.activity(
+        req.params.tenantId,
+        (req.validatedQuery as { limit: number }).limit,
+      ),
+    );
+  shipperRecentCustomers = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.approvalService.pickers.recentCustomers(
+        req.params.tenantId,
+        (req.validatedQuery as { limit: number }).limit,
+      ),
+    );
+  shipperCustomers = async (req: Request<LoadsmartRouteParams>, res: Response) => {
+    const query = req.validatedQuery as { search?: string; limit: number };
+    this.out(
+      req,
+      res,
+      await this.approvalService.pickers.customers(req.params.tenantId, query.search, query.limit),
+    );
+  };
+  shipperUnloadingPoints = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.approvalService.pickers.unloadingPoints(
+        req.params.tenantId,
+        req.params.customerId as string,
+        (req.validatedQuery as { search?: string }).search,
+      ),
+    );
+  shipperLoadingPoints = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.approvalService.pickers.loadingPoints(
+        req.params.tenantId,
+        (req.validatedQuery as { search?: string }).search,
+      ),
+    );
+  shipperCommodities = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.approvalService.pickers.commodities(
+        req.params.tenantId,
+        (req.validatedQuery as { search?: string }).search,
+      ),
+    );
+  shipperTruckOptions = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      this.approvalService.pickers.truckOptions(
+        req.validatedQuery as Parameters<LsApprovalService['pickers']['truckOptions']>[0],
+      ),
+    );
+  shipperPostingRules = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.approvalService.pickers.rules());
   postForShipper = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,
