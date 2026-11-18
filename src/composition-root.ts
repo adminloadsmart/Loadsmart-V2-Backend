@@ -32,6 +32,9 @@ import { GeofenceRepository } from './modules/geofences/geofence.repository';
 import { createHaltGeofences } from './modules/notifications/halt-exclusions';
 import { createLocationDescriber } from './modules/notifications/utils/location';
 import { redisManager } from './db/redis';
+import { createMessagingModule } from './modules/messaging';
+import type { CallReminderContext } from './modules/notifications/catalog/notification-catalog';
+import { TypeormLoadChannelFacts } from './modules/messaging/load-channel-facts';
 import { createNotificationsModule } from './modules/notifications';
 import { createNotificationsTestRoutes } from './modules/notifications/test-trigger';
 import { env } from './config/env';
@@ -149,6 +152,8 @@ export function buildContainer(dataSource: DataSource): Container {
   // (LS_N_0006), auth (LS_N_0002/0005) and admin (LS_N_0001/0003/0004) enqueue notifications
   // through its `triggers`; notifyByType below needs its service.
   const notifications = createNotificationsModule(dataSource);
+  // WhatsApp about loads to brokers, transporters and shippers, through MSG91 (modules/messaging).
+  const messaging = createMessagingModule(dataSource);
   // LS_N_0009/0010 — handed to the masters, driver and customers modules (see
   // modules/notifications/master-approvals.ts).
   const masterApprovalNotifier = createMasterApprovalNotifier(notifications.triggers);
@@ -223,6 +228,10 @@ export function buildContainer(dataSource: DataSource): Container {
     authService: auth.service,
     notificationPreferencesRepository: notifications.notificationPreferencesRepository,
     notificationTriggers: notifications.triggers,
+    // Load channel rules: no WhatsApp to the shipper before the load memo (messaging/channel-policy.ts).
+    loadChannelFacts: new TypeormLoadChannelFacts(dataSource),
+    // Load notifications to shipper users also go into the load's message log (task 3).
+    sentLog: messaging.notificationSentLog,
   });
 
   // Built before masters: driver is its own top-level module now (promoted out of masters/ — see
@@ -235,6 +244,10 @@ export function buildContainer(dataSource: DataSource): Container {
     organizationService: organization.organizationService,
     masterApprovalNotifier,
     notificationsService: notifications.service,
+  });
+  // The driver invite's WhatsApp delivery reports come on the same MSG91 webhook as load replies.
+  messaging.addWebhookBodyListener(async (body) => {
+    await driver.driverService.recordWhatsAppReports(body);
   });
 
   // The driver-app auth/session layer — a separate identity domain from auth.users/roles (see
@@ -472,6 +485,20 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.licence_mismatch': loadAlertResolvers.licenceMismatch,
       'load.assignment_compliance_failed': loadAlertResolvers.assignmentComplianceFailed,
       // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
+      // Generic in-app card for stage moves without a type of their own (spec p.30).
+      'load.stage_changed': loadAlertResolvers.stageChanged,
+      // Log a call (spec p.36) — null once the reminder was closed or changed. `loads` is built
+      // further down; the worker only runs this after start-up.
+      'call.reminder': async (_tenantId: string, context: CallReminderContext) => {
+        const open = await loads.loadCallService.openReminder(context.callId, context.reminderAt);
+        if (!open) return null;
+        return {
+          ...context,
+          loadCode: open.loadCode,
+          notes: open.call.notes,
+          parties: open.call.parties.map((party) => party.role),
+        };
+      },
       'load.vehicle_loaded': loadAlertResolvers.vehicleLoaded,
       'load.vehicle_in_transit': loadAlertResolvers.vehicleInTransit,
       // LS_N_0027 vehicle halted (from tracking's HALT-GPS alert; 2 h, and again at 6 h).
@@ -545,6 +572,8 @@ export function buildContainer(dataSource: DataSource): Container {
     // app — one in-app card always, plus a push to each signed-in device.
     driverTripNotifier: driver.driverPushNotifier,
     settings: settings.service,
+    // Posted loads go to transporters as WhatsApp offers (modules/messaging/integration).
+    loadDispatchNotifier: messaging.dispatchNotifier,
   });
 
   // Loadsmart loads — the ops console (/loadsmart-ops) and the shipper's side of a Loadsmart load
@@ -571,7 +600,18 @@ export function buildContainer(dataSource: DataSource): Container {
     loadCancelService: loads.loadCancelService,
   });
   ewayBillRiskHook.notify = loadsmart.notifyEwayBillAtRisk;
+  // WhatsApp: board loads go to partners; replies (accept / rate / truck number) from transporters
+  // and partners become bids, indent acceptances and partner bids (modules/messaging/integration).
+  loadsmart.sourcingService.setLoadBoardNotifier(
+    messaging.createPartnerBoardNotifier(loadsmart.sourcingService),
+  );
+  messaging.connectReplies({
+    transporterBids: loads.loadBidService,
+    partnerBoard: loadsmart.sourcingService,
+  });
   loads.protectedRouter.use(loadsmart.shipperRouter);
+  // GET /v1/loads/loads/:loadId/messages — the shipper-safe sent log (task 3).
+  loads.protectedRouter.use(messaging.shipperSentLogRouter);
   // Super Admin → Settings on the ops console: /loadsmart-ops/settings.
   loadsmart.opsRouter.use('/settings', settings.router);
 
@@ -630,8 +670,10 @@ export function buildContainer(dataSource: DataSource): Container {
     auditMiddleware,
     publicRouters: [
       { path: '/auth', router: auth.publicRouter },
-      // Full paths inside (/driver-invites/open/:token, /webhooks/msg91/whatsapp) — see the router.
+      // Full path inside (/driver-invites/open/:token) — see the router.
       { path: '', router: driver.inviteTrackingRouter },
+      // POST /webhooks/msg91/whatsapp?token=… — MSG91's WhatsApp inbound + reports (messaging.routes.ts).
+      { path: '', router: messaging.webhookRouter },
     ],
     authenticatedRouters: [
       { path: '/auth', router: auth.protectedRouter },
@@ -688,6 +730,21 @@ export function buildContainer(dataSource: DataSource): Container {
         reason:
           'Loadsmart ops console across shippers; every route requires an ls_* team permission.',
       },
+      // The load's message log and WhatsApp log for Loadsmart's teams (tasks 3, 4).
+      {
+        path: '/loadsmart-ops',
+        router: messaging.opsSentLogRouter,
+        scope: 'crossTenant',
+        reason:
+          'Loadsmart ops message / WhatsApp logs across shippers; every route requires an ls_* team permission.',
+      },
+      // Log a call — any Loadsmart team, on any load (spec p.36).
+      {
+        path: '/loadsmart-ops',
+        router: loads.loadCallOpsRouter,
+        scope: 'crossTenant',
+        reason: 'Loadsmart ops call log on any load; every route requires an ls_* team permission.',
+      },
       {
         path: '/files',
         router: storage.router,
@@ -703,6 +760,8 @@ export function buildContainer(dataSource: DataSource): Container {
     ],
     backgroundWorkers: [
       notifications.worker,
+      messaging.inboundWorker,
+      messaging.outboundWorker,
       notificationTriggerWorker,
       notificationScheduleWorker,
       organization.documentVerificationWorker,

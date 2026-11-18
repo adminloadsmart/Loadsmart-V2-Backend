@@ -16,6 +16,8 @@ import { registerLoadPostingOpenApi } from '../../modules/loads/load-posting/loa
 import { registerLoadDocumentOpenApi } from '../../modules/loads/documents/load-document.openapi';
 import { registerLoadsmartOpenApi } from '../../modules/loadsmart-ops/loadsmart.openapi';
 import { registerSettingsOpenApi } from '../../modules/settings/settings.openapi';
+import { registerSentLogOpenApi } from '../../modules/messaging/sent-log/sent-log.openapi';
+import { registerLoadCallOpenApi } from '../../modules/loads/calls/load-call.openapi';
 import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper/shipper-analytics.openapi';
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
 import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';
@@ -62,6 +64,8 @@ function getOpenApiDocument() {
     registerLoadDocumentOpenApi(registry);
     registerLoadsmartOpenApi(registry);
     registerSettingsOpenApi(registry);
+    registerSentLogOpenApi(registry);
+    registerLoadCallOpenApi(registry);
     registerShipperAnalyticsOpenApi(registry);
     registerFleetAnalyticsOpenApi(registry);
     registerDriverAnalyticsOpenApi(registry);

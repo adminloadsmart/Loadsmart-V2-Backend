@@ -16,6 +16,7 @@ import type {
   AssignmentComplianceSubject,
   PodReviewDecision,
   LoadIssueCategory,
+  LoadStatus,
 } from '../loads/utils/loads.types';
 import type { DriverLicenseEndorsement } from '../driver/drivers.types';
 import type { VehicleDocumentTypeWithExpiry } from '../masters/vehicle/vehicle.type';
@@ -185,7 +186,10 @@ export type LoadEvent =
       vehicleChecked: boolean;
       driverChecked: boolean;
     }
-  | AssignmentBlockedEvent;
+  | AssignmentBlockedEvent
+  /** Every stage move (LoadStageService.transition) — load.stage_changed for the stages that have
+   *  no notification of their own (STAGE_CHANGED_CARD_LABELS). */
+  | { kind: 'stage_changed'; tenantId: string; loadId: string; to: LoadStatus; at: Date };
 
 /** Who did something on a load: the assigned driver (driver app) or a staff user. */
 export type LoadPersonRef = { driverId: string } | { userId: string };
@@ -835,3 +839,27 @@ export interface IssueReportedEvent {
 
 /** Called by LoadService.reportIssue after the report is saved — only queues the issue id. */
 export type IssueReportedNotifier = (event: IssueReportedEvent) => Promise<void>;
+
+/** One channel of one load notification to a shipper user, for the load's sent-log (task 3:
+ *  "Notifications sent: recipient, channel, message, time"). */
+export interface NotificationSentEntry {
+  tenantId: string;
+  loadId: string;
+  type: string;
+  intent: 'action' | 'update' | null;
+  recipient: { id: string; name: string | null };
+  channel: NotificationChannelName | 'in_app';
+  /** Phone / email / 'app'. */
+  address: string;
+  /** queued = handed to the dispatch worker; suppressed = dropped by the channel rules. */
+  status: 'queued' | 'suppressed';
+  suppressedReason?: string;
+  title: string;
+  body: string;
+}
+
+/** Where load notifications to shipper users are logged (messaging's message_log). Never throws
+ *  into the dispatch. */
+export interface NotificationSentLog {
+  record(entries: NotificationSentEntry[]): Promise<void>;
+}

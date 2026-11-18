@@ -42,6 +42,9 @@ if (jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
   console.warn(`⚠ ${message}`);
 }
 
+/** Env keys naming the MSG91 template of a load-flow WhatsApp notification (LS_N_…). */
+const MSG91_LOAD_TEMPLATE_ENV_PREFIX = 'MSG91_WHATSAPP_TEMPLATE_LS_N_';
+
 export const env = {
   nodeEnv,
   port: Number(process.env.PORT ?? 4000),
@@ -310,4 +313,17 @@ export const env = {
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID || undefined,
   firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL || undefined,
   firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY || undefined,
+  // WhatsApp to brokers/transporters/shippers about loads (modules/messaging), through MSG91 (the
+  // MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER / MSG91_WHATSAPP_NAMESPACE above; webhook
+  // token MSG91_WEBHOOK_TOKEN). Approved MSG91 template name per load-flow notification id, e.g.
+  // MSG91_WHATSAPP_TEMPLATE_LS_N_0105=ls_new_load_rate → { LS_N_0105: 'ls_new_load_rate' }.
+  // Unset = that template isn't approved yet (the send is logged as suppressed).
+  msg91WhatsappLoadTemplateNames: Object.fromEntries(
+    Object.entries(process.env)
+      .filter(
+        ([key, value]) => key.startsWith(MSG91_LOAD_TEMPLATE_ENV_PREFIX) && Boolean(value?.trim()),
+      )
+      .map(([key, value]) => [key.slice('MSG91_WHATSAPP_TEMPLATE_'.length), value!.trim()]),
+  ) as Record<string, string>,
+  whatsappTemplateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE?.trim() || 'en',
 };

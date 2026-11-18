@@ -5,6 +5,8 @@ import { NotificationsService } from './notifications.service';
 import {
   ChannelPreferenceFlags,
   NotificationDestinations,
+  NotificationSentEntry,
+  NotificationSentLog,
   NotificationTriggers,
 } from './notifications.interface';
 import { NotificationChannelName } from './notifications.types';
@@ -17,6 +19,8 @@ import { EMAIL_CTA_URL_KEY, QUIET_HOURS_HELD_CHANNELS } from './notifications.co
 import { getQuietHoursDelayMs } from './utils/quiet-hours';
 import { resolveChannelPreferences } from './utils/channel-preferences';
 import { appUrl } from './utils/app-url';
+import { applyChannelPolicy } from '../messaging/channel-policy';
+import { LoadChannelFacts } from '../messaging/load-channel-facts';
 
 export interface NotifyByTypeDeps {
   notificationsService: NotificationsService;
@@ -26,6 +30,12 @@ export interface NotifyByTypeDeps {
   // For catalog types with recipientRateLimit — queues the overflow summary. Optional so callers
   // without it (no rate-limited types) are unaffected.
   notificationTriggers?: NotificationTriggers;
+  // Load facts for the channel rules (no WhatsApp to the shipper before the load memo). Optional:
+  // without it only the intent rule applies.
+  loadChannelFacts?: LoadChannelFacts;
+  // The load's sent-log (task 3) — every load notification to a shipper user, per channel,
+  // including channels the rules dropped. Optional.
+  sentLog?: NotificationSentLog;
 }
 
 /**
@@ -184,6 +194,13 @@ async function notifyByTypeImpl(
     const emailCtaUrl = definition.emailCtaPath
       ? appUrl(definition.emailCtaPath(context))
       : undefined;
+    // Channel rules (messaging/channel-policy.ts) — the same for every recipient of this dispatch:
+    // every catalog recipient is a shipper-side tenant user.
+    const contextLoadId = (context as { loadId?: unknown } | null)?.loadId;
+    const policyLoad =
+      typeof contextLoadId === 'string' && contextLoadId && deps.loadChannelFacts
+        ? await deps.loadChannelFacts.forLoad(tenantId, contextLoadId)
+        : null;
     const followUpAt =
       definition.reminderAfterMs && !isReminder && (definition.shouldRemind?.(context) ?? true)
         ? new Date(Date.now() + definition.reminderAfterMs).toISOString()
@@ -240,6 +257,25 @@ async function notifyByTypeImpl(
           channels.push('whatsapp');
           destinations.whatsappNumber = recipient.phoneNumber;
         }
+        const sentEntries: NotificationSentEntry[] = [];
+        const policy = applyChannelPolicy({
+          recipientKind: 'shipper_user',
+          intent: definition.intent ?? null,
+          channels,
+          load: policyLoad,
+        });
+        if (policy.suppressed.length) {
+          channels.splice(0, channels.length, ...(policy.channels as NotificationChannelName[]));
+          if (!channels.includes('whatsapp')) delete destinations.whatsappNumber;
+          for (const drop of policy.suppressed) {
+            sentEntries.push({
+              channel: drop.channel,
+              address: recipient.phoneNumber ?? '',
+              status: 'suppressed',
+              suppressedReason: drop.reason,
+            } as NotificationSentEntry);
+          }
+        }
         if (definition.channels.includes('push') && enabled.push) {
           // Picks a single active device token per recipient rather than fanning out to every
           // device (dispatch-planning.service.ts's notifyAssignedDrivers fans out per driver
@@ -285,6 +321,44 @@ async function notifyByTypeImpl(
           // In-app off → the row exists only to carry the other mediums; hidden from the inbox.
           showInApp: isShownInApp ? enabled.inApp : true,
         });
+        if (deps.sentLog && typeof contextLoadId === 'string' && contextLoadId) {
+          const addressOf: Partial<Record<NotificationChannelName, string | undefined>> = {
+            email: destinations.email,
+            sms: destinations.phoneNumber,
+            whatsapp: destinations.whatsappNumber,
+            push: 'device',
+          };
+          for (const channel of channels) {
+            sentEntries.push({
+              channel,
+              address: addressOf[channel] ?? '',
+              status: 'queued',
+            } as NotificationSentEntry);
+          }
+          if (isShownInApp && enabled.inApp) {
+            sentEntries.push({
+              channel: 'in_app',
+              address: 'app',
+              status: 'queued',
+            } as NotificationSentEntry);
+          }
+          await deps.sentLog
+            .record(
+              sentEntries.map((entry) => ({
+                ...entry,
+                tenantId,
+                loadId: contextLoadId,
+                type,
+                intent: definition.intent ?? null,
+                recipient: { id: recipient.id, name: recipient.fullName ?? null },
+                title,
+                body,
+              })),
+            )
+            .catch((error: unknown) =>
+              console.warn(`[notifications] sent-log for ${type} failed: ${String(error)}`),
+            );
+        }
       }),
     );
   } catch (error) {

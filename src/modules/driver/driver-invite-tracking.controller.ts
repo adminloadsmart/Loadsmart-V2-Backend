@@ -1,15 +1,6 @@
 import { Request, Response } from 'express';
-import { timingSafeEqual } from 'node:crypto';
-import { env } from '../../config/env';
 import { DriverService } from './driver.service';
 import { InviteLinkParams } from './drivers.interface';
-
-function matchesWebhookToken(token: unknown): boolean {
-  if (!env.msg91WebhookToken || typeof token !== 'string') return false;
-  const expected = Buffer.from(env.msg91WebhookToken);
-  const actual = Buffer.from(token);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
 
 /** Public (no login) endpoints behind the driver invite's WhatsApp — see the routes file. */
 export class DriverInviteTrackingController {
@@ -23,17 +14,5 @@ export class DriverInviteTrackingController {
     );
     if (appUrl) res.redirect(302, appUrl);
     else res.status(404).send('The driver app link is not set up yet.');
-  };
-
-  /** MSG91's WhatsApp delivery reports (delivered/read/failed). */
-  whatsappReport = async (req: Request, res: Response) => {
-    if (!matchesWebhookToken(req.query.token)) {
-      console.warn('MSG91 WhatsApp webhook rejected — missing or wrong token');
-      res.status(401).json({ success: false });
-      return;
-    }
-    await this.driverService.recordWhatsAppReports(req.body);
-    // Always 200 once authenticated — a non-2xx makes MSG91 retry reports we've already seen.
-    res.status(200).json({ success: true });
   };
 }

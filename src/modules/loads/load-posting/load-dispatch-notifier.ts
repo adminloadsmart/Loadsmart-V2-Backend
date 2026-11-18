@@ -1,4 +1,4 @@
-import { MessageStatus } from './utils/load-posting.types';
+import { MessageStatus, PostMode, PriceMode } from './utils/load-posting.types';
 
 export interface DispatchRecipient {
   recipientId: string;
@@ -8,11 +8,28 @@ export interface DispatchRecipient {
   phone: string | null;
 }
 
+/** The posting as a structured offer — what a WhatsApp template needs (one offer per load, so
+ *  every reply names one load). Never carries the shipper's or customer's name. */
+export interface DispatchOffer {
+  mode: PostMode;
+  priceMode: PriceMode | null;
+  /** Target rate (market, set_target) or contract rate (indent); null when quotes are asked. */
+  rate: string | null;
+  pickupLabel: string;
+  dropLabel: string;
+  truckLabel: string;
+  /** Load weight in tonnes, as posted (null when not given). */
+  weightTonnes: string | null;
+  pickupAt: Date;
+  loads: { loadId: string; loadCode: string }[];
+}
+
 export interface DispatchMessage {
   tenantId: string;
   postingId: string;
   text: string;
   recipients: DispatchRecipient[];
+  offer?: DispatchOffer;
 }
 
 export interface DispatchResult {
@@ -21,8 +38,8 @@ export interface DispatchResult {
 }
 
 /**
- * How a posted load reaches transporters. Posting depends on this interface only, so the real
- * WhatsApp sender (MSG91 templates via the notifications module) can replace the logging default
+ * How a posted load reaches transporters. Posting depends on this interface only; the WhatsApp
+ * sender (messaging/integration/whatsapp-dispatch-notifier.ts) replaces the logging default
  * without touching LoadPostingService. Implementations must not throw for a delivery failure —
  * report it as `failed` for that recipient; the load is already posted.
  */

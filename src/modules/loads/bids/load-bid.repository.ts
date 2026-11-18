@@ -56,7 +56,7 @@ export class LoadBidRepository {
 
   /** Accepts one bid, only if it is still live — the conditional update is the race guard
    *  against two accepts landing together. Returns false when it lost. */
-  async accept(bid: LoadBidEntity, actorId: string): Promise<boolean> {
+  async accept(bid: LoadBidEntity, actorId: string | null): Promise<boolean> {
     const result = await this.bids.update(
       { id: bid.id, tenantId: bid.tenantId, status: 'received' },
       { status: 'accepted', decidedAt: new Date(), decidedBy: actorId },
