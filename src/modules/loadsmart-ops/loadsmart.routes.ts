@@ -75,6 +75,62 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.matchBrokers),
     asyncHandler(c.matchBrokers),
   );
+  // Placement work queue and load page: the queue, the page, brokers added by hand, bid history,
+  // broker calls, extending the bid window and sending the requirement.
+  router.get(
+    '/placement/loads',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.placementBoard),
+    asyncHandler(c.placementBoardList),
+  );
+  router.get(
+    '/placement/loads/:sourcingId',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.sourcing),
+    asyncHandler(c.placementPage),
+  );
+  router.post(
+    '/sourcings/:sourcingId/brokers',
+    team(LS_PLACEMENT),
+    validate(v.addBroker),
+    asyncHandler(c.addBroker),
+  );
+  router.delete(
+    '/sourcings/:sourcingId/brokers/:partnerId',
+    team(LS_PLACEMENT),
+    validate(v.sourcingBroker),
+    asyncHandler(c.removeBroker),
+  );
+  router.get(
+    '/sourcings/:sourcingId/brokers/:partnerId/bid-history',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.sourcingBroker),
+    asyncHandler(c.bidHistory),
+  );
+  router.post(
+    '/sourcings/:sourcingId/broker-calls',
+    team(LS_PLACEMENT),
+    validate(v.brokerCall),
+    asyncHandler(c.logBrokerCall),
+  );
+  router.get(
+    '/sourcings/:sourcingId/broker-calls',
+    team(LS_PLACEMENT, LS_SETTINGS_MANAGE),
+    validate(v.sourcing),
+    asyncHandler(c.brokerCalls),
+  );
+  router.post(
+    '/sourcings/:sourcingId/bid-window',
+    team(LS_PLACEMENT),
+    validate(v.extendBidWindow),
+    asyncHandler(c.extendBidWindow),
+  );
+  router.post(
+    '/sourcings/:sourcingId/requirement',
+    team(LS_PLACEMENT),
+    validate(v.sendRequirement),
+    asyncHandler(c.sendRequirement),
+  );
 
   // Placement — inbox, round-robin roster (Super Admin), owner, lost, memo withdrawal.
   router.get(

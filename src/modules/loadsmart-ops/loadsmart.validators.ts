@@ -26,6 +26,12 @@ import { TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
 import { TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
 import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
 import { BALANCE_PAYERS, GST_TREATMENTS, RECEIVABLE_STATUSES } from './receivables-rules';
+import {
+  BROKER_RESPONSE_CHANNELS,
+  BROKER_RESPONSES,
+  MAX_BID_WINDOW_EXTENSION_HOURS,
+  PLACEMENT_TABS,
+} from './placement-board-rules';
 import { LOAD_STATUSES } from '../loads/utils/loads.types';
 import { MSME_CREDIT_DAYS_CAP } from '../settings/settings.types';
 import {
@@ -134,10 +140,63 @@ export const loadsmartValidators = {
     body: z
       .object({
         partnerId: uuid,
-        rate: z.number().positive(),
+        rate: z.number().positive().optional(),
         vehicleNumber: z.string().trim().min(4).max(20).optional(),
+        // "Record a broker response": what they said, how it came in, a note.
+        response: z.enum(BROKER_RESPONSES).optional(),
+        channel: z.enum(BROKER_RESPONSE_CHANNELS).optional(),
+        note: z.string().trim().max(500).optional(),
+      })
+      .strict()
+      .refine((body) => (body.response ?? 'bid') !== 'bid' || body.rate !== undefined, {
+        message: 'A bid needs a rate',
+        path: ['rate'],
+      }),
+  }),
+  // --- Placement board ---
+  placementBoard: z.object({
+    query: z
+      .object({
+        tab: z.enum(PLACEMENT_TABS).optional(),
+        q: z.string().trim().min(2).max(50).optional(),
+        tenantId: uuid.optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
       })
       .strict(),
+  }),
+  sourcingBroker: z.object({ params: z.object({ sourcingId: uuid, partnerId: uuid }) }),
+  addBroker: z.object({
+    params: sourcingParams,
+    body: z.object({ partnerId: uuid }).strict(),
+  }),
+  brokerCall: z.object({
+    params: sourcingParams,
+    body: z
+      .object({
+        partnerId: uuid,
+        outcome: z.enum(CALL_OUTCOMES),
+        quotedRate: z.number().positive().optional(),
+        remarks: z.string().trim().max(1000).optional(),
+      })
+      .strict(),
+  }),
+  extendBidWindow: z.object({
+    params: sourcingParams,
+    body: z
+      .object({
+        hours: z.number().int().min(1).max(MAX_BID_WINDOW_EXTENSION_HOURS),
+        reason: z.string().trim().max(500).optional(),
+      })
+      .strict(),
+  }),
+  sendRequirement: z.object({
+    params: sourcingParams,
+    body: z
+      .object({ partnerIds: z.array(uuid).min(1).max(100).optional() })
+      .strict()
+      .optional()
+      .default({}),
   }),
   sendBid: z.object({
     params: sourcingParams,

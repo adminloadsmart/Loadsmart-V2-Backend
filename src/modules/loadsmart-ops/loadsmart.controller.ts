@@ -14,6 +14,7 @@ import { LsPlacementService } from './ls-placement.service';
 import { LsApprovalService } from './ls-approval.service';
 import { LsTrackingService } from './ls-tracking.service';
 import { LsCsService } from './ls-cs.service';
+import { LsPlacementBoardService, PlacementBoardQuery } from './ls-placement-board.service';
 import { LsReceivablesService, ReceivablesBoardQuery } from './ls-receivables.service';
 import type { GstTreatment } from './receivables-rules';
 import { LsPayablesService, OriginalPodFilter } from './ls-payables.service';
@@ -40,7 +41,72 @@ export class LoadsmartOpsController {
     private readonly consoleViews: LsConsoleService,
     private readonly staffNotifier: LsStaffNotifier,
     private readonly callLogs: LsCallLogService,
+    private readonly placementBoard: LsPlacementBoardService,
   ) {}
+
+  // --- Placement work queue and load page ---
+  placementBoardList = async (req: Request, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.board(
+        req.user!.id,
+        (req.validatedQuery ?? {}) as PlacementBoardQuery,
+      ),
+    );
+  placementPage = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.placementBoard.page(req.params.sourcingId));
+  addBroker = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.addBroker(req.user!.id, req.params.sourcingId, req.body.partnerId),
+      201,
+    );
+  removeBroker = async (req: Request<LoadsmartRouteParams>, res: Response) => {
+    await this.placementBoard.removeBroker(
+      req.user!.id,
+      req.params.sourcingId,
+      req.params.partnerId,
+    );
+    res.status(204).end();
+  };
+  bidHistory = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.bidHistory(req.params.sourcingId, req.params.partnerId),
+    );
+  logBrokerCall = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.logBrokerCall(req.user!.id, req.params.sourcingId, req.body),
+      201,
+    );
+  brokerCalls = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.placementBoard.brokerCalls(req.params.sourcingId));
+  extendBidWindow = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.extendBidWindow(
+        req.user!.id,
+        req.params.sourcingId,
+        req.body.hours,
+        req.body.reason,
+      ),
+    );
+  sendRequirement = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.sendRequirement(
+        req.user!.id,
+        req.params.sourcingId,
+        (req.body as { partnerIds?: string[] } | undefined)?.partnerIds,
+      ),
+    );
 
   // --- Tracking: papers, POD, documents page ---
   uploadPapers = async (req: Request<LoadsmartRouteParams>, res: Response) =>

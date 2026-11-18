@@ -177,7 +177,9 @@ export class LsPlacementService extends LsServiceBase {
 
   /** "Matched brokers come ticked, with why they matched (lane claimed, truck type claimed),
    *  loads placed on this lane, rating." Every active broker is listed; matched ones first. */
-  async matchBrokers(sourcingId: string): Promise<{ lane: object; brokers: RankedBroker[] }> {
+  async matchBrokers(
+    sourcingId: string,
+  ): Promise<{ lane: object; brokers: (RankedBroker & { added: boolean })[] }> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
       const load = sourcing.load;
@@ -193,13 +195,16 @@ export class LsPlacementService extends LsServiceBase {
         bodyType: truck?.bodyType ?? null,
         capacityTons: truck?.capacityTons ?? null,
       };
-      const [partners, onLane, ratings] = await Promise.all([
+      const [partners, onLane, ratings, added] = await Promise.all([
         this.repository.listBrokersWithClaims(),
         lane.fromCity && lane.toCity
           ? this.repository.loadsOnLane(lane.fromCity, lane.toCity)
           : Promise.resolve(new Map<string, number>()),
         this.repository.partnerRatings(),
+        // Brokers Placement put on this load's list by hand ("Add broker").
+        this.repository.sourcingBrokers.findBy({ sourcingId }),
       ]);
+      const addedIds = new Set(added.map((row) => row.partnerId));
       const brokers = rankBrokers(
         lane,
         partners.map((partner) => ({
@@ -212,7 +217,14 @@ export class LsPlacementService extends LsServiceBase {
         onLane,
         ratings,
       );
-      return { lane, brokers };
+      const withAdded = brokers.map((broker) => ({
+        ...broker,
+        matched: broker.matched || addedIds.has(broker.partnerId),
+        added: addedIds.has(broker.partnerId),
+      }));
+      // Matched (including added by hand) first, keeping the ranking within each group.
+      withAdded.sort((a, b) => Number(b.matched) - Number(a.matched));
+      return { lane, brokers: withAdded };
     } catch (error) {
       rethrow(error, 'Failed to match brokers');
     }

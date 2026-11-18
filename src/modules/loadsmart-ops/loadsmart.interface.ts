@@ -1,3 +1,4 @@
+import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
 import type { LoadDocumentService } from '../loads/documents/load-document.service';
@@ -192,8 +193,14 @@ export interface ApproveSourcingInput {
 /** Placement records a partner's rate and truck. */
 export interface PartnerBidInput {
   partnerId: string;
-  rate: number;
+  /** Required for a bid; optional for a decline / no truck / call back. */
+  rate?: number;
   vehicleNumber?: string;
+  /** What the broker said (default `bid`). Only a bid becomes the broker's live bid. */
+  response?: BrokerResponse;
+  /** How it came in (default `manual_entry`). */
+  channel?: BrokerResponseChannel;
+  note?: string;
 }
 
 /** Placement sends one partner bid to the shipper as Loadsmart's. */

@@ -92,6 +92,10 @@ export class LoadPostingEntity {
   @Column({ name: 'pickup_at', type: 'timestamptz' })
   pickupAt!: Date;
 
+  /** Hours Placement added to the 4-hour bid window ("Extend bid window"), in minutes. */
+  @Column({ name: 'bid_window_extra_minutes', type: 'integer', default: 0 })
+  bidWindowExtraMinutes!: number;
+
   @Column({ name: 'deliver_by_at', type: 'timestamptz', nullable: true })
   deliverByAt!: Date | null;
 

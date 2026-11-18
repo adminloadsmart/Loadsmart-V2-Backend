@@ -154,6 +154,13 @@ export class LsSourcingEntity {
   @Column({ name: 'lost_at', type: 'timestamptz', nullable: true })
   lostAt!: Date | null;
 
+  /** When Placement last sent the requirement to brokers, and to how many. */
+  @Column({ name: 'requirement_sent_at', type: 'timestamptz', nullable: true })
+  requirementSentAt!: Date | null;
+
+  @Column({ name: 'requirement_sent_count', type: 'integer', default: 0 })
+  requirementSentCount!: number;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
