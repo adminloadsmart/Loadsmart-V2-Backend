@@ -4,7 +4,6 @@ import {
   hasPermission,
   PermissionHolder,
 } from '../../../shared/middleware/require-permission.middleware';
-import { hasLiveTracking } from '../utils/tracking-source';
 import { LoadDocumentService } from '../documents/load-document.service';
 import { DocumentActor } from '../documents/load-document.types';
 import { decideStage } from './stage-rules';
@@ -765,12 +764,8 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      // The driver's own taps are a tracking source; the shipper's marks are for untracked loads.
-      if (!driverOwnerId && hasLiveTracking(load.trackingSource)) {
-        throw new ConflictError(
-          `This truck is tracked (${load.trackingSource}) — its stages move from tracking. Marking by hand is only for loads with no tracking`,
-        );
-      }
+      // For now the shipper may mark every stage by hand, tracked load or not (e.g. a SIM load
+      // waiting on the driver's consent). Tracking events still move the load too.
       await this.assertNotHalted(tenantId, loadId);
       const moved = await this.stageService.transition({
         tenantId,
