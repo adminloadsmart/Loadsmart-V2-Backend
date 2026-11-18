@@ -464,12 +464,12 @@ export class LsSourcingService extends LsServiceBase {
           channel: input.channel ?? 'manual_entry',
           note: input.note?.trim() || null,
           vehicleNumber,
-          enteredBy: actor.id,
+          enteredBy: actorId,
         }),
       );
       if (response !== 'bid') {
         // A decline, no truck or call back doesn't change the broker's live bid.
-        await this.step(sourcing, actor.id, 'partner_response', 'LS_PARTNER_BID_RECORDED', {
+        await this.step(sourcing, actorId, 'partner_response', 'LS_PARTNER_BID_RECORDED', {
           responseId: history.id,
           partnerId: partner.id,
           response,

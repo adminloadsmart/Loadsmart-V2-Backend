@@ -514,8 +514,8 @@ export class LoadBidService {
         throw new ConflictError('This load already has a truck — it no longer takes bids');
       }
       const now = this.now();
-      const sentAt = await this.sentAtOf(load);
-      const closesAt = bidWindowClosesAt(sentAt);
+      const window = await this.windowOf(load);
+      const closesAt = bidWindowClosesAt(window.sentAt, window.extraMinutes);
       if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
 
       let recipientId: string | null = null;
