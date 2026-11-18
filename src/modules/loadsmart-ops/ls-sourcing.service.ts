@@ -1,9 +1,11 @@
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { LoadDocumentService } from '../loads/documents/load-document.service';
+import { In } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { SALES_ROLE } from '../../shared/constants/roles';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
+import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
 import { LoadBidEntity } from '../loads/bids/load-bid.entity';
 import { LoadBidService } from '../loads/bids/load-bid.service';
 import { LoadMemoService } from '../loads/memo/load-memo.service';
@@ -35,6 +37,8 @@ import {
   ApproveSourcingInput,
   CommercialTermsInput,
   LoadBoardRow,
+  LoadBoardNotifier,
+  LoadBoardOffer,
   LoadsmartActor,
   PartnerBidInput,
   PartnerBidView,
@@ -77,6 +81,13 @@ export class LsSourcingService extends LsServiceBase {
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
+  }
+
+  private boardNotifier?: LoadBoardNotifier;
+
+  /** WhatsApp offers to partners when a load is posted on the board (messaging module). */
+  setLoadBoardNotifier(notifier: LoadBoardNotifier): void {
+    this.boardNotifier = notifier;
   }
 
   // --- Partners and commercial terms -------------------------------------------------------
@@ -142,6 +153,9 @@ export class LsSourcingService extends LsServiceBase {
         terms?.shipperAdvancePercent != null ? Number(terms.shipperAdvancePercent) : null,
       defaultShipperAdvancePercent: values.defaultShipperAdvancePercent,
       balancePayer: terms?.balancePayer ?? 'shipper',
+      shipperAdvanceDays: terms?.shipperAdvanceDays ?? null,
+      physicalLr: terms?.physicalLr ?? false,
+      physicalLrNote: terms?.physicalLrNote ?? null,
       isDefault: !terms,
     };
   }
@@ -183,6 +197,11 @@ export class LsSourcingService extends LsServiceBase {
             }
           : {}),
         ...(input.balancePayer ? { balancePayer: input.balancePayer } : {}),
+        ...(input.shipperAdvanceDays !== undefined
+          ? { shipperAdvanceDays: input.shipperAdvanceDays }
+          : {}),
+        ...(input.physicalLr !== undefined ? { physicalLr: input.physicalLr } : {}),
+        ...(input.physicalLrNote !== undefined ? { physicalLrNote: input.physicalLrNote } : {}),
         updatedBy: actorId,
       });
       await this.auditService.log({
@@ -299,6 +318,16 @@ export class LsSourcingService extends LsServiceBase {
         marginPercent,
         partnerTargetRate: partnerRate,
       });
+      if (this.boardNotifier) {
+        await this.boardNotifier.postedToBoard(
+          boardOfferOf(
+            updated,
+            sourcing.load,
+            posting,
+            partnerRate === null ? null : String(partnerRate),
+          ),
+        );
+      }
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to approve the load');
@@ -359,8 +388,63 @@ export class LsSourcingService extends LsServiceBase {
     sourcingId: string,
     input: PartnerBidInput,
   ): Promise<PartnerBidView> {
+    if (actor.role === SALES_ROLE) throw new ConflictError('Bids from salespeople are not taken');
+    return this.savePartnerBid(actor.id, sourcingId, input);
+  }
+
+  /** The partner's own WhatsApp reply (Accept at the board rate, a typed rate, the truck number or
+   *  both) — no entering user. A truck with no rate keeps the live bid's rate; the truck is checked
+   *  on VAHAN at once (savePartnerBid). */
+  async recordPartnerBidFromWhatsapp(
+    sourcingId: string,
+    input: { partnerId: string; rate?: number; vehicleNumber?: string },
+  ): Promise<PartnerBidView> {
+    let rate = input.rate;
+    if (rate === undefined) {
+      const live = await this.findLivePartnerBid(sourcingId, input.partnerId);
+      if (!live) throw new ConflictError('The truck number came before any rate for this load');
+      rate = Number(live.rate);
+    }
+    return this.savePartnerBid(null, sourcingId, { ...input, rate });
+  }
+
+  /** The partner's live bid on a board load, if any. */
+  findLivePartnerBid(sourcingId: string, partnerId: string): Promise<LsPartnerBidEntity | null> {
+    return this.repository.partnerBids.findOneBy({ sourcingId, partnerId, status: 'received' });
+  }
+
+  /** Partners on the board this phone belongs to (active only). */
+  findActivePartnersByPhones(phones: string[]): Promise<LsPartnerEntity[]> {
+    return this.repository.partners.find({ where: { phone: In(phones), status: 'active' } });
+  }
+
+  /** Every active partner — who a newly posted load goes to. */
+  listActivePartners(): Promise<LsPartnerEntity[]> {
+    return this.repository.partners.find({ where: { status: 'active' }, order: { name: 'ASC' } });
+  }
+
+  /** Loads on the board that still take partner bids, as partners may see them. */
+  async openBoardLoads(): Promise<LoadBoardOffer[]> {
+    const sourcings = await this.repository.listSourcings(
+      ['posted', 'bid_sent'],
+      ['created', 'bids_received'],
+    );
+    const offers: LoadBoardOffer[] = [];
+    for (const sourcing of sourcings) {
+      const posting = sourcing.load.postingId
+        ? await this.repository.findPosting(sourcing.tenantId, sourcing.load.postingId)
+        : null;
+      offers.push(boardOfferOf(sourcing, sourcing.load, posting, sourcing.partnerTargetRate));
+    }
+    return offers;
+  }
+
+  private async savePartnerBid(
+    actorId: string | null,
+    sourcingId: string,
+    input: PartnerBidInput,
+  ): Promise<PartnerBidView> {
     try {
-      if (actor.role === SALES_ROLE) throw new ConflictError('Bids from salespeople are not taken');
       const sourcing = await this.assertSourcing(sourcingId);
       if (sourcing.status !== 'posted' && sourcing.status !== 'bid_sent') {
         throw new ConflictError('This load is not on the load board');
@@ -380,12 +464,12 @@ export class LsSourcingService extends LsServiceBase {
           channel: input.channel ?? 'manual_entry',
           note: input.note?.trim() || null,
           vehicleNumber,
-          enteredBy: actor.id,
+          enteredBy: actorId,
         }),
       );
       if (response !== 'bid') {
         // A decline, no truck or call back doesn't change the broker's live bid.
-        await this.step(sourcing, actor.id, 'partner_response', 'LS_PARTNER_BID_RECORDED', {
+        await this.step(sourcing, actorId, 'partner_response', 'LS_PARTNER_BID_RECORDED', {
           responseId: history.id,
           partnerId: partner.id,
           response,
@@ -425,7 +509,7 @@ export class LsSourcingService extends LsServiceBase {
             rate: String(input.rate),
             vehicleNumber: vehicleNumber ?? live.vehicleNumber,
             truckVerified: vehicleNumber ? truckVerified : live.truckVerified,
-            enteredBy: actor.id,
+            enteredBy: actorId,
           })
         : await this.repository.partnerBids.save(
             this.repository.partnerBids.create({
@@ -434,10 +518,10 @@ export class LsSourcingService extends LsServiceBase {
               rate: String(input.rate),
               vehicleNumber,
               truckVerified,
-              enteredBy: actor.id,
+              enteredBy: actorId,
             }),
           );
-      await this.step(sourcing, actor.id, 'partner_bid', 'LS_PARTNER_BID_RECORDED', {
+      await this.step(sourcing, actorId, 'partner_bid', 'LS_PARTNER_BID_RECORDED', {
         partnerBidId: saved.id,
         partnerId: partner.id,
         rate: input.rate,
@@ -775,4 +859,25 @@ export class LsSourcingService extends LsServiceBase {
       'reached_unloading',
     ]);
   }
+}
+
+/** A board load as partners may see it — cities and truck only, never the shipper's name. */
+function boardOfferOf(
+  sourcing: Pick<LsSourcingEntity, 'id' | 'tenantId'>,
+  load: Pick<LoadEntity, 'id' | 'code'>,
+  posting: LoadPostingEntity | null,
+  partnerRate: string | null,
+): LoadBoardOffer {
+  return {
+    sourcingId: sourcing.id,
+    tenantId: sourcing.tenantId,
+    loadId: load.id,
+    loadCode: load.code,
+    partnerRate,
+    pickupLabel: posting?.pickupAddress?.city ?? posting?.pickupAddress?.label ?? 'Pickup',
+    dropLabel: posting?.dropAddress?.city ?? posting?.dropAddress?.label ?? 'Drop',
+    truckLabel: posting?.truckLengthFt ? `${posting.truckLengthFt} ft` : 'Truck',
+    weightTonnes: posting?.weightTonnes ?? null,
+    pickupAt: posting?.pickupAt ?? null,
+  };
 }

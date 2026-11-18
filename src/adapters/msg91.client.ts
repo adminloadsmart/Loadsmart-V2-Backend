@@ -17,6 +17,26 @@ interface Msg91WhatsappResponse {
 /** A WhatsApp template's `components`, keyed by MSG91's slot name (`body_var_1`, `button_1`...). */
 type Msg91WhatsappComponents = Record<string, Record<string, string>>;
 
+/** MSG91's raw answer to a WhatsApp send, for callers that classify failures themselves
+ *  (modules/messaging's MSG91 adapter) instead of getting an exception. */
+export interface Msg91WhatsappSendOutcome {
+  httpStatus: number;
+  body: Msg91WhatsappResponse | null;
+  /** True when the number is a skipped test number (MSG91_SKIP_TEST_NUMBERS) — nothing was sent. */
+  skipped: boolean;
+}
+
+/** Our templates use named variables {{var_1}}, {{var_2}}… in a fixed order; MSG91 takes them as
+ *  `body_var_N` with a matching `parameter_name` (the dashboard's Code (JSON) sample). */
+export function namedTemplateComponents(variables: string[]): Msg91WhatsappComponents {
+  return Object.fromEntries(
+    variables.map((value, index) => [
+      `body_var_${index + 1}`,
+      { type: 'text', value, parameter_name: `var_${index + 1}` },
+    ]),
+  );
+}
+
 /**
  * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
  * numbers, and they're stored without the country code.
@@ -85,15 +105,7 @@ export class Msg91Client {
     variables: string[],
     templateName: string | undefined = env.msg91WhatsappTemplateName,
   ): Promise<Msg91WhatsappResponse | undefined> {
-    // Our templates use named variables ({{var_1}}, {{var_2}}...), which MSG91 expects as
-    // `body_var_N` with a matching `parameter_name` — per the dashboard's Code (JSON) sample.
-    const components = Object.fromEntries(
-      variables.map((value, index) => [
-        `body_var_${index + 1}`,
-        { type: 'text', value, parameter_name: `var_${index + 1}` },
-      ]),
-    );
-    return this.sendWhatsappTemplate(phoneNumber, templateName, components);
+    return this.sendWhatsappTemplate(phoneNumber, templateName, namedTemplateComponents(variables));
   }
 
   /**
@@ -162,6 +174,80 @@ export class Msg91Client {
     // mismatch), which only shows in the MSG91 dashboard's WhatsApp reports. Returned so callers
     // can log MSG91's request id to search there.
     return body;
+  }
+
+  /**
+   * One template to one number (never several brokers in one request, so MSG91's request id maps
+   * to exactly one recipient — plan note 17), same bulk endpoint and body as sendWhatsapp, but the
+   * outcome is returned instead of thrown so the caller can tell a rate limit from a bad template.
+   */
+  async postWhatsappTemplate(
+    phoneNumber: string,
+    templateName: string,
+    variables: string[],
+    languageCode: string,
+  ): Promise<Msg91WhatsappSendOutcome> {
+    if (isMsg91SkippedNumber(phoneNumber)) return { httpStatus: 0, body: null, skipped: true };
+    this.assertWhatsappConfigured();
+    return this.postWhatsapp('/api/v5/whatsapp/whatsapp-outbound-message/bulk/', {
+      integrated_number: env.msg91WhatsappIntegratedNumber,
+      content_type: 'template',
+      payload: {
+        messaging_product: 'whatsapp',
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: languageCode, policy: 'deterministic' },
+          namespace: env.msg91WhatsappNamespace,
+          to_and_components: [
+            { to: [toIndianMsisdn(phoneNumber)], components: namedTemplateComponents(variables) },
+          ],
+        },
+      },
+    });
+  }
+
+  /**
+   * A session (non-template) message inside the 24-hour window: free text, reply buttons or a
+   * list. MSG91's "Send Message (once Session Started)" / "Interactive WA with Buttons / List"
+   * APIs. ⚠️ Their request bodies are not on MSG91's public docs (plan note 16); this shape —
+   * `integrated_number`, `recipient_number`, `content_type` and the Meta-format `text` /
+   * `interactive` object — must be checked against the panel's Code (JSON) sample and a real send.
+   */
+  async postWhatsappSession(
+    phoneNumber: string,
+    content:
+      | { contentType: 'text'; text: string }
+      | { contentType: 'interactive'; interactive: Record<string, unknown> },
+  ): Promise<Msg91WhatsappSendOutcome> {
+    if (isMsg91SkippedNumber(phoneNumber)) return { httpStatus: 0, body: null, skipped: true };
+    this.assertWhatsappConfigured();
+    return this.postWhatsapp('/api/v5/whatsapp/whatsapp-outbound-message/', {
+      integrated_number: env.msg91WhatsappIntegratedNumber,
+      recipient_number: toIndianMsisdn(phoneNumber),
+      content_type: content.contentType,
+      ...(content.contentType === 'text'
+        ? { text: content.text }
+        : { interactive: content.interactive }),
+    });
+  }
+
+  private assertWhatsappConfigured(): void {
+    if (!env.msg91AuthKey || !env.msg91WhatsappIntegratedNumber) {
+      throw new Error(
+        'MSG91_AUTH_KEY / MSG91_WHATSAPP_INTEGRATED_NUMBER not configured — cannot send WhatsApp message',
+      );
+    }
+  }
+
+  private async postWhatsapp(path: string, body: unknown): Promise<Msg91WhatsappSendOutcome> {
+    const response = await fetch(`${env.msg91WhatsappBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authkey: env.msg91AuthKey! },
+      body: JSON.stringify(body),
+    });
+    const parsed = (await response.json().catch(() => null)) as Msg91WhatsappResponse | null;
+    return { httpStatus: response.status, body: parsed, skipped: false };
   }
 
   /**

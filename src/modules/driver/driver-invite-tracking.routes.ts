@@ -8,7 +8,8 @@ import { DRIVER_INVITE_LINK_RATE_LIMIT } from './driver.constants';
  * Public (no login) endpoints behind the driver invite's WhatsApp — mounted in publicRouters, so
  * both paths are under /v1:
  * - GET  /driver-invites/open/:token — the tracked app link in the message.
- * - POST /webhooks/msg91/whatsapp?token=… — MSG91's delivery reports.
+ * MSG91's delivery reports (POST /webhooks/msg91/whatsapp?token=…) now arrive through the messaging
+ * module's webhook, which hands every body to DriverService.recordWhatsAppReports.
  */
 export function createDriverInviteTrackingRoutes(
   controller: DriverInviteTrackingController,
@@ -20,7 +21,6 @@ export function createDriverInviteTrackingRoutes(
   });
 
   router.get('/driver-invites/open/:token', linkRateLimit, asyncHandler(controller.openInviteLink));
-  router.post('/webhooks/msg91/whatsapp', asyncHandler(controller.whatsappReport));
 
   return router;
 }

@@ -1,6 +1,7 @@
 import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
+import type { LoadPostingLookupService } from '../loads/load-posting/load-posting-lookup.service';
 import type { LoadDocumentService } from '../loads/documents/load-document.service';
 import type { SettingsReader } from '../settings/settings.types';
 import type { AuditService } from '../audit/audit.service';
@@ -180,6 +181,9 @@ export interface CommercialTermsInput {
    *  load's own advance %, else the settings' default. */
   shipperAdvancePercent?: number | null;
   balancePayer?: BalancePayer;
+  shipperAdvanceDays?: number | null;
+  physicalLr?: boolean;
+  physicalLrNote?: string | null;
 }
 
 /** Approval team posts the load on the board, optionally changing the terms. */
@@ -201,6 +205,29 @@ export interface PartnerBidInput {
   /** How it came in (default `manual_entry`). */
   channel?: BrokerResponseChannel;
   note?: string;
+}
+
+/** A load just posted on the load board, as partners may see it — Loadsmart's margin taken
+ *  out, never the shipper's name. */
+export interface LoadBoardOffer {
+  sourcingId: string;
+  tenantId: string;
+  loadId: string;
+  loadCode: string;
+  /** The partner target rate; null when the shipper asked for quotes. */
+  partnerRate: string | null;
+  pickupLabel: string;
+  dropLabel: string;
+  truckLabel: string;
+  /** Load weight in tonnes, as posted (null when not given). */
+  weightTonnes: string | null;
+  pickupAt: Date | null;
+}
+
+/** Tells partners about a load on the board (WhatsApp, from the messaging module). Must not
+ *  throw — the load is already posted. */
+export interface LoadBoardNotifier {
+  postedToBoard(offer: LoadBoardOffer): Promise<void>;
 }
 
 /** Placement sends one partner bid to the shipper as Loadsmart's. */
@@ -316,6 +343,7 @@ export interface LoadsmartOpsModuleDeps {
   settings: SettingsReader;
   loadDocumentService: LoadDocumentService;
   loadPostingService: LoadPostingService;
+  loadPostingLookupService: LoadPostingLookupService;
   elrService: ElrService;
   /** The live map reads each trip's last position and ETA from the tracking service. */
   trackingClient: TrackingClient;

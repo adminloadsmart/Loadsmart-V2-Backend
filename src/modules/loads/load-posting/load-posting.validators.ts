@@ -196,6 +196,27 @@ export const postLoadBody = z
     }
   });
 
+/** What can change once bids are in: the reporting time and the pickup / drop area. Shared by the
+ *  shipper's edit and Loadsmart Tracking's edit of a load on its desk. */
+export const editDetailsBody = z
+  .object({
+    pickupAt: dateTime.optional(),
+    pickupArea: addressArea.optional(),
+    dropArea: addressArea.optional(),
+  })
+  .strict()
+  .refine((body) => body.pickupAt || body.pickupArea || body.dropArea, {
+    message: 'Send the reporting time, the pickup area or the drop area',
+  })
+  .refine(
+    (body) => {
+      if (!body.pickupAt) return true;
+      const at = new Date(body.pickupAt);
+      return (at.getUTCMinutes() === 0 || at.getUTCMinutes() === 30) && at.getUTCSeconds() === 0;
+    },
+    { message: 'Pickup time must be on the hour or half hour', path: ['pickupAt'] },
+  );
+
 export const loadPostingValidators = {
   post: z.object({ body: postLoadBody }),
   // Edit a posted load: everything until bids come in (the posting form again) …
@@ -203,26 +224,7 @@ export const loadPostingValidators = {
   // … then only the reporting time and the area of the pickup and drop (never the city/state).
   editDetails: z.object({
     params: z.object({ postingId: uuid }),
-    body: z
-      .object({
-        pickupAt: dateTime.optional(),
-        pickupArea: addressArea.optional(),
-        dropArea: addressArea.optional(),
-      })
-      .strict()
-      .refine((body) => body.pickupAt || body.pickupArea || body.dropArea, {
-        message: 'Send the reporting time, the pickup area or the drop area',
-      })
-      .refine(
-        (body) => {
-          if (!body.pickupAt) return true;
-          const at = new Date(body.pickupAt);
-          return (
-            (at.getUTCMinutes() === 0 || at.getUTCMinutes() === 30) && at.getUTCSeconds() === 0
-          );
-        },
-        { message: 'Pickup time must be on the hour or half hour', path: ['pickupAt'] },
-      ),
+    body: editDetailsBody,
   }),
   recentCustomers: z.object({
     query: z.object({ limit: z.coerce.number().int().min(1).max(10).default(4) }),

@@ -200,6 +200,9 @@ export class LoadStageService {
       } else if (to === 'reached_unloading') {
         await this.onLoadEvent?.({ kind: 'reached_delivery_point', tenantId, loadId, at });
       }
+      // "Every stage change sends the shipper an in-app notification" (load module spec p.30) —
+      // the notifier sends the generic card only for stages without a notification of their own.
+      await this.onLoadEvent?.({ kind: 'stage_changed', tenantId, loadId, to, at });
 
       // Award record (Shipper Analytics §5): the memo accepted is the transporter's acceptance of
       // the load it won.

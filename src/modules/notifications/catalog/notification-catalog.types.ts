@@ -1,3 +1,4 @@
+import type { MessageIntent } from '../../messaging/messaging.types';
 import type { Locale } from '../../../shared/i18n/locales';
 import {
   NotificationCategory,
@@ -40,6 +41,11 @@ export interface NotificationTypeDefinition<TContext> {
   description?: string;
   /** Inbox card chip (e.g. "Compliance"), returned on every notification of this type. */
   category: NotificationCategory;
+  /** Load module channel rules (load module spec p.30–32; messaging/channel-policy.ts): `action`
+   *  = the shipper must act → WhatsApp + app; `update` = information → WhatsApp dropped (app,
+   *  email, SMS as listed). Unset = not a load-module message → the rule does not apply. A load
+   *  type's WhatsApp is also held back until the load memo on loads that have one. */
+  intent?: MessageIntent;
   /** Overrides the severity-based default style of the card's main button. */
   ctaStyle?: NotificationCtaStyle;
   /** Organization-scope role names (see shared/constants/roles.ts) to fan this notification out to. */

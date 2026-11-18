@@ -197,3 +197,98 @@ describe('Indent rejected', () => {
     ).rejects.toThrow('not an indent');
   });
 });
+
+describe('LoadBidService.recordWhatsappBid', () => {
+  const marketLoad = {
+    ...load,
+    status: 'created',
+    postingType: 'market_fleet',
+    postingId: 'posting-1',
+    code: 'LOAD-0042',
+  } as unknown as LoadEntity;
+
+  function whatsappSetup(options: { postedAt: Date; live?: LoadBidEntity | null }) {
+    const created: unknown[] = [];
+    const updated: unknown[] = [];
+    const bidRepository = {
+      findPosting: vi.fn(async () => ({ createdAt: options.postedAt })),
+      findTransporterRecipient: vi.fn(async () => ({ id: 'recipient-1' })),
+      findLive: vi.fn(async () => options.live ?? null),
+      create: vi.fn(async (data: Record<string, unknown>) => {
+        created.push(data);
+        return {
+          ...bid,
+          ...data,
+          id: 'bid-new',
+          truckVerified: null,
+          createdAt: NOW,
+        } as unknown as LoadBidEntity;
+      }),
+      update: vi.fn(async (current: LoadBidEntity, data: Record<string, unknown>) => {
+        updated.push(data);
+        return { ...current, ...data, truckVerified: true } as unknown as LoadBidEntity;
+      }),
+    } as unknown as LoadBidRepository;
+    const service = new LoadBidService(
+      bidRepository,
+      {
+        findById: vi.fn(async () => marketLoad),
+        findActiveByVehicleNumber: vi.fn(async () => null),
+      } as unknown as LoadRepository,
+      {} as TransporterService,
+      { transition: vi.fn(async () => marketLoad) } as unknown as LoadStageService,
+      { record: vi.fn(async () => undefined) } as unknown as LoadActivityService,
+      { log: vi.fn(async () => undefined) } as unknown as AuditService,
+      {} as LoadVerificationService,
+      {},
+      undefined,
+      () => NOW,
+    );
+    return { service, created, updated };
+  }
+
+  it('records a WhatsApp rate at once — no 30-minute wait — with channel whatsapp and no user', async () => {
+    const { service, created } = whatsappSetup({
+      postedAt: new Date(NOW.getTime() - 10 * 60 * 1000),
+    });
+    const view = await service.recordWhatsappBid('tenant-1', 'load-1', {
+      transporterId: 'transporter-1',
+      rate: 42000,
+    });
+    expect(created[0]).toMatchObject({
+      channel: 'whatsapp',
+      enteredBy: null,
+      rate: '42000',
+      recipientId: 'recipient-1',
+      vehicleNumber: null,
+    });
+    expect(view.channel).toBe('whatsapp');
+  });
+
+  it('refuses once the 4-hour window has closed', async () => {
+    const { service } = whatsappSetup({ postedAt: new Date(NOW.getTime() - 5 * 60 * 60 * 1000) });
+    await expect(
+      service.recordWhatsappBid('tenant-1', 'load-1', {
+        transporterId: 'transporter-1',
+        rate: 42000,
+      }),
+    ).rejects.toThrow(/closed/);
+  });
+
+  it('a new WhatsApp rate revises the live bid', async () => {
+    const live = { ...bid, rate: '40000' } as unknown as LoadBidEntity;
+    const { service, updated, created } = whatsappSetup({
+      postedAt: new Date(NOW.getTime() - 60 * 60 * 1000),
+      live,
+    });
+    await service.recordWhatsappBid('tenant-1', 'load-1', {
+      transporterId: 'transporter-1',
+      rate: 38000,
+    });
+    expect(updated[0]).toMatchObject({
+      rate: '38000',
+      rateHistory: [expect.objectContaining({ by: null, kind: 'revised', rate: '38000' })],
+    });
+    expect(created).toEqual([]);
+  });
+});

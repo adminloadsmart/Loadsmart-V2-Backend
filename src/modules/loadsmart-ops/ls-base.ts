@@ -42,7 +42,7 @@ export abstract class LsServiceBase {
   /** One Loadsmart step on the shipper's load timeline and the audit log. */
   protected async step(
     sourcing: SourcingRef,
-    actorId: string,
+    actorId: string | null,
     step: string,
     auditAction: AuditAction,
     metadata: Record<string, unknown> = {},

@@ -4,6 +4,8 @@ import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadDocumentService } from '../loads/documents/load-document.service';
+import { LoadPostingService } from '../loads/load-posting/load-posting.service';
+import { EditPostingDetailsInput } from '../loads/load-posting/utils/load-posting.interface';
 import { ElrService } from '../loads/elr/elr.service';
 import { LoadChargeEntity } from '../loads/money/load-charge.entity';
 import { CHARGE_STAGES } from '../loads/money/money-rules';
@@ -95,6 +97,7 @@ export class LsTrackingService extends LsServiceBase {
     private readonly documents: LoadDocumentService,
     private readonly elrService: ElrService,
     private readonly notifier: LsStaffNotifier,
+    private readonly postingService: LoadPostingService,
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
@@ -324,6 +327,17 @@ export class LsTrackingService extends LsServiceBase {
   }
 
   // --- e-LR ---------------------------------------------------------------------------------
+
+  /** Edit a load on Tracking's desk: the reporting time and the pickup / drop area. The same rules
+   *  as the shipper's edit once a truck is awarded (a time can change until the truck reaches the
+   *  loading point, the pickup area until Loaded, the drop area until delivered). The shipper's
+   *  other fields (truck, cargo, price) are not Tracking's to change. */
+  async editLoadDetails(actorId: string, loadId: string, input: EditPostingDetailsInput) {
+    const sourcing = await this.assertWonLoad(loadId);
+    const postingId = sourcing.load.postingId;
+    if (!postingId) throw new ConflictError('This load has no posting to edit');
+    return this.postingService.editDetails(sourcing.tenantId, actorId, postingId, input);
+  }
 
   async issueElr(actor: LoadsmartActor, loadId: string, input: ElrInput) {
     const sourcing = await this.assertWonLoad(loadId);

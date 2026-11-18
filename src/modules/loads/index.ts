@@ -1,3 +1,11 @@
+import { LoadDispatchNotifier } from './load-posting/load-dispatch-notifier';
+import { LoadCallRepository } from './calls/load-call.repository';
+import { LoadCallService } from './calls/load-call.service';
+import { LoadCallController } from './calls/load-call.controller';
+import {
+  createLoadsmartLoadCallRoutes,
+  createShipperLoadCallRoutes,
+} from './calls/load-call.routes';
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
@@ -85,6 +93,8 @@ export function createLoadsModule(
     driverTripNotifier: DriverTripNotifier;
     /** Super Admin → Settings: every timer and threshold, per the version a load was posted under. */
     settings: SettingsReader;
+    /** How a posted load reaches transporters (WhatsApp, from the messaging module); logs only when unset. */
+    loadDispatchNotifier?: LoadDispatchNotifier;
   },
 ) {
   const loadActivityRepository = new LoadActivityRepository(dataSource);
@@ -320,8 +330,19 @@ export function createLoadsModule(
     onStageEntered: runStageHooks,
     hooks: postingHooks,
     fleetOwnerLookup: (tenantId) => deps.authService.getFleetOwner(tenantId),
+    notifier: deps.loadDispatchNotifier,
   });
   protectedRouter.use('/post', loadPosting.router);
+
+  // Log a call (spec p.36) — the shipper's own team here; Loadsmart's teams via
+  // loadCallOpsRouter at /loadsmart-ops (composition-root.ts).
+  const loadCallService = new LoadCallService(
+    new LoadCallRepository(dataSource),
+    loadActivityService,
+    deps.notificationTriggers,
+  );
+  const loadCallController = new LoadCallController(loadCallService);
+  protectedRouter.use(createShipperLoadCallRoutes(loadCallController));
 
   return {
     requisitionService,
@@ -332,6 +353,8 @@ export function createLoadsModule(
     loadVerificationService,
     loadPaymentService,
     loadActivityService,
+    loadCallService,
+    loadCallOpsRouter: createLoadsmartLoadCallRoutes(loadCallController),
     dispatchPlanningService,
     loadPosting,
     postingHooks,

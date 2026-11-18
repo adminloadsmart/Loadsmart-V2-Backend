@@ -47,6 +47,7 @@ function setup(options: { preapproved?: boolean; charge?: Charge } = {}) {
     { save: vi.fn() } as never,
     {} as never,
     notifier as never,
+    {} as never,
   );
   return { service, repository, notifier, saved };
 }

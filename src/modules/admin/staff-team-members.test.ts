@@ -694,7 +694,8 @@ describe('ops console access by team', () => {
           sourcing as never,
           settlement as never,
           // placement, approval, tracking, cs, receivables, payables, console, staff inbox, call log,
-          // placement board — unused here
+          // placement board, shipper directory — unused here
+          {} as never,
           {} as never,
           {} as never,
           {} as never,

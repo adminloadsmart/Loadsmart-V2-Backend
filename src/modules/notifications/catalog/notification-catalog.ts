@@ -1,3 +1,8 @@
+import type {
+  LoadStatus,
+  AssignmentComplianceSubject,
+  LoadIssueCategory,
+} from '../../loads/utils/loads.types';
 import {
   COMPLIANCE_MANAGE,
   CUSTOMERS_APPROVE,
@@ -24,11 +29,11 @@ import {
   VehicleHaltStep,
   FRONTEND_PATHS,
   NO_TRIP_POSITION_LOCATION,
+  STAGE_CHANGED_CARD_LABELS,
 } from '../notifications.constants';
 import type { HaltExpectedGeofenceType } from '../../geofences/utils/geofence.types';
 import { mapLinkOf } from '../utils/location';
 import { formatHoursSince, formatIndiaDateTime } from '../utils/trip-time';
-import type { AssignmentComplianceSubject, LoadIssueCategory } from '../../loads/utils/loads.types';
 import { DEFAULT_LOCALE } from '../../../shared/i18n/locales';
 import { t } from '../../../shared/i18n/translate';
 
@@ -434,6 +439,26 @@ export interface EwayBillExpiryContext extends LoadSummary {
 }
 
 /** LS_N_0024 — what the load looked like when loading was confirmed. */
+/** call.reminder — the reminder set on a logged call (Log a call, spec p.36), to the caller. */
+export interface CallReminderContext {
+  callId: string;
+  loadId: string;
+  userId: string;
+  /** The reminder time it was queued for (ISO) — a changed or closed reminder makes it stale. */
+  reminderAt: string;
+  // Filled in by the resolver:
+  loadCode?: string | null;
+  notes?: string | null;
+  parties?: string[];
+}
+
+/** load.stage_changed — a stage without a notification of its own (STAGE_CHANGED_CARD_LABELS). */
+export interface StageChangedContext extends LoadSummary {
+  stage: LoadStatus;
+  /** When the load moved (ISO). */
+  changedAt: string;
+}
+
 export interface VehicleLoadedContext extends LoadSummary {
   /** When loading was confirmed (ISO). */
   loadedAt: string;
@@ -1667,6 +1692,7 @@ export const NOTIFICATION_CATALOG = {
   'load.breakdown_reported': {
     label: 'Driver marked a breakdown',
     category: 'trip_execution',
+    intent: 'action',
     description: 'A driver reported that the vehicle has broken down on a trip.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: MAINTENANCE_MANAGE }),
@@ -2047,6 +2073,7 @@ export const NOTIFICATION_CATALOG = {
   'load.eway_bill_expiry': {
     label: 'E-way bill expiry',
     category: 'compliance',
+    intent: 'action',
     description: 'The e-way bill expires before the vehicle is projected to reach the destination.',
     recipientRoles: [],
     recipientPermission: () => [{ permission: TRIP_TRACK }, { permission: COMPLIANCE_MANAGE }],
@@ -2100,9 +2127,68 @@ export const NOTIFICATION_CATALOG = {
   // e-way bill facts together. In-app only, P3, to trip.track holders. Quantity is the cargo
   // planned on the truck (no loaded weight is captured); the e-way bill validity is the 2-hour
   // placeholder. The button opens the load's documents.
+  // Log a call (spec p.36): the optional reminder, to the user who logged the call.
+  'call.reminder': {
+    label: 'Call reminder',
+    category: 'trip_execution',
+    intent: 'action',
+    description: 'The reminder you set when you logged a call on a load.',
+    recipientRoles: [],
+    recipientUserId: (context: CallReminderContext) => context.userId,
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: CallReminderContext) => `${context.callId}-${context.reminderAt}`,
+    buildContent: (context: CallReminderContext) => {
+      const loadName = context.loadCode ?? 'your load';
+      const who = context.parties?.length
+        ? ` (${context.parties.join(', ').replace(/_/g, ' ')})`
+        : '';
+      const notes = context.notes ? `: ${context.notes.slice(0, 140)}` : '';
+      return {
+        title: `Call reminder — ${loadName}`,
+        body: `Follow up on your call${who}${notes}`,
+        highlights: [loadName],
+        metadata: {
+          load_id: context.loadId,
+          call_id: context.callId,
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+  // "Every stage change sends the shipper an in-app notification" (load module spec p.30) — for
+  // the stages without a type of their own. In-app only: an update.
+  'load.stage_changed': {
+    label: 'Load stage changed',
+    category: 'trip_execution',
+    intent: 'update',
+    description: 'A load moved to its next stage.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: StageChangedContext) => `${context.loadId}-${context.stage}`,
+    buildContent: (context: StageChangedContext) => {
+      const stageLabel = STAGE_CHANGED_CARD_LABELS[context.stage] ?? context.stage;
+      const loadName = context.loadCode ?? 'Your load';
+      return {
+        title: `${loadName}: ${stageLabel}`,
+        body: `${loadName}${context.route ? ` (${context.route})` : ''} is now at "${stageLabel}" since ${formatIndiaDateTime(context.changedAt)}.`,
+        highlights: [loadName],
+        metadata: {
+          ...loadMetadataOf(context),
+          stage: context.stage,
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
   'load.vehicle_loaded': {
     label: 'Vehicle loaded',
     category: 'trip_execution',
+    intent: 'update',
     description: 'Loading is confirmed and the loading documents are uploaded.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2163,6 +2249,7 @@ export const NOTIFICATION_CATALOG = {
   'load.pickup_reminder': {
     label: 'Pickup reminder',
     category: 'trip_execution',
+    intent: 'update',
     description: 'Truck not yet marked at the loading point 2 hours and 1 hour before pickup.',
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
@@ -2191,6 +2278,7 @@ export const NOTIFICATION_CATALOG = {
   'load.drop_reminder': {
     label: 'Drop reminder',
     category: 'trip_execution',
+    intent: 'update',
     description: 'Truck not yet marked at the unloading point 2 hours and 1 hour before the ETA.',
     recipientRoles: [DISPATCH_ROLE, DOCUMENTS_OPS_ROLE],
     channels: [...ALL_CHANNELS],
@@ -2222,6 +2310,7 @@ export const NOTIFICATION_CATALOG = {
   'load.invoice_due_reminder': {
     label: 'Loadsmart invoice due',
     category: 'money',
+    intent: 'action',
     description: "A Loadsmart invoice falls due in 2 days and isn't paid yet.",
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
@@ -2253,6 +2342,7 @@ export const NOTIFICATION_CATALOG = {
   'load.vehicle_not_reported': {
     label: 'Vehicle not reported for loading',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle is over an hour late reaching the loading point.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2335,6 +2425,7 @@ export const NOTIFICATION_CATALOG = {
   'load.vehicle_reached_pickup': {
     label: 'Vehicle reached loading point',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle has arrived at the loading point.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2388,6 +2479,7 @@ export const NOTIFICATION_CATALOG = {
   'load.detention_at_loading': {
     label: 'Detention started at loading',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle has been at the loading point beyond the free hours.',
     recipientRoles: [],
     recipientPermission: () => [{ permission: TRIP_TRACK }, { permission: PAYMENTS_MANAGE }],
@@ -2436,6 +2528,7 @@ export const NOTIFICATION_CATALOG = {
   'load.vehicle_reached_drop': {
     label: 'Vehicle reached unloading point',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle has arrived at the delivery point.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2563,6 +2656,7 @@ export const NOTIFICATION_CATALOG = {
   'load.detention_at_unloading': {
     label: 'Detention started at unloading',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle has been at the delivery point beyond the free hours.',
     recipientRoles: [],
     recipientPermission: () => [{ permission: TRIP_TRACK }, { permission: PAYMENTS_MANAGE }],
@@ -2610,6 +2704,7 @@ export const NOTIFICATION_CATALOG = {
   'load.trip_completed': {
     label: 'Unloading complete, trip closed',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle has unloaded and left the delivery point.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2650,6 +2745,7 @@ export const NOTIFICATION_CATALOG = {
   'load.vehicle_in_transit': {
     label: 'Vehicle in transit',
     category: 'trip_execution',
+    intent: 'update',
     description: 'The vehicle has left the loading point.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2695,6 +2791,7 @@ export const NOTIFICATION_CATALOG = {
   'load.vehicle_halted': {
     label: 'Vehicle halted',
     category: 'trip_execution',
+    intent: 'update',
     description: 'A vehicle has been stopped for over 2 hours and its ETA is slipping.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2755,6 +2852,7 @@ export const NOTIFICATION_CATALOG = {
   'load.route_deviation': {
     label: 'Route deviation',
     category: 'trip_execution',
+    intent: 'update',
     description: 'A vehicle is far off its planned route and heading away from the destination.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2806,6 +2904,7 @@ export const NOTIFICATION_CATALOG = {
   'load.tracking_signal_lost': {
     label: 'Tracking signal lost',
     category: 'trip_execution',
+    intent: 'update',
     description: 'No position has been received from a vehicle on a running trip for hours.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2871,6 +2970,7 @@ export const NOTIFICATION_CATALOG = {
   'load.delivery_late': {
     label: 'Delivery will be late',
     category: 'trip_execution',
+    intent: 'update',
     description: 'A load is projected to reach its destination well after the committed date.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -2933,6 +3033,7 @@ export const NOTIFICATION_CATALOG = {
   'load.pod_uploaded': {
     label: 'POD uploaded',
     category: 'pod_billing',
+    intent: 'update',
     description: 'An E-POD is waiting for your review.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: LOADS_DOCUMENTS_MANAGE }),
@@ -3003,6 +3104,7 @@ export const NOTIFICATION_CATALOG = {
   'load.pod_pending': {
     label: 'POD still pending',
     category: 'pod_billing',
+    intent: 'action',
     description: 'A delivered load still has no POD, so it cannot be billed.',
     recipientRoles: [],
     recipientPermission: (context: PodPendingContext) =>
@@ -3063,6 +3165,7 @@ export const NOTIFICATION_CATALOG = {
   'load.pod_rejected': {
     label: 'POD rejected',
     category: 'pod_billing',
+    intent: 'action',
     description: 'An E-POD was sent back and the driver needs to upload a clear copy.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -3100,6 +3203,7 @@ export const NOTIFICATION_CATALOG = {
   'load.pod_verified': {
     label: 'POD verified, clear to bill',
     category: 'pod_billing',
+    intent: 'update',
     description: 'An E-POD was approved and the load can be invoiced.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
@@ -3141,6 +3245,7 @@ export const NOTIFICATION_CATALOG = {
   'load.shortage_recorded': {
     label: 'Shortage or damage recorded',
     category: 'pod_billing',
+    intent: 'action',
     description: 'A short quantity or damage was recorded at unloading — raise a claim in time.',
     recipientRoles: [ORG_ADMIN_ROLE],
     recipientPermission: () => ({ permission: PAYMENTS_MANAGE }),
@@ -3214,6 +3319,7 @@ export const NOTIFICATION_CATALOG = {
   'load.driver_problem_reported': {
     label: 'Driver reported a problem',
     category: 'trip_execution',
+    intent: 'action',
     description:
       'A driver reported a problem on a trip — accident, road block, police check and more.',
     recipientRoles: [ORG_ADMIN_ROLE],
@@ -3278,6 +3384,7 @@ export const NOTIFICATION_CATALOG = {
   'load.advance_due': {
     label: 'Advance payment due',
     category: 'money',
+    intent: 'action',
     description: "A transporter's advance can be released for a load in transit.",
     ctaStyle: 'primary',
     // LS_N_0042: payments approvers plus org admin, P1 (the truck is held), In app/Push/Email/SMS,
@@ -3333,6 +3440,7 @@ export const NOTIFICATION_CATALOG = {
   'load.licence_mismatch': {
     label: 'Licence class does not match the vehicle',
     category: 'compliance',
+    intent: 'action',
     description: "The assigned driver's licence doesn't cover the vehicle or the cargo.",
     recipientRoles: [],
     recipientPermission: () => [
@@ -3390,6 +3498,7 @@ export const NOTIFICATION_CATALOG = {
   'load.vehicle_assigned': {
     label: 'Truck and driver assigned',
     category: 'trip_execution',
+    intent: 'update',
     description: 'A vehicle and driver have been assigned to a load.',
     recipientRoles: [],
     recipientPermission: () => ({ permission: TRIP_TRACK }),
@@ -3448,6 +3557,7 @@ export const NOTIFICATION_CATALOG = {
   'load.assignment_compliance_failed': {
     label: 'Assigned vehicle fails compliance',
     category: 'compliance',
+    intent: 'action',
     description:
       'A vehicle or driver with an expired document was stopped from being assigned to a load.',
     recipientRoles: [ORG_ADMIN_ROLE],
