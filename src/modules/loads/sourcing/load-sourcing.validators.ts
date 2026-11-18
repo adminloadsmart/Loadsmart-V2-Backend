@@ -32,6 +32,16 @@ export const manualTruckCheckBody = z
   })
   .strict();
 
+/** An admin's manual licence check while Sarathi can't confirm it: the licence checkbox, and its
+ *  validity date if read off the card (an expired one still fails the check). */
+export const manualDriverCheckBody = z
+  .object({
+    licenceChecked: z.literal(true),
+    validUntil: isoDateSchema.optional(),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
 export const loadSourcingValidators = {
   listBids: z.object({ params }),
 
@@ -81,6 +91,7 @@ export const loadSourcingValidators = {
 
   rerunChecks: z.object({ params }),
   verifyTruckManually: z.object({ params, body: manualTruckCheckBody }),
+  verifyDriverManually: z.object({ params, body: manualDriverCheckBody }),
 
   // Truck cancelled between Truck assigned and Loaded — a reason code from Settings.
   cancelTruck: z.object({

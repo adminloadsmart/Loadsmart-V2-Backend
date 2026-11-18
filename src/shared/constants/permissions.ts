@@ -45,6 +45,8 @@ export const MASTERS_APPROVE = 'masters.approve';
 // Mark a truck verified by hand when VAHAN can't be reached — the fleet truck and a load's truck
 // check. Org admin only.
 export const TRUCK_VERIFY_MANUAL = 'trucks.verify_manual';
+// Mark a load's driver licence verified by hand when Sarathi can't confirm it. Org admin only.
+export const DRIVER_VERIFY_MANUAL = 'drivers.verify_manual';
 
 // Maintenance (FMS-MNT-000). MANAGE gates every workshop write (log a service, open/close a
 // breakdown, tyres, batteries). COSTS_VIEW is not a route gate: the maintenance screen's reads are
@@ -94,3 +96,5 @@ export const LS_MARGIN_VIEW = 'loadsmart.margin.view';
 export const LS_MARGIN_MANAGE = 'loadsmart.margin.manage';
 // The same manual truck check on a Loadsmart load — Admin team only.
 export const LS_TRUCK_VERIFY_MANUAL = 'loadsmart.truck.verify_manual';
+// The same manual licence check on a Loadsmart load — Admin team only.
+export const LS_DRIVER_VERIFY_MANUAL = 'loadsmart.driver.verify_manual';

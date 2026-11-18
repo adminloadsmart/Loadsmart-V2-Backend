@@ -29,6 +29,7 @@ import {
   FILES_DELETE,
   MASTERS_APPROVE,
   TRUCK_VERIFY_MANUAL,
+  DRIVER_VERIFY_MANUAL,
   MAINTENANCE_MANAGE,
   MAINTENANCE_COSTS_VIEW,
   COMPLIANCE_MANAGE,
@@ -45,6 +46,7 @@ import {
   LS_MARGIN_VIEW,
   LS_MARGIN_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
+  LS_DRIVER_VERIFY_MANUAL,
   GEOFENCES_MANAGE,
   NOTIFICATION_PREFERENCES_MANAGE,
 } from '../shared/constants/permissions';
@@ -239,6 +241,12 @@ export const PERMISSIONS: {
     scope: 'organization',
     description: "Mark a truck verified by hand when VAHAN can't be reached",
   },
+  {
+    key: DRIVER_VERIFY_MANUAL,
+    module: 'masters',
+    scope: 'organization',
+    description: "Mark a load's driver licence verified by hand when Sarathi can't confirm it",
+  },
   // Not in any role's default bundle (see ROLES below) — granted per user by an org admin.
   {
     key: COMPLIANCE_MANAGE,
@@ -274,6 +282,10 @@ export const PERMISSIONS: {
     [
       LS_TRUCK_VERIFY_MANUAL,
       "Mark a Loadsmart load's truck verified by hand when VAHAN can't be reached — Admin team only",
+    ],
+    [
+      LS_DRIVER_VERIFY_MANUAL,
+      "Mark a Loadsmart load's driver licence verified by hand when Sarathi can't confirm it — Admin team only",
     ],
   ].map(([key, description]) => ({
     key,
@@ -316,6 +328,7 @@ export const ADMIN_TEAM_ONLY_KEYS = [
   LS_MARGIN_VIEW,
   LS_MARGIN_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
+  LS_DRIVER_VERIFY_MANUAL,
   KYC_OVERSEE,
   // Super Admin: the Admin team approves money going out and owns the Load module settings.
   LS_MONEY_APPROVE,
@@ -349,6 +362,7 @@ export const ROLES: { name: string; scope: RoleScope; permissionKeys: string[] }
       MASTERS_WRITE,
       MASTERS_APPROVE,
       TRUCK_VERIFY_MANUAL,
+      DRIVER_VERIFY_MANUAL,
       CUSTOMERS_CREATE,
       CUSTOMERS_READ,
       CUSTOMERS_WRITE,

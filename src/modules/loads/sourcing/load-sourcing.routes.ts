@@ -5,6 +5,7 @@ import { requirePermission } from '../../../shared/middleware/require-permission
 import {
   DISPATCH_PLANNING_MANAGE,
   TRUCK_VERIFY_MANUAL,
+  DRIVER_VERIFY_MANUAL,
 } from '../../../shared/constants/permissions';
 import { LoadSourcingController } from './load-sourcing.controller';
 import { loadSourcingValidators as v } from './load-sourcing.validators';
@@ -91,6 +92,13 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     requirePermission(TRUCK_VERIFY_MANUAL),
     validate(v.verifyTruckManually),
     asyncHandler(controller.verifyTruckManually),
+  );
+  // Sarathi couldn't confirm the driver's licence — an org admin verifies it by hand.
+  router.post(
+    '/loads/:loadId/verifications/driver/manual',
+    requirePermission(DRIVER_VERIFY_MANUAL),
+    validate(v.verifyDriverManually),
+    asyncHandler(controller.verifyDriverManually),
   );
   router.get('/loads/:loadId/memo', validate(v.getMemo), asyncHandler(controller.getMemo));
   router.get('/loads/:loadId/memos', validate(v.listMemos), asyncHandler(controller.listMemos));

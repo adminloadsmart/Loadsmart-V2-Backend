@@ -13,6 +13,7 @@ import {
   LS_TRACKING,
   LS_MASTERS_MANAGE,
   LS_TRUCK_VERIFY_MANUAL,
+  LS_DRIVER_VERIFY_MANUAL,
   PAYMENTS_MANAGE,
 } from '../../shared/constants/permissions';
 import { TAGS, authenticated, json, permissionGated } from '../../shared/openapi/core';
@@ -180,6 +181,15 @@ const ROWS: Row[] = [
     schema: v.verifyTruckManually,
     description:
       "VAHAN couldn't be reached for the truck on a Loadsmart load — the Admin team checks the RC by hand (rcChecked, optional paper expiry dates). The memo goes out once every check passes.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/verifications/driver/manual`,
+    op: 'loadsmart.verifyDriverManually',
+    permissions: [LS_DRIVER_VERIFY_MANUAL],
+    schema: v.verifyDriverManually,
+    description:
+      "Sarathi couldn't confirm the driver's licence on a Loadsmart load (not reachable, or no match) — the Admin team checks it by hand (licenceChecked, optional validity date). The memo goes out once every check passes.",
   },
   {
     method: 'post',
