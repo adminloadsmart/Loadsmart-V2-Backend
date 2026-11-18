@@ -26,6 +26,7 @@ import { isLoadsmartLoad } from '../utils/load-stages';
 import { StorageService } from '../../storage/storage.service';
 import { LoadDocumentService } from '../documents/load-document.service';
 import { buildMemoPdfContent, renderMemoPdf } from './memo-pdf';
+import { LoadPartyNotifier } from '../utils/load-party-notifier.interface';
 
 /** A sent memo past its hour is expired, whatever the row still says. */
 export function effectiveMemoStatus(memo: LoadMemoEntity, now: Date): MemoStatus {
@@ -56,6 +57,13 @@ export class LoadMemoService {
     private readonly documents: LoadDocumentService,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  private notifyParties?: LoadPartyNotifier;
+
+  /** Told after every memo version is sent (the shipper gets it on WhatsApp — modules/messaging). */
+  setPartyNotifier(notifier: LoadPartyNotifier): void {
+    this.notifyParties = notifier;
+  }
 
   /** The truck (checked now if it never was) and driver checks the memo waits on. */
   private async checksFor(load: LoadEntity): Promise<LoadChecksView> {
@@ -289,6 +297,12 @@ export class LoadMemoService {
         version,
         expiresAt: memo.expiresAt.toISOString(),
       },
+    });
+    await this.notifyParties?.({
+      kind: 'memo_sent',
+      tenantId: load.tenantId,
+      loadId: load.id,
+      memoId: memo.id,
     });
     return this.toView(memo, sentAt);
   }

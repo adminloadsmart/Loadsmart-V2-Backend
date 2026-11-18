@@ -24,6 +24,7 @@ import type { BillingInstruction } from './billing-rules';
 import type { TrackingClient } from '../../adapters/tracking.client';
 import type { LoadCancelService } from '../loads/sourcing/load-cancel.service';
 import type { ChargeType, PartnerStatus, PartnerType, PodType } from './loadsmart.types';
+import { LoadPartyNotifier } from '../loads/utils/load-party-notifier.interface';
 
 /** Loadsmart ops shapes — service inputs, views and amounts (value sets live in loadsmart.types.ts). */
 
@@ -349,4 +350,6 @@ export interface LoadsmartOpsModuleDeps {
   trackingClient: TrackingClient;
   /** Super Admin approves or rejects a shipper's cancellation of a load Loadsmart has won. */
   loadCancelService: LoadCancelService;
+  /** Tells the partner on WhatsApp about payments and the original POD (modules/messaging). */
+  partyNotifier?: LoadPartyNotifier;
 }

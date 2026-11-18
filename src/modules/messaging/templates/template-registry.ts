@@ -19,11 +19,14 @@ import {
 
 /** A template button. A quick reply with `action` is acted on when tapped (the reply router reads
  *  the tapped message and this title); one without is shown but not handled yet; `url` buttons
- *  open a link. */
+ *  open a link. A URL button with `urlVariable` has a dynamic link: the template's URL ends in
+ *  {{1}} and the send fills it with that variable's value (load_uuid → the load's id,
+ *  destination_query → "lat,lng" or the drop address for a maps search). */
 export interface TemplateButton {
   title: string;
   action?: OfferAction;
   url?: boolean;
+  urlVariable?: string;
 }
 
 export interface TemplateDefinition {
@@ -38,6 +41,9 @@ export interface TemplateDefinition {
   body: string;
   buttons?: readonly TemplateButton[];
   headerDocument?: boolean;
+  /** A shipper message that goes on WhatsApp before the load memo — the catalog's exceptions
+   *  (LS_N_0067, LS_N_0103) to the "no WhatsApp to the shipper before the memo" rule. */
+  sendsBeforeMemo?: boolean;
 }
 
 const BROKER: MessageRecipientKind[] = ['partner'];
@@ -103,6 +109,31 @@ export const TEMPLATE_REGISTRY = {
       { title: 'Reject', action: 'reject' },
     ],
   },
+  // ---- Shipper, before the memo (catalog exceptions to the channel rule; user decision 18 Nov)
+  LS_N_0067: {
+    audience: ['shipper_user'],
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'offer',
+    variables: ['origin', 'destination', 'truck_type', 'reporting_time', 'price'],
+    body: "Loadsmart's bid for your load {{origin}} to {{destination}} ({{truck_type}}, reporting {{reporting_time}}) is ₹{{price}}. Accept it and we'll send the truck details.",
+    buttons: [
+      { title: 'Accept', action: 'accept' },
+      { title: 'Counter', action: 'negotiate' },
+      { title: 'Reject', action: 'reject' },
+    ],
+    sendsBeforeMemo: true,
+  },
+  LS_N_0103: {
+    audience: ['shipper_user'],
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['origin', 'destination', 'bid_count', 'best_rate'],
+    body: 'Your load {{origin}} to {{destination}} has {{bid_count}} bids. Lowest is ₹{{best_rate}}. Pick one to get the truck details.',
+    buttons: [{ title: 'Compare bids', url: true, urlVariable: 'load_uuid' }],
+    sendsBeforeMemo: true,
+  },
   LS_N_0069: {
     audience: ['shipper_user'],
     intent: 'action',
@@ -112,7 +143,7 @@ export const TEMPLATE_REGISTRY = {
     body: 'Your load memo is ready: truck {{vehicle_no}}, driver {{driver_name}}, ₹{{price}} for {{origin}} to {{destination}}. Accept it by {{expiry_time}} to confirm the truck.',
     buttons: [
       { title: 'Accept memo', action: 'accept' },
-      { title: 'View memo', url: true },
+      { title: 'View memo', url: true, urlVariable: 'load_uuid' },
     ],
   },
 
@@ -140,7 +171,7 @@ export const TEMPLATE_REGISTRY = {
     kind: 'template',
     variables: ['load_id', 'from_area', 'to_area', 'vehicle_no', 'reporting_time', 'driver_name'],
     body: 'Confirmed: load {{load_id}}, {{from_area}} to {{to_area}}. Truck {{vehicle_no}} must report by {{reporting_time}}. Driver {{driver_name}} has the loading point.',
-    buttons: [{ title: 'Track truck', url: true }],
+    buttons: [{ title: 'Track truck', url: true, urlVariable: 'load_uuid' }],
   },
   LS_N_0123: {
     audience: TRANSPORTER,
@@ -149,7 +180,7 @@ export const TEMPLATE_REGISTRY = {
     kind: 'template',
     variables: ['shipper_name', 'vehicle_no', 'origin', 'destination', 'reporting_time'],
     body: 'Confirmed by {{shipper_name}}: truck {{vehicle_no}} for {{origin}} to {{destination}}. Report by {{reporting_time}}. Track the trip with this link.',
-    buttons: [{ title: 'Track truck', url: true }],
+    buttons: [{ title: 'Track truck', url: true, urlVariable: 'load_uuid' }],
   },
   LS_N_0130: {
     audience: ['driver'],
@@ -158,7 +189,7 @@ export const TEMPLATE_REGISTRY = {
     kind: 'template',
     variables: ['vehicle_no', 'destination'],
     body: 'Papers approved for truck {{vehicle_no}}. You can leave for {{destination}} now.',
-    buttons: [{ title: 'Get directions', url: true }],
+    buttons: [{ title: 'Get directions', url: true, urlVariable: 'destination_query' }],
   },
   LS_N_0112: {
     audience: BROKER,
@@ -212,6 +243,22 @@ export const TEMPLATE_REGISTRY = {
     variables: ['vehicle_no', 'origin', 'destination', 'shipper_name'],
     body: 'The POD for truck {{vehicle_no}}, {{origin}} to {{destination}}, is received by {{shipper_name}}. Thank you.',
   },
+  LS_N_0122: {
+    audience: TRANSPORTER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['shipper_name', 'origin', 'destination'],
+    body: 'The load from {{shipper_name}}, {{origin}} to {{destination}}, is now closed. Thanks for your rate.',
+  },
+  LS_N_0109: {
+    audience: BROKER,
+    intent: 'update',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['from_area', 'to_area'],
+    body: "The load {{from_area}} to {{to_area}} is now filled. Thanks for your rate. We'll send you more loads on this route.",
+  },
   LS_N_0114: {
     audience: BROKER,
     intent: 'update',
@@ -250,6 +297,19 @@ export function orderTemplateVariables(
 export function offerActionsOf(templateKey: TemplateKey): OfferAction[] {
   return (getTemplateDefinition(templateKey).buttons ?? []).flatMap((button) =>
     button.action ? [button.action] : [],
+  );
+}
+
+/** The dynamic part of each URL button that has one, by its 1-based place in the template; a
+ *  button whose value is missing is left out (its template URL is then expected to be static). */
+export function urlButtonsOf(
+  templateKey: TemplateKey,
+  values: Record<string, string>,
+): { position: number; value: string }[] {
+  return (getTemplateDefinition(templateKey).buttons ?? []).flatMap((button, index) =>
+    button.url && button.urlVariable && values[button.urlVariable]
+      ? [{ position: index + 1, value: values[button.urlVariable] }]
+      : [],
   );
 }
 

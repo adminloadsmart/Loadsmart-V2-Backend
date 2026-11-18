@@ -1,4 +1,5 @@
 import {
+  DUE_DATE_FORMAT_OPTIONS,
   INDIAN_NUMBER_LOCALE,
   REPORTING_TIME_FORMAT_OPTIONS,
   TEMPLATE_VALUE_NOT_GIVEN,
@@ -14,8 +15,16 @@ export function formatReportingTime(at: Date | null): string {
   return at ? reportingTimeFormat.format(at) : TEMPLATE_VALUE_NOT_GIVEN;
 }
 
+const dueDateFormat = new Intl.DateTimeFormat(INDIAN_NUMBER_LOCALE, DUE_DATE_FORMAT_OPTIONS);
+
+/** "25 Nov" in India time — a due date ({{pod_due_date}}). */
+export function formatDueDate(at: Date): string {
+  return dueDateFormat.format(at);
+}
+
 /** "45,000" — rupees without paise, Indian grouping. */
-export function formatRupees(rate: string): string {
+export function formatRupees(rate: string | null): string {
+  if (rate === null) return TEMPLATE_VALUE_NOT_GIVEN;
   return Number(rate).toLocaleString(INDIAN_NUMBER_LOCALE, { maximumFractionDigits: 0 });
 }
 

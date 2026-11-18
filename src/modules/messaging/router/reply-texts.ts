@@ -35,6 +35,20 @@ export const REPLY_TEXTS = {
   brokerRejected: (loadRef: string) => `${loadRef}: Okay. We'll send you the next load.`,
   transporterRejected: (loadRef: string) => `${loadRef}: Okay, noted.`,
   indentRejected: (loadRef: string) => `${loadRef}: Noted. The load goes to the open market.`,
+  // CTA sheet, Loadsmart's bid to the shipper (LS_N_0067): Accept → "Done. Truck details will
+  // follow."; Counter → "Type your price in ₹", then "Got it. We'll come back to you."; Reject →
+  // "Noted. We'll come back with a better bid."
+  loadsmartBidAccepted: (loadRef: string) => `${loadRef}: Done. Truck details will follow.`,
+  priceRequest: (loadRef: string) => `${loadRef}: Type your price in ₹.`,
+  counterRecorded: (loadRef: string, price: number) =>
+    `${loadRef}: ₹${price.toLocaleString('en-IN')} noted. Got it. We'll come back to you.`,
+  loadsmartBidRejected: (loadRef: string) =>
+    `${loadRef}: Noted. We'll come back with a better bid.`,
+  // CTA sheet: Accept memo (WhatsApp) → "Confirmed. Truck {{vehicle_no}} is on its way."; an
+  // expired memo → "This memo has expired. We'll send a new one."
+  memoAccepted: (loadRef: string, vehicleNumber: string) =>
+    `${loadRef}: Confirmed. Truck ${vehicleNumber} is on its way.`,
+  memoExpired: (loadRef: string) => `${loadRef}: This memo has expired. We'll send a new one.`,
   loadClosed: (loadRef: string) => `${loadRef} is no longer open, so this reply was not recorded.`,
   notRecorded: (loadRef: string) => `${loadRef}: We couldn't record this. Our team will call you.`,
   pickerPrompt: (kind: ReplyValueKind, sourceText: string) =>

@@ -617,6 +617,12 @@ export class LsTrackingService extends LsServiceBase {
         utrReference: input.utrReference ?? null,
         proofFileKey: input.proofFileKey ?? null,
       });
+      await this.notifyParties?.({
+        kind: 'partner_paid',
+        tenantId: sourcing.tenantId,
+        loadId,
+        partnerPaymentId: advance.id,
+      });
       await this.notifier.notifyUsers([advance.raisedBy], {
         type: 'partner_advance.paid',
         title: `Carrier advance paid — ${sourcing.load.code}`,

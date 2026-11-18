@@ -30,6 +30,8 @@ export interface TemplateMessage {
    *  tapped message (replyMsgId) and the button text. */
   quickReplyPayloads?: string[];
   headerDocument?: { link: string; filename: string };
+  /** The dynamic part of the template's URL buttons; `position` is the button's 1-based place. */
+  urlButtons?: { position: number; value: string }[];
 }
 
 export interface ReplyButton {

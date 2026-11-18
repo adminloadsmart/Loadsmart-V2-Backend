@@ -105,9 +105,11 @@ export class WhatsappReplySender implements ReplySender {
     const text =
       prompt === 'rate_request'
         ? REPLY_TEXTS.rateRequest(context.loadRef)
-        : prompt === 'dispatch_request'
-          ? REPLY_TEXTS.dispatchRequest(context.loadRef)
-          : REPLY_TEXTS.slipRequest(context.loadRef);
+        : prompt === 'price_request'
+          ? REPLY_TEXTS.priceRequest(context.loadRef)
+          : prompt === 'dispatch_request'
+            ? REPLY_TEXTS.dispatchRequest(context.loadRef)
+            : REPLY_TEXTS.slipRequest(context.loadRef);
     return { type: 'text', text };
   }
 }

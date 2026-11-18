@@ -4,7 +4,11 @@ import { DataSource } from 'typeorm';
 import { env } from '../../config/env';
 import { redisManager } from '../../db/redis';
 import { createJobQueue } from '../../jobs/queue-registry';
-import { MESSAGING_QUEUES } from './messaging.constants';
+import {
+  BIDS_ROLLUP_JOB,
+  BIDS_ROLLUP_JOB_ID_PREFIX,
+  MESSAGING_QUEUES,
+} from './messaging.constants';
 import { WhatsappProviderName } from './messaging.types';
 import { WhatsappProvider } from './providers/whatsapp-provider.interface';
 import { Msg91WhatsappProvider } from './providers/msg91/msg91-whatsapp.provider';
@@ -42,6 +46,17 @@ import { CompositeReplyActions } from './integration/composite-reply-actions';
 import { PartnerBoardGateway, PartnerReplyActions } from './integration/partner-reply-actions';
 import { PartnerBoardNotifier, PartnerDirectory } from './integration/partner-board-notifier';
 import { LoadRecipientStatusListener } from './integration/load-recipient-status.listener';
+import { LoadPartyWhatsapp } from './integration/load-party-whatsapp';
+import { FileLinker, MemoGateway, ShipperBidGateway } from './integration/load-notices.interface';
+import { TypeormLoadNoticeStore } from './integration/load-notice-store';
+import { ShipperReplyActions, TypeormShipperLoadStore } from './integration/shipper-reply-actions';
+import {
+  createWhatsappScheduleWorker,
+  scheduleWhatsappFollowUps,
+} from './workers/whatsapp-schedule.worker';
+import { LoadEventNotifier } from '../notifications/notifications.interface';
+import { LoadPartyNotifier } from '../loads/utils/load-party-notifier.interface';
+import { SettingsReader } from '../settings/settings.types';
 
 export interface MessagingModule {
   provider: WhatsappProviderName;
@@ -64,11 +79,16 @@ export interface MessagingModule {
   opsSentLogRouter: Router;
   /** Posts loads to transporters on WhatsApp (replaces LoggingLoadDispatchNotifier). */
   dispatchNotifier: WhatsappDispatchNotifier;
-  /** Turns the reply router on, over the transporter bid / indent services and Loadsmart's board. */
+  /** Turns the reply router on, over the transporter bid / indent services, Loadsmart's board and
+   *  the load memo (Accept memo on WhatsApp). */
   connectReplies(services: {
     transporterBids: TransporterBidWriter;
     partnerBoard: PartnerBoardGateway;
+    memos: MemoGateway;
+    shipperBids: ShipperBidGateway;
   }): void;
+  /** The load-flow WhatsApp notices (memo, confirmations, papers, payments, original POD). */
+  createLoadNotices(deps: { settings: SettingsReader; linkFile: FileLinker }): LoadNotices;
   /** Sends loads posted on Loadsmart's board to partners (LsSourcingService.setLoadBoardNotifier). */
   createPartnerBoardNotifier(partners: PartnerDirectory): PartnerBoardNotifier;
 }
@@ -99,6 +119,16 @@ export function createWhatsappReplyRouter(
     new WhatsappInboundRepository(dataSource),
   );
   return new WhatsappReplyRouter(store, actions, sender, {});
+}
+
+/** What the load notices plug into: the load-event notifier, the services' party notifier, and
+ *  the daily original POD follow-up (its worker and schedule). */
+export interface LoadNotices {
+  onLoadEvent: LoadEventNotifier;
+  notify: LoadPartyNotifier;
+  worker: Worker;
+  /** Registers the daily follow-up schedule (idempotent). */
+  schedule(): Promise<void>;
 }
 
 export function createMessagingModule(dataSource: DataSource): MessagingModule {
@@ -149,7 +179,7 @@ export function createMessagingModule(dataSource: DataSource): MessagingModule {
     shipperSentLogRouter: createShipperSentLogRoutes(sentLogController),
     opsSentLogRouter: createOpsSentLogRoutes(sentLogController),
     dispatchNotifier: new WhatsappDispatchNotifier(outbound, new TypeormShipperNames(dataSource)),
-    connectReplies({ transporterBids, partnerBoard }) {
+    connectReplies({ transporterBids, partnerBoard, memos, shipperBids }) {
       const actions = new CompositeReplyActions({
         transporter: new TransporterReplyActions(
           new TypeormTransporterOfferStore(dataSource, inboundRepository),
@@ -159,11 +189,36 @@ export function createMessagingModule(dataSource: DataSource): MessagingModule {
           latestOfferAnswer: (loadId, partnerId) =>
             inboundRepository.findLatestOfferAnswer(loadId, partnerId),
         }),
+        shipper_user: new ShipperReplyActions(
+          new TypeormShipperLoadStore(dataSource),
+          memos,
+          shipperBids,
+        ),
       });
       pipeline.useHandler(createWhatsappReplyRouter(dataSource, actions, replySender));
     },
     createPartnerBoardNotifier(partners) {
       return new PartnerBoardNotifier(partners, outbound);
+    },
+    createLoadNotices({ settings, linkFile }) {
+      const schedules = createJobQueue(MESSAGING_QUEUES.schedules);
+      const notices = new LoadPartyWhatsapp(
+        new TypeormLoadNoticeStore(dataSource),
+        outbound,
+        settings,
+        linkFile,
+        (job, delayMs) =>
+          schedules.enqueue(BIDS_ROLLUP_JOB, job, {
+            delay: delayMs,
+            jobId: `${BIDS_ROLLUP_JOB_ID_PREFIX}${job.loadId}`,
+          }),
+      );
+      return {
+        onLoadEvent: notices.onLoadEvent,
+        notify: notices.notify,
+        worker: createWhatsappScheduleWorker(notices),
+        schedule: () => scheduleWhatsappFollowUps(schedules),
+      };
     },
     inboundWorker: createWhatsappInboundWorker(pipeline),
     outboundWorker: createWhatsappOutboundWorker(outbound),
