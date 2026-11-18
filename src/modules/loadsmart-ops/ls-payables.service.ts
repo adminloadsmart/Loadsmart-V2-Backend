@@ -41,8 +41,9 @@ export interface OriginalPodFilter {
 /**
  * Payables (Y01, Y03): follows up the original POD until it is filed at Mohali, raises the
  * carrier's balance on it for Super Admin, and records the UTR once paid. "Never on the image.
- * With damage noted, waits for the shipper's payment." Shipper rates are never shown here. No
- * WhatsApp payment advice is sent from this build.
+ * With damage noted, waits for the shipper's payment." Shipper rates are never shown here. The
+ * partner gets the payment advice (LS_N_0112) and the original POD receipt (LS_N_0117) on
+ * WhatsApp through the party notifier.
  */
 export class LsPayablesService extends LsServiceBase {
   constructor(
@@ -134,6 +135,13 @@ export class LsPayablesService extends LsServiceBase {
         ...input,
         ...(fields.penaltyAmount ? { penalty: fields.penaltyAmount } : {}),
       });
+      if (status === 'received_filed') {
+        await this.notifyParties?.({
+          kind: 'original_pod_received',
+          tenantId: sourcing.tenantId,
+          loadId,
+        });
+      }
       return (await this.repository.originalPods.findOneBy({ id: row.id }))!;
     } catch (error) {
       rethrow(error, 'Failed to update the original POD');
@@ -267,6 +275,12 @@ export class LsPayablesService extends LsServiceBase {
         net: Number(balance.netAmount),
         utrReference: input.utrReference ?? null,
         proofFileKey: input.proofFileKey ?? null,
+      });
+      await this.notifyParties?.({
+        kind: 'partner_paid',
+        tenantId: sourcing.tenantId,
+        loadId,
+        partnerPaymentId: balance.id,
       });
       if (updated) await this.stageService.closeIfReady(sourcing.tenantId, actorId, updated);
       return (await this.repository.findPartnerPayment(sourcing.id, 'balance'))!;

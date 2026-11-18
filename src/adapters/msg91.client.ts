@@ -37,6 +37,41 @@ export function namedTemplateComponents(variables: string[]): Msg91WhatsappCompo
   );
 }
 
+/** What a template carries beyond its body variables. */
+export interface Msg91TemplateExtras {
+  /** A document header (payment proof): a link MSG91/Meta can fetch, and the name it shows. */
+  headerDocument?: { link: string; filename: string };
+  /** The dynamic part of URL buttons: `position` is the button's 1-based place in the template. */
+  urlButtons?: { position: number; value: string }[];
+}
+
+/**
+ * Header and URL-button slots, keyed like the body's. The URL button uses the same
+ * `{ subtype: 'url', type: 'text', value }` slot the OTP copy button already sends in production
+ * (sendWhatsappAuthCode). ⚠️ The document header slot (`header_1` with `type: 'document'`,
+ * `value` = link, `filename`) follows MSG91's panel "Code (JSON)" sample shape and must be checked
+ * against it for a template with a document header before going live.
+ */
+export function templateExtraComponents(extras: Msg91TemplateExtras): Msg91WhatsappComponents {
+  return {
+    ...(extras.headerDocument
+      ? {
+          header_1: {
+            type: 'document',
+            value: extras.headerDocument.link,
+            filename: extras.headerDocument.filename,
+          },
+        }
+      : {}),
+    ...Object.fromEntries(
+      (extras.urlButtons ?? []).map((button) => [
+        `button_${button.position}`,
+        { subtype: 'url', type: 'text', value: button.value },
+      ]),
+    ),
+  };
+}
+
 /**
  * Every phone number goes out as 91XXXXXXXXXX (toIndianMsisdn) — Loadsmart only sends to Indian
  * numbers, and they're stored without the country code.
@@ -186,6 +221,7 @@ export class Msg91Client {
     templateName: string,
     variables: string[],
     languageCode: string,
+    extras: Msg91TemplateExtras = {},
   ): Promise<Msg91WhatsappSendOutcome> {
     if (isMsg91SkippedNumber(phoneNumber)) return { httpStatus: 0, body: null, skipped: true };
     this.assertWhatsappConfigured();
@@ -200,7 +236,13 @@ export class Msg91Client {
           language: { code: languageCode, policy: 'deterministic' },
           namespace: env.msg91WhatsappNamespace,
           to_and_components: [
-            { to: [toIndianMsisdn(phoneNumber)], components: namedTemplateComponents(variables) },
+            {
+              to: [toIndianMsisdn(phoneNumber)],
+              components: {
+                ...namedTemplateComponents(variables),
+                ...templateExtraComponents(extras),
+              },
+            },
           ],
         },
       },

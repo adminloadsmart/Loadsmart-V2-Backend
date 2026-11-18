@@ -32,6 +32,7 @@ import {
 } from '../utils/load-bid.interface';
 import { BidChannel } from '../utils/loads.types';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
+import { LoadPartyNotifier } from '../utils/load-party-notifier.interface';
 
 const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase();
 
@@ -72,6 +73,13 @@ export class LoadBidService {
   }
 
   /** Set by the Loadsmart ops module: the shipper countered or rejected Loadsmart's bid. */
+  /** Tells the shipper on WhatsApp about bids (modules/messaging). */
+  private notifyParties?: LoadPartyNotifier;
+
+  setPartyNotifier(notifier: LoadPartyNotifier): void {
+    this.notifyParties = notifier;
+  }
+
   private onLoadsmartBidCountered?: LoadsmartBidEventHook;
   private onLoadsmartBidRejected?: LoadsmartBidEventHook;
 
@@ -514,8 +522,8 @@ export class LoadBidService {
         throw new ConflictError('This load already has a truck — it no longer takes bids');
       }
       const now = this.now();
-      const sentAt = await this.sentAtOf(load);
-      const closesAt = bidWindowClosesAt(sentAt);
+      const window = await this.windowOf(load);
+      const closesAt = bidWindowClosesAt(window.sentAt, window.extraMinutes);
       if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
 
       let recipientId: string | null = null;
@@ -815,6 +823,15 @@ export class LoadBidService {
       resourceType: 'load_bid',
       newData: { id: bid.id, loadId: load.id, ...metadata },
     });
+    // A market load's bids reach the shipper on WhatsApp too (an indent's acceptance doesn't).
+    if (load.postingType === 'market_fleet') {
+      await this.notifyParties?.({
+        kind: bid.source === 'loadsmart' ? 'loadsmart_bid_sent' : 'bid_received',
+        tenantId: load.tenantId,
+        loadId: load.id,
+        bidId: bid.id,
+      });
+    }
   }
 
   /** The shipper accepts a bid — only a live bid with a truck that hasn't failed its check, and

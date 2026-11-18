@@ -25,9 +25,11 @@ import { MessageLogPatch } from '../repositories/message-log.repository';
 import {
   TemplateKey,
   getTemplateDefinition,
+  isTemplateKey,
   offerActionsOf,
   orderTemplateVariables,
   renderTemplateBody,
+  urlButtonsOf,
 } from '../templates/template-registry';
 
 export interface OutboundRecipient {
@@ -58,6 +60,7 @@ export type OutboundContent =
       bodyVariables: string[];
       quickReplyPayloads?: string[];
       headerDocument?: { link: string; filename: string };
+      urlButtons?: { position: number; value: string }[];
     };
 
 export interface TemplateSendRequest extends OutboundLoadRef {
@@ -65,6 +68,8 @@ export interface TemplateSendRequest extends OutboundLoadRef {
   templateKey: TemplateKey;
   variables: Record<string, string>;
   headerDocument?: { link: string; filename: string };
+  /** Drivers only: registered on the driver app (the channel rules then keep WhatsApp off). */
+  driverHasApp?: boolean;
   replyToInboundId?: string | null;
   actor: string;
 }
@@ -173,14 +178,21 @@ export class OutboundMessageService {
             }),
           )
         : [];
-    return this.queueMessage(baseRow, request, {
-      type: 'template',
-      templateName,
-      languageCode: this.config.templateLanguage,
-      bodyVariables,
-      ...(quickReplyPayloads.length > 0 ? { quickReplyPayloads } : {}),
-      ...(request.headerDocument ? { headerDocument: request.headerDocument } : {}),
-    });
+    const urlButtons = urlButtonsOf(request.templateKey, request.variables);
+    return this.queueMessage(
+      baseRow,
+      request,
+      {
+        type: 'template',
+        templateName,
+        languageCode: this.config.templateLanguage,
+        bodyVariables,
+        ...(quickReplyPayloads.length > 0 ? { quickReplyPayloads } : {}),
+        ...(request.headerDocument ? { headerDocument: request.headerDocument } : {}),
+        ...(urlButtons.length > 0 ? { urlButtons } : {}),
+      },
+      request.driverHasApp,
+    );
   }
 
   async sendSession(request: SessionSendRequest): Promise<OutboundResult> {
@@ -303,7 +315,10 @@ export class OutboundMessageService {
 
   /** The channel rules (channel-policy.ts) for this one WhatsApp message: the reason it may not
    *  go, or null. */
-  private async channelRuleBlocking(row: Partial<MessageLogEntity>): Promise<string | null> {
+  private async channelRuleBlocking(
+    row: Partial<MessageLogEntity>,
+    driverHasApp?: boolean,
+  ): Promise<string | null> {
     const needsLoad = row.recipientKind === 'shipper_user' && row.tenantId && row.loadId;
     const load =
       needsLoad && this.config.loadFacts
@@ -314,6 +329,10 @@ export class OutboundMessageService {
       intent: row.intent ?? null,
       channels: ['whatsapp'],
       load,
+      ...(driverHasApp !== undefined ? { driverHasApp } : {}),
+      allowedBeforeMemo:
+        isTemplateKey(row.templateKey) &&
+        Boolean(getTemplateDefinition(row.templateKey).sendsBeforeMemo),
     });
     return suppressed[0]?.reason ?? null;
   }
@@ -331,8 +350,9 @@ export class OutboundMessageService {
     row: Partial<MessageLogEntity>,
     request: { recipient: OutboundRecipient; replyToInboundId?: string | null },
     content: OutboundContent,
+    driverHasApp?: boolean,
   ): Promise<OutboundResult> {
-    const blockedBy = await this.channelRuleBlocking(row);
+    const blockedBy = await this.channelRuleBlocking(row, driverHasApp);
     if (blockedBy) return this.suppress(row, blockedBy);
     if (!(await this.consent.hasWhatsappOptIn(request.recipient)))
       return this.suppress(row, SUPPRESSED_REASONS.noOptIn);

@@ -21,6 +21,7 @@ import {
   RecordBalanceInput,
   LoadsmartBilling,
 } from '../utils/load-payment.interface';
+import { LoadPartyNotifier } from '../utils/load-party-notifier.interface';
 
 export function computeShareAmount(load: LoadEntity, percentage: string): string {
   const pct = Number(percentage) / 100;
@@ -35,6 +36,13 @@ export class LoadPaymentService {
 
   setLoadsmartBilling(billing: LoadsmartBilling): void {
     this.loadsmartBilling = billing;
+  }
+
+  /** Tells the shipper's own transporter on WhatsApp that a payment was recorded (LS_N_0126). */
+  private notifyParties?: LoadPartyNotifier;
+
+  setPartyNotifier(notifier: LoadPartyNotifier): void {
+    this.notifyParties = notifier;
   }
 
   constructor(
@@ -129,6 +137,14 @@ export class LoadPaymentService {
         resourceType: 'load_payment',
         newData: { id: payment.id, loadId, paymentType: 'advance', amount },
       });
+      if (load.route !== 'loadsmart') {
+        await this.notifyParties?.({
+          kind: 'transporter_payment_recorded',
+          tenantId,
+          loadId,
+          paymentId: payment.id,
+        });
+      }
       // The balance may already be in (Payment, stage 12) — the advance is the last thing owed.
       if (updated) await this.stageService.closeIfReady(tenantId, actorId, updated);
       return payment;
@@ -243,6 +259,12 @@ export class LoadPaymentService {
           amount: payment.amount,
           dueDate,
         },
+      });
+      await this.notifyParties?.({
+        kind: 'transporter_payment_recorded',
+        tenantId,
+        loadId,
+        paymentId: payment.id,
       });
 
       if (updated) {

@@ -548,6 +548,13 @@ export function buildContainer(dataSource: DataSource): Container {
   const ulipClient = new UlipClient();
   // Super Admin → Settings (S03) — read by the loads and Loadsmart ops modules, so built first.
   const settings = createSettingsModule(dataSource, { auditService: audit.service });
+  // Load-flow WhatsApp notices (memo, confirmations, papers, payments, original POD) to the
+  // shipper, Loadsmart's partners, own transporters and drivers (modules/messaging/integration).
+  const loadNotices = messaging.createLoadNotices({
+    settings: settings.service,
+    linkFile: (fileKey) => storage.service.getPresignedDownloadUrlForKey(fileKey),
+  });
+  const notifyLoadEventInApp = createLoadEventNotifier(notifications.triggers);
   const loads = createLoadsModule(dataSource, {
     auditService: audit.service,
     authService: auth.service,
@@ -563,7 +570,11 @@ export function buildContainer(dataSource: DataSource): Container {
     onIssueReported: createIssueReportedNotifier(notifications.triggers),
     // Stage handoffs, e-way bill expiry, E-POD uploaded, advance due, truck assigned / blocked
     // (notifications/load-alerts.ts).
-    onLoadEvent: createLoadEventNotifier(notifications.triggers),
+    // …and the same events drive the load-flow WhatsApp notices.
+    onLoadEvent: async (event) => {
+      await notifyLoadEventInApp(event);
+      await loadNotices.onLoadEvent(event);
+    },
     // Load-time truck (VAHAN via ULIP) and driver (Sarathi) checks.
     vehicleRegistry: ulipClient,
     dlVerificationClient: driver.dlVerificationClient,
@@ -598,6 +609,7 @@ export function buildContainer(dataSource: DataSource): Container {
     elrService: loads.elrService,
     trackingClient,
     loadCancelService: loads.loadCancelService,
+    partyNotifier: loadNotices.notify,
   });
   ewayBillRiskHook.notify = loadsmart.notifyEwayBillAtRisk;
   // WhatsApp: board loads go to partners; replies (accept / rate / truck number) from transporters
@@ -608,7 +620,15 @@ export function buildContainer(dataSource: DataSource): Container {
   messaging.connectReplies({
     transporterBids: loads.loadBidService,
     partnerBoard: loadsmart.sourcingService,
+    memos: loads.loadMemoService,
+    shipperBids: loads.loadBidService,
   });
+  loads.loadMemoService.setPartyNotifier(loadNotices.notify);
+  loads.loadPaymentService.setPartyNotifier(loadNotices.notify);
+  loads.loadBidService.setPartyNotifier(loadNotices.notify);
+  loadNotices
+    .schedule()
+    .catch((error) => console.error('Failed to register the WhatsApp follow-up schedule', error));
   loads.protectedRouter.use(loadsmart.shipperRouter);
   // GET /v1/loads/loads/:loadId/messages — the shipper-safe sent log (task 3).
   loads.protectedRouter.use(messaging.shipperSentLogRouter);
@@ -762,6 +782,7 @@ export function buildContainer(dataSource: DataSource): Container {
       notifications.worker,
       messaging.inboundWorker,
       messaging.outboundWorker,
+      loadNotices.worker,
       notificationTriggerWorker,
       notificationScheduleWorker,
       organization.documentVerificationWorker,
