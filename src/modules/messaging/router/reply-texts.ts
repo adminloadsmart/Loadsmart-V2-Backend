@@ -16,7 +16,16 @@ export const REPLY_TEXTS = {
   firstAnswerKept: (loadRef: string, firstAction: string) =>
     `${loadRef}: your first answer "${firstAction}" is recorded. Call Loadsmart to change it.`,
   incompleteDispatch: (loadRef: string) =>
-    `${loadRef}: send the truck number, the driver's name and the driver's 10-digit mobile in one message.`,
+    `${loadRef}: send the driver's name, 10-digit mobile, DL number and date of birth in one message.`,
+  // After LS_N_0121: the driver details, checked on Sarathi (and the truck on VAHAN).
+  dispatchMissing: (loadRef: string, missing: string[]) =>
+    `${loadRef}: please also send the ${missing.join(' and the ')}, with the driver's name and mobile in one message.`,
+  dispatchMemoSent: (loadRef: string, driverName: string) =>
+    `${loadRef}: Driver ${driverName} noted and checked. The load memo has gone to your customer.`,
+  dispatchRecorded: (loadRef: string, driverName: string) =>
+    `${loadRef}: Driver ${driverName} noted. Thanks. We'll get back to you.`,
+  dispatchCheckFailed: (loadRef: string, reason: string) =>
+    `${loadRef}: we couldn't use these details. ${reason.replace(/\.$/, '')}. Please send another driver or truck.`,
   pickerExpired: "This list has expired. Reply to the load's message to send it again.",
   // CTA sheet: Negotiate / Give rate → "Type your rate in ₹ and the truck number".
   rateRequest: (loadRef: string) => `${loadRef}: Type your rate in ₹ and the truck number.`,

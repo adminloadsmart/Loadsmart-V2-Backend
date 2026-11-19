@@ -7,8 +7,10 @@ import { InboundResolution } from '../messaging.types';
 import { OutboundResult, TemplateSendRequest } from '../outbound/outbound-message.service';
 import { RecipientLoadContext } from '../router/reply-router.ports';
 import { phoneVariantsOf } from './transporter-load-store';
+import { parseDispatchDetails } from '../parsers/reply-value.parsers';
 import {
   TransporterBidWriter,
+  TransporterDriverWriter,
   TransporterOffer,
   TransporterOfferStore,
   TransporterReplyActions,
@@ -34,9 +36,20 @@ function marketOffer(overrides: Partial<TransporterOffer> = {}): TransporterOffe
     priceMode: 'set_target',
     postedRate: '45000',
     laneLabel: 'Gurugram → Ludhiana · 24 ft',
+    awarded: false,
+    memoAccepted: false,
     ...overrides,
   };
 }
+
+/** Bid (or indent) accepted for transporter A — LS_N_0121 has gone out. */
+const awardedOffer = (overrides: Partial<TransporterOffer> = {}) =>
+  marketOffer({
+    loadStatus: 'bids_received',
+    loadTransporterId: 'transporter-A',
+    awarded: true,
+    ...overrides,
+  });
 
 const indentOffer = (overrides: Partial<TransporterOffer> = {}) =>
   marketOffer({
@@ -89,8 +102,30 @@ class FakeBids implements TransporterBidWriter {
   }
 }
 
+type NameDriverResult = Awaited<ReturnType<TransporterDriverWriter['nameDriver']>>;
+
+class FakeDrivers implements TransporterDriverWriter {
+  calls: unknown[][] = [];
+  result: NameDriverResult = {
+    memo: { id: 'memo-1' },
+    checks: {
+      clear: true,
+      blockers: [],
+      truck: { status: 'passed' },
+      driver: { status: 'passed' },
+    },
+  };
+  failWith: Error | null = null;
+  async nameDriver(...args: Parameters<TransporterDriverWriter['nameDriver']>) {
+    if (this.failWith) throw this.failWith;
+    this.calls.push(args);
+    return this.result;
+  }
+}
+
 let offers: FakeOffers;
 let bids: FakeBids;
+let drivers: FakeDrivers;
 let actions: TransporterReplyActions;
 const context = (offer: TransporterOffer): RecipientLoadContext => ({
   tenantId: offer.tenantId,
@@ -104,7 +139,8 @@ const context = (offer: TransporterOffer): RecipientLoadContext => ({
 beforeEach(() => {
   offers = new FakeOffers();
   bids = new FakeBids();
-  actions = new TransporterReplyActions(offers, bids, () => NOW);
+  drivers = new FakeDrivers();
+  actions = new TransporterReplyActions(offers, bids, drivers, () => NOW);
 });
 
 describe('transporterStage (CTA sheet: Accept → truck number; Negotiate → rate and truck)', () => {
@@ -232,9 +268,109 @@ describe('TransporterReplyActions', () => {
     expect(outcome.confirmationText).toContain('LOAD-0050');
   });
 
-  it('driver details and attachments are not taken on WhatsApp yet — review', async () => {
-    expect(await actions.applyDispatch()).toMatchObject({ resolution: 'needs_review' });
+  it('attachments are not taken on WhatsApp yet — review', async () => {
     expect(await actions.applySlip()).toMatchObject({ resolution: 'needs_review' });
+  });
+});
+
+describe('driver details after LS_N_0121', () => {
+  // The reply from 19 Nov that was refused ("can't take this reply now").
+  const reply = 'RJ11GC9628\nSHUBHAM\n7973805477\nHR3120210000616\n12 MAY 1990';
+
+  it('an awarded load waits for the driver until the memo is accepted, past the bid window', () => {
+    const late = { postedAt: new Date(NOW.getTime() - 6 * HOUR_MS) };
+    expect(transporterStage(awardedOffer(late), null, 'bid_recorded', NOW)).toBe(
+      'awaiting_dispatch',
+    );
+    expect(transporterStage(awardedOffer({ postingType: 'indent' }), null, null, NOW)).toBe(
+      'awaiting_dispatch',
+    );
+    expect(transporterStage(awardedOffer({ memoAccepted: true }), null, null, NOW)).toBe('closed');
+    // Awarded to another transporter: closed for A.
+    expect(
+      transporterStage(awardedOffer({ loadTransporterId: 'transporter-B' }), null, null, NOW),
+    ).toBe('closed');
+  });
+
+  it('names the driver with the DL and date of birth, keeps the truck, and says the memo went', async () => {
+    const offer = awardedOffer();
+    offers.offers = [offer];
+    const outcome = await actions.applyDispatch(
+      context(offer),
+      parseDispatchDetails(reply),
+      inbound,
+    );
+    expect(drivers.calls).toEqual([
+      [
+        'tenant-1',
+        null,
+        'load-1',
+        {
+          driverName: 'SHUBHAM',
+          driverMobile: '7973805477',
+          licenceNumber: 'HR3120210000616',
+          dateOfBirth: '1990-05-12',
+          vehicleNumber: 'RJ11GC9628',
+        },
+      ],
+    ]);
+    expect(outcome).toMatchObject({ resolution: 'details_received' });
+    expect(outcome.confirmationText).toBe(
+      'LOAD-0042: Driver SHUBHAM noted and checked. The load memo has gone to your customer.',
+    );
+  });
+
+  it('asks only for what is missing', async () => {
+    const offer = awardedOffer();
+    offers.offers = [offer];
+    const outcome = await actions.applyDispatch(
+      context(offer),
+      parseDispatchDetails('SHUBHAM 7973805477'),
+      inbound,
+    );
+    expect(drivers.calls).toEqual([]);
+    expect(outcome.resolution).toBe('validation_failed');
+    expect(outcome.confirmationText).toContain('DL number');
+    expect(outcome.confirmationText).toContain('date of birth');
+  });
+
+  it('tells the transporter when a check fails', async () => {
+    const offer = awardedOffer();
+    offers.offers = [offer];
+    drivers.result = {
+      memo: null,
+      checks: {
+        clear: false,
+        blockers: ['Driver licence: licence expired'],
+        truck: { status: 'passed' },
+        driver: { status: 'failed' },
+      },
+    };
+    const outcome = await actions.applyDispatch(
+      context(offer),
+      parseDispatchDetails(reply),
+      inbound,
+    );
+    expect(outcome.confirmationText).toBe(
+      "LOAD-0042: we couldn't use these details. Driver licence: licence expired. Please send another driver or truck.",
+    );
+  });
+
+  it('a rule the write breaks goes to review, with a reply', async () => {
+    const offer = awardedOffer();
+    offers.offers = [offer];
+    drivers.failWith = new ConflictError(
+      'Vehicle RJ11GC9628 is already on an active load elsewhere',
+    );
+    const outcome = await actions.applyDispatch(
+      context(offer),
+      parseDispatchDetails(reply),
+      inbound,
+    );
+    expect(outcome).toMatchObject({
+      resolution: 'needs_review',
+      note: expect.stringContaining('already on an active load'),
+    });
   });
 });
 
