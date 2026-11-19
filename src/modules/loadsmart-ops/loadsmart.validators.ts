@@ -232,6 +232,8 @@ export const loadsmartValidators = {
         driverMobile: mobile,
         licenceNumber: z.string().trim().min(5).max(30),
         dateOfBirth: isoDateSchema,
+        // The truck, when the load has none yet or the transporter changes it — checked on VAHAN.
+        vehicleNumber: z.string().trim().min(1).max(20).optional(),
         licenceFrontFileKey: z.string().trim().min(1),
         licenceBackFileKey: z.string().trim().min(1),
         rcCopyFileKey: z.string().trim().min(1),
