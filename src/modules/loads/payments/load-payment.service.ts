@@ -173,7 +173,7 @@ export class LoadPaymentService {
         throw new ConflictError('Balance payment applies to market and indent loads only');
       }
       if (load.route === 'loadsmart') {
-        return await this.recordLoadsmartPayment(load, actorId, input);
+        return await this.recordLoadsmartPayment(load, actorId, actorRole, input);
       }
       if (load.status !== 'invoice_generated' || !load.deliveredAt) {
         throw new ConflictError("Upload the transporter's invoice before recording the balance");
@@ -397,6 +397,7 @@ export class LoadPaymentService {
   private async recordLoadsmartPayment(
     load: LoadEntity,
     actorId: string,
+    actorRole: string,
     input: RecordBalanceInput,
   ): Promise<LoadPaymentEntity> {
     if (load.status !== 'invoice_generated' && load.status !== 'payment') {
@@ -405,11 +406,50 @@ export class LoadPaymentService {
       );
     }
     if (load.balancePaidAt) throw new ConflictError("Loadsmart's invoice is already settled");
-    if (!input.utrReference?.trim()) {
-      throw new ValidationError("Add the UTR of the payment to Loadsmart's invoice");
+    // The UTR, or a screenshot of the payment to read it from — Receivables matches it on the bank.
+    const utrReference = input.utrReference?.trim() || null;
+    if (!utrReference && !input.proofFileKey) {
+      throw new ValidationError(
+        "Add the UTR of the payment to Loadsmart's invoice, or a screenshot",
+      );
+    }
+    if (input.proofFileKey) {
+      await assertConfirmedUpload(
+        this.storageService,
+        load.tenantId,
+        actorRole,
+        input.proofFileKey,
+        'loads/payment-proof',
+      );
     }
     const amount = await this.loadsmartBilling?.balanceDueOf(load.tenantId, load.id);
     if (!amount) throw new ConflictError("Loadsmart's invoice for this load isn't generated yet");
+
+    // One balance payment per load: one already with Loadsmart is waiting to be matched (or is
+    // settled); only one Receivables rejected can be sent again.
+    const existing = await this.repository.findByLoadAndType(load.tenantId, load.id, 'balance');
+    if (existing && existing.verificationStatus !== 'rejected') {
+      throw new ConflictError(
+        existing.verificationStatus === 'verified'
+          ? "Loadsmart's invoice is already settled"
+          : "Your payment is already with Loadsmart — it's being matched against the bank",
+      );
+    }
+    if (existing) {
+      const resent = await this.repository.resubmit(load.tenantId, existing.id, {
+        utrReference,
+        proofFileKey: input.proofFileKey ?? null,
+        paymentMode: input.paymentMode ?? null,
+        account: input.account?.trim() || null,
+        paymentDate: input.paymentDate,
+        recordedBy: actorId,
+      });
+      if (!resent) throw new ConflictError('This payment was already sent again');
+      if (input.proofFileKey) {
+        await this.fileProof(load.tenantId, load, actorId, input.proofFileKey);
+      }
+      return resent;
+    }
 
     const payment = await this.repository.create({
       tenantId: load.tenantId,
@@ -417,7 +457,8 @@ export class LoadPaymentService {
       transporterId: null,
       paymentType: 'balance',
       amount,
-      utrReference: input.utrReference!.trim(),
+      utrReference,
+      proofFileKey: input.proofFileKey ?? null,
       paymentMode: input.paymentMode ?? null,
       account: input.account?.trim() || null,
       paymentDate: input.paymentDate,
@@ -426,6 +467,7 @@ export class LoadPaymentService {
       verifiedBy: null,
       verifiedAt: null,
     });
+    if (input.proofFileKey) await this.fileProof(load.tenantId, load, actorId, input.proofFileKey);
     if (load.status === 'invoice_generated') {
       await this.stageService.transition({
         tenantId: load.tenantId,

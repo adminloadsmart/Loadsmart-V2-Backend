@@ -278,6 +278,11 @@ export class LsShipperService extends LsServiceBase {
     return this.repository.findClaim(loadId);
   }
 
+  /** The shipper's own Loadsmart load — what a shipper-side action on its invoice checks first. */
+  async assertOwnLoadsmartLoad(tenantId: string, loadId: string): Promise<void> {
+    await this.assertLoadsmartLoad(tenantId, loadId);
+  }
+
   async getInvoice(tenantId: string, role: string, loadId: string) {
     await this.assertLoadsmartLoad(tenantId, loadId);
     const invoice = await this.repository.findInvoice(tenantId, loadId);

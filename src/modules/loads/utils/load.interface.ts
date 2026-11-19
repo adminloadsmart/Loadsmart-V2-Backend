@@ -43,6 +43,9 @@ export interface AssignLoadInput {
 export interface ConfirmLoadingInput {
   invoiceNumber?: string;
   invoiceFileKey?: string;
+  /** Typed with the invoice number when no invoice file is uploaded (`YYYY-MM-DD`). */
+  invoiceDate?: string;
+  invoiceValue?: number;
   ewayBillNumber?: string;
   ewayBillFileKey?: string;
   /** Validity date printed on the e-way bill. */

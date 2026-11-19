@@ -498,6 +498,8 @@ export class LoadService {
     const fields: UpdateLoadData = { updatedBy: actorId };
     if (input.invoiceNumber !== undefined) fields.invoiceNumber = input.invoiceNumber.trim();
     if (input.invoiceFileKey !== undefined) fields.invoiceFileKey = input.invoiceFileKey;
+    if (input.invoiceDate !== undefined) fields.invoiceDate = input.invoiceDate;
+    if (input.invoiceValue !== undefined) fields.invoiceValue = String(input.invoiceValue);
     if (input.ewayBillNumber !== undefined) fields.ewayBillNumber = input.ewayBillNumber.trim();
     if (input.ewayBillFileKey !== undefined) {
       fields.ewayBillFileKey = input.ewayBillFileKey;
@@ -726,6 +728,51 @@ export class LoadService {
     } catch (error) {
       if (error instanceof ConflictError) return this.assertExists(tenantId, load.id);
       throw error;
+    }
+  }
+
+  /** "Release the truck" — the truck leaves for the drop. From Loaded this is the usual
+   *  `left_loading`. On a Loadsmart load still at the loading point the shipper can release it
+   *  themselves once their invoice and e-way bill are in: it is marked Loaded first, then released,
+   *  without waiting for Loadsmart's Tracking team to approve the papers. */
+  async releaseTruck(tenantId: string, actorId: string, loadId: string): Promise<LoadEntity> {
+    try {
+      let load = await this.assertExists(tenantId, loadId);
+      await this.assertNotHalted(tenantId, loadId);
+      if (load.status === 'reached_loading') {
+        if (load.route !== 'loadsmart') {
+          throw new ConflictError(
+            'The truck is released once the loading papers are in — add them first',
+          );
+        }
+        load = await this.stageService.transition({
+          tenantId,
+          loadId,
+          trigger: 'papers_complete',
+          actorId,
+          load,
+          auditAction: 'LOAD_LOADING_CONFIRMED',
+          fields: { loadingConfirmedBy: actorId },
+        });
+        const { expiresAt: ewayBillExpiresAt } = this.getEwayBillExpiry(load);
+        await this.onLoadEvent?.({
+          kind: 'loading_confirmed',
+          tenantId,
+          loadId,
+          at: load.loadingConfirmedAt ?? new Date(),
+          confirmedBy: { userId: actorId },
+          ewayBillExpiresAt: ewayBillExpiresAt ? new Date(ewayBillExpiresAt) : null,
+        });
+      }
+      return await this.stageService.transition({
+        tenantId,
+        loadId,
+        trigger: 'left_loading',
+        actorId,
+        load,
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to release the truck');
     }
   }
 
@@ -1202,7 +1249,22 @@ export class LoadService {
 
       await this.onLoadEvent?.({ kind: 'pod_uploaded', tenantId, loadId, at: new Date() });
 
-      // The stage moves only when the POD is decided (reviewPod).
+      // A POD the shipper records themselves is their own word — there is nobody to review it, so
+      // it is accepted straight away (a clean one delivers the load; own fleet then closes, and a
+      // Loadsmart load goes on to its invoice). Only a driver's POD waits for a decision: the
+      // shipper's on their own routes, Loadsmart's Tracking team on a Loadsmart load.
+      if (!driverOwnerId && !fromConsole) {
+        return await this.reviewPod(
+          tenantId,
+          actorId,
+          loadId,
+          { decision: 'accepted' },
+          'shipper',
+          true,
+        );
+      }
+
+      // Otherwise the stage moves only when the POD is decided (reviewPod).
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to upload E-POD');
@@ -1463,13 +1525,16 @@ export class LoadService {
     loadId: string,
     input: ReviewPodInput,
     actorType: 'shipper' | 'ls_team' = 'shipper',
+    /** The shipper recorded this POD themselves — there is no one to review it, whatever the
+     *  route (see uploadPod). */
+    selfRecorded = false,
   ): Promise<LoadEntity> {
     try {
       const load = await this.assertExists(tenantId, loadId);
       if (load.podStatus !== 'pending') {
         throw new ConflictError('This load has no E-POD waiting for a decision');
       }
-      if ((load.route === 'loadsmart') !== (actorType === 'ls_team')) {
+      if (!selfRecorded && (load.route === 'loadsmart') !== (actorType === 'ls_team')) {
         throw new ConflictError(
           load.route === 'loadsmart'
             ? "On a Loadsmart load, Loadsmart's Tracking team decides the POD"

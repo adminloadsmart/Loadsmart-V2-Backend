@@ -302,6 +302,24 @@ export const STAGE_RULES: readonly StageRule[] = [
     ],
   },
   {
+    // The shipper may release a Loadsmart load's truck by hand once the invoice and e-way bill
+    // they hold are in, without waiting for Loadsmart's Tracking team to approve the papers or
+    // make the e-LR. Only reached through the shipper's explicit "Release the truck" — complete
+    // papers alone never move a Loadsmart load (LoadService.advanceIfPapersComplete).
+    trigger: 'papers_complete',
+    from: ['reached_loading'],
+    to: 'loaded',
+    routes: ['loadsmart'],
+    actors: ['shipper'],
+    requires: (load) =>
+      need(
+        [!!load.invoiceNumber, 'invoice number'],
+        [!!load.invoiceFileKey, 'invoice'],
+        [!!load.ewayBillNumber, 'e-way bill number'],
+        [!!load.ewayBillFileKey, 'e-way bill'],
+      ),
+  },
+  {
     trigger: 'left_loading',
     from: ['loaded'],
     to: 'in_transit_unloading',
@@ -330,7 +348,9 @@ export const STAGE_RULES: readonly StageRule[] = [
     from: ['reached_unloading'],
     to: 'delivered_ok',
     routes: ['loadsmart'],
-    actors: ['ls_team'],
+    // The shipper only reaches this by recording the POD themselves (LoadService.uploadPod) —
+    // deciding a driver's POD on a Loadsmart load stays Loadsmart's call (reviewPod).
+    actors: ['ls_team', 'shipper'],
     requires: podDecided,
   },
   {
@@ -349,7 +369,7 @@ export const STAGE_RULES: readonly StageRule[] = [
     from: ['reached_unloading'],
     to: 'delivered_with_issues',
     routes: ['loadsmart'],
-    actors: ['ls_team'],
+    actors: ['ls_team', 'shipper'],
     requires: (load) => [
       ...podDecided(load),
       ...need([!!load.shortageOrDamage && load.shortageOrDamage !== 'none', 'the issue']),

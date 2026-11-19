@@ -59,9 +59,6 @@ export interface LoadChecksView {
    *  (drivers.verify_manual, or loadsmart.driver.verify_manual on a Loadsmart load) may verify
    *  it by hand. A Sarathi verdict — expired, or the wrong class — can't be overridden. */
   driverManualAllowed: boolean;
-  /** Links to the licence photos and the RC copy — only sent for a check the govt portal did not
-   *  pass by itself (couldn't run, failed, or verified by hand), so they can be read by eye. */
-  photos?: { licenceFront: string | null; licenceBack: string | null; rcCopy: string | null };
 }
 
 /** An admin's manual licence check: they saw the licence (the checkbox), plus its validity date if

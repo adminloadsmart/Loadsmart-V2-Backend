@@ -1,4 +1,4 @@
-import { LoadRoute, LoadStatus } from './loads.types';
+import { LoadRoute, LoadStatus, PodStatus } from './loads.types';
 import { hasLoadingPapers } from './load-stages';
 
 /**
@@ -15,7 +15,8 @@ export const SHIPPER_ACTIONS = [
   'loading_papers', // own routes at the loading point: LR, e-way bill, invoice
   'approve_charges', // charges waiting for the shipper
   'record_advance', // own transporter / indent: Loaded, advance not recorded
-  'upload_pod', // at the unloading point, no POD image yet
+  'upload_pod', // at the unloading point, no POD image yet (or the last one was rejected)
+  'review_pod', // own routes: the POD is in and waiting for the shipper's decision
   'settle_issue', // own routes: delivered with issues, not yet resolved
   'upload_transporter_invoice', // own transporter / indent: delivered, before the balance
   'record_balance', // own transporter / indent: transporter's invoice in, balance not recorded
@@ -37,6 +38,8 @@ export interface ShipperActionInput {
   elrFileKey: string | null;
   podFileKey: string | null;
   podBackFileKey: string | null;
+  /** E-POD review state — 'pending' until the shipper (or, on a Loadsmart load, Loadsmart) decides. */
+  podStatus?: PodStatus | null;
   transporterInvoiceFileKey: string | null;
   advancePercentage: string | null;
   advancePaidAt: Date | null;
@@ -89,8 +92,28 @@ export function shipperActionFor(load: ShipperActionInput): ShipperAction {
   if (pays && load.status !== 'created' && !load.advancePaidAt && loadedOrLater(load.status)) {
     if (Number(load.advancePercentage ?? 0) > 0) return { kind: 'record_advance' };
   }
-  if (load.status === 'reached_unloading' && !load.podFileKey) {
+  if (load.status === 'reached_unloading' && (!load.podFileKey || load.podStatus === 'rejected')) {
     return { kind: 'upload_pod' };
+  }
+  // The shipper decides the POD on their own routes; on a Loadsmart load Loadsmart's Tracking
+  // team does (LoadService.reviewPod), so there is nothing for the shipper to do.
+  if (
+    load.status === 'reached_unloading' &&
+    load.podStatus === 'pending' &&
+    load.route !== 'loadsmart'
+  ) {
+    return { kind: 'review_pod' };
+  }
+  // A Loadsmart load: Loadsmart's Tracking team decides the POD, then its Receivables team raises
+  // the invoice the shipper pays — until then the shipper only waits, and is told so.
+  if (load.route === 'loadsmart' && load.status === 'reached_unloading' && load.podFileKey) {
+    return {
+      kind: 'none',
+      reason: 'Loadsmart is checking the POD. Its invoice follows once the POD is accepted',
+    };
+  }
+  if (load.route === 'loadsmart' && load.status === 'delivered_ok') {
+    return { kind: 'none', reason: 'Loadsmart is preparing its invoice for you' };
   }
   if (load.status === 'delivered_with_issues' && own && !load.deliveryIssueSettledAt) {
     return { kind: 'settle_issue' };

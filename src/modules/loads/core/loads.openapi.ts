@@ -461,6 +461,27 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'post',
+    path: `${BASE}/loads/{loadId}/release-truck`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.releaseTruck',
+    ...manageDocuments(
+      'Release the truck for the drop. From Loaded this is the usual `left_loading`. On a ' +
+        'Loadsmart load still at the loading point the shipper can release it themselves once ' +
+        'their invoice and e-way bill are in (marked Loaded first, then released) — without ' +
+        "waiting for Loadsmart's Tracking team to approve the papers.",
+    ),
+    request: { params: loadValidators.releaseTruck.shape.params },
+    responses: {
+      200: { description: 'Updated load' },
+      409: {
+        description: 'The papers are missing, or the load is not at a releasable stage',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/loads/{loadId}/pod`,
     tags: [TAGS.LOADS],
