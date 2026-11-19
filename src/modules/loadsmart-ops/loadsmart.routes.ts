@@ -95,6 +95,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.addBroker),
     asyncHandler(c.addBroker),
   );
+  router.post(
+    '/sourcings/:sourcingId/brokers/bulk',
+    team(LS_PLACEMENT),
+    validate(v.addBrokers),
+    asyncHandler(c.addBrokers),
+  );
   router.delete(
     '/sourcings/:sourcingId/brokers/:partnerId',
     team(LS_PLACEMENT),

@@ -170,6 +170,11 @@ export const loadsmartValidators = {
       .strict(),
   }),
   sourcingBroker: z.object({ params: z.object({ sourcingId: uuid, partnerId: uuid }) }),
+  addBrokers: z.object({
+    params: sourcingParams,
+    // Brokers from the broker master (loads.brokers), picked together in the Add broker drawer.
+    body: z.object({ brokerIds: z.array(uuid).min(1).max(100) }).strict(),
+  }),
   addBroker: z.object({
     params: sourcingParams,
     // A partner already in the directory, or a broker from the broker master (loads.brokers).

@@ -246,7 +246,7 @@ export class LsSourcingService extends LsServiceBase {
       const posting = load.postingId
         ? await this.repository.findPosting(load.tenantId, load.postingId)
         : null;
-      await this.repository.sourcings.save(
+      const created = await this.repository.sourcings.save(
         this.repository.sourcings.create({
           tenantId: load.tenantId,
           loadId: load.id,
@@ -256,6 +256,15 @@ export class LsSourcingService extends LsServiceBase {
           missingFields: missingSourcingFields(posting),
         }),
       );
+      // A posted load lands in Placement's inbox and goes straight onto the load board; there
+      // is no per-load approval (Approval verifies onboarding and posts on a shipper's behalf).
+      // Never fails the posting — a load that could not be posted stays `pending_approval`.
+      try {
+        const fresh = await this.repository.findSourcing(created.id);
+        if (fresh) await this.postToBoard(fresh, null);
+      } catch (error) {
+        console.error(`[sourcing] could not post ${load.id} to the load board`, error);
+      }
     }
   };
 
@@ -333,6 +342,46 @@ export class LsSourcingService extends LsServiceBase {
     }
   }
 
+  /** Puts a sourcing on the load board: fixes the partner-facing rate (the shipper's target with
+   *  the margin taken out), offers it to the brokers on the lane and records the step. Shared by
+   *  the shipper's own posting (no actor — the system posts it) and a manual approval. */
+  private async postToBoard(
+    sourcing: LsSourcingEntity,
+    actorId: string | null,
+    overrides: { marginPercent?: number; truckerAdvancePercent?: number } = {},
+  ): Promise<LsSourcingEntity> {
+    const marginPercent = overrides.marginPercent ?? Number(sourcing.marginPercent);
+    const posting = sourcing.load.postingId
+      ? await this.repository.findPosting(sourcing.tenantId, sourcing.load.postingId)
+      : null;
+    const target = posting?.rate ? Number(posting.rate) : null;
+    const partnerRate = partnerTargetRate(target, marginPercent);
+    const updated = await this.repository.updateSourcing(sourcing.id, {
+      status: 'posted',
+      marginPercent: String(marginPercent),
+      truckerAdvancePercent: String(
+        overrides.truckerAdvancePercent ?? Number(sourcing.truckerAdvancePercent),
+      ),
+      partnerTargetRate: partnerRate === null ? null : String(partnerRate),
+      approvedBy: actorId,
+      postedAt: this.now(),
+    });
+    const offer = boardOfferOf(
+      updated,
+      sourcing.load,
+      posting,
+      partnerRate === null ? null : String(partnerRate),
+    );
+    const offered = await this.offerToBrokersOnLane(offer, posting);
+    await this.step(updated, actorId, 'posted_on_load_board', 'LS_SOURCING_APPROVED', {
+      marginPercent,
+      partnerTargetRate: partnerRate,
+      brokersOnLane: offered.matched,
+      brokersOffered: offered.sent,
+    });
+    return updated;
+  }
+
   approvalQueue(): Promise<LsSourcingEntity[]> {
     return this.repository.listSourcings(['pending_approval']);
   }
@@ -357,36 +406,10 @@ export class LsSourcingService extends LsServiceBase {
           `This load is missing: ${sourcing.missingFields.join(', ')}. Acknowledge to post it anyway`,
         );
       }
-      const marginPercent = input.marginPercent ?? Number(sourcing.marginPercent);
-      const posting = sourcing.load.postingId
-        ? await this.repository.findPosting(sourcing.tenantId, sourcing.load.postingId)
-        : null;
-      const target = posting?.rate ? Number(posting.rate) : null;
-      const partnerRate = partnerTargetRate(target, marginPercent);
-      const updated = await this.repository.updateSourcing(sourcingId, {
-        status: 'posted',
-        marginPercent: String(marginPercent),
-        truckerAdvancePercent: String(
-          input.truckerAdvancePercent ?? Number(sourcing.truckerAdvancePercent),
-        ),
-        partnerTargetRate: partnerRate === null ? null : String(partnerRate),
-        approvedBy: actorId,
-        postedAt: this.now(),
+      return await this.postToBoard(sourcing, actorId, {
+        marginPercent: input.marginPercent,
+        truckerAdvancePercent: input.truckerAdvancePercent,
       });
-      const offer = boardOfferOf(
-        updated,
-        sourcing.load,
-        posting,
-        partnerRate === null ? null : String(partnerRate),
-      );
-      const offered = await this.offerToBrokersOnLane(offer, posting);
-      await this.step(updated, actorId, 'posted_on_load_board', 'LS_SOURCING_APPROVED', {
-        marginPercent,
-        partnerTargetRate: partnerRate,
-        brokersOnLane: offered.matched,
-        brokersOffered: offered.sent,
-      });
-      return updated;
     } catch (error) {
       rethrow(error, 'Failed to approve the load');
     }

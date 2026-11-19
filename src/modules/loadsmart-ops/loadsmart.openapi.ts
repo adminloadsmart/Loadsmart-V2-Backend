@@ -296,6 +296,15 @@ const ROWS: Row[] = [
     description: "Add broker: puts an active broker on this load's matched list by hand.",
   },
   {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/brokers/bulk`,
+    op: 'loadsmart.addBrokers',
+    permissions: [LS_PLACEMENT],
+    schema: v.addBrokers,
+    description:
+      "Add brokers: puts several broker-master brokers on this load's matched list at once. Each broker is added on its own, so one already on the list or no longer approved is reported under `failed` without blocking the rest.",
+  },
+  {
     method: 'delete',
     path: `${OPS}/sourcings/{sourcingId}/brokers/{partnerId}`,
     op: 'loadsmart.removeBroker',

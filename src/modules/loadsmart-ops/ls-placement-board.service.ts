@@ -355,6 +355,26 @@ export class LsPlacementBoardService extends LsServiceBase {
     }
   }
 
+  /** Adds several broker-master brokers at once. One that is already listed or no longer
+   *  approved lands in `failed` and does not stop the others. */
+  async addBrokers(actorId: string, sourcingId: string, brokerIds: string[]) {
+    await this.assertSourcing(sourcingId);
+    const added: { brokerId: string; partnerId: string; name: string }[] = [];
+    const failed: { brokerId: string; reason: string }[] = [];
+    for (const brokerId of new Set(brokerIds)) {
+      try {
+        const result = await this.addBroker(actorId, sourcingId, { brokerId });
+        added.push({ brokerId, partnerId: result.partnerId, name: result.name });
+      } catch (error) {
+        failed.push({
+          brokerId,
+          reason: error instanceof Error ? error.message : 'Failed to add the broker',
+        });
+      }
+    }
+    return { added, failed };
+  }
+
   async removeBroker(actorId: string, sourcingId: string, partnerId: string) {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
