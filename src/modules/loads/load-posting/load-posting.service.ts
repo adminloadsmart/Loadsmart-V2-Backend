@@ -45,6 +45,7 @@ import {
 import { DEFAULT_ADVANCE_PERCENTAGE, PostAddress } from './utils/load-posting.types';
 import { earliestReporting, reportingLeadError } from './utils/reporting-lead';
 import { SettingsReader } from '../../settings/settings.types';
+import { toIstDateString } from '../../../shared/utils/ist-time';
 import { buildPostMessage } from './utils/post-message';
 import { driverUnavailableReason } from './utils/driver-availability';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
@@ -218,7 +219,7 @@ export class LoadPostingService {
           laneMatches.map((match) => match.transporterId),
         );
       } else if (input.mode === 'indent') {
-        const contract = await this.assertIndentContract(tenantId, customer, pickup, drop, input);
+        const contract = await this.assertIndentContract(tenantId, pickup, drop, input);
         transporters = [contract.transporter];
         contractRate = contract.rate;
         contractId = contract.id;
@@ -667,25 +668,28 @@ export class LoadPostingService {
     };
   }
 
-  /** PL-21 — only a transporter with a contract valid today on this lane can be indented; the
-   *  rate is the contract's. */
+  /** PL-21 — only a transporter with a Settings → Masters → Contracts contract valid today on this
+   *  lane corridor (pickup city + state → drop city + state) can be indented. Same match as the
+   *  picker (CustomerContractService.list). The returned `rate` is per truck: a per-ton contract's
+   *  agreed rate times the cargo on each truck. */
   private async assertIndentContract(
     tenantId: string,
-    customer: CustomerEntity | null,
     pickup: ResolvedPlace,
     drop: ResolvedPlace,
-    input: PostLoadInput,
-  ) {
-    if (!customer) throw new ValidationError('Indent needs a customer with a contract');
-    const contracts = await this.repository.listContracts(tenantId, customer.id);
-    const today = new Date().toISOString().slice(0, 10);
+    input: Pick<PostLoadInput, 'transporterId' | 'weightTonnes' | 'truckCount'>,
+  ): Promise<{ id: string; transporter: TransporterEntity; rate: string }> {
+    const contracts = await this.repository.findMasterContractsOnLane(tenantId, {
+      sourceCity: pickup.address.city ?? '',
+      sourceState: pickup.address.state ?? '',
+      destinationCity: drop.address.city ?? '',
+      destinationState: drop.address.state ?? '',
+    });
+    const today = toIstDateString(new Date());
     const match = contracts.find(
       (contract) =>
         contract.transporterId === input.transporterId &&
         contract.validFrom <= today &&
-        contract.validTo >= today &&
-        contract.pickupCity.toLowerCase() === (pickup.address.city ?? '').toLowerCase() &&
-        contract.dropCity.toLowerCase() === (drop.address.city ?? '').toLowerCase(),
+        contract.validTo >= today,
     );
     if (!match) {
       throw new ValidationError('This transporter has no valid contract on this lane');
@@ -693,7 +697,14 @@ export class LoadPostingService {
     if (match.transporter.status !== 'active') {
       throw new ConflictError('This transporter is not active');
     }
-    return match;
+    let rate = Number(match.agreedRate);
+    if (match.billingUnit === 'per_ton') {
+      if (!input.weightTonnes) {
+        throw new ValidationError('Weight is needed for a per-ton contract');
+      }
+      rate = rate * (input.weightTonnes / input.truckCount);
+    }
+    return { id: match.id, transporter: match.transporter, rate: rate.toFixed(2) };
   }
 
   /** PL-22 — a truck in the workshop, inactive or already on a live load cannot be picked;
@@ -1098,7 +1109,7 @@ export class LoadPostingService {
       this.assertPlacesDiffer(pickup, drop);
       let contractRate: string | null = null;
       if (posting.mode === 'indent') {
-        const contract = await this.assertIndentContract(tenantId, customer, pickup, drop, input);
+        const contract = await this.assertIndentContract(tenantId, pickup, drop, input);
         if (contract.id !== posting.contractId) {
           throw new ValidationError(
             'This lane is on a different contract — cancel the indent and post it again',

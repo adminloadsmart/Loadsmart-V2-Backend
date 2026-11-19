@@ -202,6 +202,11 @@ export const CITY_ALIASES: Readonly<Record<string, string>> = {
   vizag: 'visakhapatnam',
   allahabad: 'prayagraj',
   'navi mumbai': 'navi mumbai',
+  // Mohali's official district name, as Google returns it.
+  'sahibzada ajit singh nagar': 'mohali',
+  'sas nagar': 'mohali',
+  's a s nagar': 'mohali',
+  ajitgarh: 'mohali',
 };
 
 /** Lower case, "&" kept, everything else not a letter or digit to one space. */
@@ -235,4 +240,15 @@ export function canonicalState(value: string | null | undefined): string | null 
   return region && region.states.length === 1 && region.states[0] === region.name
     ? region.name
     : null;
+}
+
+/** The same city and state however written: "Mohali, PB" = "Sahibzada Ajit Singh Nagar, Punjab".
+ *  A state that is not a known state or UT compares by its normalised text. */
+export function samePlace(
+  a: { city: string | null | undefined; state: string | null | undefined },
+  b: { city: string | null | undefined; state: string | null | undefined },
+): boolean {
+  const state = (value: string | null | undefined) =>
+    canonicalState(value) ?? normalizePlace(value);
+  return canonicalCity(a.city) === canonicalCity(b.city) && state(a.state) === state(b.state);
 }

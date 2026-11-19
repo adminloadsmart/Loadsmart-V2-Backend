@@ -1,9 +1,11 @@
 import { ConflictError, NotFoundError, rethrow } from '../../../shared/errors';
 import { AuditService } from '../../audit/audit.service';
+import { toIstDateString } from '../../../shared/utils/ist-time';
 import { LoadPostingRepository } from './load-posting.repository';
 import { ContractsQueryInput, CreateContractInput } from './utils/load-posting.interface';
 
-/** A customer's transporter contracts — the Indent option list (PL-21) and where they get entered. */
+/** The Indent option list (PL-21), read from Settings → Masters → Contracts. `create` is the legacy
+ *  loads.customer_contracts entry point, no longer read by Indent. */
 export class CustomerContractService {
   constructor(
     private readonly repository: LoadPostingRepository,
@@ -54,32 +56,42 @@ export class CustomerContractService {
   }
 
   /**
-   * Every contract of the customer with `selectable` set: valid today and, when a lane is given,
-   * on that lane. Non-matching ones are returned disabled, not hidden (PL-21 note 1). Loadsmart is
-   * never an option here — it is not in the Transporter master.
+   * Indent picker (PL-21): the transporters with a Settings → Masters → Contracts contract on the
+   * load's lane corridor — source city + state to destination city + state. Each comes with
+   * `selectable` (valid today and the transporter is active); the rest are returned disabled with a
+   * `reason`, not hidden (PL-21 note 1). Loadsmart is never an option — it is not in the
+   * Transporter master.
    */
   async list(tenantId: string, input: ContractsQueryInput) {
     try {
-      const contracts = await this.repository.listContracts(tenantId, input.customerId);
-      const today = new Date().toISOString().slice(0, 10);
-      const lower = (value?: string) => (value ?? '').trim().toLowerCase();
+      const contracts = await this.repository.findMasterContractsOnLane(tenantId, {
+        sourceCity: input.pickupCity,
+        sourceState: input.pickupState,
+        destinationCity: input.dropCity,
+        destinationState: input.dropState,
+      });
+      const today = toIstDateString(new Date());
       return contracts.map((contract) => {
         const valid = contract.validFrom <= today && contract.validTo >= today;
-        const onLane =
-          (!input.pickupCity || lower(contract.pickupCity) === lower(input.pickupCity)) &&
-          (!input.dropCity || lower(contract.dropCity) === lower(input.dropCity));
+        const active = contract.transporter?.status === 'active';
         return {
           id: contract.id,
-          contractNumber: contract.contractNumber,
+          contractNumber: null,
           transporterId: contract.transporterId,
           transporterName: contract.transporter?.name ?? null,
-          pickupCity: contract.pickupCity,
-          dropCity: contract.dropCity,
-          rate: contract.rate,
+          transporterCode: contract.transporter?.code ?? null,
+          pickupCity: contract.sourceCity,
+          pickupState: contract.sourceState,
+          dropCity: contract.destinationCity,
+          dropState: contract.destinationState,
+          rate: contract.agreedRate,
+          billingUnit: contract.billingUnit,
+          priority: contract.priority,
+          sharePercentage: contract.sharePercentage,
           validFrom: contract.validFrom,
           validTo: contract.validTo,
-          selectable: valid && onLane && contract.transporter?.status === 'active',
-          reason: !valid ? 'expired_or_not_started' : !onLane ? 'no_contract_on_this_lane' : null,
+          selectable: valid && active,
+          reason: !valid ? 'expired_or_not_started' : !active ? 'transporter_inactive' : null,
         };
       });
     } catch (error) {
