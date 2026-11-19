@@ -197,6 +197,46 @@ export class LoadMemoService {
     }
   }
 
+  /** The driver's licence (front, back) and the RC copy, for the memo PDF. Best effort: a file
+   *  that can't be read becomes a note, never a failed memo. */
+  private async driverAttachments(load: LoadEntity) {
+    const labels: Record<string, string> = {
+      driver_licence_front: 'Driving licence (front)',
+      driver_licence_back: 'Driving licence (back)',
+      rc_copy: 'RC copy',
+    };
+    try {
+      const keys = await this.documents.currentFileKeys(
+        load.tenantId,
+        load.id,
+        Object.keys(labels),
+      );
+      const items: { label: string; data: Buffer | null; note?: string }[] = [];
+      for (const [docType, label] of Object.entries(labels)) {
+        const key = keys[docType];
+        if (!key) continue;
+        try {
+          const url = await this.storageService.getPresignedDownloadUrlForKey(key);
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = Buffer.from(await response.arrayBuffer());
+          const isJpeg = data[0] === 0xff && data[1] === 0xd8;
+          const isPng = data[0] === 0x89 && data[1] === 0x50;
+          items.push(
+            isJpeg || isPng
+              ? { label, data }
+              : { label, data: null, note: 'Uploaded as a PDF — on file with Loadsmart' },
+          );
+        } catch {
+          items.push({ label, data: null, note: 'Document on file with Loadsmart' });
+        }
+      }
+      return items;
+    } catch {
+      return [];
+    }
+  }
+
   private async send(
     load: LoadEntity,
     actorId: string,
@@ -220,8 +260,9 @@ export class LoadMemoService {
     const loadingContactPhone =
       loadingContact?.phone ?? load.loadingContactPhone ?? point?.contactPersonNumber ?? null;
 
-    const pdf = await renderMemoPdf(
-      buildMemoPdfContent({
+    const attachments = await this.driverAttachments(load);
+    const pdf = await renderMemoPdf({
+      ...buildMemoPdfContent({
         reference,
         loadCode: load.code,
         sentAt,
@@ -240,7 +281,8 @@ export class LoadMemoService {
         loadingContactName,
         loadingContactPhone,
       }),
-    );
+      attachments,
+    });
     const file = await this.storageService.uploadTenantFile(
       load.tenantId,
       actorId,
@@ -502,6 +544,42 @@ export class LoadMemoService {
     }
   }
 
+  /** The licence photos and RC copy, for a check the govt portal did not pass on its own — when
+   *  VAHAN or Sarathi verified it there is nothing to read by eye. */
+  private async photosFor(
+    tenantId: string,
+    loadId: string,
+    checks: LoadChecksView,
+  ): Promise<LoadChecksView['photos']> {
+    const portalPassed = (check: LoadChecksView['truck']) =>
+      check?.status === 'passed' && check.source !== 'manual';
+    const needDriver = Boolean(checks.driver) && !portalPassed(checks.driver);
+    const needTruck = Boolean(checks.truck) && !portalPassed(checks.truck);
+    if (!needDriver && !needTruck) return undefined;
+    const keys = await this.documents.currentFileKeys(tenantId, loadId, [
+      'driver_licence_front',
+      'driver_licence_back',
+      'rc_copy',
+    ]);
+    const [licenceFront, licenceBack, rcCopy] = await Promise.all([
+      needDriver ? this.downloadUrlForKey(keys.driver_licence_front) : null,
+      needDriver ? this.downloadUrlForKey(keys.driver_licence_back) : null,
+      needTruck ? this.downloadUrlForKey(keys.rc_copy) : null,
+    ]);
+    return { licenceFront, licenceBack, rcCopy };
+  }
+
+  /** A short-lived link to a stored file, for a key read from this load's own record (so no
+   *  per-file access rule applies). Null when it can't be signed. */
+  async downloadUrlForKey(key: string | null | undefined): Promise<string | null> {
+    if (!key) return null;
+    try {
+      return await this.storageService.getPresignedDownloadUrlForKey(key);
+    } catch {
+      return null;
+    }
+  }
+
   /** Every memo version on the load, latest first. */
   async listVersions(tenantId: string, loadId: string): Promise<MemoView[]> {
     try {
@@ -521,7 +599,8 @@ export class LoadMemoService {
     try {
       const load = await this.loadRepository.findById(tenantId, loadId);
       if (!load) throw new NotFoundError(`Load ${loadId} not found`);
-      return await this.verification.checksForLoad(tenantId, load);
+      const checks = await this.verification.checksForLoad(tenantId, load);
+      return { ...checks, photos: await this.photosFor(tenantId, loadId, checks) };
     } catch (error) {
       rethrow(error, 'Failed to read the load checks');
     }

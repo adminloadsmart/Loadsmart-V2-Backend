@@ -14,7 +14,9 @@ import type { LoadParams } from './load.interface';
 /** Loadsmart's one best bid: a partner's truck at Loadsmart's price. */
 export interface LoadsmartBidInput {
   rate: string;
-  vehicleNumber: string;
+  /** Null when Loadsmart sends its price before the truck is named — the truck and driver are
+   *  entered on the load memo after the shipper accepts, and checked there. */
+  vehicleNumber: string | null;
   truckVerified: boolean | null;
   lsPartnerBidId: string;
 }

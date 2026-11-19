@@ -1,3 +1,4 @@
+import { BrokerEntity } from '../loads/brokers/broker.entity';
 import { DataSource, EntityManager, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
 import { LoadMemoEntity } from '../loads/memo/load-memo.entity';
@@ -54,6 +55,8 @@ export class LoadsmartRepository {
   readonly callLogs: Repository<LsCallLogEntity>;
   readonly partnerBidResponses: Repository<LsPartnerBidResponseEntity>;
   readonly sourcingBrokers: Repository<LsSourcingBrokerEntity>;
+  /** The broker master (loads.brokers) behind the partners. */
+  readonly brokerMaster: Repository<BrokerEntity>;
   readonly loadDocuments: Repository<LoadDocumentEntity>;
   private readonly postings: Repository<LoadPostingEntity>;
 
@@ -79,6 +82,7 @@ export class LoadsmartRepository {
     this.callLogs = dataSource.getRepository(LsCallLogEntity);
     this.partnerBidResponses = dataSource.getRepository(LsPartnerBidResponseEntity);
     this.sourcingBrokers = dataSource.getRepository(LsSourcingBrokerEntity);
+    this.brokerMaster = dataSource.getRepository(BrokerEntity);
     this.loadDocuments = dataSource.getRepository(LoadDocumentEntity);
   }
 

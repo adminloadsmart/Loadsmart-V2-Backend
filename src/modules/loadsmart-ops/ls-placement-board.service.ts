@@ -300,6 +300,20 @@ export class LsPlacementBoardService extends LsServiceBase {
         memo: {
           state: row.memo,
           latest: latestMemo,
+          // What VAHAN and Sarathi answered, and what still keeps the memo from going out.
+          checks: await this.sourcingService.checksOf(load, sourcing.tenantId),
+          // The photos Placement uploaded with the driver — what a manual licence check is read
+          // against; open them with the storage `by-key` endpoint.
+          licencePhotos: {
+            front: sourcing.licenceFrontFileKey ?? null,
+            back: sourcing.licenceBackFileKey ?? null,
+            rcCopy: sourcing.rcCopyFileKey ?? null,
+          },
+          licencePhotoUrls: await this.sourcingService.photoLinks({
+            front: sourcing.licenceFrontFileKey,
+            back: sourcing.licenceBackFileKey,
+            rcCopy: sourcing.rcCopyFileKey,
+          }),
           truckNumber: load.vehicleNumber,
           driverName: load.driverName,
           driverPhone: load.driverNumber,

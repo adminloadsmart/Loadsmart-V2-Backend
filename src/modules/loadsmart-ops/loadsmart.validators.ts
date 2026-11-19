@@ -241,6 +241,18 @@ export const loadsmartValidators = {
       .strict(),
   }),
 
+  updateDriverDocuments: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        licenceFrontFileKey: z.string().trim().min(1).optional(),
+        licenceBackFileKey: z.string().trim().min(1).optional(),
+        rcCopyFileKey: z.string().trim().min(1).optional(),
+      })
+      .strict()
+      .refine((body) => Object.keys(body).length > 0, { message: 'Send at least one file key' }),
+  }),
+
   addCharge: z.object({
     params: loadParams,
     body: z

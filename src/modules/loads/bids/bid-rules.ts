@@ -45,7 +45,10 @@ export function acceptBlocker(bid: BidLike, now: Date): string | null {
   if (bid.counterStatus === 'pending') {
     return `Waiting for the answer to your counter of ₹${Number(bid.counterRate)} — record it first`;
   }
-  if (!bid.vehicleNumber) return 'Ask the transporter for the truck number';
+  // Loadsmart names its truck and driver on the load memo after the award, not on the bid.
+  if (!bid.vehicleNumber && bid.source !== 'loadsmart') {
+    return 'Ask the transporter for the truck number';
+  }
   if (bid.truckVerified === false) {
     return 'The truck failed the govt portal checks — ask the transporter for another truck';
   }

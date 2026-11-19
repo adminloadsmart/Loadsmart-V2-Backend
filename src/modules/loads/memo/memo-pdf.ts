@@ -5,6 +5,9 @@ export interface MemoPdfContent {
   sentAt: string;
   expiresAt: string;
   sections: { heading: string; rows: { label: string; value: string }[] }[];
+  /** Driver / vehicle papers shown on a second page. `data` is a JPEG or PNG; `note` stands in
+   *  when the file can't be embedded (a PDF, or one that couldn't be read). */
+  attachments?: { label: string; data: Buffer | null; note?: string }[];
 }
 
 export interface MemoPdfSource {
@@ -126,6 +129,35 @@ export function renderMemoPdf(content: MemoPdfContent): Promise<Buffer> {
         'This memo is the only confirmation of the truck, driver and price. Accepting it assigns the truck to the load.',
         48,
       );
+    if (content.attachments?.length) {
+      doc.addPage();
+      doc.font('Helvetica-Bold').fontSize(12).text('Driver and vehicle documents', 48, 48);
+      let y = 80;
+      for (const item of content.attachments) {
+        const boxHeight = 220;
+        if (y + boxHeight + 20 > doc.page.height - 48) {
+          doc.addPage();
+          y = 48;
+        }
+        doc.font('Helvetica-Bold').fontSize(10).text(item.label, 48, y);
+        let drawn = false;
+        if (item.data) {
+          try {
+            doc.image(item.data, 48, y + 16, { fit: [499, boxHeight - 20], align: 'center' });
+            drawn = true;
+          } catch {
+            drawn = false;
+          }
+        }
+        if (!drawn) {
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .text(item.note ?? 'Document on file with Loadsmart', 48, y + 18);
+        }
+        y += boxHeight + 10;
+      }
+    }
     doc.end();
   });
 }

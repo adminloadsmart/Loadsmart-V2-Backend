@@ -81,6 +81,18 @@ export class LoadDocumentService {
     });
   }
 
+  /** File keys of the load's current documents of the given types (no download URLs). */
+  async currentFileKeys(
+    tenantId: string,
+    loadId: string,
+    docTypes: string[],
+  ): Promise<Record<string, string>> {
+    const docs = await this.repository.list(tenantId, loadId, false);
+    const keys: Record<string, string> = {};
+    for (const doc of docs) if (docTypes.includes(doc.docType)) keys[doc.docType] = doc.fileKey;
+    return keys;
+  }
+
   /** The load's current documents (or every version, with `includeHistory`), with download URLs. */
   async list(
     tenantId: string,

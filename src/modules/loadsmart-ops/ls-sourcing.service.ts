@@ -1,3 +1,4 @@
+import type { ExtraDocument } from '../loads/documents/load-document.types';
 import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../shared/errors';
 import { LoadDocumentService } from '../loads/documents/load-document.service';
 import { In } from 'typeorm';
@@ -633,8 +634,7 @@ export class LsSourcingService extends LsServiceBase {
   async placement(sourcingId: string): Promise<PlacementView> {
     const sourcing = await this.assertSourcing(sourcingId);
     const bids = await this.repository.listPartnerBids(sourcingId);
-    const usable = (bid: LsPartnerBidEntity) =>
-      Boolean(bid.vehicleNumber) && bid.truckVerified !== false;
+    const usable = (bid: LsPartnerBidEntity) => bid.truckVerified !== false;
     const ranked = [...bids].sort(
       (a, b) =>
         Number(usable(b)) - Number(usable(a)) ||
@@ -774,8 +774,8 @@ export class LsSourcingService extends LsServiceBase {
       if (!bid || (bid.status !== 'received' && bid.status !== 'sent')) {
         throw new NotFoundError('Partner bid not found');
       }
-      if (!bid.vehicleNumber)
-        throw new ConflictError('No truck number, no bid — ask the partner for it');
+      // No truck is needed to send the price: the truck and driver are entered on the load memo
+      // once the shipper accepts, and checked there. A truck already on the bid still must pass.
       if (bid.truckVerified === false) {
         throw new ConflictError(
           'The truck failed the govt portal checks — ask the partner for another',
@@ -854,6 +854,23 @@ export class LsSourcingService extends LsServiceBase {
 
   // --- 9–12 · Driver, Verification, memo ---------------------------------------------------
 
+  /** Links to the licence and RC photos uploaded with the driver, for the Load Memo tab. */
+  async photoLinks(keys: { front?: string | null; back?: string | null; rcCopy?: string | null }) {
+    const [front, back, rcCopy] = await Promise.all([
+      this.memoService.downloadUrlForKey(keys.front),
+      this.memoService.downloadUrlForKey(keys.back),
+      this.memoService.downloadUrlForKey(keys.rcCopy),
+    ]);
+    return { front, back, rcCopy };
+  }
+
+  /** The truck (VAHAN) and driver (Sarathi) checks on the load, with the portals' answers — what
+   *  Placement reads on the Load Memo tab. Null while the load has no truck yet. */
+  async checksOf(load: Pick<LoadEntity, 'id' | 'vehicleNumber'>, tenantId: string) {
+    if (!load.vehicleNumber) return null;
+    return this.memoService.getChecks(tenantId, load.id);
+  }
+
   /** "Partner names the driver" — name, mobile, licence (checked on Sarathi with the date of
    *  birth), the licence photo front and back, and the RC copy. */
   async nameDriver(
@@ -868,6 +885,13 @@ export class LsSourcingService extends LsServiceBase {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       const { licenceFrontFileKey, licenceBackFileKey, rcCopyFileKey, ...driver } = input;
+      // Papers first: the memo goes out inside nameDriver and carries these photos.
+      await this.saveDriverDocuments(sourcing, actorId, {
+        licenceFrontFileKey,
+        licenceBackFileKey,
+        rcCopyFileKey,
+      });
+      await this.repository.updateSourcing(sourcing.id, { driverNamedAt: this.now() });
       const result = await this.memoService.nameDriver(
         sourcing.tenantId,
         actorId,
@@ -875,24 +899,6 @@ export class LsSourcingService extends LsServiceBase {
         driver,
         true,
       );
-      // The driver's papers go into the load's documents register too, versioned.
-      await this.documents.save(
-        sourcing.tenantId,
-        sourcing.load,
-        { updatedBy: actorId },
-        { userId: actorId, source: 'console' },
-        [
-          { docType: 'driver_licence_front', fileKey: licenceFrontFileKey },
-          { docType: 'driver_licence_back', fileKey: licenceBackFileKey },
-          { docType: 'rc_copy', fileKey: rcCopyFileKey },
-        ],
-      );
-      await this.repository.updateSourcing(sourcing.id, {
-        licenceFrontFileKey,
-        licenceBackFileKey,
-        rcCopyFileKey,
-        driverNamedAt: this.now(),
-      });
       await this.step(sourcing, actorId, 'driver_named', 'LS_DRIVER_NAMED', {
         driverName: driver.driverName,
         checksClear: result.checks.clear,
@@ -900,6 +906,54 @@ export class LsSourcingService extends LsServiceBase {
       return result;
     } catch (error) {
       rethrow(error, 'Failed to name the driver');
+    }
+  }
+
+  /** Registers the driver's papers on the load's documents register and on the sourcing. */
+  private async saveDriverDocuments(
+    sourcing: Awaited<ReturnType<LsSourcingService['assertWonLoad']>>,
+    actorId: string,
+    keys: { licenceFrontFileKey?: string; licenceBackFileKey?: string; rcCopyFileKey?: string },
+  ) {
+    const extras: ExtraDocument[] = [];
+    if (keys.licenceFrontFileKey)
+      extras.push({ docType: 'driver_licence_front', fileKey: keys.licenceFrontFileKey });
+    if (keys.licenceBackFileKey)
+      extras.push({ docType: 'driver_licence_back', fileKey: keys.licenceBackFileKey });
+    if (keys.rcCopyFileKey) extras.push({ docType: 'rc_copy', fileKey: keys.rcCopyFileKey });
+    if (!extras.length) return;
+    await this.documents.save(
+      sourcing.tenantId,
+      sourcing.load,
+      { updatedBy: actorId },
+      { userId: actorId, source: 'console' },
+      extras,
+    );
+    await this.repository.updateSourcing(sourcing.id, {
+      ...(keys.licenceFrontFileKey ? { licenceFrontFileKey: keys.licenceFrontFileKey } : {}),
+      ...(keys.licenceBackFileKey ? { licenceBackFileKey: keys.licenceBackFileKey } : {}),
+      ...(keys.rcCopyFileKey ? { rcCopyFileKey: keys.rcCopyFileKey } : {}),
+    });
+  }
+
+  /** Placement replaces / adds the licence photos or RC copy without naming the driver again. */
+  async updateDriverDocuments(
+    actorId: string,
+    loadId: string,
+    input: { licenceFrontFileKey?: string; licenceBackFileKey?: string; rcCopyFileKey?: string },
+  ) {
+    try {
+      const sourcing = await this.assertWonLoad(loadId);
+      await this.saveDriverDocuments(sourcing, actorId, input);
+      return {
+        licencePhotos: {
+          front: input.licenceFrontFileKey ?? sourcing.licenceFrontFileKey ?? null,
+          back: input.licenceBackFileKey ?? sourcing.licenceBackFileKey ?? null,
+          rcCopy: input.rcCopyFileKey ?? sourcing.rcCopyFileKey ?? null,
+        },
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to update the driver documents');
     }
   }
 
