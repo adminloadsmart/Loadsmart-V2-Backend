@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { NormalizedMessage } from '../providers/whatsapp-provider.interface';
@@ -92,6 +92,20 @@ export class WhatsappInboundRepository {
   findAwaitingPick(pickerMessageLogId: string): Promise<WhatsappInboundEntity | null> {
     return this.repository.findOne({
       where: { pickerMessageLogId, resolution: 'awaiting_load_pick' },
+    });
+  }
+
+  findLatestAwaitingPickFrom(
+    fromPhone: string,
+    since: Date,
+  ): Promise<WhatsappInboundEntity | null> {
+    return this.repository.findOne({
+      where: {
+        fromPhone,
+        resolution: 'awaiting_load_pick',
+        receivedAt: MoreThanOrEqual(since),
+      },
+      order: { receivedAt: 'DESC' },
     });
   }
 

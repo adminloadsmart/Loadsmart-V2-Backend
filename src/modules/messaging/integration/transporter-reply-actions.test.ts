@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ConflictError } from '../../../shared/errors';
 import { WhatsappBidInput } from '../../loads/utils/load-bid.interface';
 import { DispatchOffer } from '../../loads/load-posting/load-dispatch-notifier';
+import { RecipientReply } from '../../loads/load-posting/utils/load-posting.types';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { InboundResolution } from '../messaging.types';
 import { OutboundResult, TemplateSendRequest } from '../outbound/outbound-message.service';
@@ -77,6 +78,10 @@ class FakeOffers implements TransporterOfferStore {
   async latestOfferAnswer(loadId: string, recipientId: string) {
     return this.answers.get(`${loadId}|${recipientId}`) ?? null;
   }
+  replies: string[] = [];
+  async recordReply(recipientId: string, reply: RecipientReply) {
+    this.replies.push(`${recipientId} ${reply}`);
+  }
 }
 
 class FakeBids implements TransporterBidWriter {
@@ -96,6 +101,9 @@ class FakeBids implements TransporterBidWriter {
     channel: 'whatsapp',
   ) {
     this.calls.push(`indent ${loadId} truck=${truck} actor=${actorId} channel=${channel}`);
+  }
+  async recordIndentRejection(_tenantId: string, actorId: null, loadId: string, reason: string) {
+    this.calls.push(`indent-rejected ${loadId} actor=${actorId} reason=${reason}`);
   }
   async findLiveTransporterBid() {
     return this.live;

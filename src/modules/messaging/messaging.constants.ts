@@ -33,6 +33,11 @@ export const DELIVERY_STATUS_RANK: Record<
 export const BUTTON_ID_SEPARATOR = ':';
 export const LIST_ROW_ID_PREFIX = 'load:';
 
+/** A load display code inside typed text ("LOAD-1008"); its digits are never a rate. */
+export const LOAD_CODE_IN_TEXT_PATTERN = /\bLOAD-\d+\b/gi;
+/** A message that is only a load code — the user naming a row of their "Choose load" list. */
+export const BARE_LOAD_CODE_PATTERN = /^\s*(LOAD-\d+)\s*$/i;
+
 /** A typed rate outside this range is not treated as a rate (avoids "10 baje" → ₹10). */
 export const TYPED_RATE_RANGE = { min: 1_000, max: 1_000_000 } as const;
 export const RATE_SUFFIX_MULTIPLIER = 1_000; // "45k", "45 hazar"
@@ -79,6 +84,25 @@ export const STAGES_ACCEPTING_VALUE = {
 /** A typed value waiting for a "Load chunein" pick expires after this (finding G4). */
 export const LOAD_PICK_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * A value sent without a swipe goes to the load we last asked for it ("LOAD-1008: Send the truck
+ * number") when that ask is this recent and no other waiting load was asked for it in that time.
+ */
+export const LAST_ASK_WINDOW_MS = 4 * 60 * 60 * 1000;
+
+/** Which typed value each prompt asks for (a message_log row's `kind`). */
+export const VALUE_ASKED_BY_PROMPT = {
+  rate_request: 'rate',
+  // The shipper's counter price is read as a typed rate.
+  price_request: 'rate',
+  dispatch_request: 'dispatch',
+  slip_request: 'slip',
+} as const;
+
+/** Key in message_log.variables marking a load info text that also asks for a value
+ *  ("Done. Send the truck number if you have it."). */
+export const ASKS_FOR_VARIABLE = 'asksFor';
+
 /** Inbound resolutions that count as the recipient's decision on an offer (changed-answer guard). */
 export const DECISIVE_RESOLUTIONS = [
   'accepted',
@@ -91,6 +115,9 @@ export const DECISIVE_RESOLUTIONS = [
 export const OFFER_ANSWER_RESOLUTIONS = ['accepted', 'negotiating', 'rejected'] as const;
 
 /** How far back an unanswered indent stays answerable on WhatsApp (an indent has no 4-h window). */
+/** load_route_changes.reason when the contracted transporter rejects an indent on WhatsApp. */
+export const INDENT_REJECTED_ON_WHATSAPP_REASON = 'Rejected by the transporter on WhatsApp';
+
 export const INDENT_OFFER_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Max length of a "Load chunein" row description (Meta list rows: 72 chars). */

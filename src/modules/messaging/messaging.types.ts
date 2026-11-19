@@ -67,6 +67,8 @@ export const ROUTING_METHODS = [
   'flow_token',
   'only_pending',
   'load_picker',
+  // No swipe, several loads waiting: the one load we last asked for this value (LAST_ASK_WINDOW_MS).
+  'last_ask',
   'none',
 ] as const;
 export type RoutingMethod = (typeof ROUTING_METHODS)[number];

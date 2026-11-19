@@ -27,6 +27,7 @@ export const REPLY_TEXTS = {
   dispatchCheckFailed: (loadRef: string, reason: string) =>
     `${loadRef}: we couldn't use these details. ${reason.replace(/\.$/, '')}. Please send another driver or truck.`,
   pickerExpired: "This list has expired. Reply to the load's message to send it again.",
+  pickerAlreadyAnswered: 'This list was already answered.',
   // CTA sheet: Negotiate / Give rate → "Type your rate in ₹ and the truck number".
   rateRequest: (loadRef: string) => `${loadRef}: Type your rate in ₹ and the truck number.`,
   dispatchRequest: (loadRef: string) =>

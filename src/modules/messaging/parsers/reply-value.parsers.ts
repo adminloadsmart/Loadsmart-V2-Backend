@@ -4,6 +4,7 @@ import {
   INDIAN_MOBILE_PATTERN,
   INDIAN_TRUCK_NUMBER_PATTERN,
   LIST_ROW_ID_PREFIX,
+  LOAD_CODE_IN_TEXT_PATTERN,
   RATE_SUFFIX_MULTIPLIER,
   TYPED_RATE_RANGE,
 } from '../messaging.constants';
@@ -157,7 +158,9 @@ export type ClassifiedText =
  * - a rate, with or without a truck number → rate (+ truck);
  * - only a truck number → truck.
  */
-export function classifyTypedReply(text: string): ClassifiedText {
+export function classifyTypedReply(typedText: string): ClassifiedText {
+  // "LOAD-1008" names a load; its digits must never become a ₹1,008 rate.
+  const text = typedText.replace(LOAD_CODE_IN_TEXT_PATTERN, ' ');
   const dispatch = parseDispatchDetails(text);
   if (dispatch.driverMobile) return { kind: 'dispatch', dispatch };
   const truck = findTruckNumber(text);

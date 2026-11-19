@@ -99,9 +99,17 @@ function isInbound(item: Json): boolean {
   return Boolean(text(item, 'customerNumber', 'from'));
 }
 
-/** Where a session reply's interactive object can sit: `content` (stringified) or `interactive`. */
+/** Where a session reply's interactive object can sit: `content` (stringified), `interactive`, or
+ *  Meta's own message inside `messages[]` — where MSG91 puts a list pick (seen live 19 Nov: top-level
+ *  `interactive: ""`, `text: "LOAD-1008"`, the `list_reply` only in `messages[0].interactive`). */
 function interactiveOf(item: Json): Json | null {
-  for (const candidate of [item.interactive, item.content]) {
+  const metaMessages = Array.isArray(item.messages) ? item.messages.filter(isObject) : [];
+  const candidates = [
+    item.interactive,
+    item.content,
+    ...metaMessages.map((metaMessage) => parseJsonLoosely(metaMessage.interactive)),
+  ];
+  for (const candidate of candidates) {
     if (!isObject(candidate)) continue;
     const inner = isObject(candidate.interactive) ? (candidate.interactive as Json) : candidate;
     if (inner.button_reply || inner.list_reply || inner.nfm_reply) return inner;

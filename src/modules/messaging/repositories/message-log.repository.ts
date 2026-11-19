@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, IsNull, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { MessageLogEntity } from '../entities/message-log.entity';
 
@@ -70,6 +70,21 @@ export class MessageLogRepository {
       .andWhere('messageLog.createdAt >= :since', { since })
       .orderBy('messageLog.createdAt', 'DESC')
       .getOne();
+  }
+
+  /** WhatsApp rows about a load sent to this address since `since` that were not failed or
+   *  suppressed, newest first (the router's "which load did we last ask" lookup). */
+  findRecentLoadMessagesTo(address: string, since: Date): Promise<MessageLogEntity[]> {
+    return this.repository.find({
+      where: {
+        address,
+        channel: 'whatsapp',
+        loadRef: Not(IsNull()),
+        status: Not(In(['failed', 'suppressed'])),
+        createdAt: MoreThanOrEqual(since),
+      },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async update(messageLogId: string, patch: MessageLogPatch): Promise<void> {
