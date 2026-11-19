@@ -27,6 +27,7 @@ import {
   getTemplateDefinition,
   isTemplateKey,
   offerActionsOf,
+  msg91ParameterNamesOf,
   orderTemplateVariables,
   renderTemplateBody,
   urlButtonsOf,
@@ -58,6 +59,8 @@ export type OutboundContent =
       templateName: string;
       languageCode: string;
       bodyVariables: string[];
+      /** The approved template's placeholder names, one per body variable. */
+      bodyParameterNames?: string[];
       quickReplyPayloads?: string[];
       headerDocument?: { link: string; filename: string };
       urlButtons?: { position: number; value: string }[];
@@ -187,6 +190,7 @@ export class OutboundMessageService {
         templateName,
         languageCode: this.config.templateLanguage,
         bodyVariables,
+        bodyParameterNames: msg91ParameterNamesOf(request.templateKey),
         ...(quickReplyPayloads.length > 0 ? { quickReplyPayloads } : {}),
         ...(request.headerDocument ? { headerDocument: request.headerDocument } : {}),
         ...(urlButtons.length > 0 ? { urlButtons } : {}),

@@ -11,10 +11,12 @@ import {
  * the catalog's. Each key maps to its approved MSG91 template name through env
  * (MSG91_WHATSAPP_TEMPLATE_<KEY>).
  *
- * In MSG91 the template is created with named variables {{var_1}}, {{var_2}}… in the order of
- * `variables` below (the same convention as every other Loadsmart WhatsApp template — see
- * msg91BodyOf). All are Utility templates; at most 3 buttons; a body never starts or ends with a
- * variable (MSG91 / Meta reject those).
+ * In MSG91 these templates are created with {{var1}}, {{var2}}… (no underscore, unlike the older
+ * notification templates' {{var_1}}) in the order of `variables` below; one marked
+ * `catalogParameterNames` uses the catalog tokens themselves ({{from_area}}…). The send must use
+ * the same names (msg91ParameterNamesOf) or Meta rejects it: "Parameter name is missing".
+ * msg91BodyOf gives the body to create. All are Utility templates; at most 3 buttons; a body never
+ * starts or ends with a variable (MSG91 / Meta reject those).
  */
 
 /** A template button. A quick reply with `action` is acted on when tapped (the reply router reads
@@ -35,8 +37,11 @@ export interface TemplateDefinition {
   category: 'UTILITY' | 'MARKETING';
   /** What a reply to this template answers (drives the reply router). */
   kind: OutboundMessageKind;
-  /** Catalog tokens in template order: {{var_1}} = variables[0], and so on. */
+  /** Catalog tokens in template order: {{var1}} = variables[0], and so on. */
   variables: readonly string[];
+  /** The approved MSG91 template names its placeholders after these tokens ({{from_area}})
+   *  instead of {{var1}}, {{var2}}… */
+  catalogParameterNames?: boolean;
   /** The catalog wording, with {{token}} placeholders. */
   body: string;
   buttons?: readonly TemplateButton[];
@@ -66,6 +71,8 @@ export const TEMPLATE_REGISTRY = {
     category: 'UTILITY',
     kind: 'offer',
     variables: ['from_area', 'to_area', 'truck_type', 'weight', 'reporting_time', 'rate'],
+    // Approved in MSG91 as ls_n_0105 with {{from_area}}… rather than {{var1}}….
+    catalogParameterNames: true,
     body: 'New load from Loadsmart: {{from_area}} to {{to_area}}, {{truck_type}}, {{weight}} t, reporting {{reporting_time}}. Rate ₹{{rate}}. Are you interested?',
     buttons: OFFER_REPLIES,
   },
@@ -337,12 +344,20 @@ export function renderTemplateBody(
   );
 }
 
-/** The body as it must be created in MSG91: catalog tokens replaced by {{var_1}}, {{var_2}}… in
- *  `variables` order (what MSG91 fills from body_var_N). */
+/** The approved template's placeholder names in `variables` order: var1, var2…, or the catalog
+ *  tokens for a template marked `catalogParameterNames`. */
+export function msg91ParameterNamesOf(templateKey: TemplateKey): string[] {
+  const { variables, catalogParameterNames } = getTemplateDefinition(templateKey);
+  return variables.map((token, index) => (catalogParameterNames ? token : `var${index + 1}`));
+}
+
+/** The body as it must be created in MSG91: catalog tokens replaced by the template's placeholder
+ *  names (msg91ParameterNamesOf) — what MSG91 fills from body_<name>. */
 export function msg91BodyOf(templateKey: TemplateKey): string {
   const { body, variables } = getTemplateDefinition(templateKey);
+  const names = msg91ParameterNamesOf(templateKey);
   return body.replace(
     /\{\{(\w+)\}\}/g,
-    (_match, token: string) => `{{var_${variables.indexOf(token) + 1}}}`,
+    (_match, token: string) => `{{${names[variables.indexOf(token)]}}}`,
   );
 }

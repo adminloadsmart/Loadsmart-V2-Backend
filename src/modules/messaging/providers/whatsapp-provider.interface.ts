@@ -25,6 +25,8 @@ export interface TemplateMessage {
   templateName: string;
   languageCode: string;
   bodyVariables: string[];
+  /** The approved template's placeholder names, one per body variable ({{var1}} → 'var1'). */
+  bodyParameterNames?: string[];
   /** One payload per quick-reply button, in button order. MSG91 does not document a per-button
    *  payload in its send API, so the MSG91 adapter does not send it; taps are matched by the
    *  tapped message (replyMsgId) and the button text. */
