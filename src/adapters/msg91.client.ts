@@ -29,16 +29,36 @@ export interface Msg91WhatsappSendOutcome {
 /** Our templates use named variables {{var_1}}, {{var_2}}… in a fixed order; MSG91 takes them as
  *  `body_var_N` with a matching `parameter_name` (the dashboard's Code (JSON) sample). */
 export function namedTemplateComponents(variables: string[]): Msg91WhatsappComponents {
+  return templateBodyComponents(
+    variables,
+    variables.map((_value, index) => `var_${index + 1}`),
+  );
+}
+
+/** Body slots for a template whose placeholders have these names, in variable order: MSG91 keys
+ *  each slot `body_<name>` with `parameter_name: <name>` ({{var1}} → body_var1, {{from_area}} →
+ *  body_from_area — the panel's Code (JSON) sample). A name Meta doesn't find fails the send. */
+export function templateBodyComponents(
+  variables: string[],
+  parameterNames: string[],
+): Msg91WhatsappComponents {
+  if (parameterNames.length !== variables.length) {
+    throw new Error(
+      `Template has ${parameterNames.length} parameter names for ${variables.length} values`,
+    );
+  }
   return Object.fromEntries(
     variables.map((value, index) => [
-      `body_var_${index + 1}`,
-      { type: 'text', value, parameter_name: `var_${index + 1}` },
+      `body_${parameterNames[index]}`,
+      { type: 'text', value, parameter_name: parameterNames[index] },
     ]),
   );
 }
 
 /** What a template carries beyond its body variables. */
 export interface Msg91TemplateExtras {
+  /** The approved template's placeholder names, in variable order. Unset = {{var_1}}, {{var_2}}… */
+  bodyParameterNames?: string[];
   /** A document header (payment proof): a link MSG91/Meta can fetch, and the name it shows. */
   headerDocument?: { link: string; filename: string };
   /** The dynamic part of URL buttons: `position` is the button's 1-based place in the template. */
@@ -239,7 +259,9 @@ export class Msg91Client {
             {
               to: [toIndianMsisdn(phoneNumber)],
               components: {
-                ...namedTemplateComponents(variables),
+                ...(extras.bodyParameterNames
+                  ? templateBodyComponents(variables, extras.bodyParameterNames)
+                  : namedTemplateComponents(variables)),
                 ...templateExtraComponents(extras),
               },
             },
