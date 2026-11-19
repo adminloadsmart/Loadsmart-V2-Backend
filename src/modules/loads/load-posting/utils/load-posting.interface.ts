@@ -121,9 +121,12 @@ export interface TransportersInput {
 }
 
 export interface ContractsQueryInput {
-  customerId: string;
-  pickupCity?: string;
-  dropCity?: string;
+  /** Accepted for older clients; master contracts are not tied to a customer. */
+  customerId?: string;
+  pickupCity: string;
+  pickupState: string;
+  dropCity: string;
+  dropState: string;
 }
 
 export interface CreateContractInput {

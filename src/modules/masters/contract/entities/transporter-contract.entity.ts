@@ -13,8 +13,9 @@ import { CONTRACT_BILLING_UNITS, ContractBillingUnit } from '../contract.types';
 
 /**
  * Settings → Masters → Contracts: a transporter's agreed rate and allocation priority on one lane
- * (source city/state → destination city/state). Separate from loads.customer_contracts, which
- * stays the Post a load Indent source. Lane matching is case-insensitive on city + state.
+ * (source city/state → destination city/state). Also the Post a load Indent source: a load can be
+ * indented to a transporter with a contract valid today on its pickup → drop corridor. Lane matching
+ * is case-insensitive on city + state.
  */
 @Entity({ schema: 'masters', name: 'transporter_contracts' })
 @Index('transporter_contracts_tenant_idx', ['tenantId'])

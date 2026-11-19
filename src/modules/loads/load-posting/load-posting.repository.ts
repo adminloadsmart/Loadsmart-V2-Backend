@@ -16,6 +16,9 @@ import { LoadRecipientEntity } from './entities/load-recipient.entity';
 import { LoadBidEntity } from '../bids/load-bid.entity';
 import { LoadDraftEntity } from './entities/load-draft.entity';
 import { CustomerContractEntity } from './entities/customer-contract.entity';
+import { TransporterContractEntity } from '../../masters/contract/entities/transporter-contract.entity';
+import { ContractLane } from '../../masters/contract/contract.interface';
+import { samePlace } from '../../lane-matching/india-regions';
 import { MessageStatus, RecipientType } from './utils/load-posting.types';
 import { ON_ROAD_LOAD_STATUSES } from '../utils/loads.types';
 
@@ -67,6 +70,7 @@ export class LoadPostingRepository {
   private readonly driverSessions: Repository<DriverSessionEntity>;
   private readonly drafts: Repository<LoadDraftEntity>;
   private readonly contracts: Repository<CustomerContractEntity>;
+  private readonly masterContracts: Repository<TransporterContractEntity>;
   private readonly customers: Repository<CustomerEntity>;
   private readonly deliveryPoints: Repository<CustomerDeliveryPointEntity>;
   private readonly loadingPoints: Repository<LoadingPointEntity>;
@@ -85,6 +89,7 @@ export class LoadPostingRepository {
     this.driverSessions = dataSource.getRepository(DriverSessionEntity);
     this.drafts = dataSource.getRepository(LoadDraftEntity);
     this.contracts = dataSource.getRepository(CustomerContractEntity);
+    this.masterContracts = dataSource.getRepository(TransporterContractEntity);
     this.customers = dataSource.getRepository(CustomerEntity);
     this.deliveryPoints = dataSource.getRepository(CustomerDeliveryPointEntity);
     this.loadingPoints = dataSource.getRepository(LoadingPointEntity);
@@ -430,8 +435,33 @@ export class LoadPostingRepository {
     });
   }
 
-  /** Every contract of the customer — callers compute lane/validity flags so non-matching ones
-   *  can still be shown disabled (PL-21). */
+  /** Settings → Masters → Contracts on one lane corridor — source city + state to destination
+   *  city + state, compared with samePlace ("Mohali, PB" = "Sahibzada Ajit Singh Nagar, Punjab"),
+   *  so it is filtered here rather than in SQL. No date filter: callers flag expired / not-started
+   *  ones so they can be shown disabled (PL-21). */
+  async findMasterContractsOnLane(tenantId: string, lane: ContractLane) {
+    const contracts = await this.masterContracts
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.transporter', 'transporter')
+      .where('c.tenant_id = :tenantId AND c.deleted_at IS NULL', { tenantId })
+      .orderBy('c.priority', 'ASC')
+      .addOrderBy('c.valid_to', 'DESC')
+      .getMany();
+    return contracts.filter(
+      (contract) =>
+        samePlace(
+          { city: contract.sourceCity, state: contract.sourceState },
+          { city: lane.sourceCity, state: lane.sourceState },
+        ) &&
+        samePlace(
+          { city: contract.destinationCity, state: contract.destinationState },
+          { city: lane.destinationCity, state: lane.destinationState },
+        ),
+    );
+  }
+
+  /** Legacy (loads.customer_contracts) — Indent now reads Masters → Contracts instead. Every
+   *  contract of the customer. */
   listContracts(tenantId: string, customerId: string) {
     return this.contracts.find({
       where: { tenantId, customerId, deletedAt: IsNull() },

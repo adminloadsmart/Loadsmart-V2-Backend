@@ -12,6 +12,8 @@ import { CustomerEntity } from '../../../customers/entities/customer.entity';
 import { TransporterEntity } from '../../../masters/transporter/entities/transporter.entity';
 
 /**
+ * Legacy — Indent now reads Settings → Masters → Contracts (masters.transporter_contracts); only the
+ * non-placement penalty lookup still reads this table.
  * A customer's rate contract with a transporter on one lane (pickup city to drop city), used by
  * Indent: only a transporter with a contract valid today on the posted lane can be picked, and the
  * indent price is the contract `rate` (per trip). Lane matching is case-insensitive on city.

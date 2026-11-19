@@ -256,11 +256,14 @@ export const loadPostingValidators = {
   }),
   availableDrivers: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   fleetOptions: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
+  /** Indent picker: Masters → Contracts on the load's lane corridor (city + state both ends). */
   listContracts: z.object({
     query: z.object({
-      customerId: uuid,
-      pickupCity: z.string().trim().min(1).optional(),
-      dropCity: z.string().trim().min(1).optional(),
+      customerId: uuid.optional(),
+      pickupCity: z.string().trim().min(1),
+      pickupState: z.string().trim().min(1),
+      dropCity: z.string().trim().min(1),
+      dropState: z.string().trim().min(1),
     }),
   }),
   createContract: z.object({
