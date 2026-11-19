@@ -75,6 +75,14 @@ export interface PlacementInboxItem {
  * (sent once every check passes, withdrawn, or confirmed after a call) and Mark lost. Bids and
  * WhatsApp to brokers are not in this build.
  */
+/** What the matched-brokers list adds from the broker master. */
+export interface MatchedBrokerProfile {
+  added: boolean;
+  truckTypes: string[];
+  region: string | null;
+  contactName: string | null;
+}
+
 export class LsPlacementService extends LsServiceBase {
   constructor(
     repository: LoadsmartRepository,
@@ -189,7 +197,7 @@ export class LsPlacementService extends LsServiceBase {
    *  best first, then any Placement added by hand. */
   async matchBrokers(
     sourcingId: string,
-  ): Promise<{ lane: object; brokers: (RankedBroker & { added: boolean })[] }> {
+  ): Promise<{ lane: object; brokers: (RankedBroker & MatchedBrokerProfile)[] }> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
       const load = sourcing.load;
@@ -227,7 +235,24 @@ export class LsPlacementService extends LsServiceBase {
         onLane,
         ratings,
       );
-      return { lane, brokers };
+      // What the list shows next to each broker — truck types, base region and the person to call
+      // — comes from the broker master behind the partner.
+      const brokerIds = brokers.map((broker) => broker.brokerId).filter(Boolean) as string[];
+      const masters = brokerIds.length
+        ? await this.repository.brokerMaster.findBy({ id: In(brokerIds) })
+        : [];
+      return {
+        lane,
+        brokers: brokers.map((broker) => {
+          const master = masters.find((row) => row.id === broker.brokerId);
+          return {
+            ...broker,
+            truckTypes: master?.truckSources ?? [],
+            region: master?.base ?? null,
+            contactName: master?.truckerName ?? null,
+          };
+        }),
+      };
     } catch (error) {
       rethrow(error, 'Failed to match brokers');
     }

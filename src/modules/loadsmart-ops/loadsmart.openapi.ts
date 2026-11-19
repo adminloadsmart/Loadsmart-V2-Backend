@@ -166,6 +166,15 @@ const ROWS: Row[] = [
   },
   {
     method: 'post',
+    path: `${OPS}/loads/{loadId}/driver/documents`,
+    op: 'loadsmart.updateDriverDocuments',
+    permissions: [LS_PLACEMENT],
+    schema: v.updateDriverDocuments,
+    description:
+      "Replace or add the driver's licence photos (front/back) and the RC copy without naming the driver again. They go into the next memo.",
+  },
+  {
+    method: 'post',
     path: `${OPS}/loads/{loadId}/verifications/rerun`,
     op: 'loadsmart.rerunChecks',
     permissions: [LS_PLACEMENT],
@@ -294,6 +303,15 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.addBroker,
     description: "Add broker: puts an active broker on this load's matched list by hand.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/brokers/bulk`,
+    op: 'loadsmart.addBrokers',
+    permissions: [LS_PLACEMENT],
+    schema: v.addBrokers,
+    description:
+      "Add brokers: puts several broker-master brokers on this load's matched list at once. Each broker is added on its own, so one already on the list or no longer approved is reported under `failed` without blocking the rest.",
   },
   {
     method: 'delete',

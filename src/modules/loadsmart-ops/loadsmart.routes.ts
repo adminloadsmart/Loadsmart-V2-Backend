@@ -95,6 +95,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.addBroker),
     asyncHandler(c.addBroker),
   );
+  router.post(
+    '/sourcings/:sourcingId/brokers/bulk',
+    team(LS_PLACEMENT),
+    validate(v.addBrokers),
+    asyncHandler(c.addBrokers),
+  );
   router.delete(
     '/sourcings/:sourcingId/brokers/:partnerId',
     team(LS_PLACEMENT),
@@ -367,6 +373,12 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     asyncHandler(c.nameDriver),
   );
   router.post(
+    '/loads/:loadId/driver/documents',
+    team(LS_PLACEMENT),
+    validate(v.updateDriverDocuments),
+    asyncHandler(c.updateDriverDocuments),
+  );
+  router.post(
     '/loads/:loadId/verifications/rerun',
     team(LS_PLACEMENT),
     validate(v.rerunChecks),
@@ -380,7 +392,9 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
   );
   router.post(
     '/loads/:loadId/verifications/driver/manual',
-    team(LS_DRIVER_VERIFY_MANUAL),
+    // Placement verifies truck and driver before the memo, so it may mark a licence verified by
+    // hand when Sarathi can't confirm it; the Admin team still can.
+    team(LS_DRIVER_VERIFY_MANUAL, LS_PLACEMENT),
     validate(v.verifyDriverManually),
     asyncHandler(c.verifyDriverManually),
   );

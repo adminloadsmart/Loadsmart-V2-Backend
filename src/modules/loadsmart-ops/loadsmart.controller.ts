@@ -65,6 +65,13 @@ export class LoadsmartOpsController {
       await this.placementBoard.addBroker(req.user!.id, req.params.sourcingId, req.body),
       201,
     );
+  addBrokers = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.placementBoard.addBrokers(req.user!.id, req.params.sourcingId, req.body.brokerIds),
+      201,
+    );
   removeBroker = async (req: Request<LoadsmartRouteParams>, res: Response) => {
     await this.placementBoard.removeBroker(
       req.user!.id,
@@ -539,6 +546,13 @@ export class LoadsmartOpsController {
         req.body,
       ),
     );
+  updateDriverDocuments = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.sourcing.updateDriverDocuments(req.user!.id, req.params.loadId, req.body),
+    );
+
   rerunChecks = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.sourcing.rerunChecks(req.user!.id, req.params.loadId));
   verifyTruckManually = async (req: Request<LoadsmartRouteParams>, res: Response) =>

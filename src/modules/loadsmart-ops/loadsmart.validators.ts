@@ -170,6 +170,11 @@ export const loadsmartValidators = {
       .strict(),
   }),
   sourcingBroker: z.object({ params: z.object({ sourcingId: uuid, partnerId: uuid }) }),
+  addBrokers: z.object({
+    params: sourcingParams,
+    // Brokers from the broker master (loads.brokers), picked together in the Add broker drawer.
+    body: z.object({ brokerIds: z.array(uuid).min(1).max(100) }).strict(),
+  }),
   addBroker: z.object({
     params: sourcingParams,
     // A partner already in the directory, or a broker from the broker master (loads.brokers).
@@ -227,11 +232,25 @@ export const loadsmartValidators = {
         driverMobile: mobile,
         licenceNumber: z.string().trim().min(5).max(30),
         dateOfBirth: isoDateSchema,
+        // The truck, when the load has none yet or the transporter changes it — checked on VAHAN.
+        vehicleNumber: z.string().trim().min(1).max(20).optional(),
         licenceFrontFileKey: z.string().trim().min(1),
         licenceBackFileKey: z.string().trim().min(1),
         rcCopyFileKey: z.string().trim().min(1),
       })
       .strict(),
+  }),
+
+  updateDriverDocuments: z.object({
+    params: loadParams,
+    body: z
+      .object({
+        licenceFrontFileKey: z.string().trim().min(1).optional(),
+        licenceBackFileKey: z.string().trim().min(1).optional(),
+        rcCopyFileKey: z.string().trim().min(1).optional(),
+      })
+      .strict()
+      .refine((body) => Object.keys(body).length > 0, { message: 'Send at least one file key' }),
   }),
 
   addCharge: z.object({

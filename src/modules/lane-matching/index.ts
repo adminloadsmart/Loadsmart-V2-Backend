@@ -7,6 +7,7 @@ import { LaneMatchService } from './lane-match.service';
 export { LaneMatchService } from './lane-match.service';
 export type { BrokerLaneMatch, TransporterLaneMatch } from './lane-match.service';
 export { describeMatch, routeOf } from './lane-match-rules';
+export { canonicalCity, canonicalState, normalizePlace, samePlace } from './india-regions';
 export type { LaneMatch, LoadRoute, MatchKind } from './lane-match-rules';
 
 /** Lane matching: which brokers and transporters a load goes to (see lane-match-rules.ts). */

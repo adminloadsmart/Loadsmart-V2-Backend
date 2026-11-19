@@ -300,6 +300,20 @@ export class LsPlacementBoardService extends LsServiceBase {
         memo: {
           state: row.memo,
           latest: latestMemo,
+          // What VAHAN and Sarathi answered, and what still keeps the memo from going out.
+          checks: await this.sourcingService.checksOf(load, sourcing.tenantId),
+          // The photos Placement uploaded with the driver — what a manual licence check is read
+          // against; open them with the storage `by-key` endpoint.
+          licencePhotos: {
+            front: sourcing.licenceFrontFileKey ?? null,
+            back: sourcing.licenceBackFileKey ?? null,
+            rcCopy: sourcing.rcCopyFileKey ?? null,
+          },
+          licencePhotoUrls: await this.sourcingService.photoLinks({
+            front: sourcing.licenceFrontFileKey,
+            back: sourcing.licenceBackFileKey,
+            rcCopy: sourcing.rcCopyFileKey,
+          }),
           truckNumber: load.vehicleNumber,
           driverName: load.driverName,
           driverPhone: load.driverNumber,
@@ -353,6 +367,26 @@ export class LsPlacementBoardService extends LsServiceBase {
     } catch (error) {
       rethrow(error, 'Failed to add the broker');
     }
+  }
+
+  /** Adds several broker-master brokers at once. One that is already listed or no longer
+   *  approved lands in `failed` and does not stop the others. */
+  async addBrokers(actorId: string, sourcingId: string, brokerIds: string[]) {
+    await this.assertSourcing(sourcingId);
+    const added: { brokerId: string; partnerId: string; name: string }[] = [];
+    const failed: { brokerId: string; reason: string }[] = [];
+    for (const brokerId of new Set(brokerIds)) {
+      try {
+        const result = await this.addBroker(actorId, sourcingId, { brokerId });
+        added.push({ brokerId, partnerId: result.partnerId, name: result.name });
+      } catch (error) {
+        failed.push({
+          brokerId,
+          reason: error instanceof Error ? error.message : 'Failed to add the broker',
+        });
+      }
+    }
+    return { added, failed };
   }
 
   async removeBroker(actorId: string, sourcingId: string, partnerId: string) {

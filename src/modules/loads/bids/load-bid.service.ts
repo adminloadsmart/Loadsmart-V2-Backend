@@ -111,7 +111,7 @@ export class LoadBidService {
       const window = await this.windowOf(load);
       const closesAt = bidWindowClosesAt(window.sentAt, window.extraMinutes);
       if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
-      await this.assertTruckFree(load, input.vehicleNumber);
+      if (input.vehicleNumber) await this.assertTruckFree(load, input.vehicleNumber);
 
       const previous = await this.bidRepository.findLiveLoadsmart(tenantId, loadId);
       if (previous) await this.bidRepository.markRejected(previous, actorId);
@@ -859,7 +859,7 @@ export class LoadBidService {
         await this.expireStale(tenantId, [bid], now);
         throw new ConflictError(blocker);
       }
-      await this.assertTruckFree(load, bid.vehicleNumber!);
+      if (bid.vehicleNumber) await this.assertTruckFree(load, bid.vehicleNumber);
 
       const toLoadsmart = bid.source === 'loadsmart';
       const awarded = await this.stageService.transition({
