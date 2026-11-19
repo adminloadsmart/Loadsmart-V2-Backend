@@ -244,6 +244,8 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
         new LsShipperDirectoryService(dataSource, sourcing),
       ),
     ),
-    shipperRouter: createLoadsmartShipperRoutes(new LoadsmartShipperController(shipper)),
+    shipperRouter: createLoadsmartShipperRoutes(
+      new LoadsmartShipperController(shipper, receivables),
+    ),
   };
 }

@@ -763,6 +763,12 @@ export function createLoadsmartShipperRoutes(c: LoadsmartShipperController): Rou
     asyncHandler(c.claimValue),
   );
   router.get('/loads/:loadId/invoice', canPayments, validate(v.load), asyncHandler(c.invoice));
+  router.post(
+    '/loads/:loadId/invoice/generate',
+    canPayments,
+    validate(v.load),
+    asyncHandler(c.generateOwnInvoice),
+  );
   router.get('/loads/:loadId/documents-bundle', validate(v.load), asyncHandler(c.documentsBundle));
   return router;
 }

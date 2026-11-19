@@ -742,7 +742,10 @@ export class LoadsmartOpsController {
 
 /** The shipper's side of a Loadsmart load, on /v1/loads. */
 export class LoadsmartShipperController {
-  constructor(private readonly service: LsShipperService) {}
+  constructor(
+    private readonly service: LsShipperService,
+    private readonly receivables: LsReceivablesService,
+  ) {}
 
   listCharges = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
@@ -793,6 +796,13 @@ export class LoadsmartShipperController {
       res,
       await this.service.getInvoice(requireTenantId(req), req.user!.role, req.params.loadId),
     );
+  /** The shipper's "Generate invoice" on a delivered Loadsmart load: the same issue as Receivables'
+   *  (same checks — POD approved, no charge waiting, GSTIN on file — and Delivered → Invoice
+   *  generated), run for the shipper's own load only. */
+  generateOwnInvoice = async (req: Request<LoadsmartRouteParams>, res: Response) => {
+    await this.service.assertOwnLoadsmartLoad(requireTenantId(req), req.params.loadId);
+    respond(res, await this.receivables.issue(actorOf(req), req.params.loadId));
+  };
   documentsBundle = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     respond(
       res,

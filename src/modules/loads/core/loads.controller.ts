@@ -183,6 +183,15 @@ export class LoadsController {
     respond(res, load);
   };
 
+  releaseTruck = async (req: Request<LoadParams>, res: Response) => {
+    const load = await this.loadService.releaseTruck(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+    );
+    respond(res, load);
+  };
+
   uploadTransporterInvoice = async (req: Request<LoadParams>, res: Response) => {
     const load = await this.loadService.uploadTransporterInvoice(
       requireTenantId(req),

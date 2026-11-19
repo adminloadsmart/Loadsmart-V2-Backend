@@ -129,6 +129,12 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadValidators.updateStatus),
     asyncHandler(controller.updateLoadStatus),
   );
+  router.post(
+    '/loads/:loadId/release-truck',
+    canManageDocuments,
+    validate(loadValidators.releaseTruck),
+    asyncHandler(controller.releaseTruck),
+  );
   router.patch(
     '/loads/:loadId/pod',
     canManageDocuments,

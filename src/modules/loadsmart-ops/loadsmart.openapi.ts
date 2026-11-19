@@ -1019,6 +1019,15 @@ const ROWS: Row[] = [
       "Add the amount the shipper claims. Loadsmart's Customer support agrees the amount and issues a credit note.",
   },
   {
+    method: 'post',
+    path: `${LOADS}/loads/{loadId}/invoice/generate`,
+    op: 'loads.generateLoadsmartInvoice',
+    schema: v.load,
+    permissions: [PAYMENTS_MANAGE],
+    description:
+      "The shipper's own \"Generate invoice\" on a delivered Loadsmart load: issues Loadsmart's invoice with the same checks as Receivables (POD approved, no charge waiting, the shipper's GSTIN on file) and moves the load Delivered → Invoice generated, so the shipper can pay it.",
+  },
+  {
     method: 'get',
     path: `${LOADS}/loads/{loadId}/invoice`,
     op: 'loads.getLoadsmartInvoice',

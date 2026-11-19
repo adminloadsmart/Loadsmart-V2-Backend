@@ -53,6 +53,34 @@ export class LoadPaymentRepository {
     return this.payments.findOneBy({ tenantId, loadId, id });
   }
 
+  /** The shipper sends a payment again after Receivables rejected the first — a load holds one
+   *  balance payment (a unique row per load and type), so the rejected one is reused, back to
+   *  pending with the new UTR and proof. */
+  async resubmit(
+    tenantId: string,
+    id: string,
+    fields: {
+      utrReference: string | null;
+      proofFileKey: string | null;
+      paymentMode: PaymentMode | null;
+      account: string | null;
+      paymentDate: string;
+      recordedBy: string | null;
+    },
+  ): Promise<LoadPaymentEntity | null> {
+    const result = await this.payments.update(
+      { tenantId, id, verificationStatus: 'rejected' },
+      {
+        ...fields,
+        verificationStatus: 'pending',
+        verifiedBy: null,
+        verifiedAt: null,
+        rejectionReason: null,
+      },
+    );
+    return result.affected ? this.payments.findOneBy({ tenantId, id }) : null;
+  }
+
   /** Loadsmart's Receivables matched the shipper's reported payment against the bank. */
   async markVerified(
     tenantId: string,

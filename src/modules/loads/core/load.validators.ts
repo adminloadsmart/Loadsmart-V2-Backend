@@ -34,6 +34,9 @@ export const confirmLoadingBody = z
   .object({
     invoiceNumber: z.string().trim().min(1).max(50).optional(),
     invoiceFileKey: z.string().trim().min(1).optional(),
+    // Typed instead of uploaded (a Loadsmart load's e-LR needs the invoice's number, date, value).
+    invoiceDate: isoDateSchema.optional(),
+    invoiceValue: z.number().positive().optional(),
     ewayBillNumber: z.string().trim().min(1).max(50).optional(),
     ewayBillFileKey: z.string().trim().min(1).optional(),
     ewayBillExpiresAt: z.coerce.date().optional(),
@@ -44,8 +47,17 @@ export const confirmLoadingBody = z
   })
   .strict()
   .refine(
-    (data) => (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined),
-    'invoiceNumber and invoiceFileKey must be submitted together',
+    (data) =>
+      (data.invoiceNumber === undefined) === (data.invoiceFileKey === undefined) ||
+      (data.invoiceNumber !== undefined &&
+        data.invoiceFileKey === undefined &&
+        data.invoiceDate !== undefined &&
+        data.invoiceValue !== undefined),
+    'invoiceNumber and invoiceFileKey must be submitted together — or the number with its date and value typed',
+  )
+  .refine(
+    (data) => (data.invoiceDate === undefined) === (data.invoiceValue === undefined),
+    'invoiceDate and invoiceValue must be submitted together',
   )
   .refine(
     (data) => (data.ewayBillNumber === undefined) === (data.ewayBillFileKey === undefined),
@@ -62,6 +74,7 @@ export const confirmLoadingBody = z
   .refine(
     (data) =>
       data.invoiceFileKey !== undefined ||
+      data.invoiceValue !== undefined ||
       data.ewayBillFileKey !== undefined ||
       data.elrFileKey !== undefined ||
       data.loadingPhotoFileKeys !== undefined ||
@@ -298,6 +311,8 @@ export const loadValidators = {
     params,
     body: updateStatusBody,
   }),
+
+  releaseTruck: z.object({ params }),
 
   // The delivery receipt — photo, receiver details and the seal check are all captured together
   // in one submission; only podRemarks is optional.

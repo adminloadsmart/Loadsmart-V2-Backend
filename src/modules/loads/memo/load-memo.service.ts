@@ -544,31 +544,6 @@ export class LoadMemoService {
     }
   }
 
-  /** The licence photos and RC copy, for a check the govt portal did not pass on its own — when
-   *  VAHAN or Sarathi verified it there is nothing to read by eye. */
-  private async photosFor(
-    tenantId: string,
-    loadId: string,
-    checks: LoadChecksView,
-  ): Promise<LoadChecksView['photos']> {
-    const portalPassed = (check: LoadChecksView['truck']) =>
-      check?.status === 'passed' && check.source !== 'manual';
-    const needDriver = Boolean(checks.driver) && !portalPassed(checks.driver);
-    const needTruck = Boolean(checks.truck) && !portalPassed(checks.truck);
-    if (!needDriver && !needTruck) return undefined;
-    const keys = await this.documents.currentFileKeys(tenantId, loadId, [
-      'driver_licence_front',
-      'driver_licence_back',
-      'rc_copy',
-    ]);
-    const [licenceFront, licenceBack, rcCopy] = await Promise.all([
-      needDriver ? this.downloadUrlForKey(keys.driver_licence_front) : null,
-      needDriver ? this.downloadUrlForKey(keys.driver_licence_back) : null,
-      needTruck ? this.downloadUrlForKey(keys.rc_copy) : null,
-    ]);
-    return { licenceFront, licenceBack, rcCopy };
-  }
-
   /** A short-lived link to a stored file, for a key read from this load's own record (so no
    *  per-file access rule applies). Null when it can't be signed. */
   async downloadUrlForKey(key: string | null | undefined): Promise<string | null> {
@@ -599,8 +574,7 @@ export class LoadMemoService {
     try {
       const load = await this.loadRepository.findById(tenantId, loadId);
       if (!load) throw new NotFoundError(`Load ${loadId} not found`);
-      const checks = await this.verification.checksForLoad(tenantId, load);
-      return { ...checks, photos: await this.photosFor(tenantId, loadId, checks) };
+      return await this.verification.checksForLoad(tenantId, load);
     } catch (error) {
       rethrow(error, 'Failed to read the load checks');
     }
