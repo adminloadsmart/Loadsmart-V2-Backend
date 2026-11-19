@@ -3,24 +3,19 @@ import { OutboundMessageService } from '../outbound/outbound-message.service';
 import { formatReportingTime, formatRupees, formatTonnes } from './offer-formatting';
 import { MESSAGING_ACTORS } from '../messaging.constants';
 
-export interface PartnerDirectory {
-  listActivePartners(): Promise<{ id: string; name: string; phone: string }[]>;
-}
-
 /**
- * Sends a load just posted on Loadsmart's board to every active partner on WhatsApp — catalog
+ * Sends a load just posted on Loadsmart's board to the partners on its lane (`offer.partners`,
+ * picked by lane-matching) on WhatsApp — catalog
  * LS_N_0105 with the partner rate (margin already out) and Accept / Negotiate / Reject, or
  * LS_N_0106 with Give rate / Reject when the shipper asked for quotes. Never throws.
  */
 export class PartnerBoardNotifier implements LoadBoardNotifier {
-  constructor(
-    private readonly partners: PartnerDirectory,
-    private readonly outbound: Pick<OutboundMessageService, 'sendOffer'>,
-  ) {}
+  constructor(private readonly outbound: Pick<OutboundMessageService, 'sendOffer'>) {}
 
   async postedToBoard(offer: LoadBoardOffer): Promise<void> {
     try {
-      const partners = await this.partners.listActivePartners();
+      const partners = offer.partners;
+      if (!partners.length) return;
       const reportingTime = formatReportingTime(offer.pickupAt);
       // Catalog LS_N_0105 (rate given) / LS_N_0106 (asking for rates): area, pincode, city only —
       // never the shipper's name, full address or price (Loadsmart's margin is already out).

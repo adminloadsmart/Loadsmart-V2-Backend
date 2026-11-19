@@ -10,6 +10,7 @@ import 'reflect-metadata';
 import { AppDataSource } from './data-source';
 import { seedTruckTypes } from './seed-truck-types';
 import { seedNotificationTypes } from './seed-notification-types';
+import { seedBrokers } from './seed-brokers';
 
 async function seedAll(): Promise<void> {
   const dataSource = await AppDataSource.initialize();
@@ -17,6 +18,7 @@ async function seedAll(): Promise<void> {
   try {
     await seedTruckTypes(dataSource);
     await seedNotificationTypes(dataSource);
+    await seedBrokers(dataSource);
   } finally {
     await dataSource.destroy();
   }

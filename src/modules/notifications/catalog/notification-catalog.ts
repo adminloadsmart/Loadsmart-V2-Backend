@@ -8,6 +8,7 @@ import {
   CUSTOMERS_APPROVE,
   DISPATCH_PLANNING_MANAGE,
   LOADS_DOCUMENTS_MANAGE,
+  LOADS_POST,
   MAINTENANCE_MANAGE,
   MASTERS_APPROVE,
   MASTERS_WRITE,
@@ -450,6 +451,12 @@ export interface CallReminderContext {
   loadCode?: string | null;
   notes?: string | null;
   parties?: string[];
+}
+
+/** load.no_transporter_on_lane — a market load none of the shipper's transporters runs. */
+export interface NoTransporterOnLaneContext extends LoadSummary {
+  /** When the load was posted (ISO). */
+  postedAt: string;
 }
 
 /** load.stage_changed — a stage without a notification of its own (STAGE_CHANGED_CARD_LABELS). */
@@ -2154,6 +2161,29 @@ export const NOTIFICATION_CATALOG = {
           call_id: context.callId,
           cta_path: `/loads/${context.loadId}`,
         },
+      };
+    },
+  },
+  // Lane matching: a market load goes only to the shipper's transporters whose lane covers it.
+  // With none, only Loadsmart got it — the shipper is told, in-app, to people who post loads.
+  'load.no_transporter_on_lane': {
+    label: 'No transporter on this lane',
+    category: 'trip_execution',
+    intent: 'action',
+    description: "None of your transporters runs a posted load's lane, so only Loadsmart got it.",
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: LOADS_POST }),
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: NoTransporterOnLaneContext) => context.loadId,
+    buildContent: (context: NoTransporterOnLaneContext) => {
+      const loadName = context.loadCode ?? 'Your load';
+      return {
+        title: `${loadName}: no transporter on this lane`,
+        body: `None of your transporters runs ${context.route ?? "this load's lane"}, so ${loadName} went only to Loadsmart. Add the lane to a transporter in Masters to send them future loads.`,
+        highlights: [loadName],
+        metadata: { ...loadMetadataOf(context), cta_path: `/loads/${context.loadId}` },
       };
     },
   },

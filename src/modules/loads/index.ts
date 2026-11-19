@@ -2,6 +2,10 @@ import { LoadDispatchNotifier } from './load-posting/load-dispatch-notifier';
 import { LoadCallRepository } from './calls/load-call.repository';
 import { LoadCallService } from './calls/load-call.service';
 import { LoadCallController } from './calls/load-call.controller';
+import { BrokerRepository } from './brokers/broker.repository';
+import { BrokerService } from './brokers/broker.service';
+import { BrokerController } from './brokers/broker.controller';
+import { createBrokerRoutes } from './brokers/broker.routes';
 import {
   createLoadsmartLoadCallRoutes,
   createShipperLoadCallRoutes,
@@ -355,6 +359,10 @@ export function createLoadsModule(
     loadActivityService,
     loadCallService,
     loadCallOpsRouter: createLoadsmartLoadCallRoutes(loadCallController),
+    // The Brokers page at /loadsmart-ops/brokers (composition-root.ts).
+    brokerOpsRouter: createBrokerRoutes(
+      new BrokerController(new BrokerService(new BrokerRepository(dataSource))),
+    ),
     dispatchPlanningService,
     loadPosting,
     postingHooks,

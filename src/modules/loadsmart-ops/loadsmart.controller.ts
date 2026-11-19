@@ -62,7 +62,7 @@ export class LoadsmartOpsController {
     this.out(
       req,
       res,
-      await this.placementBoard.addBroker(req.user!.id, req.params.sourcingId, req.body.partnerId),
+      await this.placementBoard.addBroker(req.user!.id, req.params.sourcingId, req.body),
       201,
     );
   removeBroker = async (req: Request<LoadsmartRouteParams>, res: Response) => {

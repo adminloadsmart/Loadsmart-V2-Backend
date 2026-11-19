@@ -112,6 +112,19 @@ export class GooglePlacesClient {
     return body.results?.[0] ?? null;
   }
 
+  /** The best match for a typed place in India ("Bhiwandi, Maharashtra"); null when Google has
+   *  none (ZERO_RESULTS). Needs the Geocoding API enabled on GOOGLE_MAPS_API_KEY. */
+  async geocode(params: { address: string }): Promise<GooglePlaceDetailsResult | null> {
+    const search = new URLSearchParams({
+      address: params.address,
+      components: 'country:IN',
+      language: 'en',
+      region: 'in',
+    });
+    const body = await this.get<GeocodeResponse>('/maps/api/geocode/json', search);
+    return body.results?.[0] ?? null;
+  }
+
   private async get<T extends GooglePlacesResponse>(
     path: string,
     search: URLSearchParams,

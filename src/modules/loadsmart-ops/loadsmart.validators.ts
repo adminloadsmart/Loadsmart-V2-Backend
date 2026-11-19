@@ -172,7 +172,13 @@ export const loadsmartValidators = {
   sourcingBroker: z.object({ params: z.object({ sourcingId: uuid, partnerId: uuid }) }),
   addBroker: z.object({
     params: sourcingParams,
-    body: z.object({ partnerId: uuid }).strict(),
+    // A partner already in the directory, or a broker from the broker master (loads.brokers).
+    body: z
+      .object({ partnerId: uuid.optional(), brokerId: uuid.optional() })
+      .strict()
+      .refine((body) => Boolean(body.partnerId) !== Boolean(body.brokerId), {
+        message: 'Send either partnerId or brokerId',
+      }),
   }),
   brokerCall: z.object({
     params: sourcingParams,

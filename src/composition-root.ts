@@ -98,6 +98,7 @@ import {
   TRIP_TIMING_JOB,
 } from './modules/notifications/trip-timing';
 import { createLoadsmartOpsModule } from './modules/loadsmart-ops';
+import { createLaneMatchingModule } from './modules/lane-matching';
 import { createSettingsModule } from './modules/settings';
 import { UlipClient } from './adapters/ulip.client';
 import { createAnalyticsModule } from './modules/analytics';
@@ -487,6 +488,8 @@ export function buildContainer(dataSource: DataSource): Container {
       // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
       // Generic in-app card for stage moves without a type of their own (spec p.30).
       'load.stage_changed': loadAlertResolvers.stageChanged,
+      // Lane matching: a market load none of the shipper's transporters runs.
+      'load.no_transporter_on_lane': loadAlertResolvers.noTransporterOnLane,
       // Log a call (spec p.36) — null once the reminder was closed or changed. `loads` is built
       // further down; the worker only runs this after start-up.
       'call.reminder': async (_tenantId: string, context: CallReminderContext) => {
@@ -589,7 +592,11 @@ export function buildContainer(dataSource: DataSource): Container {
 
   // Loadsmart loads — the ops console (/loadsmart-ops) and the shipper's side of a Loadsmart load
   // (on /loads). Hooks itself into posting, bids, stage moves and the balance payment.
+  // Lane matching: a load goes only to the brokers and transporters whose lane covers it.
+  const laneMatching = createLaneMatchingModule(dataSource);
+  loads.loadPosting.postingService.setTransporterMatcher(laneMatching.laneMatchService);
   const loadsmart = createLoadsmartOpsModule(dataSource, {
+    brokerMatcher: laneMatching.laneMatchService,
     auditService: audit.service,
     storageService: storage.service,
     loadActivityService: loads.loadActivityService,
@@ -614,9 +621,7 @@ export function buildContainer(dataSource: DataSource): Container {
   ewayBillRiskHook.notify = loadsmart.notifyEwayBillAtRisk;
   // WhatsApp: board loads go to partners; replies (accept / rate / truck number) from transporters
   // and partners become bids, indent acceptances and partner bids (modules/messaging/integration).
-  loadsmart.sourcingService.setLoadBoardNotifier(
-    messaging.createPartnerBoardNotifier(loadsmart.sourcingService),
-  );
+  loadsmart.sourcingService.setLoadBoardNotifier(messaging.createPartnerBoardNotifier());
   messaging.connectReplies({
     transporterBids: loads.loadBidService,
     partnerBoard: loadsmart.sourcingService,
@@ -764,6 +769,13 @@ export function buildContainer(dataSource: DataSource): Container {
         router: loads.loadCallOpsRouter,
         scope: 'crossTenant',
         reason: 'Loadsmart ops call log on any load; every route requires an ls_* team permission.',
+      },
+      // The Brokers page (Masters → Brokers).
+      {
+        path: '/loadsmart-ops',
+        router: loads.brokerOpsRouter,
+        scope: 'crossTenant',
+        reason: 'Platform-wide broker directory; every route requires an ls_* permission.',
       },
       {
         path: '/files',

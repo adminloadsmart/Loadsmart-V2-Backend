@@ -107,6 +107,8 @@ import { MessageLogEntity } from '../modules/messaging/entities/message-log.enti
 import { WhatsappInboundEntity } from '../modules/messaging/entities/whatsapp-inbound.entity';
 import { SavedViewEntity } from '../modules/analytics/saved-views/saved-view.entity';
 import { SettingsVersionEntity } from '../modules/settings/settings-version.entity';
+import { BrokerEntity } from '../modules/loads/brokers/broker.entity';
+import { GeoPlaceEntity } from '../modules/lane-matching/geo-place.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -220,6 +222,8 @@ export const AppDataSource = new DataSource({
     LoadRatingEntity,
     LsInvoiceEntity,
     LoadAwardOutcomeEntity,
+    BrokerEntity,
+    GeoPlaceEntity,
     MessageLogEntity,
     WhatsappInboundEntity,
     // analytics module

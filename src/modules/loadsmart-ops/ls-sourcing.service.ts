@@ -28,6 +28,9 @@ import {
   shipperPriceFor,
 } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
+import { LsStaffNotifier } from './ls-staff-notifier';
+import { describeMatch, routeOf } from '../lane-matching';
+import { LS_PLACEMENT } from '../../shared/constants/permissions';
 import { AcceptMemoInput, NameDriverInput } from '../loads/utils/load-memo.interface';
 import type {
   ManualDriverCheckInput,
@@ -35,6 +38,7 @@ import type {
 } from '../loads/utils/load-verification.interface';
 import {
   ApproveSourcingInput,
+  BrokerMatcher,
   CommercialTermsInput,
   LoadBoardRow,
   LoadBoardNotifier,
@@ -84,10 +88,22 @@ export class LsSourcingService extends LsServiceBase {
   }
 
   private boardNotifier?: LoadBoardNotifier;
+  private brokerMatcher?: BrokerMatcher;
+  private staffNotifier?: Pick<LsStaffNotifier, 'notifyPermission'>;
 
   /** WhatsApp offers to partners when a load is posted on the board (messaging module). */
   setLoadBoardNotifier(notifier: LoadBoardNotifier): void {
     this.boardNotifier = notifier;
+  }
+
+  /** Lane matching: a board offer goes only to the brokers on the load's lane; with none,
+   *  Placement is told instead (modules/lane-matching). */
+  setBrokerMatching(
+    matcher: BrokerMatcher,
+    staffNotifier: Pick<LsStaffNotifier, 'notifyPermission'>,
+  ): void {
+    this.brokerMatcher = matcher;
+    this.staffNotifier = staffNotifier;
   }
 
   // --- Partners and commercial terms -------------------------------------------------------
@@ -274,6 +290,49 @@ export class LsSourcingService extends LsServiceBase {
     );
   };
 
+  /** "Placement sends the requirement to brokers on the lane": the WhatsApp offer goes to the
+   *  brokers whose lane covers the load (and who are on WhatsApp); with none, Placement is told
+   *  so it can add brokers by hand. Never throws — the load is already approved. */
+  private async offerToBrokersOnLane(
+    offer: LoadBoardOffer,
+    posting: LoadPostingEntity | null,
+  ): Promise<{ matched: number; sent: number }> {
+    if (!this.brokerMatcher) return { matched: 0, sent: 0 };
+    try {
+      const matches = await this.brokerMatcher.matchBrokers(
+        routeOf(posting?.pickupAddress, posting?.dropAddress),
+      );
+      const onWhatsapp = matches.filter((match) => match.onWhatsapp);
+      if (!onWhatsapp.length) {
+        await this.staffNotifier?.notifyPermission([LS_PLACEMENT], {
+          type: 'placement.no_broker_on_lane',
+          title: `${offer.loadCode}: no broker on this lane`,
+          body: `No approved broker${matches.length ? ' on WhatsApp' : ''} runs ${offer.pickupLabel} → ${offer.dropLabel}, so no offer went out. Add brokers to the load by hand and send the requirement.`,
+          loadId: offer.loadId,
+          metadata: { sourcingId: offer.sourcingId, brokersOnLane: matches.length },
+        });
+        return { matched: matches.length, sent: 0 };
+      }
+      console.info(
+        `[lane-matching] ${offer.loadCode} offered to ${onWhatsapp.length} broker(s): ${onWhatsapp
+          .map((match) => `${match.name} (${describeMatch(match.match)})`)
+          .join(', ')}`,
+      );
+      await this.boardNotifier?.postedToBoard({
+        ...offer,
+        partners: onWhatsapp.map((match) => ({
+          id: match.partnerId,
+          name: match.name,
+          phone: match.phone,
+        })),
+      });
+      return { matched: matches.length, sent: onWhatsapp.length };
+    } catch (error) {
+      console.error(`[lane-matching] could not offer ${offer.loadCode} to brokers`, error);
+      return { matched: 0, sent: 0 };
+    }
+  }
+
   approvalQueue(): Promise<LsSourcingEntity[]> {
     return this.repository.listSourcings(['pending_approval']);
   }
@@ -314,20 +373,19 @@ export class LsSourcingService extends LsServiceBase {
         approvedBy: actorId,
         postedAt: this.now(),
       });
+      const offer = boardOfferOf(
+        updated,
+        sourcing.load,
+        posting,
+        partnerRate === null ? null : String(partnerRate),
+      );
+      const offered = await this.offerToBrokersOnLane(offer, posting);
       await this.step(updated, actorId, 'posted_on_load_board', 'LS_SOURCING_APPROVED', {
         marginPercent,
         partnerTargetRate: partnerRate,
+        brokersOnLane: offered.matched,
+        brokersOffered: offered.sent,
       });
-      if (this.boardNotifier) {
-        await this.boardNotifier.postedToBoard(
-          boardOfferOf(
-            updated,
-            sourcing.load,
-            posting,
-            partnerRate === null ? null : String(partnerRate),
-          ),
-        );
-      }
       return updated;
     } catch (error) {
       rethrow(error, 'Failed to approve the load');
@@ -879,5 +937,6 @@ function boardOfferOf(
     truckLabel: posting?.truckLengthFt ? `${posting.truckLengthFt} ft` : 'Truck',
     weightTonnes: posting?.weightTonnes ?? null,
     pickupAt: posting?.pickupAt ?? null,
+    partners: [],
   };
 }
