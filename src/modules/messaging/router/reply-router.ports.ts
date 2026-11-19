@@ -6,6 +6,7 @@ import {
   OfferAction,
   RecipientLoadStage,
   ReplyPrompt,
+  ReplyValueKind,
 } from '../messaging.types';
 import { NormalizedMedia } from '../providers/whatsapp-provider.interface';
 import { DispatchDetails } from '../parsers/reply-value.parsers';
@@ -40,6 +41,15 @@ export interface ActionOutcome {
   nextPrompt?: ReplyPrompt;
   /** Short confirmation for the user, e.g. "₹45,000 LS-2004 ke liye record hua". */
   confirmationText?: string;
+  /** The value the confirmation asks for next ("Done. Send the truck number" → truck), so a
+   *  reply without a swipe can still find this load (LAST_ASK_WINDOW_MS). */
+  asksFor?: ReplyValueKind;
+}
+
+/** The load an info text is about: logged on it so a swipe-reply to it routes to this load. */
+export interface InfoAbout {
+  context: RecipientLoadContext;
+  asksFor?: ReplyValueKind | null;
 }
 
 /**
@@ -82,7 +92,13 @@ export interface ReplyActions {
 
 /** Outbound side (Part 4): every send is logged in message_log so its replies route back. */
 export interface ReplySender {
-  sendInfo(sender: SenderIdentity, text: string, replyToInboundId: string): Promise<void>;
+  /** A plain text; with `about`, logged on that load and recipient (see InfoAbout). */
+  sendInfo(
+    sender: SenderIdentity,
+    text: string,
+    replyToInboundId: string,
+    about?: InfoAbout,
+  ): Promise<void>;
   sendPrompt(
     context: RecipientLoadContext,
     sender: SenderIdentity,
@@ -104,6 +120,11 @@ export interface RouterMessageStore {
   findMessageLogById(messageLogId: string): Promise<MessageLogEntity | null>;
   /** The inbound row waiting on this picker (resolution awaiting_load_pick). */
   findAwaitingPick(pickerMessageLogId: string): Promise<WhatsappInboundEntity | null>;
+  /** This phone's newest value still waiting on a "Choose load" list, received since `since`. */
+  findLatestAwaitingPickFrom(phone: string, since: Date): Promise<WhatsappInboundEntity | null>;
+  /** Our load messages to this phone since `since` that reached it (not failed / suppressed),
+   *  newest first — to find the load we last asked for a value. */
+  findRecentLoadMessagesTo(phone: string, since: Date): Promise<MessageLogEntity[]>;
   /** The first decisive tap already recorded on this message (for changed-answer / repeat). */
   findFirstDecision(
     messageLogId: string,

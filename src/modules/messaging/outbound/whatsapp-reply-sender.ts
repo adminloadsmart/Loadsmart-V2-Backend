@@ -8,6 +8,7 @@ import { ReplyPrompt } from '../messaging.types';
 import { encodeLoadRowId } from '../parsers/reply-value.parsers';
 import { REPLY_TEXTS } from '../router/reply-texts';
 import {
+  InfoAbout,
   OpenRecipientLoad,
   RecipientLoadContext,
   ReplySender,
@@ -23,16 +24,32 @@ const truncate = (text: string, maxChars: number): string =>
 export class WhatsappReplySender implements ReplySender {
   constructor(private readonly outbound: OutboundMessageService) {}
 
-  async sendInfo(sender: SenderIdentity, text: string, replyToInboundId: string): Promise<void> {
+  /** With `about`, the text is logged on that load and recipient, so a swipe-reply to it
+   *  ("LOAD-1008: Done. Send the truck number…") routes straight to the load. */
+  async sendInfo(
+    sender: SenderIdentity,
+    text: string,
+    replyToInboundId: string,
+    about?: InfoAbout,
+  ): Promise<void> {
+    const context = about?.context;
     await this.outbound.sendSession({
-      recipient: { kind: 'contact', refId: null, name: null, phone: sender.phone },
-      tenantId: null,
-      loadId: null,
-      loadRef: null,
+      recipient: context
+        ? {
+            kind: context.recipientKind,
+            refId: context.recipientRefId,
+            name: null,
+            phone: sender.phone,
+          }
+        : { kind: 'contact', refId: null, name: null, phone: sender.phone },
+      tenantId: context?.tenantId ?? null,
+      loadId: context?.loadId ?? null,
+      loadRef: context?.loadRef ?? null,
       kind: 'info',
       content: { type: 'text', text },
       replyToInboundId,
       actor: MESSAGING_ACTORS.replyRouter,
+      asksFor: about?.asksFor ?? null,
     });
   }
 

@@ -94,6 +94,19 @@ describe('classifyTypedReply', () => {
   it('treats truck/driver text as dispatch, not as a rate', () => {
     expect(classifyTypedReply('KA01AB1111 Ravi 9000011111').kind).toBe('dispatch');
   });
+  it('never reads a load code as a rate ("LOAD-1008" was taken as ₹1,008 on 19 Nov)', () => {
+    expect(classifyTypedReply('LOAD-1008').kind).toBeNull();
+    expect(classifyTypedReply('LOAD-1008\nBhosari → Bhiwandi · 8-10 ft').kind).toBeNull();
+    expect(classifyTypedReply('LOAD-1008 42000')).toEqual({
+      kind: 'rate',
+      rate: 42000,
+      truckNumber: null,
+    });
+    expect(classifyTypedReply('load-1008 HR38AB0364')).toEqual({
+      kind: 'truck',
+      truckNumber: 'HR38AB0364',
+    });
+  });
   it('treats "42k" as a rate', () => {
     expect(classifyTypedReply('42k')).toEqual({ kind: 'rate', rate: 42000, truckNumber: null });
   });

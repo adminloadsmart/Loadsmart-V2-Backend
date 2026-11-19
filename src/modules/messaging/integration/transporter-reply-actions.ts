@@ -2,8 +2,9 @@ import { AppError } from '../../../shared/errors/AppError';
 import { bidWindowClosesAt } from '../../loads/bids/bid-rules';
 import { WhatsappBidInput } from '../../loads/utils/load-bid.interface';
 import { LoadPostingType, LoadStatus } from '../../loads/utils/loads.types';
-import { PriceMode } from '../../loads/load-posting/utils/load-posting.types';
+import { PriceMode, RecipientReply } from '../../loads/load-posting/utils/load-posting.types';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
+import { INDENT_REJECTED_ON_WHATSAPP_REASON } from '../messaging.constants';
 import { InboundResolution, OfferAction, RecipientLoadStage } from '../messaging.types';
 import { DispatchDetails } from '../parsers/reply-value.parsers';
 import {
@@ -45,6 +46,8 @@ export interface TransporterOfferStore {
     loadRef: string,
   ): Promise<TransporterOffer | null>;
   latestOfferAnswer(loadId: string, recipientId: string): Promise<InboundResolution | null>;
+  /** Keeps the transporter's Accept / Reject on its load_recipients row for the shipper's view. */
+  recordReply(recipientId: string, reply: RecipientReply, at: Date): Promise<void>;
 }
 
 /** The bid writes a WhatsApp reply may make — LoadBidService satisfies this. */
@@ -56,6 +59,13 @@ export interface TransporterBidWriter {
     loadId: string,
     vehicleNumber: string,
     channel: 'whatsapp',
+  ): Promise<unknown>;
+  /** The contracted transporter turned the indent down: it goes to the open market. */
+  recordIndentRejection(
+    tenantId: string,
+    actorId: null,
+    loadId: string,
+    reason: string,
   ): Promise<unknown>;
   findLiveTransporterBid(
     tenantId: string,
@@ -168,21 +178,39 @@ export class TransporterReplyActions implements ReplyActions {
       return closedOutcome(context.loadRef);
 
     if (action === 'reject') {
+      if (offer.postingType === 'indent') {
+        // Same write as the shipper recording the rejection: the load becomes a market load at
+        // Created and the contract's penalty is kept. The reply is noted only once that holds.
+        return this.write(offer, async () => {
+          await this.bids.recordIndentRejection(
+            offer.tenantId,
+            null,
+            offer.loadId,
+            INDENT_REJECTED_ON_WHATSAPP_REASON,
+          );
+          await this.offers.recordReply(offer.recipientId, 'rejected', this.now());
+          return {
+            resolution: 'rejected',
+            confirmationText: REPLY_TEXTS.indentRejected(offer.loadCode),
+          };
+        });
+      }
+      await this.offers.recordReply(offer.recipientId, 'rejected', this.now());
       return {
         resolution: 'rejected',
-        confirmationText:
-          offer.postingType === 'indent'
-            ? REPLY_TEXTS.indentRejected(offer.loadCode)
-            : REPLY_TEXTS.transporterRejected(offer.loadCode),
+        confirmationText: REPLY_TEXTS.transporterRejected(offer.loadCode),
       };
     }
     if (offer.postingType === 'indent') {
       if (action === 'accept') {
-        // The acceptance is recorded with its truck number (recordIndentAcceptance needs one).
+        // The acceptance is recorded with its truck number (recordIndentAcceptance needs one);
+        // until then the recipient row carries it, so the shipper sees the transporter said yes.
+        await this.offers.recordReply(offer.recipientId, 'accepted', this.now());
         return {
           resolution: 'accepted',
           note: 'indent accepted on WhatsApp — waiting for the truck number',
           confirmationText: REPLY_TEXTS.offerAccepted(offer.loadCode),
+          asksFor: 'truck',
         };
       }
       return {
@@ -207,10 +235,12 @@ export class TransporterReplyActions implements ReplyActions {
         transporterId: offer.transporterId,
         rate: targetRate,
       });
+      await this.offers.recordReply(offer.recipientId, 'accepted', this.now());
       return {
         resolution: 'accepted',
         note: `bid at the posted price ${targetRate}`,
         confirmationText: REPLY_TEXTS.offerAccepted(offer.loadCode),
+        asksFor: 'truck',
       };
     });
   }
@@ -255,6 +285,8 @@ export class TransporterReplyActions implements ReplyActions {
           truckNumber,
           'whatsapp',
         );
+        // A truck number straight away is an acceptance too, with or without Accept first.
+        await this.offers.recordReply(offer.recipientId, 'accepted', this.now());
       } else {
         await this.bids.recordWhatsappBid(offer.tenantId, offer.loadId, {
           transporterId: offer.transporterId,
@@ -287,6 +319,7 @@ export class TransporterReplyActions implements ReplyActions {
         resolution: 'validation_failed',
         note: `driver details without ${missing.join(', ') || 'a mobile'}`,
         confirmationText: REPLY_TEXTS.dispatchMissing(offer.loadCode, missing),
+        asksFor: 'dispatch',
       };
     }
     return this.write(offer, async () => {
@@ -311,6 +344,8 @@ export class TransporterReplyActions implements ReplyActions {
           : failed
             ? REPLY_TEXTS.dispatchCheckFailed(offer.loadCode, failed)
             : REPLY_TEXTS.dispatchRecorded(offer.loadCode, details.driverName),
+        // "Please send another driver or truck" asks for the details again.
+        ...(failed && !memo ? { asksFor: 'dispatch' as const } : {}),
       };
     });
   }
