@@ -391,7 +391,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
         'shipper_sales | tracker_sales, state, asmUserId }) is required on the sales team and ' +
         'rejected elsewhere; a salesperson needs an active sales ASM as asmUserId, an ASM has ' +
         'none. `reportsToUserId` must be an active team member or the platform admin. ' +
-        '`employeeId` is unique per team (a second account on another team may reuse it).\n\n' +
+        'The employee ID is not sent: the backend issues it (LS0001, LS0002, …) and returns it as ' +
+        '`employeeId`; it never changes on edit.\n\n' +
         'No password: team members sign in with their mobile number and an OTP ' +
         '(POST /v1/auth/login/otp/request with portal "platform"); an SMS/email invite tells them ' +
         'so (best-effort — never fails the hire).',
@@ -413,8 +414,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       },
       404: { description: 'Role not found', ...errorContent },
       409: {
-        description:
-          'Phone number or email already in use, or employee ID already used on the team',
+        description: 'Phone number or email already in use',
         ...errorContent,
       },
     },
@@ -522,7 +522,7 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
       404: { description: 'Team member or role not found', ...errorContent },
       409: {
         description:
-          'Phone/email/employee ID already in use, or the team change would orphan KYC reviews, ' +
+          'Phone/email already in use, or the team change would orphan KYC reviews, ' +
           'referral codes or salespeople',
         ...errorContent,
       },

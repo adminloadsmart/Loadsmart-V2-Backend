@@ -159,7 +159,6 @@ export const adminValidators = {
     body: z
       .object({
         fullName: trimmed,
-        employeeId: trimmed,
         phoneNumber: z.string().min(10),
         email: z.string().email(),
         roleId: uuid,
@@ -176,7 +175,6 @@ export const adminValidators = {
     body: z
       .object({
         fullName: trimmed.optional(),
-        employeeId: trimmed.optional(),
         phoneNumber: z.string().min(10).optional(),
         email: z.string().email().optional(),
         roleId: uuid.optional(),

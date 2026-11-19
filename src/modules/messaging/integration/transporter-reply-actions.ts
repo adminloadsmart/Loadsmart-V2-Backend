@@ -5,6 +5,7 @@ import { LoadPostingType, LoadStatus } from '../../loads/utils/loads.types';
 import { PriceMode } from '../../loads/load-posting/utils/load-posting.types';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { InboundResolution, OfferAction, RecipientLoadStage } from '../messaging.types';
+import { DispatchDetails } from '../parsers/reply-value.parsers';
 import {
   ActionOutcome,
   OpenRecipientLoad,
@@ -30,6 +31,10 @@ export interface TransporterOffer {
   /** Target rate (market, set_target) or contract rate (indent). */
   postedRate: string | null;
   laneLabel: string;
+  /** A bid is accepted on the load (market) or the indent is accepted. */
+  awarded: boolean;
+  /** The shipper accepted the load memo — the truck and driver are final. */
+  memoAccepted: boolean;
 }
 
 export interface TransporterOfferStore {
@@ -59,12 +64,40 @@ export interface TransporterBidWriter {
   ): Promise<{ vehicleNumber: string | null } | null>;
 }
 
+/** The truck and driver a transporter sends after LS_N_0121 — LoadMemoService.nameDriver, the
+ *  same write as the shipper naming the driver in the app (VAHAN, Sarathi, then the memo). */
+export interface TransporterDriverWriter {
+  nameDriver(
+    tenantId: string,
+    actorId: null,
+    loadId: string,
+    input: {
+      driverName: string;
+      driverMobile: string;
+      licenceNumber: string;
+      dateOfBirth: string;
+      vehicleNumber?: string;
+    },
+  ): Promise<{
+    memo: unknown;
+    checks: {
+      clear: boolean;
+      blockers: string[];
+      truck: { status: string } | null;
+      driver: { status: string } | null;
+    };
+  }>;
+}
+
 /**
  * Which step a transporter is at on one load (load-flow CTA sheet, catalog LS_N_0119 / 0120).
  * Market: offered → (Negotiate / Give rate) awaiting_rate → (rate) a live bid → awaiting_truck
  * until its truck number is in, then offered (a new rate revises it). Closed after Reject, once
  * the load has a truck, or when the 4-h bid window ends.
  * Indent: offered → (Accept) awaiting_truck → the truck number records the acceptance.
+ * Awarded to this transporter (bid or indent accepted, LS_N_0121): awaiting_dispatch — the driver
+ * details — until the shipper accepts the memo, whatever the bid window says. Awarded to someone
+ * else: closed.
  */
 export function transporterStage(
   offer: TransporterOffer,
@@ -72,6 +105,13 @@ export function transporterStage(
   lastAnswer: InboundResolution | null,
   now: Date,
 ): RecipientLoadStage {
+  if (offer.awarded) {
+    return offer.loadStatus === 'bids_received' &&
+      offer.loadTransporterId === offer.transporterId &&
+      !offer.memoAccepted
+      ? 'awaiting_dispatch'
+      : 'closed';
+  }
   if (offer.postingType === 'indent') {
     if (offer.loadStatus !== 'created' || offer.loadTransporterId !== offer.transporterId)
       return 'closed';
@@ -89,13 +129,15 @@ export function transporterStage(
 /**
  * ReplyActions for the shipper's own transporters (own transporter market loads and indents):
  * Accept / Negotiate / Give rate / Reject, typed rates and truck numbers become WhatsApp-channel
- * bids and indent acceptances through LoadBidService. Driver details and attachments are not taken
- * on WhatsApp today — they go to review for Placement.
+ * bids and indent acceptances through LoadBidService; after the award, the driver details
+ * (LS_N_0121) name the driver through LoadMemoService, which checks them and sends the memo.
+ * Attachments are not taken on WhatsApp today — they go to review.
  */
 export class TransporterReplyActions implements ReplyActions {
   constructor(
     private readonly offers: TransporterOfferStore,
     private readonly bids: TransporterBidWriter,
+    private readonly drivers: TransporterDriverWriter,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -227,11 +269,50 @@ export class TransporterReplyActions implements ReplyActions {
     });
   }
 
-  async applyDispatch(): Promise<ActionOutcome> {
-    return {
-      resolution: 'needs_review',
-      note: 'driver details are not taken on WhatsApp yet',
-    };
+  /** The driver details after LS_N_0121: all of name, mobile, DL and date of birth, or we ask
+   *  for what is missing. The truck is the bid's unless the transporter sends another. */
+  async applyDispatch(
+    context: RecipientLoadContext,
+    details: DispatchDetails,
+    _inbound: WhatsappInboundEntity,
+  ): Promise<ActionOutcome> {
+    const offer = await this.offerFor(context);
+    if (!offer) return closedOutcome(context.loadRef);
+    const missing = [
+      ...(details.licenceNumber ? [] : ['DL number']),
+      ...(details.dateOfBirth ? [] : ["driver's date of birth (for example 12 May 1990)"]),
+    ];
+    if (missing.length > 0 || !details.driverMobile) {
+      return {
+        resolution: 'validation_failed',
+        note: `driver details without ${missing.join(', ') || 'a mobile'}`,
+        confirmationText: REPLY_TEXTS.dispatchMissing(offer.loadCode, missing),
+      };
+    }
+    return this.write(offer, async () => {
+      const { memo, checks } = await this.drivers.nameDriver(offer.tenantId, null, offer.loadId, {
+        driverName: details.driverName,
+        driverMobile: details.driverMobile!,
+        licenceNumber: details.licenceNumber!,
+        dateOfBirth: details.dateOfBirth!,
+        ...(details.truckNumber ? { vehicleNumber: details.truckNumber } : {}),
+      });
+      const failed =
+        checks.truck?.status === 'failed' || checks.driver?.status === 'failed'
+          ? (checks.blockers[0] ?? 'a check failed')
+          : null;
+      return {
+        resolution: 'details_received',
+        note: `driver ${details.driverName}, ${details.driverMobile}, DL ${details.licenceNumber}${
+          memo ? ' — memo sent' : checks.clear ? '' : ` — ${checks.blockers.join('; ')}`
+        }`,
+        confirmationText: memo
+          ? REPLY_TEXTS.dispatchMemoSent(offer.loadCode, details.driverName)
+          : failed
+            ? REPLY_TEXTS.dispatchCheckFailed(offer.loadCode, failed)
+            : REPLY_TEXTS.dispatchRecorded(offer.loadCode, details.driverName),
+      };
+    });
   }
 
   async applySlip(): Promise<ActionOutcome> {

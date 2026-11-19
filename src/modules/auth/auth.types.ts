@@ -70,9 +70,9 @@ export interface StaffSalesInput {
 // auth.roles row from STAFF_TEAMS) and decides all access; teamRole is the job title within that
 // team (TEAM_ROLES) and decides none. No password and no per-user permissions: login is OTP-only,
 // and access comes from the team alone (strictly one team per person).
+// The employee ID isn't an input: the backend issues it (AuthRepository.nextEmployeeId).
 export interface CreateStaffInput {
   fullName: string;
-  employeeId: string;
   phoneNumber: string;
   email: string;
   roleId: string;
@@ -86,7 +86,6 @@ export interface CreateStaffInput {
 // reportsToUserId/sales accept null to clear them.
 export interface UpdateStaffInput {
   fullName?: string;
-  employeeId?: string;
   phoneNumber?: string;
   email?: string;
   roleId?: string;

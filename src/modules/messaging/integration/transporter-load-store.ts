@@ -48,6 +48,8 @@ function toOffer(recipient: LoadRecipientEntity, load: LoadEntity): TransporterO
     priceMode: recipient.posting.priceMode,
     postedRate: recipient.posting.rate,
     laneLabel: laneLabelOf(recipient.posting),
+    awarded: load.awardedBidId !== null,
+    memoAccepted: load.memoAcceptedAt !== null,
   };
 }
 
@@ -79,6 +81,15 @@ export class TypeormTransporterOfferStore implements TransporterOfferStore {
             .where("posting.mode = 'market_fleet' AND posting.createdAt >= :marketSince", {
               marketSince,
             })
+            // An awarded market load still takes the driver details after the bid window
+            // (LS_N_0121), until the memo is accepted — transporterStage decides.
+            .orWhere(
+              "posting.mode = 'market_fleet' AND posting.createdAt >= :indentSince AND EXISTS (" +
+                'SELECT 1 FROM loads.loads awarded WHERE awarded.posting_id = posting.id ' +
+                'AND awarded.awarded_bid_id IS NOT NULL AND awarded.memo_accepted_at IS NULL ' +
+                'AND awarded.transporter_id = recipient.transporterId)',
+              { indentSince },
+            )
             .orWhere("posting.mode = 'indent' AND posting.createdAt >= :indentSince", {
               indentSince,
             }),
@@ -104,14 +115,21 @@ export class TypeormTransporterOfferStore implements TransporterOfferStore {
     );
   }
 
+  /**
+   * One offer by the ref our message carried: the load_recipients id on the offer itself
+   * (LS_N_0119 / 0120), or the transporter's own id on the notices after it (LS_N_0121, 0123…),
+   * which then needs the load to find its recipient row.
+   */
   async findOffer(
     recipientId: string,
     loadId: string | null,
     loadRef: string,
   ): Promise<TransporterOffer | null> {
-    const recipient = await this.dataSource
-      .getRepository(LoadRecipientEntity)
-      .findOne({ where: { id: recipientId }, relations: { posting: true } });
+    const recipient =
+      (await this.dataSource
+        .getRepository(LoadRecipientEntity)
+        .findOne({ where: { id: recipientId }, relations: { posting: true } })) ??
+      (await this.recipientByTransporter(recipientId, loadId));
     if (!recipient || recipient.recipientType !== 'transporter' || !recipient.transporterId)
       return null;
     const load = await this.dataSource
@@ -122,6 +140,24 @@ export class TypeormTransporterOfferStore implements TransporterOfferStore {
           : { code: loadRef, tenantId: recipient.tenantId, postingId: recipient.postingId },
       );
     return load ? toOffer(recipient, load) : null;
+  }
+
+  private async recipientByTransporter(
+    transporterId: string,
+    loadId: string | null,
+  ): Promise<LoadRecipientEntity | null> {
+    if (!loadId) return null;
+    const load = await this.dataSource.getRepository(LoadEntity).findOneBy({ id: loadId });
+    if (!load?.postingId) return null;
+    return this.dataSource.getRepository(LoadRecipientEntity).findOne({
+      where: {
+        postingId: load.postingId,
+        tenantId: load.tenantId,
+        transporterId,
+        recipientType: 'transporter',
+      },
+      relations: { posting: true },
+    });
   }
 
   latestOfferAnswer(loadId: string, recipientId: string): Promise<InboundResolution | null> {
