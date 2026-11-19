@@ -149,7 +149,7 @@ function staffServiceWith(people: Row[] = []) {
     findActivePlatformUsersByIds: vi.fn(async (ids: string[]) =>
       ids.map((id) => byId.get(id)).filter(Boolean),
     ),
-    findActiveByEmployeeIdOnTeam: vi.fn(async () => null as Row | null),
+    nextEmployeeId: vi.fn(async () => 'LS0042'),
     reportsToChain: vi.fn(async () => [] as string[]),
     countDirectReports: vi.fn(async () => 0),
     countAsmReports: vi.fn(async () => 0),
@@ -194,7 +194,6 @@ function staffServiceWith(people: Row[] = []) {
 
 const newMember = (overrides: Partial<CreateStaffInput> = {}): CreateStaffInput => ({
   fullName: 'Asha Rao',
-  employeeId: 'EMP-101',
   phoneNumber: '9000000101',
   email: 'asha@loadsmart.in',
   roleId: 'role-ls_tracking',
@@ -229,7 +228,7 @@ describe('adding a team member (POST /admin/staff)', () => {
       expect.objectContaining({
         passwordHash: null,
         tenantId: null,
-        employeeId: 'EMP-101',
+        employeeId: 'LS0042',
         teamRole: 'team_member',
         reportsToUserId: 'mgr',
         region: 'Pune',
@@ -315,11 +314,12 @@ describe('adding a team member (POST /admin/staff)', () => {
     }
   });
 
-  it('refuses an employee ID already used on the same team', async () => {
+  it('issues the employee ID only once every check has passed', async () => {
     const { service, authRepository } = staffServiceWith();
-    authRepository.findActiveByEmployeeIdOnTeam.mockResolvedValueOnce(member('dup', 'ls_tracking'));
-    await expect(service.createStaffUser(owner, newMember())).rejects.toBeInstanceOf(ConflictError);
-    expect(authRepository.createUser).not.toHaveBeenCalled();
+    await expect(
+      service.createStaffUser(owner, newMember({ teamRole: 'asm' })),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(authRepository.nextEmployeeId).not.toHaveBeenCalled();
   });
 
   it('still hires when the invite fails', async () => {
@@ -418,6 +418,27 @@ describe('editing a team member (PATCH /admin/staff/:id)', () => {
     const { service, roleService } = staffServiceWith([member('m-1', 'ls_tracking')]);
     await service.updateStaff(owner, 'm-1', { phoneNumber: '9111111111' });
     expect(roleService.invalidateUserSession).toHaveBeenCalledWith('m-1');
+  });
+
+  it('keeps the employee ID on edit', async () => {
+    const { service, authRepository } = staffServiceWith([member('m-1', 'ls_tracking')]);
+    await service.updateStaff(owner, 'm-1', { region: 'Mumbai' });
+    expect(authRepository.nextEmployeeId).not.toHaveBeenCalled();
+    expect(authRepository.updateUser).toHaveBeenCalledWith(
+      'm-1',
+      expect.not.objectContaining({ employeeId: expect.anything() }),
+    );
+  });
+
+  it('issues an employee ID to a member hired before IDs were generated', async () => {
+    const { service, authRepository } = staffServiceWith([
+      member('m-1', 'ls_tracking', { employeeId: null }),
+    ]);
+    await service.updateStaff(owner, 'm-1', { region: 'Mumbai' });
+    expect(authRepository.updateUser).toHaveBeenCalledWith(
+      'm-1',
+      expect.objectContaining({ employeeId: 'LS0042' }),
+    );
   });
 
   it('does not end sessions for other edits', async () => {

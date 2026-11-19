@@ -624,6 +624,7 @@ export function buildContainer(dataSource: DataSource): Container {
   loadsmart.sourcingService.setLoadBoardNotifier(messaging.createPartnerBoardNotifier());
   messaging.connectReplies({
     transporterBids: loads.loadBidService,
+    transporterDrivers: loads.loadMemoService,
     partnerBoard: loadsmart.sourcingService,
     memos: loads.loadMemoService,
     shipperBids: loads.loadBidService,

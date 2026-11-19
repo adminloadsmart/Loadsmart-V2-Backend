@@ -39,6 +39,7 @@ import { WhatsappDispatchNotifier } from './integration/whatsapp-dispatch-notifi
 import { TypeormShipperNames } from './integration/shipper-names';
 import {
   TransporterBidWriter,
+  TransporterDriverWriter,
   TransporterReplyActions,
 } from './integration/transporter-reply-actions';
 import { TypeormTransporterOfferStore } from './integration/transporter-load-store';
@@ -83,6 +84,8 @@ export interface MessagingModule {
    *  the load memo (Accept memo on WhatsApp). */
   connectReplies(services: {
     transporterBids: TransporterBidWriter;
+    /** Names the driver from a transporter's reply to LS_N_0121 (LoadMemoService). */
+    transporterDrivers: TransporterDriverWriter;
     partnerBoard: PartnerBoardGateway;
     memos: MemoGateway;
     shipperBids: ShipperBidGateway;
@@ -180,11 +183,12 @@ export function createMessagingModule(dataSource: DataSource): MessagingModule {
     shipperSentLogRouter: createShipperSentLogRoutes(sentLogController),
     opsSentLogRouter: createOpsSentLogRoutes(sentLogController),
     dispatchNotifier: new WhatsappDispatchNotifier(outbound, new TypeormShipperNames(dataSource)),
-    connectReplies({ transporterBids, partnerBoard, memos, shipperBids }) {
+    connectReplies({ transporterBids, transporterDrivers, partnerBoard, memos, shipperBids }) {
       const actions = new CompositeReplyActions({
         transporter: new TransporterReplyActions(
           new TypeormTransporterOfferStore(dataSource, inboundRepository),
           transporterBids,
+          transporterDrivers,
         ),
         partner: new PartnerReplyActions(partnerBoard, {
           latestOfferAnswer: (loadId, partnerId) =>

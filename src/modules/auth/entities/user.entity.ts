@@ -76,8 +76,9 @@ export class UserEntity {
   @Column({ type: 'varchar', nullable: true })
   region!: string | null;
 
-  // HR employee ID. Unique per team among active users (users_employee_id_team_active_unique) —
-  // not globally, since a person on two teams gets two accounts with the same employee ID.
+  // Employee ID (LS0001, …), issued by the backend at hire — AuthRepository.nextEmployeeId. Never
+  // reused, so unique across all teams; the per-team index (users_employee_id_team_active_unique)
+  // stays as a backstop for IDs typed in before IDs were generated.
   @Column({ name: 'employee_id', type: 'varchar', nullable: true })
   employeeId!: string | null;
 

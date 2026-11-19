@@ -18,6 +18,7 @@ import { normalizePhoneNumber } from '../../shared/utils/phone-number';
 import { NotFoundError } from '../../shared/errors';
 import { STAFF_ASSIGNABLE_ROLES, type SalesType } from '../../shared/constants/roles';
 import { LoginPortal, DevicePlatform, StaffMemberRole } from './auth.types';
+import { formatEmployeeId } from './auth.constants';
 
 export class AuthRepository {
   private readonly users: Repository<UserEntity>;
@@ -224,13 +225,13 @@ export class AuthRepository {
     });
   }
 
-  // An active team member already using this employee ID on this team (roleId) — see the
-  // users_employee_id_team_active_unique index.
-  findActiveByEmployeeIdOnTeam(employeeId: string, roleId: string): Promise<UserEntity | null> {
-    return this.users.findOne({
-      where: { employeeId, roleId, deletedAt: IsNull() },
-      relations: { role: true },
-    });
+  // The next team-member employee ID (LS0001, …). The sequence (migration StaffEmployeeIds) only
+  // supplies a never-repeated number, safe under concurrent hires; formatEmployeeId shapes it.
+  async nextEmployeeId(): Promise<string> {
+    const [row] = (await this.users.query(
+      `SELECT nextval('"auth"."staff_employee_id_seq"') AS "value"`,
+    )) as { value: string }[];
+    return formatEmployeeId(row.value);
   }
 
   // Active users whose reports-to / ASM is this user — blocks deleting (or moving) someone people

@@ -108,7 +108,8 @@ export class LoadMemoService {
    *  what blocks it comes back. Naming a different truck or driver later sends a new version. */
   async nameDriver(
     tenantId: string,
-    actorId: string,
+    /** null: the transporter sent the details on WhatsApp (LS_N_0121) — no user entered them. */
+    actorId: string | null,
     loadId: string,
     input: NameDriverInput,
     asLoadsmart = false,
@@ -199,7 +200,7 @@ export class LoadMemoService {
 
   private async send(
     load: LoadEntity,
-    actorId: string,
+    actorId: string | null,
     loadingContact?: LoadingContact,
   ): Promise<MemoView> {
     if (!load.vehicleNumber) throw new ConflictError('The load has no truck number yet');
@@ -241,9 +242,13 @@ export class LoadMemoService {
         loadingContactPhone,
       }),
     );
+    // A memo sent from the transporter's WhatsApp reply has no entering user: it is filed under
+    // the shipper user who posted the load.
+    const uploader = actorId ?? load.createdBy;
+    if (!uploader) throw new ConflictError('The load has no user to file the memo under');
     const file = await this.storageService.uploadTenantFile(
       load.tenantId,
-      actorId,
+      uploader,
       {
         purpose: 'loads/memo',
         fileName: `${reference}.pdf`,

@@ -34,7 +34,44 @@ describe('parseDispatchDetails', () => {
       truckNumber: 'PB10AB1234',
       driverName: 'Ramesh Kumar',
       driverMobile: '9876543210',
+      licenceNumber: null,
+      dateOfBirth: null,
       isComplete: true,
+    });
+  });
+
+  // The LS_N_0121 reply from 19 Nov, one detail per line. The licence starts like a truck number.
+  it('reads truck, name, mobile, DL and date of birth, one per line', () => {
+    expect(
+      parseDispatchDetails('RJ11GC9628\nSHUBHAM\n7973805477\nHR3120210000616\n12 MAY 1990'),
+    ).toEqual({
+      truckNumber: 'RJ11GC9628',
+      driverName: 'SHUBHAM',
+      driverMobile: '7973805477',
+      licenceNumber: 'HR3120210000616',
+      dateOfBirth: '1990-05-12',
+      isComplete: true,
+    });
+  });
+
+  it.each([
+    ['DL HR-31 2021 0000616, DOB 12/05/1990, Shubham 7973805477', '1990-05-12'],
+    ['Shubham 7973805477 HR3120210000616 1990-05-12', '1990-05-12'],
+    ['Shubham 7973805477 HR3120210000616 3 Feb, 1985', '1985-02-03'],
+  ])('reads the DL and date from "%s"', (text, dateOfBirth) => {
+    expect(parseDispatchDetails(text)).toMatchObject({
+      driverName: 'Shubham',
+      driverMobile: '7973805477',
+      licenceNumber: 'HR3120210000616',
+      dateOfBirth,
+      truckNumber: null,
+    });
+  });
+
+  it('does not read a spaced truck number as a date', () => {
+    expect(parseDispatchDetails('MH 12 MAR 1234 Ravi 9000011111')).toMatchObject({
+      truckNumber: 'MH12MAR1234',
+      dateOfBirth: null,
     });
   });
 

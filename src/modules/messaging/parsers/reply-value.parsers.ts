@@ -26,39 +26,117 @@ export interface DispatchDetails {
   truckNumber: string | null;
   driverName: string;
   driverMobile: string | null;
+  /** The driving licence, normalised (HR3120210000616), or null. */
+  licenceNumber: string | null;
+  /** The driver's date of birth as YYYY-MM-DD, or null. */
+  dateOfBirth: string | null;
+  /** A driver name and a valid mobile are in. The truck, licence and date of birth are checked
+   *  by whoever takes the details (the truck may already be on the load). */
   isComplete: boolean;
 }
 
-/** Truck + driver in one message: "PB10AB1234 Ramesh Kumar 9876543210", "hr26 ab 4321, Mohan, +91 99887 76655". */
+/** An Indian driving licence: state, RTO, year of issue, 7 digits — "HR3120210000616",
+ *  "HR-31 2021 0000616", "PB10 20190012345". */
+const LICENCE_PATTERN = /\b[A-Za-z]{2}[\s-]?\d{2}[\s-]?(?:19|20)\d{2}[\s-]?\d{7}\b/;
+
+const MONTHS: Record<string, number> = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+};
+
+/** "12 MAY 1990", "12 May, 1990", "12-05-1990", "12/05/1990", "12.05.1990" or "1990-05-12". */
+const DATE_PATTERNS: { pattern: RegExp; parts: (match: RegExpMatchArray) => number[] | null }[] = [
+  {
+    pattern: /\b(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s,-]+(\d{4})\b/,
+    parts: (match) => {
+      const month = MONTHS[match[2].slice(0, 3).toLowerCase()];
+      return month ? [Number(match[3]), month, Number(match[1])] : null;
+    },
+  },
+  {
+    pattern: /\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/,
+    parts: (match) => [Number(match[1]), Number(match[2]), Number(match[3])],
+  },
+  {
+    pattern: /\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b/,
+    parts: (match) => [Number(match[3]), Number(match[2]), Number(match[1])],
+  },
+];
+
+/** Years a driver's date of birth can fall in — keeps a spaced truck number ("MH 12 MAR 1234")
+ *  from reading as a date. */
+const BIRTH_YEAR_MIN = 1920;
+const BIRTH_YEAR_MAX = 2015;
+
+/** A real calendar date as YYYY-MM-DD, or null (31 Feb, month 13, an unlikely birth year…). */
+function isoDateOf(year: number, month: number, day: number): string | null {
+  if (year < BIRTH_YEAR_MIN || year > BIRTH_YEAR_MAX) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1) return null;
+  if (date.getUTCDate() !== day) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function findDate(text: string): { iso: string; matched: string } | null {
+  for (const { pattern, parts } of DATE_PATTERNS) {
+    const match = text.match(pattern);
+    const ymd = match ? parts(match) : null;
+    const iso = ymd ? isoDateOf(ymd[0], ymd[1], ymd[2]) : null;
+    if (match && iso) return { iso, matched: match[0] };
+  }
+  return null;
+}
+
+/**
+ * Truck and driver details in one message, any order, one per line or not:
+ * "PB10AB1234 Ramesh Kumar 9876543210", "hr26 ab 4321, Mohan, +91 99887 76655",
+ * "RJ11GC9628\nSHUBHAM\n7973805477\nHR3120210000616\n12 MAY 1990".
+ * The licence and the date go first: a licence starts like a truck number (HR31 2021…).
+ */
 export function parseDispatchDetails(text: string): DispatchDetails {
-  const truckMatch = text.match(/[A-Za-z]{2}[\s-]?\d{1,2}[\s-]?[A-Za-z]{0,3}[\s-]?\d{4}/);
-  const textWithoutTruck = truckMatch ? text.replace(truckMatch[0], ' ') : text;
-  const mobileMatch = textWithoutTruck.match(/(?:\+?91[\s-]?)?[6-9](?:[\s-]?\d){9}/);
-  const driverName = (
-    mobileMatch ? textWithoutTruck.replace(mobileMatch[0], ' ') : textWithoutTruck
-  )
+  let rest = ` ${text} `;
+  const licenceMatch = rest.match(LICENCE_PATTERN);
+  if (licenceMatch) rest = rest.replace(licenceMatch[0], ' ');
+  const date = findDate(rest);
+  if (date) rest = rest.replace(date.matched, ' ');
+  const truckMatch = rest.match(/\b[A-Za-z]{2}[\s-]?\d{1,2}[\s-]?[A-Za-z]{0,3}[\s-]?\d{4}(?!\d)/);
+  if (truckMatch) rest = rest.replace(truckMatch[0], ' ');
+  const mobileMatch = rest.match(/(?:\+?91[\s-]?)?[6-9](?:[\s-]?\d){9}/);
+  if (mobileMatch) rest = rest.replace(mobileMatch[0], ' ');
+  const driverName = rest
     .replace(/[,;|:]/g, ' ')
-    .replace(/\b(truck|driver|mobile|no|number|naam|name)\b/gi, ' ')
+    .replace(
+      /\b(truck|driver|mobile|no|number|naam|name|dl|licence|license|dob|date|of|birth)\b\.?/gi,
+      ' ',
+    )
     .replace(/\s+/g, ' ')
     .trim();
   const truckNumber = truckMatch ? truckMatch[0].toUpperCase().replace(/[\s-]/g, '') : null;
   const driverMobile = mobileMatch ? onlyDigits(mobileMatch[0]).slice(-INDIAN_MOBILE_DIGITS) : null;
   return {
-    truckNumber,
+    truckNumber: truckNumber && INDIAN_TRUCK_NUMBER_PATTERN.test(truckNumber) ? truckNumber : null,
     driverName,
     driverMobile,
+    licenceNumber: licenceMatch ? licenceMatch[0].toUpperCase().replace(/[\s-]/g, '') : null,
+    dateOfBirth: date?.iso ?? null,
     isComplete:
-      truckNumber !== null &&
-      INDIAN_TRUCK_NUMBER_PATTERN.test(truckNumber) &&
-      driverMobile !== null &&
-      INDIAN_MOBILE_PATTERN.test(driverMobile) &&
-      driverName.length > 1,
+      driverMobile !== null && INDIAN_MOBILE_PATTERN.test(driverMobile) && driverName.length > 1,
   };
 }
 
 /** A truck number anywhere in the text, normalised (PB10AB1234), or null. */
 export function findTruckNumber(text: string): { truckNumber: string; matched: string } | null {
-  const truckMatch = text.match(/[A-Za-z]{2}[\s-]?\d{1,2}[\s-]?[A-Za-z]{0,3}[\s-]?\d{4}/);
+  const truckMatch = text.match(/\b[A-Za-z]{2}[\s-]?\d{1,2}[\s-]?[A-Za-z]{0,3}[\s-]?\d{4}(?!\d)/);
   if (!truckMatch) return null;
   const truckNumber = truckMatch[0].toUpperCase().replace(/[\s-]/g, '');
   return INDIAN_TRUCK_NUMBER_PATTERN.test(truckNumber)

@@ -436,8 +436,9 @@ export class AuthService {
   }
 
   /** Platform admin adds a team member (POST /admin/staff — the "Team members" form, notes §4).
-   *  The only user-creation path that isn't self-service, so phone, email and employee ID are all
-   *  pre-checked for collisions (the DB unique indexes stay the final word on a race). No password:
+   *  The only user-creation path that isn't self-service, so phone and email are pre-checked for
+   *  collisions (the DB unique indexes stay the final word on a race), and the employee ID is
+   *  issued here (LS0001, …) once everything else checks out. No password:
    *  team members sign in with their mobile number and an OTP (POST /auth/login/otp/request), and
    *  are told so by an SMS/email invite. Access comes from the team (roleId) alone — no per-user
    *  grants, strictly one team per person. */
@@ -447,14 +448,13 @@ export class AuthService {
     const normalizedPhone = this.normalizePhone(input.phoneNumber);
     const profile = await this.resolveStaffProfile({
       team,
-      roleId: role.id,
       staffId: null,
       teamRole: input.teamRole,
-      employeeId: input.employeeId,
       reportsToUserId: input.reportsToUserId ?? null,
       sales: input.sales ?? null,
     });
     await this.assertStaffIdentityFree(null, { phoneNumber: normalizedPhone, email: input.email });
+    const employeeId = await this.authRepository.nextEmployeeId();
 
     const user = await this.authRepository
       .createUser({
@@ -465,6 +465,7 @@ export class AuthService {
         passwordHash: null,
         fullName: input.fullName,
         region: input.region,
+        employeeId,
         ...profile,
       })
       .catch(rethrowStaffUniqueViolation);
@@ -548,14 +549,12 @@ export class AuthService {
    *     and never someone below them (no cycle). */
   private async resolveStaffProfile(input: {
     team: StaffTeam;
-    roleId: string;
     staffId: string | null;
     teamRole: string;
-    employeeId: string;
     reportsToUserId: string | null;
     sales: StaffSalesInput | null;
   }) {
-    const { team, roleId, staffId, teamRole, employeeId, reportsToUserId, sales } = input;
+    const { team, staffId, teamRole, reportsToUserId, sales } = input;
 
     if (!TEAM_ROLES[team].includes(teamRole)) {
       throw new ValidationError(
@@ -584,14 +583,6 @@ export class AuthService {
       throw new ValidationError('Sales type, state and ASM apply to the sales team only');
     }
 
-    const sameEmployeeId = await this.authRepository.findActiveByEmployeeIdOnTeam(
-      employeeId,
-      roleId,
-    );
-    if (sameEmployeeId && sameEmployeeId.id !== staffId) {
-      throw new ConflictError(`Employee ID ${employeeId} is already used on the ${team} team`);
-    }
-
     if (reportsToUserId) {
       if (reportsToUserId === staffId) throw new ValidationError('Cannot report to yourself');
       const [manager] = await this.authRepository.findActivePlatformUsersByIds([reportsToUserId]);
@@ -615,7 +606,6 @@ export class AuthService {
     }
 
     return {
-      employeeId,
       teamRole,
       reportsToUserId,
       salesType: team === SALES_ROLE ? sales!.salesType : null,
@@ -1268,16 +1258,12 @@ export class AuthService {
     const mergedSales =
       input.sales !== undefined ? input.sales : nextTeam === SALES_ROLE ? currentSales : null;
     const mergedTeamRole = input.teamRole ?? existing.teamRole;
-    const mergedEmployeeId = input.employeeId ?? existing.employeeId;
     if (!mergedTeamRole) throw new ValidationError('teamRole is required');
-    if (!mergedEmployeeId) throw new ValidationError('employeeId is required');
 
     const profile = await this.resolveStaffProfile({
       team: nextTeam,
-      roleId: nextRole?.id ?? existing.roleId,
       staffId,
       teamRole: mergedTeamRole,
-      employeeId: mergedEmployeeId,
       reportsToUserId:
         input.reportsToUserId !== undefined ? input.reportsToUserId : existing.reportsToUserId,
       sales: mergedSales,
@@ -1297,6 +1283,8 @@ export class AuthService {
       ...(phoneChanged ? { phoneNumber: normalizedPhone } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
       ...(input.region !== undefined ? { region: input.region } : {}),
+      // Hired before IDs were generated and never given one: issue it now.
+      ...(existing.employeeId ? {} : { employeeId: await this.authRepository.nextEmployeeId() }),
       ...profile,
     };
     await this.authRepository.updateUser(staffId, changes).catch(rethrowStaffUniqueViolation);
