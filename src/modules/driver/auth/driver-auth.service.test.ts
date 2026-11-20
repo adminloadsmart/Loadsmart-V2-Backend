@@ -112,6 +112,22 @@ describe('DriverAuthService — one login per driver', () => {
     expect(claims.tenantId).toBeUndefined();
   });
 
+  it('tells the login hook once the session exists, and a failing hook never fails the login', async () => {
+    const { service, calls } = build();
+    const hook = vi.fn(async (_driverId: string) => {
+      calls.push('hook');
+      throw new Error('boom');
+    });
+    service.setOnDriverLogin(hook);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(service.verifyOtp(LOGIN)).resolves.toMatchObject({ accessToken: 'signed-token' });
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(hook).toHaveBeenCalledWith(DRIVER.id);
+    expect(calls).toEqual(['revokeAll', 'create', 'hook']);
+    warn.mockRestore();
+  });
+
   it('picking an organisation after OTP closes older sessions', async () => {
     const { service, calls } = build();
     await service.selectTenant({

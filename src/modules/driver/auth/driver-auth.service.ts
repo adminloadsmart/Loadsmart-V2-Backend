@@ -51,6 +51,15 @@ export class DriverAuthService {
     private readonly otpService: OtpService,
   ) {}
 
+  /** Runs after every successful driver login (set in composition-root.ts, since the loads module
+   *  is built after this one) — the driver now has the app, so their loads tracked by SIM can be
+   *  switched to it. Never allowed to fail the login. */
+  private onDriverLogin?: (driverId: string) => Promise<unknown>;
+
+  setOnDriverLogin(hook: (driverId: string) => Promise<unknown>): void {
+    this.onDriverLogin = hook;
+  }
+
   async requestOtp(input: RequestDriverOtpInput, locale?: Locale) {
     const phoneNumber = this.normalizePhone(input.phoneNumber);
 
@@ -267,7 +276,17 @@ export class DriverAuthService {
         ),
       ),
     );
-    return this.issueDriverTokenPair(driverId, tenantId, driverTenantRelationId, device);
+    const tokens = await this.issueDriverTokenPair(
+      driverId,
+      tenantId,
+      driverTenantRelationId,
+      device,
+    );
+    // Fire-and-forget, after the session row exists.
+    void Promise.resolve(this.onDriverLogin?.(driverId)).catch((error) =>
+      console.warn(`[driver-auth] login hook failed for driver ${driverId}`, error),
+    );
+    return tokens;
   }
 
   private async issueSessionForRelation(

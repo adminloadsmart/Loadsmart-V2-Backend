@@ -18,6 +18,7 @@
     "seed:roles": "ts-node -r reflect-metadata src/db/seed-roles.ts",
     "seed:platform-admin": "ts-node -r reflect-metadata src/db/seed-platform-admin.ts",
     "seed:all": "ts-node -r reflect-metadata src/db/seed.ts",
+    "backfill:driver-tracking-source": "ts-node -r reflect-metadata src/db/backfill-driver-tracking-source.ts",
     "prepare": "husky"
   },
   "keywords": [],
