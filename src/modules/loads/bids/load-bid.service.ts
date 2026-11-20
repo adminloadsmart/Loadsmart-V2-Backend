@@ -670,6 +670,12 @@ export class LoadBidService {
       const vehicleNumber = normalizePlate(vehicleNumberInput);
       await this.assertTruckFree(load, vehicleNumber);
 
+      // An indent still at Created takes no bids, so a live bid of the contracted transporter
+      // here is one a failed acceptance left behind. Close it, or the one-live-bid-per-transporter
+      // index rejects this acceptance (seen live 19 Nov on LOAD-1010).
+      const leftover = await this.bidRepository.findLive(tenantId, loadId, load.transporterId);
+      if (leftover) await this.bidRepository.markRejected(leftover, actorId);
+
       const created = await this.bidRepository.create({
         tenantId,
         loadId,
@@ -687,21 +693,34 @@ export class LoadBidService {
             ? 'Indent accepted by the contracted transporter on WhatsApp'
             : 'Indent accepted by the contracted transporter',
       });
-      const bid = await this.checkBidTruck(created);
-      await this.stageService.transition({
-        tenantId,
-        loadId,
-        trigger: 'indent_accepted',
-        actorId,
-        load,
-        auditAction: 'LOAD_BID_ACCEPTED',
-        fields: {
-          vehicleNumber,
-          freightType: load.freightType ?? 'flat',
-          awardedBidId: bid.id,
-        },
-        metadata: { bidId: bid.id, transporterId: bid.transporterId, rate: bid.rate },
-      });
+      let bid: LoadBidEntity;
+      try {
+        bid = await this.checkBidTruck(created);
+        await this.stageService.transition({
+          tenantId,
+          loadId,
+          trigger: 'indent_accepted',
+          // On WhatsApp the contracted transporter accepts it themselves — no user is signed in,
+          // and `system` (the default without an actorId) may not take an indent.
+          ...(channel === 'whatsapp'
+            ? { actorType: 'transporter' as const, channel: 'whatsapp' as const }
+            : {}),
+          actorId,
+          load,
+          auditAction: 'LOAD_BID_ACCEPTED',
+          fields: {
+            vehicleNumber,
+            freightType: load.freightType ?? 'flat',
+            awardedBidId: bid.id,
+          },
+          metadata: { bidId: bid.id, transporterId: bid.transporterId, rate: bid.rate },
+        });
+      } catch (error) {
+        // The truck check is a VAHAN call, so this can't be one DB transaction: undo the bid
+        // instead, so a failed acceptance leaves nothing live behind.
+        await this.bidRepository.markRejected(created, actorId);
+        throw error;
+      }
       await this.bidRepository.accept(bid, actorId);
       await this.recordBidActivity(load, actorId, bid, { indent: true });
       return this.toView({ ...bid, status: 'accepted' }, this.now(), 1);

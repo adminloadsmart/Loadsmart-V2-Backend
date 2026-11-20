@@ -9,12 +9,11 @@ export const SIGNUP_RESEND_COOLDOWN_SECONDS = 30;
 // MSG91 credentials or sending real SMS. Only ever accepted when useDevOtpBypass() is true.
 export const DEV_BYPASS_OTP = '1234';
 
-// Team members' employee IDs: issued by the backend at hire (never typed in), as the prefix plus
-// the next auth.staff_employee_id_seq number, zero-padded — LS0001, LS0002, … LS12345.
-export const EMPLOYEE_ID_PREFIX = 'LS';
-export const EMPLOYEE_ID_MIN_DIGITS = 4;
-export const formatEmployeeId = (sequenceNumber: number | string): string =>
-  `${EMPLOYEE_ID_PREFIX}${String(sequenceNumber).padStart(EMPLOYEE_ID_MIN_DIGITS, '0')}`;
+// Team members' employee IDs: typed in by the platform admin on the Add team member form, as
+// "LS" plus exactly 4 digits — e.g. LS5678. Unique among active team members.
+export const EMPLOYEE_ID_REGEX = /^LS\d{4}$/;
+export const EMPLOYEE_ID_FORMAT_MESSAGE =
+  'Employee ID must be LS followed by 4 digits (e.g. LS5678)';
 
 // Where an OTP goes when the caller picks one (the driver app's "Send OTP" / "Get OTP on
 // WhatsApp"). Staff requests pick none and get SMS plus a best-effort WhatsApp copy.

@@ -260,6 +260,7 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'LOAD_CREATED',
   'STATUS_CHANGED',
   'DOCUMENT_UPLOADED',
+  'DOCUMENT_REMOVED',
   'DOCUMENT_REVIEWED',
   'CHARGE_ADDED',
   'TRUCK_CANCELLED',
@@ -292,6 +293,10 @@ export const LOAD_ACTIVITY_ACTIONS = [
   'CALL_LOGGED',
 ] as const;
 export type LoadActivityAction = (typeof LOAD_ACTIVITY_ACTIONS)[number];
+
+/** The loading papers the shipper may delete from the load page to upload again. */
+export const REMOVABLE_LOAD_DOCUMENTS = ['invoice', 'eway_bill', 'signed_lr'] as const;
+export type RemovableLoadDocument = (typeof REMOVABLE_LOAD_DOCUMENTS)[number];
 
 /** Log a call (load module spec p.36): who was spoken to — one or more of these. */
 export const CALL_PARTIES = [

@@ -1,4 +1,5 @@
 import { AppError } from '../../../shared/errors/AppError';
+import { writeErrorNote } from './write-error-note';
 import { bidWindowClosesAt } from '../../loads/bids/bid-rules';
 import { WhatsappBidInput } from '../../loads/utils/load-bid.interface';
 import { LoadPostingType, LoadStatus } from '../../loads/utils/loads.types';
@@ -380,7 +381,7 @@ export class TransporterReplyActions implements ReplyActions {
       if (!(error instanceof AppError)) throw error;
       return {
         resolution: 'needs_review',
-        note: error.message,
+        note: writeErrorNote(error, offer.loadCode),
         confirmationText: REPLY_TEXTS.notRecorded(offer.loadCode),
       };
     }

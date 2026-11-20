@@ -123,6 +123,13 @@ export function createLoadsProtectedRoutes(controller: LoadsController): Router 
     validate(loadValidators.updateDocuments),
     asyncHandler(controller.updateDocuments),
   );
+  // Delete an uploaded invoice / e-way bill / signed LR so the right one can be uploaded.
+  router.delete(
+    '/loads/:loadId/documents/:docType',
+    canManageDocuments,
+    validate(loadValidators.removeDocument),
+    asyncHandler(controller.removeDocument),
+  );
   router.patch(
     '/loads/:loadId/status',
     canManageDocuments,
