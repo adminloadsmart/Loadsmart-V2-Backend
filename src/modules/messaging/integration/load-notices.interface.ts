@@ -87,6 +87,12 @@ export interface LoadNoticeStore {
   /** The partner wrote back about this load (a tap or a message) since `since`. */
   partnerRepliedSince(loadId: string, partnerId: string, since: Date): Promise<boolean>;
   liveBidSummary(tenantId: string, loadId: string): Promise<LiveBidSummary>;
+  /** The variables of every message of this template sent to this recipient on this load. */
+  sentVariables(
+    loadId: string,
+    templateKey: TemplateKey,
+    recipientRefId: string,
+  ): Promise<Record<string, unknown>[]>;
   lastSent(
     loadId: string,
     templateKey: TemplateKey,
@@ -109,6 +115,16 @@ export interface BidsRollupJob {
 
 /** Queues the roll-up for later — one pending per load. */
 export type RollupScheduler = (job: BidsRollupJob, delayMs: number) => Promise<void>;
+
+/** One load memo version to remind the shipper about before it expires (LS_N_0069). */
+export interface MemoReminderJob {
+  tenantId: string;
+  loadId: string;
+  memoId: string;
+}
+
+/** Queues the memo reminder for later — one per memo version. */
+export type MemoReminderScheduler = (job: MemoReminderJob, delayMs: number) => Promise<void>;
 
 export interface NoticeSendOptions {
   /** Send only if this template never went to this recipient for this load. */

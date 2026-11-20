@@ -6,6 +6,7 @@ import { InboundResolutionPatch } from '../repositories/whatsapp-inbound.reposit
 import { WhatsappReplyRouter } from './whatsapp-reply.router';
 import {
   ActionOutcome,
+  InfoAbout,
   OpenRecipientLoad,
   RecipientLoadContext,
   ReplyActions,
@@ -157,8 +158,26 @@ class FakeSender implements ReplySender {
   prompts: string[] = [];
   pickers: { candidates: string[]; messageLogId: string }[] = [];
   constructor(private readonly store: FakeStore) {}
-  async sendInfo(_sender: SenderIdentity, text: string) {
+  infoLogs: MessageLogEntity[] = [];
+  async sendInfo(sender: SenderIdentity, text: string, _replyTo: string, about?: InfoAbout) {
     this.infos.push(text);
+    if (!about) return;
+    // Like WhatsappReplySender: a reply about a load is logged on it (with what it asks for).
+    const log = {
+      id: `log-info-${this.infoLogs.length + 1}`,
+      providerMessageId: `wamid.info.${this.infoLogs.length + 1}`,
+      address: sender.phone,
+      kind: 'info',
+      loadRef: about.context.loadRef,
+      loadId: about.context.loadId,
+      recipientRefId: about.context.recipientRefId,
+      recipientKind: about.context.recipientKind,
+      tenantId: null,
+      variables: about.asksFor ? { asksFor: about.asksFor } : null,
+      createdAt: NOW,
+    } as MessageLogEntity;
+    this.infoLogs.push(log);
+    this.store.messageLogs.push(log);
   }
   async sendPrompt(context: RecipientLoadContext, _sender: SenderIdentity, prompt: ReplyPrompt) {
     this.prompts.push(`${prompt} ${context.loadRef}`);

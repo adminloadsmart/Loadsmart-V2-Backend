@@ -3,6 +3,7 @@ import { startOfIstDate } from '../../../shared/utils/ist-time';
 import { daysBetween, originalPodPenalty } from '../../loadsmart-ops/billing-rules';
 import { isLoadsmartLoad } from '../../loads/utils/load-stages';
 import {
+  FailedCheck,
   LoadPartyNotice,
   LoadPartyNotifier,
 } from '../../loads/utils/load-party-notifier.interface';
@@ -11,6 +12,7 @@ import { LoadEvent, LoadEventNotifier } from '../../notifications/notifications.
 import { SettingsReader } from '../../settings/settings.types';
 import {
   BIDS_ROLLUP_INTERVAL_MS,
+  MEMO_REMINDER_BEFORE_EXPIRY_MS,
   FOLLOW_UP_DEDUPE_WINDOW_MS,
   MESSAGING_ACTORS,
   ORIGINAL_POD_PENALTY_REPEAT_DAYS,
@@ -22,8 +24,11 @@ import {
 } from '../messaging.constants';
 import { OutboundMessageService, OutboundRecipient } from '../outbound/outbound-message.service';
 import { TemplateKey } from '../templates/template-registry';
+import type { LoadMemoEntity } from '../../loads/memo/load-memo.entity';
 import {
   BidsRollupJob,
+  MemoReminderJob,
+  MemoReminderScheduler,
   FileLinker,
   LoadNoticeStore,
   NoticeContact,
@@ -66,6 +71,7 @@ export class LoadPartyWhatsapp {
     private readonly scheduleRollup: RollupScheduler,
     private readonly logger: Pick<Console, 'error' | 'warn'> = console,
     private readonly now: () => Date = () => new Date(),
+    private readonly scheduleMemoReminder?: MemoReminderScheduler,
   ) {}
 
   /** Load events (LoadStageService / LoadService / LoadBidService) → the notices they trigger. */
@@ -398,6 +404,42 @@ export class LoadPartyWhatsapp {
         return this.bidsReceived(notice.tenantId, notice.loadId);
       case 'loadsmart_bid_sent':
         return this.loadsmartBidSent(notice.tenantId, notice.loadId, notice.bidId);
+      case 'check_failed':
+        return this.checkFailed(notice.tenantId, notice.loadId, notice.failures);
+    }
+  }
+
+  /** LS_N_0108: a truck or driver failed its check — to the broker on a Loadsmart load, else the
+   *  load's transporter (own transporter, indent), asking for another. Once per failed check: the
+   *  same item failing for the same reason again is not sent twice. */
+  private async checkFailed(
+    tenantId: string,
+    loadId: string,
+    failures: readonly FailedCheck[],
+  ): Promise<void> {
+    const notice = await this.store.findLoad(tenantId, loadId);
+    if (!notice || notice.load.postingType === 'own_fleet') return;
+    let recipient: OutboundRecipient | null = null;
+    if (isLoadsmartLoad(notice.load)) {
+      const partner = await this.store.findLoadPartner(loadId);
+      if (partner) recipient = this.partnerRecipient(partner.contact);
+    } else {
+      const transporter = await this.transporterOf(notice);
+      if (transporter) recipient = this.transporterRecipient(transporter);
+    }
+    if (!recipient?.refId) return;
+    const earlier = await this.store.sentVariables(loadId, 'LS_N_0108', recipient.refId);
+    for (const failure of failures) {
+      const variables = {
+        failed_item: failure.item,
+        load_id: notice.load.code,
+        check_issue: failure.issue,
+      };
+      const repeat = earlier.some(
+        (sent) =>
+          sent.failed_item === variables.failed_item && sent.check_issue === variables.check_issue,
+      );
+      if (!repeat) await this.send(notice, 'LS_N_0108', recipient, variables);
     }
   }
 
@@ -457,13 +499,41 @@ export class LoadPartyWhatsapp {
   }
 
   /** LS_N_0069: the load memo to the shipper user who posted the load; "Accept memo" on it
-   *  accepts it as that user (ShipperReplyActions). A new version is a new message. */
+   *  accepts it as that user (ShipperReplyActions). A new version is a new message. The reminder
+   *  is queued for 20 minutes before it expires. */
   private async memoSent(tenantId: string, loadId: string, memoId: string): Promise<void> {
+    const sent = await this.sendMemo(tenantId, loadId, memoId);
+    if (!sent || !this.scheduleMemoReminder) return;
+    const delayMs =
+      sent.expiresAt.getTime() - MEMO_REMINDER_BEFORE_EXPIRY_MS - this.now().getTime();
+    // A memo that expires within 20 minutes of going out gets no reminder.
+    if (delayMs > 0) await this.scheduleMemoReminder({ tenantId, loadId, memoId }, delayMs);
+  }
+
+  /** The delayed LS_N_0069 reminder (whatsapp-schedules queue): the same message again, only
+   *  while this memo version is still open — not accepted, withdrawn, replaced by a newer
+   *  version or expired. Never throws, so a failed run doesn't keep the memo's job id. */
+  async runMemoReminder(job: MemoReminderJob): Promise<void> {
+    try {
+      const memo = await this.store.findMemo(job.tenantId, job.memoId);
+      if (!memo || memo.status !== 'sent' || memo.expiresAt <= this.now()) return;
+      await this.sendMemo(job.tenantId, job.loadId, job.memoId);
+    } catch (error) {
+      this.logger.error(`[messaging] memo reminder for load ${job.loadId} failed`, error);
+    }
+  }
+
+  /** LS_N_0069 to the shipper user who posted the load; the memo it went for, or null. */
+  private async sendMemo(
+    tenantId: string,
+    loadId: string,
+    memoId: string,
+  ): Promise<LoadMemoEntity | null> {
     const notice = await this.store.findLoad(tenantId, loadId);
     const memo = await this.store.findMemo(tenantId, memoId);
-    if (!notice || !memo || !notice.load.createdBy) return;
+    if (!notice || !memo || !notice.load.createdBy || notice.load.memoAcceptedAt) return null;
     const user = await this.store.findUser(notice.load.createdBy);
-    if (!user?.phone || user.tenantId !== tenantId) return;
+    if (!user?.phone || user.tenantId !== tenantId) return null;
     await this.send(
       notice,
       'LS_N_0069',
@@ -478,6 +548,7 @@ export class LoadPartyWhatsapp {
         load_uuid: notice.load.id,
       },
     );
+    return memo;
   }
 
   /** LS_N_0112: Loadsmart paid its partner — the advance or the balance, with the proof. */

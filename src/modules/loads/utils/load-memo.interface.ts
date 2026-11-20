@@ -35,6 +35,8 @@ export interface NameDriverInput {
   /** The truck, when the load has none yet (not sent with the bid, or the truck was cancelled)
    *  or the transporter changes it — checked on VAHAN. */
   vehicleNumber?: string;
+  /** Why the shipper entered details the transporter gave outside WhatsApp — logged. */
+  reason?: string;
 }
 
 /** What naming the driver (or re-running the checks) produced: the memo, or — while a check

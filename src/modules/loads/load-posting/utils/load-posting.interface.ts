@@ -5,7 +5,9 @@ import {
   PostMode,
   PriceBasis,
   PriceMode,
+  RecipientQuoteStep,
 } from './load-posting.types';
+import type { BidChannel, BidCounterStatus, BidStatus } from '../../utils/loads.types';
 import type { LoadEntity } from '../../entities/load.entity';
 import type { CreateLoadData } from '../../core/load.repository';
 import type { DriverTenantRelationEntity } from '../../../driver/entities/driver-tenant-relation.entity';
@@ -193,4 +195,28 @@ export interface OwnFleetAssignment {
   driverName: string | null;
   driverRelation: DriverTenantRelationEntity;
   grossVehicleWeightKg: number | null;
+}
+
+/** A transporter's bid on the load asked about, as shown on its "Who is quoting" row. */
+export interface RecipientBidSummary {
+  id: string;
+  rate: string;
+  vehicleNumber: string | null;
+  /** VAHAN result for the truck: null = not checked yet. */
+  truckVerified: boolean | null;
+  status: BidStatus;
+  channel: BidChannel;
+  counterRate: string | null;
+  counterStatus: BidCounterStatus | null;
+  /** The shipper user who typed it in (a rate given by phone); null when sent on WhatsApp. */
+  enteredBy: string | null;
+  updatedAt: Date;
+}
+
+/** One transporter's step on one load, with when it happened. */
+export interface RecipientQuote {
+  step: RecipientQuoteStep;
+  stepAt: Date | null;
+  /** Delivered or seen, no answer for QUOTE_NO_ANSWER_CALL_AFTER_MS, load still open. */
+  needsCall: boolean;
 }

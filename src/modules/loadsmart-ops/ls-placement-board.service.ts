@@ -13,6 +13,8 @@ import { ConsoleRepository } from './console.repository';
 import { LsCallLogEntity } from './entities/ls-call-log.entity';
 import { LsPartnerBidResponseEntity } from './entities/ls-partner-bid-response.entity';
 import { LsSourcingBrokerEntity } from './entities/ls-sourcing-broker.entity';
+import { LsRequirementRecipientEntity } from './entities/ls-requirement-recipient.entity';
+import { BrokerEntity } from '../loads/brokers/broker.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { CallOutcome } from './loadsmart.types';
@@ -28,8 +30,6 @@ import {
   memoState,
   placementTabs,
   rateCeiling,
-  requirementMessage,
-  whatsappLink,
 } from './placement-board-rules';
 import { routeOf } from '../lane-matching';
 import type { BrokerMatcher } from './loadsmart.interface';
@@ -560,9 +560,12 @@ export class LsPlacementBoardService extends LsServiceBase {
     }
   }
 
-  /** "Send Requirement": the message for brokers (no shipper name, no price) and a WhatsApp link
-   *  per broker — the console opens them; nothing is sent from the server. Records who it went to.
-   *  Without `partnerIds`, the load's matched brokers (and any added by hand). */
+  /** "Send Requirement" (spec step 4): Placement sends the load's WhatsApp offer — LS_N_0105 with
+   *  the partner rate, LS_N_0106 asking for rates — from Loadsmart's business number to the
+   *  brokers it picked (without `partnerIds`, the matched brokers and any added by hand). A broker
+   *  not on WhatsApp gets nothing and is saved `not_on_whatsapp` for Placement to call. A broker
+   *  already sent to is skipped, so sending again only reaches the new ones; a failed send is
+   *  tried again. Every broker's outcome is saved (ls_requirement_recipients). */
   async sendRequirement(actorId: string, sourcingId: string, partnerIds?: string[]) {
     try {
       const sourcing = await this.repository.sourcings.findOne({
@@ -577,38 +580,98 @@ export class LsPlacementBoardService extends LsServiceBase {
       if (!ids.length) throw new ConflictError('No broker to send it to — add a broker first');
       const partners = await this.repository.partners.findBy({ id: In(ids), status: 'active' });
       if (!partners.length) throw new NotFoundError('None of those brokers is active');
-      const load = sourcing.load;
-      const posting = load.posting;
-      const message = requirementMessage({
-        loadCode: load.code,
-        from: posting?.pickupAddress?.city ?? null,
-        to: posting?.dropAddress?.city ?? null,
-        reportingAt: posting?.pickupAt ?? null,
-        truck:
-          [load.truckType?.name, posting?.truckLengthFt ? `${posting.truckLengthFt} ft` : null]
-            .filter(Boolean)
-            .join(' · ') || null,
-        goods: posting?.commodityName ?? null,
-        tonnes: Number(load.plannedCapacityTonnes) || null,
+
+      const recipients = this.dataSource.getRepository(LsRequirementRecipientEntity);
+      const earlier = await recipients.findBy({
+        sourcingId,
+        partnerId: In(partners.map((p) => p.id)),
       });
+      const alreadySent = new Set(
+        earlier.filter((row) => row.status === 'sent').map((row) => row.partnerId),
+      );
+      const toSend = partners.filter((partner) => !alreadySent.has(partner.id));
+
+      // A broker-master broker marked not on WhatsApp gets no message; Placement calls them.
+      const brokerIds = toSend.flatMap((partner) => (partner.brokerId ? [partner.brokerId] : []));
+      const offWhatsapp = new Set(
+        brokerIds.length
+          ? (
+              await this.dataSource
+                .getRepository(BrokerEntity)
+                .findBy({ id: In(brokerIds), isOnWhatsapp: false })
+            ).map((broker) => broker.id)
+          : [],
+      );
+      const notOnWhatsapp = toSend.filter(
+        (partner) => partner.brokerId && offWhatsapp.has(partner.brokerId),
+      );
+      const onWhatsapp = toSend.filter((partner) => !notOnWhatsapp.includes(partner));
+      const results = await this.sourcingService.sendRequirementOffer(
+        sourcing,
+        onWhatsapp.map((partner) => ({ id: partner.id, name: partner.name, phone: partner.phone })),
+      );
+
       const now = this.now();
+      const outcomes = [
+        ...results.map((result) => ({
+          partnerId: result.partnerId,
+          status: result.status,
+          messageLogId: result.messageLogId,
+          failReason: result.failReason,
+        })),
+        ...notOnWhatsapp.map((partner) => ({
+          partnerId: partner.id,
+          status: 'not_on_whatsapp' as const,
+          messageLogId: null,
+          failReason: null,
+        })),
+      ];
+      for (const outcome of outcomes) {
+        await recipients.upsert(
+          {
+            sourcingId,
+            ...outcome,
+            deliveredAt: null,
+            readAt: null,
+            sentBy: actorId,
+            createdAt: now,
+          },
+          ['sourcingId', 'partnerId'],
+        );
+      }
+      const sentCount = (await recipients.countBy({ sourcingId, status: 'sent' })) ?? 0;
       await this.repository.sourcings.update(
         { id: sourcing.id },
-        { requirementSentAt: now, requirementSentCount: partners.length },
+        { requirementSentAt: now, requirementSentCount: sentCount },
       );
       await this.step(sourcing, actorId, 'requirement_sent', 'LS_REQUIREMENT_SENT', {
-        partnerIds: partners.map((partner) => partner.id),
+        sent: outcomes.filter((o) => o.status === 'sent').map((o) => o.partnerId),
+        notOnWhatsapp: notOnWhatsapp.map((partner) => partner.id),
+        failed: outcomes.filter((o) => o.status === 'failed').map((o) => o.partnerId),
+        skippedAlreadySent: [...alreadySent],
         channel: 'whatsapp',
       });
+
+      const byId = new Map(partners.map((partner) => [partner.id, partner]));
       return {
-        message,
         sentAt: now,
-        recipients: partners.map((partner) => ({
-          partnerId: partner.id,
-          name: partner.name,
-          phone: partner.phone,
-          whatsappUrl: whatsappLink(partner.phone, message),
-        })),
+        sentCount,
+        recipients: [
+          ...outcomes.map((outcome) => ({
+            partnerId: outcome.partnerId,
+            name: byId.get(outcome.partnerId)?.name ?? null,
+            phone: byId.get(outcome.partnerId)?.phone ?? null,
+            status: outcome.status,
+            failReason: outcome.failReason,
+          })),
+          ...[...alreadySent].map((partnerId) => ({
+            partnerId,
+            name: byId.get(partnerId)?.name ?? null,
+            phone: byId.get(partnerId)?.phone ?? null,
+            status: 'already_sent' as const,
+            failReason: null,
+          })),
+        ],
       };
     } catch (error) {
       rethrow(error, 'Failed to send the requirement');

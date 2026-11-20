@@ -9,7 +9,12 @@ import { LoadStageService } from '../core/load-stage.service';
 import { LoadCancellationEntity } from '../entities/load-cancellation.entity';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadMemoRepository } from '../memo/load-memo.repository';
-import { LOAD_CANCELLABLE_STAGES } from '../money/money-rules';
+import {
+  LOAD_CANCELLABLE_STAGES,
+  LOAD_WITHDRAWABLE_STAGES,
+  WITHDRAW_DEFAULT_REASON,
+} from '../money/money-rules';
+import type { WithdrawLoadInput } from '../utils/load.interface';
 import { isLoadsmartLoad } from '../utils/load-stages';
 
 export interface CancelLoadInput {
@@ -113,6 +118,34 @@ export class LoadCancelService {
       return { outcome: 'cancelled', load: updated, cancellation };
     } catch (error) {
       rethrow(error, 'Failed to cancel the load');
+    }
+  }
+
+  /** "Withdraw load" — "you can withdraw the load until you accept the load memo". The same
+   *  write as a cancellation (open bids rejected, an open memo withdrawn, a Loadsmart load waits
+   *  for Super Admin), allowed only before the memo is accepted. */
+  async withdraw(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: WithdrawLoadInput,
+  ): Promise<CancelLoadResult> {
+    try {
+      const load = await this.loadRepository.findById(tenantId, loadId);
+      if (!load) throw new NotFoundError(`Load ${loadId} not found`);
+      if (load.memoAcceptedAt || !LOAD_WITHDRAWABLE_STAGES.includes(load.status)) {
+        throw new ConflictError(
+          load.status === 'cancelled'
+            ? 'This load is already cancelled'
+            : 'A load can be withdrawn only until the load memo is accepted — cancel it instead',
+        );
+      }
+      return await this.cancel(tenantId, actorId, loadId, {
+        reasonCode: input.reasonCode ?? WITHDRAW_DEFAULT_REASON,
+        ...(input.note ? { note: input.note } : {}),
+      });
+    } catch (error) {
+      rethrow(error, 'Failed to withdraw the load');
     }
   }
 

@@ -140,6 +140,8 @@ describe('Indent rejected', () => {
       findContractPenalty: vi.fn(async () => '5000.00'),
       recordRouteChange: vi.fn(async () => undefined),
       addTransporterRecipients: vi.fn(async () => 4),
+      findTransporterRecipient: vi.fn(async () => ({ id: 'recipient-1', replyStatus: null })),
+      recordRecipientReply: vi.fn(async () => undefined),
     };
     const stageService = { transition: vi.fn(async () => moved) };
     const hooks = { onMarketLoadsPosted: vi.fn(async () => undefined) };
@@ -162,7 +164,13 @@ describe('Indent rejected', () => {
   it('sends the load to the open market with the penalty, Loadsmart included', async () => {
     const { service, bidRepository, stageService, hooks, moved } = setupIndent();
 
-    const result = await service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'No truck');
+    const result = await service.recordIndentRejection(
+      'tenant-1',
+      'user-1',
+      'load-1',
+      'contracted-1',
+      'No truck',
+    );
 
     expect(result).toBe(moved);
     expect(stageService.transition).toHaveBeenCalledWith(
@@ -182,6 +190,7 @@ describe('Indent rejected', () => {
       }),
     );
     expect(bidRepository.addTransporterRecipients).toHaveBeenCalledWith('tenant-1', 'posting-1');
+    expect(bidRepository.recordRecipientReply).toHaveBeenCalledWith('recipient-1', 'rejected', NOW);
     expect(hooks.onMarketLoadsPosted).toHaveBeenCalledWith([moved], 'user-1');
   });
 
@@ -190,11 +199,31 @@ describe('Indent rejected', () => {
       setupIndent({
         ...indent,
         status: 'bids_received',
-      } as LoadEntity).service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'x'),
+      } as LoadEntity).service.recordIndentRejection(
+        'tenant-1',
+        'user-1',
+        'load-1',
+        'contracted-1',
+        'x',
+      ),
     ).rejects.toThrow('already accepted');
     await expect(
-      setupIndent(load).service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'x'),
+      setupIndent(load).service.recordIndentRejection(
+        'tenant-1',
+        'user-1',
+        'load-1',
+        'contracted-1',
+        'x',
+      ),
     ).rejects.toThrow('not an indent');
+  });
+
+  it('refuses a transporter the indent was not offered to', async () => {
+    const { service, stageService } = setupIndent();
+    await expect(
+      service.recordIndentRejection('tenant-1', 'user-1', 'load-1', 'someone-else', 'x'),
+    ).rejects.toThrow("wasn't sent to that transporter");
+    expect(stageService.transition).not.toHaveBeenCalled();
   });
 });
 

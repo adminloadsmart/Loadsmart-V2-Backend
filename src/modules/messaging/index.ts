@@ -7,6 +7,8 @@ import { createJobQueue } from '../../jobs/queue-registry';
 import {
   BIDS_ROLLUP_JOB,
   BIDS_ROLLUP_JOB_ID_PREFIX,
+  MEMO_REMINDER_JOB,
+  MEMO_REMINDER_JOB_ID_PREFIX,
   MESSAGING_QUEUES,
 } from './messaging.constants';
 import { WhatsappProviderName } from './messaging.types';
@@ -47,6 +49,7 @@ import { CompositeReplyActions } from './integration/composite-reply-actions';
 import { PartnerBoardGateway, PartnerReplyActions } from './integration/partner-reply-actions';
 import { PartnerBoardNotifier } from './integration/partner-board-notifier';
 import { LoadRecipientStatusListener } from './integration/load-recipient-status.listener';
+import { RequirementRecipientStatusListener } from './integration/requirement-recipient-status.listener';
 import { LoadPartyWhatsapp } from './integration/load-party-whatsapp';
 import { FileLinker, MemoGateway, ShipperBidGateway } from './integration/load-notices.interface';
 import { TypeormLoadNoticeStore } from './integration/load-notice-store';
@@ -150,6 +153,7 @@ export function createMessagingModule(dataSource: DataSource): MessagingModule {
     routerNotWiredHandler,
   );
   pipeline.addStatusListener(new LoadRecipientStatusListener(dataSource));
+  pipeline.addStatusListener(new RequirementRecipientStatusListener(dataSource));
   const messageLogRepository = new MessageLogRepository(dataSource);
   const inboundRepository = new WhatsappInboundRepository(dataSource);
   const outbound = new OutboundMessageService(
@@ -216,6 +220,13 @@ export function createMessagingModule(dataSource: DataSource): MessagingModule {
           schedules.enqueue(BIDS_ROLLUP_JOB, job, {
             delay: delayMs,
             jobId: `${BIDS_ROLLUP_JOB_ID_PREFIX}${job.loadId}`,
+          }),
+        console,
+        () => new Date(),
+        (job, delayMs) =>
+          schedules.enqueue(MEMO_REMINDER_JOB, job, {
+            delay: delayMs,
+            jobId: `${MEMO_REMINDER_JOB_ID_PREFIX}${job.memoId}`,
           }),
       );
       return {

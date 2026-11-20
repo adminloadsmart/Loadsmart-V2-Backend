@@ -42,8 +42,10 @@ import {
   BrokerMatcher,
   CommercialTermsInput,
   LoadBoardRow,
+  BoardPartner,
   LoadBoardNotifier,
   LoadBoardOffer,
+  RequirementSendResult,
   LoadsmartActor,
   PartnerBidInput,
   PartnerBidView,
@@ -300,14 +302,15 @@ export class LsSourcingService extends LsServiceBase {
     );
   };
 
-  /** "Placement sends the requirement to brokers on the lane": the WhatsApp offer goes to the
-   *  brokers whose lane covers the load (and who are on WhatsApp); with none, Placement is told
-   *  so it can add brokers by hand. Never throws — the load is already approved. */
-  private async offerToBrokersOnLane(
+  /** Spec step 3, "finds matching brokers": counts the brokers whose lane covers the load. Nothing
+   *  is sent — Placement picks the brokers and sends the requirement (step 4,
+   *  sendRequirementOffer). With none on WhatsApp, Placement is told so it can add brokers by hand.
+   *  Never throws — the load is already posted. */
+  private async checkBrokersOnLane(
     offer: LoadBoardOffer,
     posting: LoadPostingEntity | null,
-  ): Promise<{ matched: number; sent: number }> {
-    if (!this.brokerMatcher) return { matched: 0, sent: 0 };
+  ): Promise<{ matched: number; onWhatsapp: number }> {
+    if (!this.brokerMatcher) return { matched: 0, onWhatsapp: 0 };
     try {
       const matches = await this.brokerMatcher.matchBrokers(
         routeOf(posting?.pickupAddress, posting?.dropAddress),
@@ -317,34 +320,27 @@ export class LsSourcingService extends LsServiceBase {
         await this.staffNotifier?.notifyPermission([LS_PLACEMENT], {
           type: 'placement.no_broker_on_lane',
           title: `${offer.loadCode}: no broker on this lane`,
-          body: `No approved broker${matches.length ? ' on WhatsApp' : ''} runs ${offer.pickupLabel} → ${offer.dropLabel}, so no offer went out. Add brokers to the load by hand and send the requirement.`,
+          body: `No approved broker${matches.length ? ' on WhatsApp' : ''} runs ${offer.pickupLabel} → ${offer.dropLabel}, so there is no one to send the requirement to. Add brokers to the load by hand, then send it.`,
           loadId: offer.loadId,
           metadata: { sourcingId: offer.sourcingId, brokersOnLane: matches.length },
         });
-        return { matched: matches.length, sent: 0 };
+        return { matched: matches.length, onWhatsapp: 0 };
       }
       console.info(
-        `[lane-matching] ${offer.loadCode} offered to ${onWhatsapp.length} broker(s): ${onWhatsapp
+        `[lane-matching] ${offer.loadCode}: ${onWhatsapp.length} broker(s) on the lane, waiting for Placement to send: ${onWhatsapp
           .map((match) => `${match.name} (${describeMatch(match.match)})`)
           .join(', ')}`,
       );
-      await this.boardNotifier?.postedToBoard({
-        ...offer,
-        partners: onWhatsapp.map((match) => ({
-          id: match.partnerId,
-          name: match.name,
-          phone: match.phone,
-        })),
-      });
-      return { matched: matches.length, sent: onWhatsapp.length };
+      return { matched: matches.length, onWhatsapp: onWhatsapp.length };
     } catch (error) {
-      console.error(`[lane-matching] could not offer ${offer.loadCode} to brokers`, error);
-      return { matched: 0, sent: 0 };
+      console.error(`[lane-matching] could not match brokers for ${offer.loadCode}`, error);
+      return { matched: 0, onWhatsapp: 0 };
     }
   }
 
   /** Puts a sourcing on the load board: fixes the partner-facing rate (the shipper's target with
-   *  the margin taken out), offers it to the brokers on the lane and records the step. Shared by
+   *  the margin taken out), checks for brokers on the lane and records the step. No broker is
+   *  messaged here — Placement sends the requirement. Shared by
    *  the shipper's own posting (no actor — the system posts it) and a manual approval. */
   private async postToBoard(
     sourcing: LsSourcingEntity,
@@ -373,14 +369,39 @@ export class LsSourcingService extends LsServiceBase {
       posting,
       partnerRate === null ? null : String(partnerRate),
     );
-    const offered = await this.offerToBrokersOnLane(offer, posting);
+    const lane = await this.checkBrokersOnLane(offer, posting);
     await this.step(updated, actorId, 'posted_on_load_board', 'LS_SOURCING_APPROVED', {
       marginPercent,
       partnerTargetRate: partnerRate,
-      brokersOnLane: offered.matched,
-      brokersOffered: offered.sent,
+      brokersOnLane: lane.matched,
+      brokersOnWhatsapp: lane.onWhatsapp,
     });
     return updated;
+  }
+
+  /** "Send requirement" (spec step 4): the WhatsApp offer — LS_N_0105 with the partner rate, or
+   *  LS_N_0106 asking for rates — to these partners, from Loadsmart's business number. Each send
+   *  is logged against the load and the partner, so their replies route back to this load. */
+  async sendRequirementOffer(
+    sourcing: LsSourcingEntity,
+    partners: BoardPartner[],
+  ): Promise<RequirementSendResult[]> {
+    if (!partners.length) return [];
+    if (!this.boardNotifier) {
+      return partners.map((partner) => ({
+        partnerId: partner.id,
+        status: 'failed' as const,
+        messageLogId: null,
+        failReason: 'WhatsApp is not set up',
+      }));
+    }
+    const posting = sourcing.load.postingId
+      ? await this.repository.findPosting(sourcing.tenantId, sourcing.load.postingId)
+      : null;
+    return this.boardNotifier.sendRequirement({
+      ...boardOfferOf(sourcing, sourcing.load, posting, sourcing.partnerTargetRate),
+      partners,
+    });
   }
 
   approvalQueue(): Promise<LsSourcingEntity[]> {

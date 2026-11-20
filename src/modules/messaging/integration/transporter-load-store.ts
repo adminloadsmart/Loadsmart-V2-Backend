@@ -1,5 +1,6 @@
 import { Brackets, DataSource, In } from 'typeorm';
 import { LoadEntity } from '../../loads/entities/load.entity';
+import { LoadActivityEntity } from '../../loads/entities/load-activity.entity';
 import { LoadRecipientEntity } from '../../loads/load-posting/entities/load-recipient.entity';
 import { LoadPostingEntity } from '../../loads/load-posting/entities/load-posting.entity';
 import { PostAddress, RecipientReply } from '../../loads/load-posting/utils/load-posting.types';
@@ -34,7 +35,16 @@ export function laneLabelOf(posting: LoadPostingEntity): string {
   );
 }
 
-function toOffer(recipient: LoadRecipientEntity, load: LoadEntity): TransporterOffer {
+/** "loadId|transporterId" — an indent acceptance the shipper recorded on a transporter's behalf. */
+function onBehalfKey(loadId: string, transporterId: string): string {
+  return `${loadId}|${transporterId}`;
+}
+
+function toOffer(
+  recipient: LoadRecipientEntity,
+  load: LoadEntity,
+  acceptedOnBehalf: ReadonlySet<string>,
+): TransporterOffer {
   return {
     recipientId: recipient.id,
     tenantId: recipient.tenantId,
@@ -50,6 +60,7 @@ function toOffer(recipient: LoadRecipientEntity, load: LoadEntity): TransporterO
     laneLabel: laneLabelOf(recipient.posting),
     awarded: load.awardedBidId !== null,
     memoAccepted: load.memoAcceptedAt !== null,
+    acceptedOnBehalf: acceptedOnBehalf.has(onBehalfKey(load.id, recipient.transporterId!)),
   };
 }
 
@@ -106,12 +117,13 @@ export class TypeormTransporterOfferStore implements TransporterOfferStore {
       } as never,
       order: { code: 'ASC' },
     });
+    const onBehalf = await this.acceptedOnBehalf(loads);
     return recipients.flatMap((recipient) =>
       loads
         .filter(
           (load) => load.postingId === recipient.postingId && load.tenantId === recipient.tenantId,
         )
-        .map((load) => toOffer(recipient, load)),
+        .map((load) => toOffer(recipient, load, onBehalf)),
     );
   }
 
@@ -139,7 +151,26 @@ export class TypeormTransporterOfferStore implements TransporterOfferStore {
           ? { id: loadId, tenantId: recipient.tenantId, postingId: recipient.postingId }
           : { code: loadRef, tenantId: recipient.tenantId, postingId: recipient.postingId },
       );
-    return load ? toOffer(recipient, load) : null;
+    return load ? toOffer(recipient, load, await this.acceptedOnBehalf([load])) : null;
+  }
+
+  /** Indent loads at Created whose acceptance the shipper recorded for a transporter (the
+   *  INDENT_ACCEPTED activity, per load) — as "loadId|transporterId". */
+  private async acceptedOnBehalf(loads: LoadEntity[]): Promise<Set<string>> {
+    const ids = loads
+      .filter((load) => load.postingType === 'indent' && load.status === 'created')
+      .map((load) => load.id);
+    if (ids.length === 0) return new Set();
+    const rows = await this.dataSource.getRepository(LoadActivityEntity).find({
+      select: { loadId: true, metadata: true },
+      where: { loadId: In(ids), action: 'INDENT_ACCEPTED' },
+    });
+    const keys = new Set<string>();
+    for (const row of rows) {
+      const transporterId = row.metadata?.transporterId;
+      if (typeof transporterId === 'string') keys.add(onBehalfKey(row.loadId, transporterId));
+    }
+    return keys;
   }
 
   private async recipientByTransporter(

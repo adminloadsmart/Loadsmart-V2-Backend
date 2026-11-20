@@ -39,6 +39,12 @@ export const LOAD_CANCELLABLE_STAGES: readonly LoadStatus[] = [
   ...TRUCK_CANCELLABLE_STAGES,
 ];
 
+/** "You can withdraw the load until you accept the load memo." */
+export const LOAD_WITHDRAWABLE_STAGES: readonly LoadStatus[] = ['created', 'bids_received'];
+
+/** The reason code a withdrawal is recorded under when none is picked. */
+export const WITHDRAW_DEFAULT_REASON = 'shipper_cancelled';
+
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export interface MoneyLoad {

@@ -26,7 +26,7 @@ import { isLoadsmartLoad } from '../utils/load-stages';
 import { StorageService } from '../../storage/storage.service';
 import { LoadDocumentService } from '../documents/load-document.service';
 import { buildMemoPdfContent, renderMemoPdf } from './memo-pdf';
-import { LoadPartyNotifier } from '../utils/load-party-notifier.interface';
+import { FailedCheck, LoadPartyNotifier } from '../utils/load-party-notifier.interface';
 
 /** A sent memo past its hour is expired, whatever the row still says. */
 export function effectiveMemoStatus(memo: LoadMemoEntity, now: Date): MemoStatus {
@@ -150,6 +150,7 @@ export class LoadMemoService {
         driverName: input.driverName,
         driverMobile: input.driverMobile,
         licenceNumber,
+        ...(input.reason ? { reason: input.reason, onBehalf: true } : {}),
       });
       await this.auditService.log({
         tenantId,
@@ -167,6 +168,9 @@ export class LoadMemoService {
         dateOfBirth: input.dateOfBirth,
       });
       const checks = await this.checksFor(updated);
+      // Details the transporter sent on WhatsApp are answered there; typed in by a user, the
+      // transporter / broker hears of a failed check on WhatsApp (LS_N_0108).
+      if (actorId) await this.notifyFailedChecks(updated, checks);
       if (!checks.clear || LoadMemoService.memoHold(updated)) return { memo: null, checks };
       return { memo: await this.send(updated, actorId), checks };
     } catch (error) {
@@ -396,12 +400,39 @@ export class LoadMemoService {
     }
   }
 
+  /** LS_N_0108: each failed truck / driver check goes to whoever must send another — never a
+   *  check that couldn't run (portal down), only a real failure. Repeats are dropped by
+   *  messaging (one message per failed check). */
+  private async notifyFailedChecks(load: LoadEntity, checks: LoadChecksView): Promise<void> {
+    const failures: FailedCheck[] = [];
+    if (checks.truck?.status === 'failed') {
+      failures.push({
+        item: `truck ${load.vehicleNumber ?? checks.truck.subjectRef}`,
+        issue: checks.truck.failures.join('; ') || 'the truck failed its check',
+      });
+    }
+    if (checks.driver?.status === 'failed') {
+      failures.push({
+        item: `driver ${load.driverName ?? checks.driver.subjectRef}`,
+        issue: checks.driver.failures.join('; ') || 'the licence failed its check',
+      });
+    }
+    if (!failures.length) return;
+    await this.notifyParties?.({
+      kind: 'check_failed',
+      tenantId: load.tenantId,
+      loadId: load.id,
+      failures,
+    });
+  }
+
   /** When every check passes and no memo is open, the memo goes out. */
   private async sendIfClear(
     load: LoadEntity,
     actorId: string,
     checks: LoadChecksView,
   ): Promise<NameDriverResult> {
+    await this.notifyFailedChecks(load, checks);
     const latest = await this.memoRepository.findLatest(load.tenantId, load.id);
     const open = latest && effectiveMemoStatus(latest, this.now()) === 'sent';
     if (!checks.clear || open || LoadMemoService.memoHold(load)) return { memo: null, checks };

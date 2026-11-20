@@ -67,6 +67,8 @@ export const ROUTING_METHODS = [
   'flow_token',
   'only_pending',
   'load_picker',
+  // A load code typed in the reply ("LOAD-0042 42000").
+  'load_code',
   // No swipe, several loads waiting: the one load we last asked for this value (LAST_ASK_WINDOW_MS).
   'last_ask',
   'none',

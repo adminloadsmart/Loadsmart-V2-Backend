@@ -8,7 +8,11 @@ import { MessageStatus } from '../../loads/load-posting/utils/load-posting.types
 import { OutboundMessageService, OutboundResult } from '../outbound/outbound-message.service';
 import { TemplateKey } from '../templates/template-registry';
 import { formatReportingTime, formatRupees } from './offer-formatting';
-import { MESSAGING_ACTORS, SHIPPER_NAME_FALLBACK } from '../messaging.constants';
+import {
+  MESSAGING_ACTORS,
+  SHIPPER_NAME_FALLBACK,
+  TEMPLATE_VALUE_NOT_GIVEN,
+} from '../messaging.constants';
 
 /** Used when the shipper's company has no name on file yet. */
 
@@ -88,6 +92,10 @@ export class WhatsappDispatchNotifier implements LoadDispatchNotifier {
       destination: offer.dropLabel,
       truck_type: offer.truckLabel,
       reporting_time: reportingTime,
+      // LS_N_0119_QUOTE (ask for quotes) names these.
+      reporting_datetime: reportingTime,
+      delivery_datetime: formatReportingTime(offer.deliverByAt),
+      goods: offer.goods || TEMPLATE_VALUE_NOT_GIVEN,
     };
     if (template.priceVariable && offer.rate)
       variables[template.priceVariable] = formatRupees(offer.rate);
