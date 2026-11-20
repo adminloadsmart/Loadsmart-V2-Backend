@@ -4,10 +4,14 @@ import { requireTenantId } from '../../../shared/middleware/require-tenant.middl
 import { LoadBidService } from '../bids/load-bid.service';
 import { LoadMemoService } from '../memo/load-memo.service';
 import { CancelTruckInput, TruckCancellationService } from './truck-cancellation.service';
-import { LoadParams } from '../utils/load.interface';
+import { LoadParams, WithdrawLoadInput } from '../utils/load.interface';
 import { RecordBidInput, LoadBidParams } from '../utils/load-bid.interface';
 import { CancelLoadInput, LoadCancelService } from './load-cancel.service';
-import type { CounterAnswerInput, CounterBidInput } from '../utils/load-bid.interface';
+import type {
+  CounterAnswerInput,
+  CounterBidInput,
+  IndentAcceptanceInput,
+} from '../utils/load-bid.interface';
 import { AcceptMemoInput, NameDriverInput } from '../utils/load-memo.interface';
 import type {
   ManualDriverCheckInput,
@@ -34,6 +38,17 @@ export class LoadSourcingController {
         req.user!.id,
         req.params.loadId,
         req.body as CancelLoadInput,
+      ),
+    );
+
+  withdrawLoad = async (req: Request<LoadParams>, res: Response) =>
+    respond(
+      res,
+      await this.loadCancel.withdraw(
+        requireTenantId(req),
+        req.user!.id,
+        req.params.loadId,
+        req.body as WithdrawLoadInput,
       ),
     );
 
@@ -123,21 +138,31 @@ export class LoadSourcingController {
     );
 
   recordIndentAcceptance = async (req: Request<LoadParams>, res: Response) => {
-    const bid = await this.bidService.recordIndentAcceptance(
+    const result = await this.bidService.acceptIndentOnBehalf(
       requireTenantId(req),
       req.user!.id,
       req.params.loadId,
-      (req.body as { vehicleNumber: string }).vehicleNumber,
+      req.body as IndentAcceptanceInput,
     );
-    respond(res, bid, 201);
+    respond(res, result, 201);
   };
 
   nameDriver = async (req: Request<LoadParams>, res: Response) => {
-    const result = await this.memoService.nameDriver(
-      requireTenantId(req),
+    const tenantId = requireTenantId(req);
+    const input = req.body as NameDriverInput;
+    // An indent not awarded yet: the truck awards it to the indent's transporter first.
+    await this.bidService.awardWaitingIndent(
+      tenantId,
       req.user!.id,
       req.params.loadId,
-      req.body as NameDriverInput,
+      input.vehicleNumber,
+      input.reason,
+    );
+    const result = await this.memoService.nameDriver(
+      tenantId,
+      req.user!.id,
+      req.params.loadId,
+      input,
     );
     respond(res, result, result.memo ? 201 : 200);
   };
@@ -149,6 +174,7 @@ export class LoadSourcingController {
         requireTenantId(req),
         req.user!.id,
         req.params.loadId,
+        (req.body as { transporterId: string }).transporterId,
         (req.body as { reason: string }).reason,
       ),
     );

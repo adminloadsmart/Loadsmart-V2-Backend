@@ -36,6 +36,10 @@ export const REPLY_TEXTS = {
   // CTA sheet: after the rate → "Thanks. We'll get back to you."
   rateRecorded: (loadRef: string, rate: number) =>
     `${loadRef}: ₹${rate.toLocaleString('en-IN')} noted. Thanks. We'll get back to you.`,
+  // A rate with no truck number yet — the bid can't be accepted without one, so ask for it
+  // (same ask as Accept: "Send the truck number if you have it.").
+  rateRecordedAskTruck: (loadRef: string, rate: number) =>
+    `${loadRef}: ₹${rate.toLocaleString('en-IN')} noted. Send the truck number if you have it.`,
   // CTA sheet: Accept (broker / transporter) → "Send the truck number if you have it."
   offerAccepted: (loadRef: string) => `${loadRef}: Done. Send the truck number if you have it.`,
   truckRecorded: (loadRef: string, truckNumber: string) =>
@@ -62,5 +66,7 @@ export const REPLY_TEXTS = {
   loadClosed: (loadRef: string) => `${loadRef} is no longer open, so this reply was not recorded.`,
   notRecorded: (loadRef: string) => `${loadRef}: We couldn't record this. Our team will call you.`,
   pickerPrompt: (kind: ReplyValueKind, sourceText: string) =>
-    kind === 'slip' ? 'Which load is this loading slip for?' : `Which load is "${sourceText}" for?`,
+    kind === 'slip'
+      ? 'Which load is this loading slip for? Pick it from the list or type the load code.'
+      : `Which load is "${sourceText}" for? Pick it from the list or type the load code.`,
 } as const;

@@ -1,4 +1,5 @@
 import {
+  BARE_LOAD_CODE_PATTERN,
   BUTTON_ID_SEPARATOR,
   INDIAN_MOBILE_DIGITS,
   INDIAN_MOBILE_PATTERN,
@@ -143,6 +144,18 @@ export function findTruckNumber(text: string): { truckNumber: string; matched: s
   return INDIAN_TRUCK_NUMBER_PATTERN.test(truckNumber)
     ? { truckNumber, matched: truckMatch[0] }
     : null;
+}
+
+/** The load codes a text names ("LOAD-0042 42000" → ["LOAD-0042"]), upper-cased, no repeats. */
+export function loadCodesIn(text: string): string[] {
+  return [
+    ...new Set((text.match(LOAD_CODE_IN_TEXT_PATTERN) ?? []).map((code) => code.toUpperCase())),
+  ];
+}
+
+/** A text that is only a load code ("LOAD-0042", "load-42 ") — the answer to a "Which load?" list. */
+export function bareLoadCodeOf(text: string): string | null {
+  return text.match(BARE_LOAD_CODE_PATTERN)?.[1].toUpperCase() ?? null;
 }
 
 export type ClassifiedText =

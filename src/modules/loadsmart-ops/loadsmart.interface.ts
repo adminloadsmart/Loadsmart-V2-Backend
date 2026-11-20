@@ -239,6 +239,16 @@ export interface BoardPartner {
  *  throw — the load is already posted. */
 export interface LoadBoardNotifier {
   postedToBoard(offer: LoadBoardOffer): Promise<void>;
+  /** Sends the offer to each of `offer.partners` and says, per partner, whether it went. */
+  sendRequirement(offer: LoadBoardOffer): Promise<RequirementSendResult[]>;
+}
+
+/** One partner's WhatsApp offer: queued to go (`sent`) or refused before sending (`failed`). */
+export interface RequirementSendResult {
+  partnerId: string;
+  status: 'sent' | 'failed';
+  messageLogId: string | null;
+  failReason: string | null;
 }
 
 /** Placement sends one partner bid to the shipper as Loadsmart's. */

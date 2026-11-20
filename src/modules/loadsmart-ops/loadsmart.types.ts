@@ -19,6 +19,12 @@ export type PartnerType = (typeof PARTNER_TYPES)[number];
 export const PARTNER_STATUSES = ['active', 'inactive'] as const;
 export type PartnerStatus = (typeof PARTNER_STATUSES)[number];
 
+/** What happened when Placement sent a load's requirement to one broker: the WhatsApp offer
+ *  went (`sent`), the broker isn't on WhatsApp so nothing went — Placement calls them
+ *  (`not_on_whatsapp`), or WhatsApp couldn't take it (`failed`). */
+export const REQUIREMENT_SEND_STATUSES = ['sent', 'not_on_whatsapp', 'failed'] as const;
+export type RequirementSendStatus = (typeof REQUIREMENT_SEND_STATUSES)[number];
+
 export const PARTNER_BID_STATUSES = ['received', 'sent', 'won', 'lost'] as const;
 export type PartnerBidStatus = (typeof PARTNER_BID_STATUSES)[number];
 

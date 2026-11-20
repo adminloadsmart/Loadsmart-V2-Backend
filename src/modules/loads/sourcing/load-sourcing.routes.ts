@@ -122,6 +122,13 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     validate(v.cancelTruck),
     asyncHandler(controller.cancelTruck),
   );
+  // --- Withdraw the load, until the load memo is accepted ---
+  router.post(
+    '/loads/:loadId/withdraw',
+    canManageDispatch,
+    validate(v.withdrawLoad),
+    asyncHandler(controller.withdrawLoad),
+  );
   // --- Cancel the load, before Loaded (a Loadsmart load waits for Super Admin) ---
   router.get(
     '/loads/:loadId/cancellation',

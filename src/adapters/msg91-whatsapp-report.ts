@@ -6,6 +6,11 @@
  * report has come in.
  */
 
+import {
+  WHATSAPP_MESSAGE_ID_PREFIX,
+  WHATSAPP_MESSAGE_ID_SEARCH_DEPTH,
+} from '../shared/constants/msg91';
+
 type Json = Record<string, unknown>;
 
 const isObject = (value: unknown): value is Json =>
@@ -21,6 +26,22 @@ function firstString(source: Json, keys: string[]): string | null {
 }
 
 const REQUEST_ID_KEYS = ['request_id', 'requestId', 'uuid', 'message_uuid', 'messageId'];
+
+/** A Meta message id (WAMID, "wamid.…") anywhere in a send response, a few levels deep — only a
+ *  value with that prefix is taken, so a request id can never pass for one. Null when MSG91
+ *  returned none (today it is expected on the first delivery report instead). */
+export function whatsappMessageIdOf(response: unknown, depth = 0): string | null {
+  if (typeof response === 'string')
+    return response.startsWith(WHATSAPP_MESSAGE_ID_PREFIX) ? response : null;
+  if (depth > WHATSAPP_MESSAGE_ID_SEARCH_DEPTH || typeof response !== 'object' || response === null)
+    return null;
+  const values = Array.isArray(response) ? response : Object.values(response);
+  for (const value of values) {
+    const found = whatsappMessageIdOf(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
 
 /** The request id in sendWhatsapp's response — top-level or under `data`. */
 export function whatsappRequestIdOf(response: unknown): string | null {

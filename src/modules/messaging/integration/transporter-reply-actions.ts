@@ -37,6 +37,9 @@ export interface TransporterOffer {
   awarded: boolean;
   /** The shipper accepted the load memo — the truck and driver are final. */
   memoAccepted: boolean;
+  /** Indent: the shipper recorded this transporter's acceptance (given by phone) on this load —
+   *  the same as its own Accept here: WhatsApp waits for the truck number. */
+  acceptedOnBehalf: boolean;
 }
 
 export interface TransporterOfferStore {
@@ -58,14 +61,17 @@ export interface TransporterBidWriter {
     tenantId: string,
     actorId: null,
     loadId: string,
+    transporterId: string,
     vehicleNumber: string,
     channel: 'whatsapp',
   ): Promise<unknown>;
-  /** The contracted transporter turned the indent down: it goes to the open market. */
+  /** The indent transporter turned it down: it goes to the open market (once no other indent
+   *  transporter can take it). */
   recordIndentRejection(
     tenantId: string,
     actorId: null,
     loadId: string,
+    transporterId: string,
     reason: string,
   ): Promise<unknown>;
   findLiveTransporterBid(
@@ -105,7 +111,8 @@ export interface TransporterDriverWriter {
  * Market: offered → (Negotiate / Give rate) awaiting_rate → (rate) a live bid → awaiting_truck
  * until its truck number is in, then offered (a new rate revises it). Closed after Reject, once
  * the load has a truck, or when the 4-h bid window ends.
- * Indent: offered → (Accept) awaiting_truck → the truck number records the acceptance.
+ * Indent: offered → (Accept, or the shipper recording the acceptance given by phone)
+ * awaiting_truck → the truck number records the acceptance.
  * Awarded to this transporter (bid or indent accepted, LS_N_0121): awaiting_dispatch — the driver
  * details — until the shipper accepts the memo, whatever the bid window says. Awarded to someone
  * else: closed.
@@ -127,7 +134,7 @@ export function transporterStage(
     if (offer.loadStatus !== 'created' || offer.loadTransporterId !== offer.transporterId)
       return 'closed';
     if (lastAnswer === 'rejected') return 'closed';
-    return lastAnswer === 'accepted' ? 'awaiting_truck' : 'offered';
+    return lastAnswer === 'accepted' || offer.acceptedOnBehalf ? 'awaiting_truck' : 'offered';
   }
   if (offer.postingType !== 'market_fleet') return 'closed';
   if (offer.loadStatus !== 'created' && offer.loadStatus !== 'bids_received') return 'closed';
@@ -187,6 +194,7 @@ export class TransporterReplyActions implements ReplyActions {
             offer.tenantId,
             null,
             offer.loadId,
+            offer.transporterId,
             INDENT_REJECTED_ON_WHATSAPP_REASON,
           );
           await this.offers.recordReply(offer.recipientId, 'rejected', this.now());
@@ -219,8 +227,11 @@ export class TransporterReplyActions implements ReplyActions {
         note: `"${action}" on an indent — it has a contract rate`,
       };
     }
-    if (action === 'negotiate' || action === 'give_rate')
+    if (action === 'negotiate' || action === 'give_rate') {
+      // Kept on the recipient row so the shipper sees "Negotiating" before any rate is in.
+      await this.offers.recordReply(offer.recipientId, 'negotiating', this.now());
       return { resolution: 'negotiating', nextPrompt: 'rate_request' };
+    }
 
     // Accept on a market offer = a bid at the posted price; then "Send the truck number".
     const targetRate = Number(offer.postedRate);
@@ -262,9 +273,22 @@ export class TransporterReplyActions implements ReplyActions {
         rate,
         ...(truckNumber ? { vehicleNumber: truckNumber } : {}),
       });
+      // A revised rate on a bid that already has its truck needs nothing more.
+      const needsTruck =
+        !truckNumber &&
+        !(await this.bids.findLiveTransporterBid(offer.tenantId, offer.loadId, offer.transporterId))
+          ?.vehicleNumber;
+      if (needsTruck) {
+        return {
+          resolution: 'bid_recorded',
+          note: `rate ${rate}, truck to come`,
+          confirmationText: REPLY_TEXTS.rateRecordedAskTruck(offer.loadCode, rate),
+          asksFor: 'truck',
+        };
+      }
       return {
         resolution: 'bid_recorded',
-        note: truckNumber ? `rate ${rate}, truck ${truckNumber}` : `rate ${rate}, truck to come`,
+        note: truckNumber ? `rate ${rate}, truck ${truckNumber}` : `rate ${rate}`,
         confirmationText: REPLY_TEXTS.rateRecorded(offer.loadCode, rate),
       };
     });
@@ -283,6 +307,7 @@ export class TransporterReplyActions implements ReplyActions {
           offer.tenantId,
           null,
           offer.loadId,
+          offer.transporterId,
           truckNumber,
           'whatsapp',
         );

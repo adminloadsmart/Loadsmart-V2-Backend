@@ -61,7 +61,11 @@ export class LoadPostingController {
   getPosting = async (req: Request, res: Response) =>
     respond(
       res,
-      await this.lookupService.getPosting(requireTenantId(req), req.params.postingId as string),
+      await this.lookupService.getPosting(
+        requireTenantId(req),
+        req.params.postingId as string,
+        (req.validatedQuery as { loadId?: string } | undefined)?.loadId,
+      ),
     );
 
   recentCustomers = async (req: Request, res: Response) =>

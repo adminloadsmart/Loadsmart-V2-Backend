@@ -52,6 +52,18 @@ export class LoadRecipientEntity {
   @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
   sentAt!: Date | null;
 
+  /** WhatsApp delivered the offer to the phone (first report of it). */
+  @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
+  deliveredAt!: Date | null;
+
+  /** The transporter opened it (blue ticks — only when their read receipts are on). */
+  @Column({ name: 'read_at', type: 'timestamptz', nullable: true })
+  readAt!: Date | null;
+
+  /** Why the offer didn't reach them, in WhatsApp's words ("number not on WhatsApp"). */
+  @Column({ name: 'fail_reason', type: 'varchar', length: 300, nullable: true })
+  failReason!: string | null;
+
   /** The transporter's Accept / Reject on WhatsApp — shown to the shipper before any bid or
    *  truck number exists (an indent's Accept writes nothing else until the truck comes in). */
   @Column({ name: 'reply_status', type: 'enum', enum: [...RECIPIENT_REPLIES], nullable: true })

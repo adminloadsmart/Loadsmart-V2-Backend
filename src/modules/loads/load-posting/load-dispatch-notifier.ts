@@ -21,6 +21,10 @@ export interface DispatchOffer {
   /** Load weight in tonnes, as posted (null when not given). */
   weightTonnes: string | null;
   pickupAt: Date;
+  /** When the load must be delivered, as posted (null when not given). */
+  deliverByAt: Date | null;
+  /** The goods, as posted ("Steel"). */
+  goods: string;
   loads: { loadId: string; loadCode: string }[];
 }
 

@@ -15,7 +15,9 @@ export const MESSAGE_STATUSES = ['pending', 'sent', 'failed'] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
 /** A transporter's answer to the offer on WhatsApp (Accept / Reject); null until they answer. */
-export const RECIPIENT_REPLIES = ['accepted', 'rejected'] as const;
+/** A transporter's answer to an offer, shown to the shipper: `negotiating` = tapped Negotiate /
+ *  Give rate and the rate is still to come. */
+export const RECIPIENT_REPLIES = ['accepted', 'rejected', 'negotiating'] as const;
 export type RecipientReply = (typeof RECIPIENT_REPLIES)[number];
 
 export const BALANCE_PAID_BY = ['shipper', 'consignee'] as const;
@@ -60,3 +62,29 @@ export interface TruckPick {
   capacityTons: number;
   bodyLengthFt: string;
 }
+
+/** Where one transporter is on one load, furthest step first wins — the shipper's "Who is
+ *  quoting" row (GET /loads/post/:postingId?loadId=). */
+export const RECIPIENT_QUOTE_STEPS = [
+  'sending',
+  'not_delivered',
+  'sent',
+  'delivered',
+  'seen',
+  'negotiating',
+  'accepted',
+  'rejected',
+  'bid_no_truck',
+  'bid_with_truck',
+  'countered',
+  'bid_expired',
+  'bid_rejected',
+  'not_chosen',
+  'awarded',
+  'closed',
+] as const;
+export type RecipientQuoteStep = (typeof RECIPIENT_QUOTE_STEPS)[number];
+
+/** An offer delivered or read with no answer for this long → "call them" (catalog LS_N_0105:
+ *  unread after 30 minutes goes to the call list). */
+export const QUOTE_NO_ANSWER_CALL_AFTER_MS = 30 * 60 * 1000;

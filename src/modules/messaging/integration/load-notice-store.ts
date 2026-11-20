@@ -203,6 +203,24 @@ export class TypeormLoadNoticeStore implements LoadNoticeStore {
     return { count: bids.length, bestRate: rates.length ? String(Math.min(...rates)) : null };
   }
 
+  async sentVariables(
+    loadId: string,
+    templateKey: TemplateKey,
+    recipientRefId: string,
+  ): Promise<Record<string, unknown>[]> {
+    const rows = await this.dataSource.getRepository(MessageLogEntity).find({
+      where: {
+        loadId,
+        templateKey,
+        recipientRefId,
+        channel: 'whatsapp',
+        status: Not('suppressed'),
+      },
+      select: { id: true, variables: true },
+    });
+    return rows.map((row) => row.variables ?? {});
+  }
+
   async lastSent(
     loadId: string,
     templateKey: TemplateKey,

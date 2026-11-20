@@ -178,8 +178,8 @@ export class InboundPipelineService {
       );
     }
     // MSG91 doesn't say its report `requestId` equals the send response's request id (plan note
-    // 17): last resort, the latest message to that number still waiting for its WAMID, sent within
-    // STATUS_MATCH_WINDOW_MS of the report.
+    // 17): last resort, the one message to that number still waiting for its WAMID, sent within
+    // STATUS_MATCH_WINDOW_MS of the report — none when several wait (no guessing between them).
     if (!messageLog && payload.providerMessageId && payload.recipientPhone) {
       messageLog = await this.messageLogStore.findAwaitingMessageIdByAddress(
         payload.recipientPhone,

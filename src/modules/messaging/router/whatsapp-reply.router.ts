@@ -2,8 +2,11 @@ import { toIndianMsisdn } from '../../../shared/utils/phone-number';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { MessageLogEntity } from '../entities/message-log.entity';
 import {
+  ASKS_FOR_VARIABLE,
+  LAST_ASK_WINDOW_MS,
   LOAD_PICK_TTL_MS,
   STAGES_ACCEPTING_VALUE,
+  VALUE_ASKED_BY_PROMPT,
   WHATSAPP_INTERACTIVE_LIMITS,
 } from '../messaging.constants';
 import { OfferAction, RecipientLoadStage, ReplyValueKind, RoutingMethod } from '../messaging.types';
@@ -13,9 +16,11 @@ import { InboundMessageHandler } from '../inbound/inbound-pipeline.service';
 import { InboundResolutionPatch } from '../repositories/whatsapp-inbound.repository';
 import {
   DispatchDetails,
+  bareLoadCodeOf,
   classifyTypedReply,
   decodeLoadRowId,
   decodeOfferButtonId,
+  loadCodesIn,
 } from '../parsers/reply-value.parsers';
 import { REPLY_TEXTS } from './reply-texts';
 import {
@@ -90,13 +95,30 @@ function toContext(load: OpenRecipientLoad): RecipientLoadContext {
 const acceptsValue = (stage: RecipientLoadStage, kind: ReplyValueKind): boolean =>
   (STAGES_ACCEPTING_VALUE[kind] as readonly RecipientLoadStage[]).includes(stage);
 
+/** The value a message of ours asked for: a question (rate / driver details / slip) or a
+ *  confirmation marked with one ("Done. Send the truck number…"). Offers are not asks. */
+function askedValueOf(messageLog: MessageLogEntity): ReplyValueKind | null {
+  if (messageLog.kind === 'info') {
+    const asked = messageLog.variables?.[ASKS_FOR_VARIABLE];
+    return typeof asked === 'string' ? (asked as ReplyValueKind) : null;
+  }
+  return messageLog.kind && messageLog.kind in VALUE_ASKED_BY_PROMPT
+    ? VALUE_ASKED_BY_PROMPT[messageLog.kind as keyof typeof VALUE_ASKED_BY_PROMPT]
+    : null;
+}
+
 /**
  * The reply router — the mapping logic proven live on 13 Nov (R1–R12, 0 values on the wrong user):
- * 1. context.id → the message_log row we sent → recipient + load (taps, list picks, swipes, attachments);
+ * 1. context.id → the message_log row we sent → recipient + load (taps, list picks, swipes, attachments).
+ *    Every reply we send about a load is logged on it, so a swipe on any of them names the load;
  * 2. our button / row id cross-checks step 1 (disagreement → needs_review);
- * 3. no context → the sender's only load waiting for this kind of value;
- * 4. several waiting → a "Load chunein" list; the value waits on the inbound row until the pick;
- * 5. anything else (incl. Flow replies, not handled yet) → needs_review. Business writes go through ReplyActions, sends through ReplySender.
+ * 3. a load code typed in the text ("LOAD-0042 42000") → that open load of the sender;
+ * 4. no context → the sender's only load waiting for this kind of value;
+ * 5. several waiting → the one we asked for this value in the last LAST_ASK_WINDOW_MS (offers
+ *    are not asks); never a guess between two asked loads;
+ * 6. still several → a "Load chunein" list (only the asked loads, if any were asked); the value
+ *    waits on the inbound row until the pick — a list row or the typed load code;
+ * 7. anything else (incl. Flow replies, not handled yet) → needs_review. Business writes go through ReplyActions, sends through ReplySender.
  */
 export class WhatsappReplyRouter implements InboundMessageHandler {
   private readonly now: () => Date;
@@ -202,6 +224,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
           senderIdentity,
           REPLY_TEXTS.firstAnswerKept(context.loadRef, firstAction),
           inbound.id,
+          { context },
         );
         return {
           ...evidenceFor(context, routingMethod),
@@ -222,6 +245,11 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     senderIdentity: SenderIdentity,
   ): Promise<InboundResolutionPatch> {
     const sourceText = inbound.body ?? '';
+    const typedPick = bareLoadCodeOf(sourceText);
+    if (typedPick) {
+      const picked = await this.routeTypedPick(inbound, senderIdentity, typedPick);
+      if (picked) return picked;
+    }
     const classified = classifyTypedReply(sourceText);
     if (classified.kind === null) {
       await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.notUnderstood, inbound.id);
@@ -233,7 +261,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         : classified.kind === 'truck'
           ? { kind: 'truck', truckNumber: classified.truckNumber }
           : { kind: 'dispatch', dispatch: classified.dispatch };
-    return this.routeValue(inbound, senderIdentity, value, sourceText);
+    return this.routeValue(inbound, senderIdentity, value, sourceText, loadCodesIn(sourceText));
   }
 
   private async routeValue(
@@ -241,6 +269,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     senderIdentity: SenderIdentity,
     value: ReplyValue,
     sourceText: string,
+    typedLoadCodes: string[] = [],
   ): Promise<InboundResolutionPatch> {
     const answeredMessage = await this.findAnsweredMessage(inbound);
     if (answeredMessage) {
@@ -250,6 +279,17 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       // A quoted message without a load (e.g. a plain info text) falls through to the pending loads.
       if (context)
         return this.applyValueToLoad(context, value, inbound, senderIdentity, 'context_id');
+    }
+
+    if (typedLoadCodes.length > 0) {
+      const named = await this.routeByTypedLoadCode(
+        inbound,
+        senderIdentity,
+        value,
+        sourceText,
+        typedLoadCodes,
+      );
+      if (named) return named;
     }
 
     const candidates = await this.waitingLoads(senderIdentity, value.kind);
@@ -269,6 +309,70 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       );
     }
 
+    // Several wait: the load(s) we asked for this value lately. One → it; several → list only those.
+    const asked = await this.recentlyAskedLoads(senderIdentity, value.kind, candidates);
+    if (asked.length === 1) {
+      return this.applyValueToLoad(toContext(asked[0]), value, inbound, senderIdentity, 'last_ask');
+    }
+    return this.sendPicker(
+      inbound,
+      senderIdentity,
+      value,
+      sourceText,
+      asked.length ? asked : candidates,
+    );
+  }
+
+  /** "LOAD-0042 42000": the load the sender named. Null when the code names none of their open
+   *  loads (the usual rules then decide — the text may carry an old code). */
+  private async routeByTypedLoadCode(
+    inbound: WhatsappInboundEntity,
+    senderIdentity: SenderIdentity,
+    value: ReplyValue,
+    sourceText: string,
+    typedLoadCodes: string[],
+  ): Promise<InboundResolutionPatch | null> {
+    const openLoads = await this.actions.findOpenLoadsForSender(senderIdentity);
+    const named = openLoads.filter((load) => typedLoadCodes.includes(load.loadRef.toUpperCase()));
+    if (named.length === 0) return null;
+    if (named.length === 1) {
+      return this.applyValueToLoad(
+        toContext(named[0]),
+        value,
+        inbound,
+        senderIdentity,
+        'load_code',
+      );
+    }
+    // Two codes in one message, or one load reached through two of the sender's records.
+    return this.sendPicker(inbound, senderIdentity, value, sourceText, named);
+  }
+
+  /** The candidates we asked for this kind of value within LAST_ASK_WINDOW_MS. */
+  private async recentlyAskedLoads(
+    senderIdentity: SenderIdentity,
+    kind: ReplyValueKind,
+    candidates: OpenRecipientLoad[],
+  ): Promise<OpenRecipientLoad[]> {
+    const since = new Date(this.now().getTime() - LAST_ASK_WINDOW_MS);
+    const asks = (await this.store.findRecentLoadMessagesTo(senderIdentity.phone, since)).filter(
+      (log) => askedValueOf(log) === kind,
+    );
+    return candidates.filter((candidate) =>
+      asks.some(
+        (log) =>
+          log.loadRef === candidate.loadRef && log.recipientRefId === candidate.recipientRefId,
+      ),
+    );
+  }
+
+  private async sendPicker(
+    inbound: WhatsappInboundEntity,
+    senderIdentity: SenderIdentity,
+    value: ReplyValue,
+    sourceText: string,
+    candidates: OpenRecipientLoad[],
+  ): Promise<InboundResolutionPatch> {
     const listedLoads = candidates.slice(0, WHATSAPP_INTERACTIVE_LIMITS.listRowsMax);
     const pickerMessageLogId = await this.sender.sendLoadPicker(
       senderIdentity,
@@ -302,17 +406,56 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       return this.needsReview("list pick points at another user's list");
 
     const waitingMessage = await this.store.findAwaitingPick(pickerMessage.id);
-    if (!waitingMessage)
+    if (!waitingMessage) {
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.pickerAlreadyAnswered, inbound.id);
       return this.needsReview('nothing is waiting on this list (already picked or expired)');
+    }
+    return this.applyPick(
+      inbound,
+      senderIdentity,
+      waitingMessage,
+      pickerMessage.id,
+      decodeLoadRowId(inbound.listRowId),
+      inbound.listRowId,
+    );
+  }
 
-    const pickedLoadRef = decodeLoadRowId(inbound.listRowId);
+  /** A load code typed instead of tapping the open "Which load?" list. Null when no list of this
+   *  sender is open (the code is then read as part of a value). */
+  private async routeTypedPick(
+    inbound: WhatsappInboundEntity,
+    senderIdentity: SenderIdentity,
+    typedLoadRef: string,
+  ): Promise<InboundResolutionPatch | null> {
+    const since = new Date(this.now().getTime() - LOAD_PICK_TTL_MS);
+    const waitingMessage = await this.store.findLatestAwaitingPickFrom(senderIdentity.phone, since);
+    if (!waitingMessage?.pickerMessageLogId) return null;
+    const offered = (waitingMessage.parsedValues?.candidates ?? []) as RecipientLoadContext[];
+    const match = offered.find((candidate) => candidate.loadRef.toUpperCase() === typedLoadRef);
+    return this.applyPick(
+      inbound,
+      senderIdentity,
+      waitingMessage,
+      waitingMessage.pickerMessageLogId,
+      match?.loadRef ?? typedLoadRef,
+      typedLoadRef,
+    );
+  }
+
+  private async applyPick(
+    inbound: WhatsappInboundEntity,
+    senderIdentity: SenderIdentity,
+    waitingMessage: WhatsappInboundEntity,
+    pickerMessageLogId: string,
+    pickedLoadRef: string | null,
+    pickedLabel: string | null,
+  ): Promise<InboundResolutionPatch> {
     const offeredCandidates = (waitingMessage.parsedValues?.candidates ??
       []) as RecipientLoadContext[];
     const chosenContext = offeredCandidates.find(
       (candidate) => candidate.loadRef === pickedLoadRef,
     );
-    if (!chosenContext)
-      return this.needsReview(`picked row ${inbound.listRowId} was not in the list`);
+    if (!chosenContext) return this.needsReview(`picked ${pickedLabel} was not in the list`);
 
     if (this.now().getTime() - waitingMessage.receivedAt.getTime() > LOAD_PICK_TTL_MS) {
       await this.store.recordResolution(waitingMessage.id, {
@@ -334,11 +477,11 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     );
     await this.store.recordResolution(waitingMessage.id, {
       ...result,
-      pickerMessageLogId: pickerMessage.id,
+      pickerMessageLogId,
     });
     return {
       ...result,
-      matchedMessageLogId: pickerMessage.id,
+      matchedMessageLogId: pickerMessageLogId,
       resolutionNote: `load pick for inbound ${waitingMessage.id}`,
     };
   }
@@ -359,6 +502,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         senderIdentity,
         REPLY_TEXTS.wrongStage(context.loadRef),
         valueMessage.id,
+        { context },
       );
       return {
         ...evidence,
@@ -371,6 +515,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         senderIdentity,
         REPLY_TEXTS.incompleteDispatch(context.loadRef),
         valueMessage.id,
+        { context, asksFor: 'dispatch' },
       );
       return {
         ...evidence,
@@ -405,8 +550,12 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     replyToInboundId: string,
     routingMethod: RoutingMethod,
   ): Promise<InboundResolutionPatch> {
+    // Logged on the load (with what it asks for next), so a swipe on it routes back here.
     if (outcome.confirmationText)
-      await this.sender.sendInfo(senderIdentity, outcome.confirmationText, replyToInboundId);
+      await this.sender.sendInfo(senderIdentity, outcome.confirmationText, replyToInboundId, {
+        context,
+        asksFor: outcome.asksFor ?? null,
+      });
     if (outcome.nextPrompt)
       await this.sender.sendPrompt(context, senderIdentity, outcome.nextPrompt, replyToInboundId);
     return {

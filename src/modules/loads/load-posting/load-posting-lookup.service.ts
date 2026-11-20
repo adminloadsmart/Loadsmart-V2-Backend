@@ -16,6 +16,10 @@ import {
 } from '../../masters/vehicle/truck-type-picker.constants';
 import { PostAddress, TruckPick } from './utils/load-posting.types';
 import { driverUnavailableReason } from './utils/driver-availability';
+import { recipientQuoteOf } from './utils/recipient-quote';
+import type { RecipientBidSummary } from './utils/load-posting.interface';
+import type { LoadRecipientEntity } from './entities/load-recipient.entity';
+import type { LoadBidEntity } from '../bids/load-bid.entity';
 
 /** How many recent postings of a customer are folded into past-load cards. */
 const PAST_LOAD_SCAN_LIMIT = 200;
@@ -407,7 +411,9 @@ export class LoadPostingLookupService {
     }
   }
 
-  async getPosting(tenantId: string, postingId: string) {
+  /** The posting, its loads and recipients. With `loadId` (one of its loads), each recipient also
+   *  carries its bid on that load and its step there (`quote`) — the shipper's "Who is quoting". */
+  async getPosting(tenantId: string, postingId: string, loadId?: string) {
     try {
       const posting = await this.repository.findPostingById(tenantId, postingId);
       if (!posting) throw new NotFoundError(`Posting ${postingId} not found`);
@@ -415,7 +421,22 @@ export class LoadPostingLookupService {
         this.repository.listRecipients(tenantId, postingId),
         this.repository.listLoadsByPosting(tenantId, postingId),
       ]);
-      return { posting, recipients, loads: loads.map((l) => ({ id: l.id, code: l.code })) };
+      const loadList = loads.map((l) => ({ id: l.id, code: l.code }));
+      if (!loadId) return { posting, recipients, loads: loadList };
+
+      const load = loads.find((item) => item.id === loadId);
+      if (!load) throw new NotFoundError(`Load ${loadId} is not on posting ${postingId}`);
+      const bids = await this.repository.listBidsForLoad(tenantId, loadId);
+      const now = new Date();
+      const withQuotes = recipients.map((recipient) => {
+        const bid = bidOfRecipient(recipient, bids);
+        return {
+          ...recipient,
+          bid: bid ? bidSummaryOf(bid) : null,
+          quote: recipientQuoteOf(recipient, bid, load, now),
+        };
+      });
+      return { posting, recipients: withQuotes, loads: loadList };
     } catch (error) {
       rethrow(error, 'Failed to fetch posting');
     }
@@ -430,4 +451,33 @@ function truckPickLabel(pick: TruckPick): string {
 
 function addressKey(address: PostAddress): string {
   return `${address.label}|${address.pinCode ?? ''}`.toLowerCase();
+}
+
+/** A recipient's bid on the load: Loadsmart's row → Loadsmart's bid; a transporter → theirs.
+ *  Its live or accepted bid wins over an older rejected one (bids come newest first). */
+function bidOfRecipient(
+  recipient: LoadRecipientEntity,
+  bids: LoadBidEntity[],
+): LoadBidEntity | null {
+  const theirs = bids.filter((bid) =>
+    recipient.recipientType === 'loadsmart'
+      ? bid.source === 'loadsmart'
+      : bid.source === 'transporter' && bid.transporterId === recipient.transporterId,
+  );
+  return theirs.find((bid) => bid.status !== 'rejected') ?? theirs[0] ?? null;
+}
+
+function bidSummaryOf(bid: LoadBidEntity): RecipientBidSummary {
+  return {
+    id: bid.id,
+    rate: bid.rate,
+    vehicleNumber: bid.vehicleNumber,
+    truckVerified: bid.truckVerified,
+    status: bid.status,
+    channel: bid.channel,
+    counterRate: bid.counterRate,
+    counterStatus: bid.counterStatus,
+    enteredBy: bid.enteredBy,
+    updatedAt: bid.updatedAt,
+  };
 }

@@ -45,7 +45,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     ...manageDispatch(
       'Record a rate one of the shipper’s own transporters gave by phone, on a market load. ' +
         'Allowed from 30 minutes after the load was sent until bidding closes 4 hours after it; ' +
-        '`reason` is required and logged with the shipper’s name. The transporter must be ' +
+        '`reason` is optional; the shipper’s name is logged. The transporter must be ' +
         'one the posting went to. Quoting again revises the transporter’s live bid. The ' +
         'first bid moves the load to Bids received.',
     ),
@@ -151,17 +151,27 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.recordIndentAcceptance',
     ...manageDispatch(
-      'The contracted transporter accepted the indent and sent the truck number. Records it as ' +
-        'the indent’s one bid, at the contract rate — that is the award: the load moves to Bids ' +
-        'received on the indent route. No separate confirmation; the load memo follows.',
+      '"Transporter accepted" — the shipper enters an indent transporter’s acceptance given by ' +
+        'phone. `transporterId` must be a transporter the indent was offered to (today its ' +
+        'contracted transporter). Allowed from 30 minutes after the request was sent — no wait ' +
+        'if that transporter already tapped Accept on WhatsApp. `reason` is optional; the ' +
+        'shipper’s name is logged. Without `vehicleNumber` the acceptance is only noted ' +
+        '(`waitingFor: "truck"`, the load stays at Created) and WhatsApp asks that transporter ' +
+        'for the truck. With it, it is the award to that transporter at the contract rate: the ' +
+        'load moves to Bids received on the indent route and the driver and memo follow.',
     ),
     request: {
       params: v.recordIndentAcceptance.shape.params,
       body: json(v.recordIndentAcceptance.shape.body),
     },
     responses: {
-      201: { description: 'The bid' },
-      409: { description: 'Not an indent, or already accepted', ...errorContent },
+      201: { description: '{ loadId, transporterId, loadStatus, waitingFor, bid }' },
+      409: {
+        description:
+          'Not an indent, already accepted, not offered to that transporter, already noted as ' +
+          'accepted without a truck, or within 30 minutes of sending',
+        ...errorContent,
+      },
     },
   });
 
@@ -174,7 +184,10 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       'The transporter names the driver (name, mobile, licence number and date of birth) for a ' +
         'market or indent load with an award, at Bids received. The truck is checked on VAHAN if it never was, ' +
         'and the licence on Sarathi. The memo (expires in 1 hour) goes only when no check failed; ' +
-        'otherwise `memo` is null and `checks` lists the failures to fix.',
+        'otherwise `memo` is null and `checks` lists the failures to fix. The driver is named for ' +
+        'whoever the load is awarded to. On an indent not awarded yet (still Created), ' +
+        '`vehicleNumber` is required and awards it to the indent’s transporter first, in the ' +
+        'same call. `reason` (optional) is logged with the shipper’s name.',
     ),
     request: { params: v.nameDriver.shape.params, body: json(v.nameDriver.shape.body) },
     responses: {
@@ -336,6 +349,28 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/loads/{loadId}/withdraw`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.withdrawLoad',
+    ...manageDispatch(
+      '"Withdraw load" — allowed only until the load memo is accepted (Created or Bids ' +
+        'received); after that, cancel the load instead. The same write as a cancellation: open ' +
+        'bids rejected, an open memo withdrawn; a load Loadsmart has won waits for Super Admin ' +
+        '(outcome `pending`). `reasonCode` defaults to `shipper_cancelled`.',
+    ),
+    request: { params: v.withdrawLoad.shape.params, body: json(v.withdrawLoad.shape.body) },
+    responses: {
+      200: { description: '{ outcome, load, cancellation }' },
+      400: { description: 'Not an active reason code', ...errorContent },
+      409: {
+        description: 'The memo is already accepted, the load is cancelled, or a request is waiting',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/loads/{loadId}/cancel`,
     tags: [TAGS.LOADS],
     operationId: 'loads.cancelLoad',
@@ -376,8 +411,9 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.LOADS],
     operationId: 'loads.recordIndentRejection',
     ...manageDispatch(
-      'The contracted transporter rejected the indent (`reason`). The load goes to the open ' +
-        'market at Created: it becomes a market load, the contract rate stays as the expected ' +
+      'An indent transporter rejected it (`transporterId`, `reason`) — the transporter must be ' +
+        'one the indent was offered to. Once no other indent transporter can take it the load ' +
+        'goes to the open market at Created: it becomes a market load, the contract rate stays as the expected ' +
         'price, the shipper’s active transporters become recipients and Loadsmart opens its ' +
         'sourcing. The contract’s non-placement penalty, if any, is recorded with the change.',
     ),

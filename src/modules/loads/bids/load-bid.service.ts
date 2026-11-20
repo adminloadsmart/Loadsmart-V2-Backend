@@ -8,10 +8,12 @@ import { LoadStageService } from '../core/load-stage.service';
 import { LoadEntity } from '../entities/load.entity';
 import { LoadBidEntity } from './load-bid.entity';
 import { LoadBidRepository } from './load-bid.repository';
+import type { LoadRecipientEntity } from '../load-posting/entities/load-recipient.entity';
 import {
   acceptBlocker,
   bidWindowClosesAt,
   effectiveBidStatus,
+  manualIndentAcceptError,
   manualRateError,
   rankBids,
 } from './bid-rules';
@@ -23,6 +25,8 @@ import {
   BidView,
   CounterAnswerInput,
   CounterBidInput,
+  IndentAcceptanceInput,
+  IndentAcceptanceResult,
   LoadBidsView,
   LoadsmartBidAcceptedHook,
   LoadsmartBidEventHook,
@@ -478,7 +482,7 @@ export class LoadBidService {
             truckVerified:
               vehicleNumber && vehicleNumber !== live.vehicleNumber ? null : live.truckVerified,
             enteredBy: actorId,
-            entryReason: input.reason,
+            entryReason: input.reason ?? null,
           })
         : await this.bidRepository.create({
             tenantId,
@@ -492,7 +496,7 @@ export class LoadBidService {
             channel: 'web',
             expiresAt: bidWindowClosesAt(sentAt, extraMinutes),
             enteredBy: actorId,
-            entryReason: input.reason,
+            entryReason: input.reason ?? null,
             rateHistory: [step],
           });
       const bid = await this.checkBidTruck(saved);
@@ -637,61 +641,81 @@ export class LoadBidService {
     }
   }
 
-  /** The contracted transporter accepts the indent and sends the truck number, at the contract
-   *  rate — or the shipper enters an acceptance given by phone. That is the award: the load moves
-   *  to Bids received on the indent route (`indent_accepted`), and the memo follows. */
+  /** The transporters an indent load is offered to — only these may accept or reject it. Today
+   *  an indent goes to its one contracted transporter (`load.transporterId`); when posting sends
+   *  an indent to several, only this changes. The posting's recipient rows can't be used: after
+   *  one truck of a multi-truck indent is rejected, every transporter of the shipper is added to
+   *  the posting while its other trucks are still indents. */
+  private indentTransporterIds(load: LoadEntity): string[] {
+    return load.transporterId ? [load.transporterId] : [];
+  }
+
+  /** The indent load at Created, offered to `transporterId`, with its recipient row (null for a
+   *  load planned without a posting). */
+  private async assertOpenIndentFor(
+    tenantId: string,
+    loadId: string,
+    transporterId: string,
+  ): Promise<{ load: LoadEntity; recipient: LoadRecipientEntity | null }> {
+    const load = await this.assertLoad(tenantId, loadId);
+    if (load.postingType !== 'indent') throw new ConflictError('This load is not an indent');
+    if (load.status !== 'created') {
+      throw new ConflictError('The indent has already been accepted');
+    }
+    if (!this.indentTransporterIds(load).includes(transporterId)) {
+      throw new ConflictError("This indent wasn't sent to that transporter");
+    }
+    const recipient = load.postingId
+      ? await this.bidRepository.findTransporterRecipient(tenantId, load.postingId, transporterId)
+      : null;
+    return { load, recipient };
+  }
+
+  /** An indent transporter accepts and sends the truck number, at the contract rate — on
+   *  WhatsApp, or the shipper enters an acceptance given by phone. That is the award to that
+   *  transporter: the load moves to Bids received on the indent route (`indent_accepted`), and
+   *  the memo follows. */
   async recordIndentAcceptance(
     tenantId: string,
     actorId: string | null,
     loadId: string,
+    transporterId: string,
     vehicleNumberInput: string,
-    /** `whatsapp` when the contracted transporter accepted on WhatsApp (no entering user). */
+    /** `whatsapp` when the transporter accepted on WhatsApp (no entering user). */
     channel: BidChannel = 'web',
+    /** Why the shipper entered it on the transporter's behalf — kept on the bid. */
+    reason?: string,
   ): Promise<BidView> {
     try {
-      const load = await this.assertLoad(tenantId, loadId);
-      if (load.postingType !== 'indent') throw new ConflictError('This load is not an indent');
-      if (load.status !== 'created') {
-        throw new ConflictError('The indent has already been accepted');
-      }
-      if (!load.transporterId || !load.freightValue) {
-        throw new ConflictError('This indent has no contracted transporter or contract rate');
-      }
+      const { load, recipient } = await this.assertOpenIndentFor(tenantId, loadId, transporterId);
+      if (!load.freightValue) throw new ConflictError('This indent has no contract rate');
 
-      let recipientId: string | null = null;
-      if (load.postingId) {
-        const recipient = await this.bidRepository.findTransporterRecipient(
-          tenantId,
-          load.postingId,
-          load.transporterId,
-        );
-        recipientId = recipient?.id ?? null;
-      }
       const vehicleNumber = normalizePlate(vehicleNumberInput);
       await this.assertTruckFree(load, vehicleNumber);
 
-      // An indent still at Created takes no bids, so a live bid of the contracted transporter
-      // here is one a failed acceptance left behind. Close it, or the one-live-bid-per-transporter
-      // index rejects this acceptance (seen live 19 Nov on LOAD-1010).
-      const leftover = await this.bidRepository.findLive(tenantId, loadId, load.transporterId);
+      // An indent still at Created takes no bids, so a live bid of this transporter here is one a
+      // failed acceptance left behind. Close it, or the one-live-bid-per-transporter index
+      // rejects this acceptance (seen live 19 Nov on LOAD-1010).
+      const leftover = await this.bidRepository.findLive(tenantId, loadId, transporterId);
       if (leftover) await this.bidRepository.markRejected(leftover, actorId);
 
       const created = await this.bidRepository.create({
         tenantId,
         loadId,
-        recipientId,
+        recipientId: recipient?.id ?? null,
         source: 'transporter',
         lsPartnerBidId: null,
-        transporterId: load.transporterId,
+        transporterId,
         rate: load.freightValue,
         vehicleNumber,
         channel,
         expiresAt: null,
         enteredBy: actorId,
         entryReason:
-          channel === 'whatsapp'
-            ? 'Indent accepted by the contracted transporter on WhatsApp'
-            : 'Indent accepted by the contracted transporter',
+          reason ??
+          (channel === 'whatsapp'
+            ? 'Indent accepted by the transporter on WhatsApp'
+            : 'Indent accepted by the transporter'),
       });
       let bid: LoadBidEntity;
       try {
@@ -709,6 +733,7 @@ export class LoadBidService {
           load,
           auditAction: 'LOAD_BID_ACCEPTED',
           fields: {
+            transporterId,
             vehicleNumber,
             freightType: load.freightType ?? 'flat',
             awardedBidId: bid.id,
@@ -722,11 +747,119 @@ export class LoadBidService {
         throw error;
       }
       await this.bidRepository.accept(bid, actorId);
+      if (recipient && recipient.replyStatus !== 'accepted') {
+        await this.bidRepository.recordRecipientReply(recipient.id, 'accepted', this.now());
+      }
       await this.recordBidActivity(load, actorId, bid, { indent: true });
       return this.toView({ ...bid, status: 'accepted' }, this.now(), 1);
     } catch (error) {
       rethrow(error, 'Failed to record indent acceptance');
     }
+  }
+
+  /** "Transporter accepted" — the shipper enters an indent transporter's acceptance given by
+   *  phone (reason optional; their name is kept), from 30 minutes after the request was sent — no
+   *  wait when that transporter already tapped Accept on WhatsApp.
+   *   - without a truck number: noted on the transporter's recipient row and as an
+   *     INDENT_ACCEPTED activity (WhatsApp then asks that transporter for the truck); the load
+   *     stays at Created;
+   *   - with one: the award to that transporter (recordIndentAcceptance). */
+  async acceptIndentOnBehalf(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    input: IndentAcceptanceInput,
+  ): Promise<IndentAcceptanceResult> {
+    try {
+      const { transporterId } = input;
+      const { load, recipient } = await this.assertOpenIndentFor(tenantId, loadId, transporterId);
+      if (!load.freightValue) throw new ConflictError('This indent has no contract rate');
+      const alreadyAccepted = recipient?.replyStatus === 'accepted';
+      const now = this.now();
+      if (!alreadyAccepted) {
+        const { sentAt } = await this.windowOf(load);
+        const timingError = manualIndentAcceptError(sentAt, now);
+        if (timingError) throw new ConflictError(timingError);
+      }
+
+      if (input.vehicleNumber) {
+        const bid = await this.recordIndentAcceptance(
+          tenantId,
+          actorId,
+          loadId,
+          transporterId,
+          input.vehicleNumber,
+          'web',
+          input.reason,
+        );
+        return { loadId, transporterId, loadStatus: 'bids_received', waitingFor: null, bid };
+      }
+
+      if (alreadyAccepted) {
+        throw new ConflictError(
+          'This transporter has already accepted — add the truck number to award the indent',
+        );
+      }
+      if (recipient) await this.bidRepository.recordRecipientReply(recipient.id, 'accepted', now);
+      const metadata = {
+        transporterId,
+        rate: load.freightValue,
+        reason: input.reason ?? null,
+        onBehalf: true,
+        waitingFor: 'truck',
+      };
+      await this.loadActivityService.record(
+        tenantId,
+        loadId,
+        actorId,
+        'INDENT_ACCEPTED',
+        null,
+        null,
+        metadata,
+      );
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_INDENT_ACCEPTED',
+        resourceType: 'load',
+        newData: { id: loadId, ...metadata },
+      });
+      return { loadId, transporterId, loadStatus: load.status, waitingFor: 'truck', bid: null };
+    } catch (error) {
+      rethrow(error, 'Failed to record the indent acceptance');
+    }
+  }
+
+  /** Truck and driver entered together on an indent not awarded yet (still at Created): the
+   *  truck awards it to the indent's transporter first, so the driver can be named in the same
+   *  call. With several indent transporters the shipper says who took it on /indent/accept
+   *  first. A no-op on any other load. */
+  async awardWaitingIndent(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    vehicleNumber: string | undefined,
+    reason: string | undefined,
+  ): Promise<void> {
+    const load = await this.assertLoad(tenantId, loadId);
+    if (load.postingType !== 'indent' || load.status !== 'created') return;
+    if (!vehicleNumber) {
+      throw new ValidationError('Add the truck number — this indent has no truck yet');
+    }
+    const [transporterId, ...others] = this.indentTransporterIds(load);
+    if (!transporterId) {
+      throw new ConflictError('This indent has no contracted transporter');
+    }
+    if (others.length > 0) {
+      throw new ConflictError(
+        'This indent went to several transporters — record who accepted it on /indent/accept with the truck number',
+      );
+    }
+    await this.acceptIndentOnBehalf(tenantId, actorId, loadId, {
+      transporterId,
+      vehicleNumber,
+      ...(reason ? { reason } : {}),
+    });
   }
 
   /** The contracted transporter rejected the indent — recorded by the shipper, or by the
@@ -739,6 +872,7 @@ export class LoadBidService {
     tenantId: string,
     actorId: string | null,
     loadId: string,
+    transporterId: string,
     reason: string,
   ): Promise<LoadEntity> {
     try {
@@ -746,6 +880,35 @@ export class LoadBidService {
       if (load.postingType !== 'indent') throw new ConflictError('This load is not an indent');
       if (load.status !== 'created') {
         throw new ConflictError('The indent was already accepted');
+      }
+      if (!this.indentTransporterIds(load).includes(transporterId)) {
+        throw new ConflictError("This indent wasn't sent to that transporter");
+      }
+      const recipient = load.postingId
+        ? await this.bidRepository.findTransporterRecipient(tenantId, load.postingId, transporterId)
+        : null;
+      if (recipient) {
+        await this.bidRepository.recordRecipientReply(recipient.id, 'rejected', this.now());
+      }
+      // Another indent transporter can still take it: only this one's "no" is kept.
+      if (this.indentTransporterIds(load).some((id) => id !== transporterId)) {
+        await this.loadActivityService.record(
+          tenantId,
+          loadId,
+          actorId,
+          'INDENT_REJECTED',
+          null,
+          null,
+          { reason, transporterId, convertedToMarket: false },
+        );
+        await this.auditService.log({
+          tenantId,
+          userId: actorId,
+          action: 'LOAD_INDENT_REJECTED',
+          resourceType: 'load',
+          newData: { id: loadId, transporterId, reason, convertedToMarket: false },
+        });
+        return load;
       }
       const posting = load.postingId
         ? await this.bidRepository.findPosting(tenantId, load.postingId)
@@ -767,7 +930,7 @@ export class LoadBidService {
           freightValue: null,
           expectedRate: load.expectedRate ?? load.freightValue,
         },
-        metadata: { reason, contractId, penalty },
+        metadata: { reason, contractId, penalty, transporterId },
       });
       await this.bidRepository.recordRouteChange({
         tenantId,
@@ -776,7 +939,7 @@ export class LoadBidService {
         toPostingType: 'market_fleet',
         reason,
         contractId,
-        transporterId: load.transporterId,
+        transporterId,
         penaltyAmount: penalty,
         changedBy: actorId,
       });
@@ -790,7 +953,7 @@ export class LoadBidService {
         'INDENT_REJECTED',
         'indent',
         'market_fleet',
-        { reason, transporterId: load.transporterId, penalty, recipientsAdded: recipients },
+        { reason, transporterId, penalty, recipientsAdded: recipients },
       );
       // "Loadsmart included" — Loadsmart opens its sourcing as for any market post.
       await this.postingHooks.onMarketLoadsPosted?.([updated], actorId);

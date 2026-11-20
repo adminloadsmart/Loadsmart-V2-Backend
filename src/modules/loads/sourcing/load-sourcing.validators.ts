@@ -53,7 +53,7 @@ export const loadSourcingValidators = {
         transporterId: uuid,
         rate: z.number().positive(),
         vehicleNumber: vehicleNumber.optional(),
-        reason: z.string().trim().min(3).max(500),
+        reason: z.string().trim().min(3).max(500).optional(),
       })
       .strict(),
   }),
@@ -83,10 +83,16 @@ export const loadSourcingValidators = {
     body: z.object({ reason: z.string().trim().min(1).max(500).optional() }).strict(),
   }),
 
-  // The contracted transporter rejected the indent — the load goes to the open market.
+  // An indent transporter rejected it (by phone) — the load goes to the open market once no
+  // other indent transporter can take it.
   recordIndentRejection: z.object({
     params,
-    body: z.object({ reason: z.string().trim().min(3).max(500) }).strict(),
+    body: z
+      .object({
+        transporterId: uuid,
+        reason: z.string().trim().min(3).max(500),
+      })
+      .strict(),
   }),
 
   rerunChecks: z.object({ params }),
@@ -105,6 +111,16 @@ export const loadSourcingValidators = {
       .strict(),
   }),
   listTruckCancellations: z.object({ params }),
+  // Withdraw the load — until the load memo is accepted. Reason code defaults to shipper_cancelled.
+  withdrawLoad: z.object({
+    params,
+    body: z
+      .object({
+        reasonCode: z.string().trim().min(2).max(50).optional(),
+        note: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
+  }),
   // Cancel the whole load, before Loaded.
   cancelLoad: z.object({
     params,
@@ -117,10 +133,18 @@ export const loadSourcingValidators = {
   }),
   listMemos: z.object({ params }),
 
-  // The contracted transporter accepts the indent and sends the truck number.
+  // "Transporter accepted": an indent transporter said yes by phone — entered on their behalf,
+  // 30 minutes after the request went out. The truck number awards the indent to them; it can
+  // follow later (here again, or with the driver).
   recordIndentAcceptance: z.object({
     params,
-    body: z.object({ vehicleNumber }).strict(),
+    body: z
+      .object({
+        transporterId: uuid,
+        vehicleNumber: vehicleNumber.optional(),
+        reason: z.string().trim().min(3).max(500).optional(),
+      })
+      .strict(),
   }),
 
   nameDriver: z.object({
@@ -132,8 +156,11 @@ export const loadSourcingValidators = {
         // Checked on Sarathi with the date of birth before the memo goes out.
         licenceNumber: z.string().trim().min(5).max(30),
         dateOfBirth: isoDateSchema,
-        // The truck number, if it wasn't sent with the bid or the truck was cancelled.
+        // The truck number, if it wasn't sent with the bid or the truck was cancelled. Required
+        // on an indent still waiting for its truck.
         vehicleNumber: vehicleNumber.optional(),
+        // Why the shipper is entering details the transporter gave outside WhatsApp.
+        reason: z.string().trim().min(3).max(500).optional(),
       })
       .strict(),
   }),

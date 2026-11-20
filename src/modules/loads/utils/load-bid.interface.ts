@@ -70,7 +70,25 @@ export interface RecordBidInput {
   rate: number;
   vehicleNumber?: string;
   /** Why the shipper is typing in a rate given by phone — logged with their name. */
-  reason: string;
+  reason?: string;
+}
+
+/** "Transporter accepted" — the shipper enters an indent transporter's acceptance given by phone.
+ *  Without a truck number it is only noted; with one it is the award. */
+export interface IndentAcceptanceInput {
+  transporterId: string;
+  vehicleNumber?: string;
+  reason?: string;
+}
+
+/** What recording an indent acceptance produced: the accepted bid once the truck is in, else
+ *  `waitingFor: 'truck'`. */
+export interface IndentAcceptanceResult {
+  loadId: string;
+  transporterId: string;
+  loadStatus: string;
+  waitingFor: 'truck' | null;
+  bid: BidView | null;
 }
 
 /** A transporter's own reply on WhatsApp: a rate (Accept at the target rate, or typed), the truck

@@ -30,6 +30,17 @@ export function manualRateError(sentAt: Date, now: Date, extraMinutes = 0): stri
   return null;
 }
 
+/** Why the shipper can't enter an indent acceptance given by phone right now, or null when they
+ *  can — "You can enter it for him 30 minutes after the request is sent". An indent has no bid
+ *  window, so there is no closing time. */
+export function manualIndentAcceptError(sentAt: Date, now: Date): string | null {
+  const opensAt = new Date(sentAt.getTime() + MANUAL_RATE_DELAY_MS);
+  if (now < opensAt) {
+    return `An acceptance given by phone can be entered from ${opensAt.toISOString()}, 30 minutes after the request was sent`;
+  }
+  return null;
+}
+
 /** A live bid past its window is expired, whatever the row still says. */
 export function effectiveBidStatus(bid: BidLike, now: Date): BidStatus {
   if (bid.status === 'received' && bid.expiresAt && bid.expiresAt <= now) return 'expired';
