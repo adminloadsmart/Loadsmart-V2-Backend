@@ -249,6 +249,9 @@ export interface ShipperAnalyticsFreightSpend {
     onTimeTone: Tone | null;
     detained: number;
   }[];
+  /** Spend per lane (loading city → destination city), every dispatched load, largest first.
+   *  Loads with no lane (no loading point or destination city) are left out. */
+  lanes: { laneKey: string; lane: string; loads: number; spend: number }[];
   /** In the selected measure. */
   commodities: { id: string; name: string; value: number }[];
   businessUnits: { name: string; value: number; loads: number }[];

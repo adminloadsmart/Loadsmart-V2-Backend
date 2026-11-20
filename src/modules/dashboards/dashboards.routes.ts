@@ -29,6 +29,9 @@ export function createDashboardsRoutes(controller: DashboardsController): Router
     asyncHandler(controller.getLoadsSummary),
   );
 
+  // Home "Waiting on you" cards — live, read-only, no canWrite gate (same as loads-summary).
+  router.get('/waiting-on-you', asyncHandler(controller.getWaitingOnYou));
+
   // Settings → Approvals. Either permission grants visibility — both are org_admin-only today
   // (see db/seed-roles.ts), matching who can act on what this endpoint lists.
   router.get(

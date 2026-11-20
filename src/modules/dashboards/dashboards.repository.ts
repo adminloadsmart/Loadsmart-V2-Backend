@@ -7,11 +7,29 @@ import {
   LoadStatus,
 } from '../loads/utils/loads.types';
 import { RequisitionEntity } from '../loads/entities/requisition.entity';
+import { LoadBidEntity } from '../loads/bids/load-bid.entity';
+import { LoadChargeEntity } from '../loads/money/load-charge.entity';
+import { LoadMemoEntity } from '../loads/memo/load-memo.entity';
+import { LoadPaymentEntity } from '../loads/entities/load-payment.entity';
+import { LsInvoiceEntity } from '../loadsmart-ops/entities/ls-invoice.entity';
 import {
   LoadPipelineRaw,
   LoadsSummaryDailyRow,
   LoadsSummaryTripCounts,
+  WaitingOnYouLoadRow,
+  WaitingOnYouRaw,
 } from './utils/dashboards.interface';
+
+/** Groups rows into a Map of arrays by `key`. */
+function groupRows<T, V>(rows: T[], key: (row: T) => string, value: (row: T) => V) {
+  const map = new Map<string, V[]>();
+  for (const row of rows) {
+    const list = map.get(key(row));
+    if (list) list.push(value(row));
+    else map.set(key(row), [value(row)]);
+  }
+  return map;
+}
 
 // Groups load.created_at into its IST (Asia/Kolkata) calendar day, not the UTC day. `AT TIME
 // ZONE 'Asia/Kolkata'` on a timestamptz produces a plain (zone-less) timestamp already expressed
@@ -42,10 +60,150 @@ function applyTenantAndRange(
 export class DashboardsRepository {
   private readonly loads;
   private readonly requisitions;
+  private readonly bids;
+  private readonly charges;
+  private readonly memos;
+  private readonly payments;
+  private readonly invoices;
 
   constructor(dataSource: DataSource) {
     this.loads = dataSource.getRepository(LoadEntity);
     this.requisitions = dataSource.getRepository(RequisitionEntity);
+    this.bids = dataSource.getRepository(LoadBidEntity);
+    this.charges = dataSource.getRepository(LoadChargeEntity);
+    this.memos = dataSource.getRepository(LoadMemoEntity);
+    this.payments = dataSource.getRepository(LoadPaymentEntity);
+    this.invoices = dataSource.getRepository(LsInvoiceEntity);
+  }
+
+  /** Home "Waiting on you" — every open (not closed or cancelled) load with the fields the
+   *  shipper next-action rule and the money rules read, plus each load's charges, payments,
+   *  latest memo, Loadsmart invoice and lowest received bid. Seven queries in all, however many
+   *  loads are open — never one per load. Side tables are scoped through an inner join on the
+   *  open loads so a closed load's rows are never read. */
+  async getWaitingOnYouRaw(tenantId: string): Promise<WaitingOnYouRaw> {
+    const openStatuses: readonly string[] = ACTIVE_LOAD_STATUSES;
+    const params = { tenantId, openStatuses };
+    const OPEN_JOIN = 'load.tenant_id = :tenantId AND load.status IN (:...openStatuses)';
+
+    const [loads, chargeRows, paymentRows, memoRows, invoiceRows, bidRows] = await Promise.all([
+      this.loads
+        .createQueryBuilder('load')
+        .select([
+          'load.id',
+          'load.status',
+          'load.route',
+          'load.awardedParty',
+          'load.awardedBidId',
+          'load.memoAcceptedAt',
+          'load.invoiceNumber',
+          'load.invoiceFileKey',
+          'load.ewayBillNumber',
+          'load.ewayBillFileKey',
+          'load.elrFileKey',
+          'load.podFileKey',
+          'load.podBackFileKey',
+          'load.podStatus',
+          'load.transporterInvoiceFileKey',
+          'load.advancePercentage',
+          'load.advancePaidAt',
+          'load.balancePaidAt',
+          'load.deliveryIssueSettledAt',
+          'load.freightType',
+          'load.freightValue',
+          'load.plannedCapacityTonnes',
+          'load.deliveryIssueDeductionAmount',
+        ])
+        .where(OPEN_JOIN, params)
+        .getMany(),
+      this.charges
+        .createQueryBuilder('charge')
+        .innerJoin(LoadEntity, 'load', `load.id = charge.load_id AND ${OPEN_JOIN}`, params)
+        .select('charge.load_id', 'loadId')
+        .addSelect('charge.charge_type', 'chargeType')
+        .addSelect('charge.amount', 'amount')
+        .addSelect('charge.status', 'status')
+        .where('charge.tenant_id = :tenantId', { tenantId })
+        .getRawMany<{ loadId: string; chargeType: string; amount: string; status: string }>(),
+      this.payments
+        .createQueryBuilder('payment')
+        .innerJoin(LoadEntity, 'load', `load.id = payment.load_id AND ${OPEN_JOIN}`, params)
+        .select('payment.load_id', 'loadId')
+        .addSelect('payment.payment_type', 'paymentType')
+        .addSelect('payment.amount', 'amount')
+        .addSelect('payment.verification_status', 'verificationStatus')
+        .where('payment.tenant_id = :tenantId', { tenantId })
+        .getRawMany<{
+          loadId: string;
+          paymentType: 'advance' | 'balance';
+          amount: string;
+          verificationStatus: string | null;
+        }>(),
+      // The latest version per load — DISTINCT ON keeps the first row of each load_id group.
+      this.memos
+        .createQueryBuilder('memo')
+        .innerJoin(LoadEntity, 'load', `load.id = memo.load_id AND ${OPEN_JOIN}`, params)
+        .distinctOn(['memo.load_id'])
+        .select('memo.load_id', 'loadId')
+        .addSelect('memo.status', 'status')
+        .addSelect('memo.expires_at', 'expiresAt')
+        .where('memo.tenant_id = :tenantId', { tenantId })
+        .orderBy('memo.load_id')
+        .addOrderBy('memo.version', 'DESC')
+        .getRawMany<{ loadId: string; status: string; expiresAt: Date }>(),
+      this.invoices
+        .createQueryBuilder('invoice')
+        .innerJoin(LoadEntity, 'load', `load.id = invoice.load_id AND ${OPEN_JOIN}`, params)
+        .select('invoice.load_id', 'loadId')
+        .addSelect('COALESCE(invoice.open_amount, invoice.balance_due)', 'open')
+        .where('invoice.tenant_id = :tenantId', { tenantId })
+        .getRawMany<{ loadId: string; open: string }>(),
+      this.bids
+        .createQueryBuilder('bid')
+        .innerJoin(LoadEntity, 'load', `load.id = bid.load_id AND ${OPEN_JOIN}`, params)
+        .select('bid.load_id', 'loadId')
+        .addSelect('MIN(bid.rate)', 'lowest')
+        .where('bid.tenant_id = :tenantId', { tenantId })
+        .andWhere("bid.status = 'received'")
+        .groupBy('bid.load_id')
+        .getRawMany<{ loadId: string; lowest: string }>(),
+    ]);
+
+    const raisedCharges = new Map<string, { count: number; total: number }>();
+    for (const row of chargeRows) {
+      if (row.status !== 'raised') continue;
+      const entry = raisedCharges.get(row.loadId) ?? { count: 0, total: 0 };
+      entry.count += 1;
+      entry.total += Number(row.amount);
+      raisedCharges.set(row.loadId, entry);
+    }
+
+    return {
+      loads: loads as WaitingOnYouLoadRow[],
+      raisedCharges,
+      charges: groupRows(
+        chargeRows,
+        (row) => row.loadId,
+        ({ chargeType, amount, status }) => ({ chargeType, amount, status }),
+      ),
+      payments: groupRows(
+        paymentRows,
+        (row) => row.loadId,
+        ({ paymentType, amount, verificationStatus }) => ({
+          paymentType,
+          amount,
+          verificationStatus,
+        }),
+      ),
+      latestMemo: new Map(
+        memoRows.map((row) => [
+          row.loadId,
+          { status: row.status, expiresAt: new Date(row.expiresAt) },
+        ]),
+      ),
+      invoiceOpen: new Map(invoiceRows.map((row) => [row.loadId, Number(row.open)])),
+      lowestBid: new Map(bidRows.map((row) => [row.loadId, row.lowest])),
+    };
   }
 
   /** Home "Where every load is" — live counts for every open (non-closed) load by status, plus

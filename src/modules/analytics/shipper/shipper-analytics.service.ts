@@ -550,6 +550,14 @@ export class ShipperAnalyticsService {
             };
           })
           .sort((a, b) => b.spend - a.spend),
+        lanes: [...groupBy(current.dispatched, (fact) => fact.lane?.key ?? null).values()]
+          .map((facts) => ({
+            laneKey: facts[0].lane!.key,
+            lane: facts[0].lane!.label,
+            loads: facts.length,
+            spend: spendOf(facts),
+          }))
+          .sort((a, b) => b.spend - a.spend),
         commodities: [...groupBy(current.dispatched, (fact) => fact.commodity?.id ?? null).values()]
           .map((facts) => ({
             id: facts[0].commodity!.id,
