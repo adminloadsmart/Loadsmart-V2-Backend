@@ -29,6 +29,10 @@ export class GeofencesController {
     respond(res, geofences);
   };
 
+  forLoad = async (req: Request<{ loadId: string }>, res: Response) => {
+    respond(res, await this.geofenceService.forLoad(requireTenantId(req), req.params.loadId));
+  };
+
   get = async (req: Request<GeofenceParams>, res: Response) => {
     respond(res, await this.geofenceService.get(requireTenantId(req), req.params.geofenceId));
   };

@@ -117,6 +117,42 @@ export class GeofenceService {
     }
   }
 
+  /**
+   * The geofences around a load's loading (pickup) and unloading (drop) points — the ones linked
+   * to its master points, which are also what the tracking service's geofence check uses. The
+   * portal draws them as areas on the load's map.
+   */
+  async forLoad(tenantId: string, loadId: string) {
+    try {
+      const points = await this.repository.loadPoints(tenantId, loadId);
+      if (!points) throw new NotFoundError(`Load ${loadId} not found`);
+      const pickupIds = points.pickupLoadingPointId ? [points.pickupLoadingPointId] : [];
+      const dropLoadingIds = points.dropLoadingPointId ? [points.dropLoadingPointId] : [];
+      const dropDeliveryIds = points.dropCustomerDeliveryPointId
+        ? [points.dropCustomerDeliveryPointId]
+        : [];
+      const found = await this.repository.findLinked(
+        tenantId,
+        [...pickupIds, ...dropLoadingIds],
+        dropDeliveryIds,
+      );
+      const geofences = found.flatMap((geofence) => {
+        const isPickup = !!geofence.loadingPointId && pickupIds.includes(geofence.loadingPointId);
+        const isDrop =
+          (!!geofence.customerDeliveryPointId &&
+            dropDeliveryIds.includes(geofence.customerDeliveryPointId)) ||
+          (!!geofence.loadingPointId && dropLoadingIds.includes(geofence.loadingPointId));
+        if (!isPickup && !isDrop) return [];
+        return [
+          { ...toView(geofence), role: isPickup ? ('loading' as const) : ('unloading' as const) },
+        ];
+      });
+      return { loadId, geofences };
+    } catch (error) {
+      rethrow(error, 'Failed to fetch the load’s geofences');
+    }
+  }
+
   async get(tenantId: string, id: string): Promise<GeofenceView> {
     try {
       return toView(await this.assertExists(tenantId, id));
