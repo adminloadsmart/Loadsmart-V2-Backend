@@ -134,11 +134,6 @@ export function shipperActionFor(load: ShipperActionInput): ShipperAction {
     if (load.invoiceOpen !== null && load.invoiceOpen > 0) {
       return { kind: 'pay_invoice', amount: load.invoiceOpen };
     }
-    // The invoice is settled — the load closes once Loadsmart pays the carrier, not the shipper.
-    return {
-      kind: 'none',
-      reason: "Loadsmart's invoice is settled — waiting on the carrier's payout",
-    };
   }
   return { kind: 'none' };
 }
