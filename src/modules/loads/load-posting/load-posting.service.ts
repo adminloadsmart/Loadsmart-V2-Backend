@@ -1406,6 +1406,8 @@ function dispatchOfferOf(posting: LoadPostingEntity, loads: LoadEntity[]): Dispa
     truckLabel: posting.truckLengthFt ? `${posting.truckLengthFt} ft` : 'Truck',
     weightTonnes: posting.weightTonnes,
     pickupAt: posting.pickupAt,
+    deliverByAt: posting.deliverByAt,
+    goods: posting.commodityName,
     loads: loads.map((load) => ({ loadId: load.id, loadCode: load.code })),
   };
 }

@@ -259,5 +259,11 @@ export const BIDS_ROLLUP_INTERVAL_MS = 30 * 60 * 1000;
  *  BullMQ job ids must not contain ':'). */
 export const BIDS_ROLLUP_JOB = 'bids-received-rollup';
 export const BIDS_ROLLUP_JOB_ID_PREFIX = 'bids-rollup-';
+/** LS_N_0069 again to the shipper when this much of the load memo's time is left (catalog: "P1
+ *  when 20 minutes are left"). */
+export const MEMO_REMINDER_BEFORE_EXPIRY_MS = 20 * 60 * 1000;
+/** The delayed memo reminder on the whatsapp-schedules queue, one per memo version. */
+export const MEMO_REMINDER_JOB = 'memo-expiry-reminder';
+export const MEMO_REMINDER_JOB_ID_PREFIX = 'memo-reminder-';
 /** The Loadsmart sourcing status once Loadsmart's bid won the load (its partner is on the truck). */
 export const LOADSMART_WON_SOURCING_STATUS = 'won';

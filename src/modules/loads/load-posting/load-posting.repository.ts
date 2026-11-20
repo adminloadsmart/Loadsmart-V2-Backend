@@ -254,6 +254,14 @@ export class LoadPostingRepository {
     return repo.save(repo.create(rows));
   }
 
+  /** Every bid on one load, newest first — for the "Who is quoting" rows. */
+  listBidsForLoad(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
+    return this.loads.manager.getRepository(LoadBidEntity).find({
+      where: { tenantId, loadId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   listRecipients(tenantId: string, postingId: string, manager?: EntityManager) {
     return (manager?.getRepository(LoadRecipientEntity) ?? this.recipients).find({
       where: { tenantId, postingId },

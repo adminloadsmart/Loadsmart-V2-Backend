@@ -94,15 +94,33 @@ export const TEMPLATE_REGISTRY = {
     body: 'New load from {{shipper_name}}: {{origin}} to {{destination}}, {{truck_type}}, reporting {{reporting_time}}. Price ₹{{price}}. Are you interested?',
     buttons: OFFER_REPLIES,
   },
-  // The catalog's "Ask for quotes variant" of LS_N_0119.
+  // The catalog's "Ask for quotes variant" of LS_N_0119, as approved in MSG91 ("New Load
+  // Available – Submit Your Quote" header, named parameters). No quick replies: the transporter
+  // types a rate (with the truck number) or opens the load in the app — a fixed link.
   LS_N_0119_QUOTE: {
     audience: TRANSPORTER,
     intent: 'action',
     category: 'UTILITY',
     kind: 'offer',
-    variables: ['shipper_name', 'origin', 'destination', 'truck_type', 'reporting_time'],
-    body: 'New load from {{shipper_name}}: {{origin}} to {{destination}}, {{truck_type}}, reporting {{reporting_time}}. Send us your rate.',
-    buttons: QUOTE_REPLIES,
+    variables: [
+      'origin',
+      'destination',
+      'reporting_datetime',
+      'delivery_datetime',
+      'truck_type',
+      'goods',
+    ],
+    catalogParameterNames: true,
+    body:
+      'A new load is available. Please review the details below and submit your quote.\n\n' +
+      'Source: {{origin}}\n' +
+      'Destination: {{destination}}\n' +
+      'Reporting Date & Time: {{reporting_datetime}}\n' +
+      'Delivery Date & Time: {{delivery_datetime}}\n' +
+      'Truck Type: {{truck_type}}\n' +
+      'Goods: {{goods}}\n\n' +
+      'Please review the load details and submit your best quote.',
+    buttons: [{ title: 'View load in app', url: true }],
   },
   LS_N_0120: {
     audience: TRANSPORTER,
@@ -162,6 +180,16 @@ export const TEMPLATE_REGISTRY = {
     kind: 'template',
     variables: ['rate', 'from_area', 'to_area'],
     body: 'Your rate of ₹{{rate}} for {{from_area}} to {{to_area}} is accepted. Reply with the truck number, driver name, driver mobile and DL number.',
+  },
+  // A truck or driver failed its check before the memo (VAHAN, Sarathi, or a licence class that
+  // doesn't fit the truck) — to the broker on a Loadsmart load, else the shipper's transporter.
+  LS_N_0108: {
+    audience: [...BROKER, ...TRANSPORTER],
+    intent: 'action',
+    category: 'UTILITY',
+    kind: 'template',
+    variables: ['failed_item', 'load_id', 'check_issue'],
+    body: "We can't use {{failed_item}} for load {{load_id}}: {{check_issue}}. Please send another one.",
   },
   LS_N_0121: {
     audience: TRANSPORTER,

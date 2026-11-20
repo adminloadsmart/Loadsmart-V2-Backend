@@ -590,6 +590,10 @@ export function buildContainer(dataSource: DataSource): Container {
     loadDispatchNotifier: messaging.dispatchNotifier,
   });
 
+  // A driver logging into the app moves their SIM/FASTag loads to driver_app, so the tracking
+  // service starts taking the phone's points for them.
+  driverAuth.service.setOnDriverLogin(loads.reevaluateDriverTracking);
+
   // Loadsmart loads — the ops console (/loadsmart-ops) and the shipper's side of a Loadsmart load
   // (on /loads). Hooks itself into posting, bids, stage moves and the balance payment.
   // Lane matching: a load goes only to the brokers and transporters whose lane covers it.

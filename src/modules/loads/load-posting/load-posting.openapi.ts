@@ -11,6 +11,31 @@ const BASE = `${API_VERSION_PREFIX}/loads/post`;
 
 export function registerLoadPostingOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
+    method: 'get',
+    path: `${BASE}/{postingId}`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.getPosting',
+    ...permissionGated(
+      [LOADS_POST],
+      'The posting, its loads and who it went to (`recipients`: WhatsApp delivery — ' +
+        '`messageStatus`, `sentAt`, `deliveredAt`, `readAt`, `failReason` — and the answer, ' +
+        '`replyStatus`: accepted / rejected / negotiating). With `loadId` (one of its loads) each ' +
+        'recipient also carries `bid` (its bid on that load: rate, truck and its check, counter, ' +
+        'who typed it in) and `quote` — its furthest `step` there with `stepAt`, and `needsCall` ' +
+        'when the offer was delivered or seen 30 minutes ago with no answer. Delivery and the ' +
+        'answer are kept per posting; the bid is per load.',
+    ),
+    request: {
+      params: v.getPosting.shape.params,
+      query: v.getPosting.shape.query,
+    },
+    responses: {
+      200: { description: '{ posting, recipients, loads }' },
+      404: { description: 'No such posting, or the load is not on it', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'put',
     path: `${BASE}/{postingId}`,
     tags: [TAGS.LOADS],

@@ -200,6 +200,18 @@ describe('Msg91WhatsappProvider', () => {
       providerMessageId: null,
       providerRequestId: 'req-9',
     });
+    expect(
+      sendResultOf({
+        httpStatus: 200,
+        skipped: false,
+        body: {
+          status: 'success',
+          hasError: false,
+          request_id: 'req-9',
+          data: [{ id: 'wamid.X1' }],
+        },
+      }),
+    ).toMatchObject({ ok: true, providerMessageId: 'wamid.X1', providerRequestId: 'req-9' });
     expect(sendResultOf({ httpStatus: 429, skipped: false, body: null })).toMatchObject({
       ok: false,
       errorCode: 'rate_limited',

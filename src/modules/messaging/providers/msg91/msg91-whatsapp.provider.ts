@@ -1,5 +1,8 @@
 import { Msg91Client, Msg91WhatsappSendOutcome } from '../../../../adapters/msg91.client';
-import { whatsappRequestIdOf } from '../../../../adapters/msg91-whatsapp-report';
+import {
+  whatsappMessageIdOf,
+  whatsappRequestIdOf,
+} from '../../../../adapters/msg91-whatsapp-report';
 import {
   ButtonsMessage,
   FetchedMedia,
@@ -15,8 +18,9 @@ type SendPort = Pick<Msg91Client, 'postWhatsappTemplate' | 'postWhatsappSession'
 type FetchFunction = typeof fetch;
 
 /** MSG91's answer → our send result. MSG91 answers `{ status: 'success', hasError: false, … }`
- *  with a request id; the Meta WAMID arrives later on the first report (plan note 17), so
- *  providerMessageId stays null here and is filled from the report by request id. */
+ *  with a request id; the Meta WAMID usually arrives later on the first report (plan note 17)
+ *  and is filled from it by request id. If the answer already carries a WAMID it is kept now, so
+ *  a swipe on this message can be matched before any report comes in. */
 export function sendResultOf(outcome: Msg91WhatsappSendOutcome): SendResult {
   if (outcome.skipped) {
     return {
@@ -33,7 +37,11 @@ export function sendResultOf(outcome: Msg91WhatsappSendOutcome): SendResult {
     body?.status === 'success' &&
     !body?.hasError;
   if (accepted) {
-    return { ok: true, providerMessageId: null, providerRequestId: whatsappRequestIdOf(body) };
+    return {
+      ok: true,
+      providerMessageId: whatsappMessageIdOf(body),
+      providerRequestId: whatsappRequestIdOf(body),
+    };
   }
   const detail = `HTTP ${outcome.httpStatus}: ${body ? JSON.stringify(body).slice(0, 500) : 'no JSON body'}`;
   if (MSG91_AUTH_HTTP.includes(outcome.httpStatus))

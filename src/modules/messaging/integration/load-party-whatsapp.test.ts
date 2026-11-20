@@ -95,13 +95,15 @@ class FakeStore implements LoadNoticeStore {
   async findBid(_tenantId: string, bidId: string) {
     return (this.bids[bidId] as LoadBidEntity) ?? null;
   }
+  memo = {
+    status: 'sent',
+    vehicleNumber: 'PB10AB1234',
+    driverName: 'Ramesh',
+    freightValue: '45000.00',
+    expiresAt: new Date('2026-11-14T05:30:00Z'),
+  } as LoadMemoEntity;
   async findMemo() {
-    return {
-      vehicleNumber: 'PB10AB1234',
-      driverName: 'Ramesh',
-      freightValue: '45000.00',
-      expiresAt: new Date('2026-11-14T05:30:00Z'),
-    } as LoadMemoEntity;
+    return this.memo;
   }
   async findPartnerPayment() {
     return this.partnerPayment as LsPartnerPaymentEntity | null;
@@ -130,6 +132,11 @@ class FakeStore implements LoadNoticeStore {
   async liveBidSummary() {
     return this.liveBids;
   }
+  async sentVariables(loadId: string, key: TemplateKey, ref: string) {
+    return this.sent
+      .filter((row) => row.loadId === loadId && row.key === key && row.ref === ref)
+      .map((row) => row.variables);
+  }
   async lastSent(loadId: string, key: TemplateKey, ref: string) {
     const rows = this.sent.filter(
       (row) => row.loadId === loadId && row.key === key && row.ref === ref,
@@ -157,6 +164,10 @@ function setup(start = new Date('2026-11-18T05:00:00Z')) {
   const store = new FakeStore();
   const requests: TemplateSendRequest[] = [];
   const rollups: { job: { tenantId: string; loadId: string }; delayMs: number }[] = [];
+  const reminders: {
+    job: { tenantId: string; loadId: string; memoId: string };
+    delayMs: number;
+  }[] = [];
   const outbound = {
     sendTemplate: async (request: TemplateSendRequest) => {
       requests.push(request);
@@ -180,8 +191,11 @@ function setup(start = new Date('2026-11-18T05:00:00Z')) {
     },
     { error: () => undefined, warn: () => undefined },
     () => clock.now,
+    async (job, delayMs) => {
+      reminders.push({ job, delayMs });
+    },
   );
-  return { store, requests, notices, rollups, clock };
+  return { store, requests, notices, rollups, reminders, clock };
 }
 
 const at = new Date('2026-11-18T05:00:00Z');

@@ -239,6 +239,11 @@ export const loadPostingValidators = {
     body: z.object({ name: z.string().trim().min(1).max(150) }).strict(),
   }),
   pastLoads: z.object({ query: z.object({ customerId: uuid.optional() }) }),
+  // With loadId, each recipient also carries its bid and its step on that load ("Who is quoting").
+  getPosting: z.object({
+    params: z.object({ postingId: uuid }),
+    query: z.object({ loadId: uuid.optional() }),
+  }),
   unloadingPoints: z.object({
     params: z.object({ customerId: uuid }),
     query: z.object({ search: z.string().trim().min(1).optional() }),

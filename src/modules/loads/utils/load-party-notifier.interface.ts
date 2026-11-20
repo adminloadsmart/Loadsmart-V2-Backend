@@ -16,8 +16,17 @@ export type LoadPartyNotice =
   | { kind: 'partner_paid'; tenantId: string; loadId: string; partnerPaymentId: string }
   /** LS_N_0126 — the shipper recorded the advance or the final payment to its transporter. */
   | { kind: 'transporter_payment_recorded'; tenantId: string; loadId: string; paymentId: string }
+  /** LS_N_0108 — a truck or driver failed its check before the memo; the broker (Loadsmart load)
+   *  or the transporter (own transporter, indent) is asked for another. One per failed check. */
+  | { kind: 'check_failed'; tenantId: string; loadId: string; failures: FailedCheck[] }
   /** LS_N_0117 — Payables marked the partner's original POD received. */
   | { kind: 'original_pod_received'; tenantId: string; loadId: string };
+
+/** One failed check: "truck HR55AB1234" / "driver Ramesh Kumar", and why in plain words. */
+export interface FailedCheck {
+  item: string;
+  issue: string;
+}
 
 /** Never throws: a WhatsApp problem must not fail the load step that triggered it. */
 export type LoadPartyNotifier = (notice: LoadPartyNotice) => Promise<void>;

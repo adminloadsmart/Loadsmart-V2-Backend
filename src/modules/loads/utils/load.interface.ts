@@ -23,6 +23,13 @@ import type { LoadEntity } from '../entities/load.entity';
  *  alerts, or open a Loadsmart claim. */
 export type LoadStageHook = (load: LoadEntity, to: LoadStatus) => Promise<void>;
 
+/** "Withdraw load": the shipper takes the load back before the load memo is accepted. */
+export interface WithdrawLoadInput {
+  /** Defaults to `shipper_cancelled`. */
+  reasonCode?: string;
+  note?: string;
+}
+
 /** Market loads only — own-fleet loads are assigned at Dispatch Planning and never reach this
  *  endpoint (Plan Dispatch v2.0 R-16). `freightValue` is optional: defaults to the load's
  *  `expectedRate` (captured at planning) if the caller doesn't override it with the agreed rate. */

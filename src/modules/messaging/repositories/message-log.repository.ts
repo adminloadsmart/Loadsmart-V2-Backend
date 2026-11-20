@@ -60,16 +60,25 @@ export class MessageLogRepository {
       .getOne();
   }
 
-  findAwaitingMessageIdByAddress(address: string, since: Date): Promise<MessageLogEntity | null> {
-    return this.repository
-      .createQueryBuilder('messageLog')
-      .where('messageLog.address = :address', { address })
-      .andWhere('messageLog.channel = :channel', { channel: 'whatsapp' })
-      .andWhere('messageLog.providerMessageId IS NULL')
-      .andWhere('messageLog.status IN (:...statuses)', { statuses: ['queued', 'submitted'] })
-      .andWhere('messageLog.createdAt >= :since', { since })
-      .orderBy('messageLog.createdAt', 'DESC')
-      .getOne();
+  /** The one message to this address since `since` still waiting for its WAMID. Null when there
+   *  are several: picking the newest could give one message another's WAMID, and a swipe on it
+   *  would then route to the wrong load — better unmatched than wrong. */
+  async findAwaitingMessageIdByAddress(
+    address: string,
+    since: Date,
+  ): Promise<MessageLogEntity | null> {
+    const waiting = await this.repository.find({
+      where: {
+        address,
+        channel: 'whatsapp',
+        providerMessageId: IsNull(),
+        status: In(['queued', 'submitted']),
+        createdAt: MoreThanOrEqual(since),
+      },
+      order: { createdAt: 'DESC' },
+      take: 2,
+    });
+    return waiting.length === 1 ? waiting[0] : null;
   }
 
   /** WhatsApp rows about a load sent to this address since `since` that were not failed or

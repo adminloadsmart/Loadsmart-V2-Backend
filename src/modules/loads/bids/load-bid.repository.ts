@@ -152,4 +152,14 @@ export class LoadBidRepository {
       recipientType: 'transporter',
     });
   }
+
+  /** The transporter's answer kept on its recipient row (as a WhatsApp Accept / Reject does), so
+   *  the shipper sees it on the load. */
+  async recordRecipientReply(
+    recipientId: string,
+    reply: 'accepted' | 'rejected',
+    at: Date,
+  ): Promise<void> {
+    await this.recipients.update({ id: recipientId }, { replyStatus: reply, repliedAt: at });
+  }
 }

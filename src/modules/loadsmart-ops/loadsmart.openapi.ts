@@ -363,7 +363,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.sendRequirement,
     description:
-      "Send Requirement: the message for brokers (no shipper name, no price) and a wa.me link per broker for the console to open — nothing is sent from the server. Records when and to how many. Without partnerIds, the load's matched brokers and any added by hand.",
+      "Send Requirement (spec step 4): sends the load's WhatsApp offer from Loadsmart's business number — LS_N_0105 with the partner rate (Accept / Negotiate / Reject) or LS_N_0106 asking for rates (Give rate / Reject) — to the brokers Placement picked. Without partnerIds, the load's matched brokers and any added by hand. Nothing goes to brokers when the load is posted. Each broker's outcome is saved: `sent`, `not_on_whatsapp` (no message — call them) or `failed` (with the reason); delivered and read times follow from WhatsApp. A broker already sent to is skipped (`already_sent`), so sending again reaches only the new ones; a failed one is tried again. Returns { sentAt, sentCount, recipients[] }.",
   },
   {
     method: 'get',

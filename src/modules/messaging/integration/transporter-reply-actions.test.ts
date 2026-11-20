@@ -39,6 +39,7 @@ function marketOffer(overrides: Partial<TransporterOffer> = {}): TransporterOffe
     laneLabel: 'Gurugram → Ludhiana · 24 ft',
     awarded: false,
     memoAccepted: false,
+    acceptedOnBehalf: false,
     ...overrides,
   };
 }
@@ -97,13 +98,24 @@ class FakeBids implements TransporterBidWriter {
     _tenantId: string,
     actorId: null,
     loadId: string,
+    transporterId: string,
     truck: string,
     channel: 'whatsapp',
   ) {
-    this.calls.push(`indent ${loadId} truck=${truck} actor=${actorId} channel=${channel}`);
+    this.calls.push(
+      `indent ${loadId} transporter=${transporterId} truck=${truck} actor=${actorId} channel=${channel}`,
+    );
   }
-  async recordIndentRejection(_tenantId: string, actorId: null, loadId: string, reason: string) {
-    this.calls.push(`indent-rejected ${loadId} actor=${actorId} reason=${reason}`);
+  async recordIndentRejection(
+    _tenantId: string,
+    actorId: null,
+    loadId: string,
+    transporterId: string,
+    reason: string,
+  ) {
+    this.calls.push(
+      `indent-rejected ${loadId} transporter=${transporterId} actor=${actorId} reason=${reason}`,
+    );
   }
   async findLiveTransporterBid() {
     return this.live;
@@ -182,6 +194,21 @@ describe('transporterStage (CTA sheet: Accept → truck number; Negotiate → ra
       transporterStage(indentOffer({ loadTransporterId: 'someone-else' }), null, null, NOW),
     ).toBe('closed');
   });
+
+  it('indent: an acceptance the shipper recorded by phone waits for the truck like Accept', () => {
+    expect(transporterStage(indentOffer({ acceptedOnBehalf: true }), null, null, NOW)).toBe(
+      'awaiting_truck',
+    );
+    // Once the indent is awarded the stage moves on as usual.
+    expect(
+      transporterStage(
+        indentOffer({ acceptedOnBehalf: true, loadStatus: 'bids_received', awarded: true }),
+        null,
+        null,
+        NOW,
+      ),
+    ).toBe('awaiting_dispatch');
+  });
 });
 
 describe('TransporterReplyActions', () => {
@@ -223,6 +250,8 @@ describe('TransporterReplyActions', () => {
       resolution: 'negotiating',
       nextPrompt: 'rate_request',
     });
+    // The shipper sees "negotiating" on the transporter before any rate is in.
+    expect(offers.replies).toEqual(['recipient-A negotiating']);
     const outcome = await actions.applyRate(context(offer), 41000, 'PB10AB1234', inbound);
     expect(outcome).toMatchObject({ resolution: 'bid_recorded' });
     expect(outcome.confirmationText).toBe(
@@ -242,6 +271,9 @@ describe('TransporterReplyActions', () => {
     expect(
       (await actions.applyOfferAction(context(indent), 'reject', inbound)).confirmationText,
     ).toBe('LOAD-0099: Noted. The load goes to the open market.');
+    expect(bids.calls).toContainEqual(
+      expect.stringMatching(/^indent-rejected load-9 transporter=transporter-A actor=null/),
+    );
   });
 
   it('indent: Accept, then the truck number records the acceptance on the whatsapp channel; a rate goes to review', async () => {
@@ -252,7 +284,9 @@ describe('TransporterReplyActions', () => {
     });
     expect(bids.calls).toEqual([]);
     await actions.applyTruck(context(offer), 'PB10AB1234', inbound);
-    expect(bids.calls).toEqual(['indent load-1 truck=PB10AB1234 actor=null channel=whatsapp']);
+    expect(bids.calls).toEqual([
+      'indent load-1 transporter=transporter-A truck=PB10AB1234 actor=null channel=whatsapp',
+    ]);
     expect(await actions.applyRate(context(offer), 41000, null, inbound)).toMatchObject({
       resolution: 'needs_review',
     });
@@ -402,6 +436,8 @@ describe('WhatsappDispatchNotifier (catalog LS_N_0119 / 0119 quotes / 0120)', ()
     truckLabel: '24 ft',
     weightTonnes: '18.00',
     pickupAt: new Date(Date.UTC(2026, 10, 15, 4, 30)),
+    deliverByAt: new Date(Date.UTC(2026, 10, 16, 12, 30)),
+    goods: 'Steel',
     loads: [
       { loadId: 'load-1', loadCode: 'LOAD-0042' },
       { loadId: 'load-2', loadCode: 'LOAD-0043' },
