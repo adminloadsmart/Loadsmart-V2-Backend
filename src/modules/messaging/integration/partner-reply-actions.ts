@@ -1,4 +1,5 @@
 import { AppError } from '../../../shared/errors/AppError';
+import { writeErrorNote } from './write-error-note';
 import { LoadBoardOffer } from '../../loadsmart-ops/loadsmart.interface';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { InboundResolution, OfferAction, RecipientLoadStage } from '../messaging.types';
@@ -200,7 +201,7 @@ export class PartnerReplyActions implements ReplyActions {
       if (!(error instanceof AppError)) throw error;
       return {
         resolution: 'needs_review',
-        note: error.message,
+        note: writeErrorNote(error, boardLoad.loadCode),
         confirmationText: REPLY_TEXTS.notRecorded(boardLoad.loadCode),
       };
     }
