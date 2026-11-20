@@ -144,7 +144,7 @@ function staffPasswordError() {
 const STAFF_UNIQUE_INDEX_MESSAGES: Record<string, string> = {
   users_phone_active_unique: 'A user with this phone number already exists',
   users_email_active_unique: 'A user with this email already exists',
-  users_employee_id_team_active_unique: 'This employee ID is already used on this team',
+  users_employee_id_team_active_unique: 'This employee ID is already in use',
 };
 function rethrowStaffUniqueViolation(error: unknown): never {
   const failure = error as {
@@ -437,8 +437,8 @@ export class AuthService {
 
   /** Platform admin adds a team member (POST /admin/staff — the "Team members" form, notes §4).
    *  The only user-creation path that isn't self-service, so phone and email are pre-checked for
-   *  collisions (the DB unique indexes stay the final word on a race), and the employee ID is
-   *  issued here (LS0001, …) once everything else checks out. No password:
+   *  collisions (the DB unique indexes stay the final word on a race), and the admin-typed employee ID
+   *  (LS5678) is unique among active users too. No password:
    *  team members sign in with their mobile number and an OTP (POST /auth/login/otp/request), and
    *  are told so by an SMS/email invite. Access comes from the team (roleId) alone — no per-user
    *  grants, strictly one team per person. */
@@ -453,8 +453,11 @@ export class AuthService {
       reportsToUserId: input.reportsToUserId ?? null,
       sales: input.sales ?? null,
     });
-    await this.assertStaffIdentityFree(null, { phoneNumber: normalizedPhone, email: input.email });
-    const employeeId = await this.authRepository.nextEmployeeId();
+    await this.assertStaffIdentityFree(null, {
+      phoneNumber: normalizedPhone,
+      email: input.email,
+      employeeId: input.employeeId,
+    });
 
     const user = await this.authRepository
       .createUser({
@@ -465,7 +468,7 @@ export class AuthService {
         passwordHash: null,
         fullName: input.fullName,
         region: input.region,
-        employeeId,
+        employeeId: input.employeeId,
         ...profile,
       })
       .catch(rethrowStaffUniqueViolation);
@@ -517,24 +520,31 @@ export class AuthService {
     return roleName;
   }
 
-  /** Phone and email are the login and notification identity — unique among active users. */
+  /** Phone and email are the login and notification identity, and the employee ID identifies the
+   *  person to ops — each unique among active users. */
   private async assertStaffIdentityFree(
     staffId: string | null,
-    identity: { phoneNumber?: string; email?: string },
+    identity: { phoneNumber?: string; email?: string; employeeId?: string },
   ): Promise<void> {
-    const [byPhone, byEmail] = await Promise.all([
+    const [byPhone, byEmail, byEmployeeId] = await Promise.all([
       identity.phoneNumber
         ? this.authRepository.findUserByPhone(identity.phoneNumber)
         : Promise.resolve(null),
       // findUserByEmail's `where` drops undefined values entirely, so it must be skipped rather
       // than called with an undefined email — otherwise it'd match any active user.
       identity.email ? this.authRepository.findUserByEmail(identity.email) : Promise.resolve(null),
+      identity.employeeId
+        ? this.authRepository.findUserByEmployeeId(identity.employeeId)
+        : Promise.resolve(null),
     ]);
     if (byPhone && byPhone.id !== staffId) {
       throw new ConflictError('A user with this phone number already exists');
     }
     if (byEmail && byEmail.id !== staffId) {
       throw new ConflictError('A user with this email already exists');
+    }
+    if (byEmployeeId && byEmployeeId.id !== staffId) {
+      throw new ConflictError('This employee ID is already in use');
     }
   }
 
@@ -544,7 +554,6 @@ export class AuthService {
    *   - teamRole must be a job title of this team (TEAM_ROLES) — e.g. ASM is sales-only;
    *   - sales fields (type, state, ASM) only on the sales team, and required there; a
    *     salesperson needs an ASM, who must be an active sales-team ASM (and not themselves);
-   *   - employee ID unique on this team (a second account on another team may reuse it);
    *   - reports-to must be an active team member or the platform_admin owner, never themselves,
    *     and never someone below them (no cycle). */
   private async resolveStaffProfile(input: {
@@ -1249,6 +1258,8 @@ export class AuthService {
     const normalizedPhone =
       input.phoneNumber !== undefined ? this.normalizePhone(input.phoneNumber) : undefined;
     const phoneChanged = normalizedPhone !== undefined && normalizedPhone !== existing.phoneNumber;
+    const employeeIdChanged =
+      input.employeeId !== undefined && input.employeeId !== existing.employeeId;
 
     // Merge: on a team change, sales details only carry over when staying on sales.
     const currentSales: StaffSalesInput | null =
@@ -1271,6 +1282,7 @@ export class AuthService {
     await this.assertStaffIdentityFree(staffId, {
       phoneNumber: phoneChanged ? normalizedPhone : undefined,
       email: input.email !== undefined && input.email !== existing.email ? input.email : undefined,
+      employeeId: employeeIdChanged ? input.employeeId : undefined,
     });
     await this.assertTeamChangeAllowed(existing, nextTeam, profile.teamRole);
 
@@ -1283,8 +1295,7 @@ export class AuthService {
       ...(phoneChanged ? { phoneNumber: normalizedPhone } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
       ...(input.region !== undefined ? { region: input.region } : {}),
-      // Hired before IDs were generated and never given one: issue it now.
-      ...(existing.employeeId ? {} : { employeeId: await this.authRepository.nextEmployeeId() }),
+      ...(employeeIdChanged ? { employeeId: input.employeeId } : {}),
       ...profile,
     };
     await this.authRepository.updateUser(staffId, changes).catch(rethrowStaffUniqueViolation);

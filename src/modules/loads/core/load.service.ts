@@ -49,6 +49,7 @@ import {
   ManualTrackingStatus,
   LoadStatus,
   ShortageOrDamageStatus,
+  RemovableLoadDocument,
 } from '../utils/loads.types';
 import { hasLoadingPapers, progressPercentFor } from '../utils/load-stages';
 import { decodeLiveLoadsCursor, encodeLiveLoadsCursor } from '../utils/live-loads-cursor';
@@ -591,6 +592,83 @@ export class LoadService {
       return await this.advanceIfPapersComplete(tenantId, actorId, updated, driverOwnerId);
     } catch (error) {
       rethrow(error, 'Failed to update load documents');
+    }
+  }
+
+  /**
+   * Delete one loading paper (goods invoice, e-way bill or signed LR) from the load — the shipper
+   * uploaded the wrong file and wants to upload the right one. Clears the paper's file and number
+   * on the load (the register keeps the old file as a superseded version, so nothing is lost) and
+   * notes it on the timeline. The load's status is left as is; the paper is simply missing again
+   * until it's re-uploaded through PATCH /loads/{id}/documents.
+   */
+  async removeDocument(
+    tenantId: string,
+    actorId: string,
+    loadId: string,
+    docType: RemovableLoadDocument,
+  ): Promise<LoadEntity> {
+    try {
+      const load = await this.assertExists(tenantId, loadId);
+      if (load.status === 'closed') {
+        throw new ConflictError('Documents cannot be changed once a load is closed');
+      }
+
+      const fields: UpdateLoadData = { updatedBy: actorId };
+      let hadFile: boolean;
+      switch (docType) {
+        case 'invoice':
+          hadFile = Boolean(load.invoiceFileKey || load.invoiceNumber);
+          Object.assign(fields, {
+            invoiceFileKey: null,
+            invoiceNumber: null,
+            invoiceDate: null,
+            invoiceValue: null,
+          });
+          break;
+        case 'eway_bill':
+          hadFile = Boolean(load.ewayBillFileKey || load.ewayBillNumber);
+          Object.assign(fields, {
+            ewayBillFileKey: null,
+            ewayBillNumber: null,
+            ewayBillGeneratedAt: null,
+            ewayBillExpiresAt: null,
+          });
+          break;
+        case 'signed_lr':
+          hadFile = Boolean(load.elrFileKey);
+          // The LR number is shared with the generated e-LR — keep it while that one is on.
+          Object.assign(fields, {
+            elrFileKey: null,
+            ...(load.elrDocumentFileKey ? {} : { elrNumber: null }),
+          });
+          break;
+      }
+      if (!hadFile) throw new NotFoundError('That document is not on the load');
+
+      const updated = await this.documents.save(tenantId, load, fields, documentActor(actorId));
+      // The document is already deleted — a timeline note that fails to write must not turn
+      // that into an error for the shipper.
+      try {
+        await this.loadActivityService.record(
+          tenantId,
+          loadId,
+          actorId,
+          'DOCUMENT_REMOVED',
+          null,
+          null,
+          {
+            documents: [
+              docType === 'signed_lr' ? 'elr' : docType === 'eway_bill' ? 'ewayBill' : 'invoice',
+            ],
+          },
+        );
+      } catch (error) {
+        console.warn(`[loads] could not note the deleted ${docType} on load ${loadId}`, error);
+      }
+      return updated;
+    } catch (error) {
+      rethrow(error, 'Failed to delete the load document');
     }
   }
 

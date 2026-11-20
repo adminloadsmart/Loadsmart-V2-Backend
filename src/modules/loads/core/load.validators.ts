@@ -11,6 +11,7 @@ import {
   MANUAL_TRACKING_STATUSES,
   POD_STATUSES,
   POD_REVIEW_DECISIONS,
+  REMOVABLE_LOAD_DOCUMENTS,
   SEAL_STATUSES,
   SHORTAGE_OR_DAMAGE_STATUSES,
 } from '../utils/loads.types';
@@ -305,6 +306,11 @@ export const loadValidators = {
   updateDocuments: z.object({
     params,
     body: confirmLoadingBody,
+  }),
+
+  // Delete one loading paper (to upload the right one) — see LoadService.removeDocument.
+  removeDocument: z.object({
+    params: params.extend({ docType: z.enum(REMOVABLE_LOAD_DOCUMENTS) }),
   }),
 
   updateStatus: z.object({

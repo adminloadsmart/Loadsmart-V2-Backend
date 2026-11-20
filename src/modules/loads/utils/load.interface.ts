@@ -11,6 +11,7 @@ import {
   PodStatus,
   ManualTrackingStatus,
   PodReviewDecision,
+  RemovableLoadDocument,
   SealStatus,
   ShortageOrDamageStatus,
 } from './loads.types';
@@ -173,6 +174,7 @@ export interface ListLiveLoadsInput {
 }
 
 export type LoadParams = { loadId: string };
+export type LoadDocumentParams = LoadParams & { docType: RemovableLoadDocument };
 
 export interface EwayBillExpiry {
   expiresAt: string | null;

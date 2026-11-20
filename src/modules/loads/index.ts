@@ -62,7 +62,10 @@ import { createLoadSourcingRoutes } from './sourcing/load-sourcing.routes';
 import { ElrService } from './elr/elr.service';
 import { createJobQueue } from '../../jobs/queue-registry';
 import { LoadAlertScheduler, LOAD_REMINDERS_QUEUE } from './alerts/load-alert-scheduler';
-import { createTrackingSourceHook } from './core/tracking-source.hook';
+import {
+  createDriverTrackingReevaluator,
+  createTrackingSourceHook,
+} from './core/tracking-source.hook';
 import { createLoadRemindersWorker } from './workers/load-reminders.worker';
 import { LoadVerificationRepository } from './verification/load-verification.repository';
 import { LoadVerificationService } from './verification/load-verification.service';
@@ -368,6 +371,8 @@ export function createLoadsModule(
     postingHooks,
     stageHooks,
     loadRepository,
+    // A driver logging into the app moves their SIM/FASTag loads to driver_app (composition-root.ts).
+    reevaluateDriverTracking: createDriverTrackingReevaluator(dataSource, loadRepository),
     elrService,
     loadCancelService,
     loadDocumentService,
