@@ -441,6 +441,25 @@ export function registerLoadsOpenApi(registry: OpenAPIRegistry): void {
   });
 
   registry.registerPath({
+    method: 'delete',
+    path: `${BASE}/loads/{loadId}/documents/{docType}`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.removeDocument',
+    ...manageDocuments(
+      'Delete an uploaded loading paper — the goods invoice, e-way bill or signed LR — so the ' +
+        'right one can be uploaded through PATCH /loads/{loadId}/documents. Clears its file and ' +
+        'number on the load; the documents register keeps the old file as a superseded version. ' +
+        'The load status is unchanged. Not allowed once the load is "closed".',
+    ),
+    request: { params: loadValidators.removeDocument.shape.params },
+    responses: {
+      200: { description: 'Document deleted; the updated load' },
+      404: { description: 'Load not found, or that document is not on it', ...errorContent },
+      409: { description: 'Load is already "closed"', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
     method: 'patch',
     path: `${BASE}/loads/{loadId}/status`,
     tags: [TAGS.LOADS],

@@ -19,6 +19,7 @@ import {
   ConfirmLoadingInput,
   ListLiveLoadsInput,
   ListLoadsInput,
+  LoadDocumentParams,
   LoadParams,
   UnloadingDetailsInput,
   TransporterInvoiceInput,
@@ -169,6 +170,17 @@ export class LoadsController {
       req.user!.role,
       req.params.loadId,
       req.body as ConfirmLoadingInput,
+    );
+    respond(res, load);
+  };
+
+  // Delete one loading paper. See LoadService.removeDocument.
+  removeDocument = async (req: Request<LoadDocumentParams>, res: Response) => {
+    const load = await this.loadService.removeDocument(
+      requireTenantId(req),
+      req.user!.id,
+      req.params.loadId,
+      req.params.docType,
     );
     respond(res, load);
   };
