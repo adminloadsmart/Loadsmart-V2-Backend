@@ -4,6 +4,7 @@ import { applyChannelPolicy } from '../channel-policy';
 import { LoadChannelFacts } from '../load-channel-facts';
 import { MessageLogEntity } from '../entities/message-log.entity';
 import {
+  ASKS_FOR_VARIABLE,
   CUSTOMER_SERVICE_WINDOW_MS,
   OUTBOUND_JOB_NAME,
   OUTBOUND_JOB_RETRY,
@@ -12,6 +13,7 @@ import {
 import {
   MessageRecipientKind,
   OutboundMessageKind,
+  ReplyValueKind,
   WhatsappProviderName,
 } from '../messaging.types';
 import { encodeOfferButtonId } from '../parsers/reply-value.parsers';
@@ -85,6 +87,8 @@ export interface SessionSendRequest extends OutboundLoadRef {
   fallbackTemplate?: { templateKey: TemplateKey; variables: Record<string, string> };
   replyToInboundId?: string | null;
   actor: string;
+  /** An info text that also asks for a value (kept in message_log.variables[ASKS_FOR_VARIABLE]). */
+  asksFor?: ReplyValueKind | null;
 }
 
 export interface OutboundResult {
@@ -203,6 +207,7 @@ export class OutboundMessageService {
     if (await this.isWindowOpen(request.recipient.phone)) {
       const baseRow = this.baseRow(request, request.kind, request.recipient, {
         renderedText: renderSession(request.content),
+        ...(request.asksFor ? { variables: { [ASKS_FOR_VARIABLE]: request.asksFor } } : {}),
       });
       return this.queueMessage(baseRow, request, request.content);
     }
@@ -323,6 +328,10 @@ export class OutboundMessageService {
     row: Partial<MessageLogEntity>,
     driverHasApp?: boolean,
   ): Promise<string | null> {
+    // An info text answering the user's own message (the router's confirmations) is not a
+    // proactive load message: it now carries the load so a swipe-reply routes, but the channel
+    // rules (e.g. no shipper WhatsApp before the memo) never applied to it and still don't.
+    if (row.kind === 'info' && row.replyToInboundId) return null;
     const needsLoad = row.recipientKind === 'shipper_user' && row.tenantId && row.loadId;
     const load =
       needsLoad && this.config.loadFacts

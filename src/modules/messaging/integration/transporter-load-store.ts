@@ -2,7 +2,7 @@ import { Brackets, DataSource, In } from 'typeorm';
 import { LoadEntity } from '../../loads/entities/load.entity';
 import { LoadRecipientEntity } from '../../loads/load-posting/entities/load-recipient.entity';
 import { LoadPostingEntity } from '../../loads/load-posting/entities/load-posting.entity';
-import { PostAddress } from '../../loads/load-posting/utils/load-posting.types';
+import { PostAddress, RecipientReply } from '../../loads/load-posting/utils/load-posting.types';
 import { BID_WINDOW_MS } from '../../loads/bids/bid-rules';
 import {
   INDENT_OFFER_LOOKBACK_MS,
@@ -162,5 +162,11 @@ export class TypeormTransporterOfferStore implements TransporterOfferStore {
 
   latestOfferAnswer(loadId: string, recipientId: string): Promise<InboundResolution | null> {
     return this.inboundRepository.findLatestOfferAnswer(loadId, recipientId);
+  }
+
+  async recordReply(recipientId: string, reply: RecipientReply, at: Date): Promise<void> {
+    await this.dataSource
+      .getRepository(LoadRecipientEntity)
+      .update({ id: recipientId }, { replyStatus: reply, repliedAt: at });
   }
 }

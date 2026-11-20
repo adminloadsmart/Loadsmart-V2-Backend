@@ -12,7 +12,9 @@ import { LoadPostingEntity } from './load-posting.entity';
 import {
   MESSAGE_STATUSES,
   MessageStatus,
+  RECIPIENT_REPLIES,
   RECIPIENT_TYPES,
+  RecipientReply,
   RecipientType,
 } from '../utils/load-posting.types';
 
@@ -49,6 +51,14 @@ export class LoadRecipientEntity {
 
   @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
   sentAt!: Date | null;
+
+  /** The transporter's Accept / Reject on WhatsApp — shown to the shipper before any bid or
+   *  truck number exists (an indent's Accept writes nothing else until the truck comes in). */
+  @Column({ name: 'reply_status', type: 'enum', enum: [...RECIPIENT_REPLIES], nullable: true })
+  replyStatus!: RecipientReply | null;
+
+  @Column({ name: 'replied_at', type: 'timestamptz', nullable: true })
+  repliedAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

@@ -163,7 +163,7 @@ export interface DraftParams {
 
 /** Set by the Loadsmart ops module once built — every market posting opens a sourcing too. */
 export interface LoadPostingHooks {
-  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string) => Promise<void>;
+  onMarketLoadsPosted?: (loads: LoadEntity[], actorId: string | null) => Promise<void>;
   /** A market posting was edited before any bid — the Loadsmart sourcing re-reads it. */
   onMarketLoadsEdited?: (loads: LoadEntity[], actorId: string) => Promise<void>;
 }

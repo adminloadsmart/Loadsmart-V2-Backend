@@ -1,3 +1,4 @@
+import { toIndianMsisdn } from '../../../shared/utils/phone-number';
 import { MessageLogEntity } from '../entities/message-log.entity';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { MessageLogRepository } from '../repositories/message-log.repository';
@@ -24,6 +25,14 @@ export class RepositoryRouterMessageStore implements RouterMessageStore {
 
   findAwaitingPick(pickerMessageLogId: string): Promise<WhatsappInboundEntity | null> {
     return this.inboundRepository.findAwaitingPick(pickerMessageLogId);
+  }
+
+  findLatestAwaitingPickFrom(phone: string, since: Date): Promise<WhatsappInboundEntity | null> {
+    return this.inboundRepository.findLatestAwaitingPickFrom(toIndianMsisdn(phone), since);
+  }
+
+  findRecentLoadMessagesTo(phone: string, since: Date): Promise<MessageLogEntity[]> {
+    return this.messageLogRepository.findRecentLoadMessagesTo(toIndianMsisdn(phone), since);
   }
 
   findFirstDecision(

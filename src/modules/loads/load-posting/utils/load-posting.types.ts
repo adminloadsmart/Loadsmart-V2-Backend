@@ -14,6 +14,10 @@ export type RecipientType = (typeof RECIPIENT_TYPES)[number];
 export const MESSAGE_STATUSES = ['pending', 'sent', 'failed'] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
+/** A transporter's answer to the offer on WhatsApp (Accept / Reject); null until they answer. */
+export const RECIPIENT_REPLIES = ['accepted', 'rejected'] as const;
+export type RecipientReply = (typeof RECIPIENT_REPLIES)[number];
+
 export const BALANCE_PAID_BY = ['shipper', 'consignee'] as const;
 export type BalancePaidBy = (typeof BALANCE_PAID_BY)[number];
 

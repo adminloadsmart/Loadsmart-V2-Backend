@@ -710,14 +710,15 @@ export class LoadBidService {
     }
   }
 
-  /** The contracted transporter rejected the indent — recorded by the shipper. "The load goes to
+  /** The contracted transporter rejected the indent — recorded by the shipper, or by the
+   *  transporter's own Reject on WhatsApp (actorId null). "The load goes to
    *  the open market (Loadsmart included) and the contract's non-placement penalty applies, if
    *  any": the load becomes a market load at Created (`indent_rejected`), the contract rate is
    *  kept as the expected price, the shipper's active transporters become recipients and Loadsmart
    *  opens its sourcing. The change and the penalty are kept in load_route_changes. */
   async recordIndentRejection(
     tenantId: string,
-    actorId: string,
+    actorId: string | null,
     loadId: string,
     reason: string,
   ): Promise<LoadEntity> {

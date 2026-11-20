@@ -111,6 +111,7 @@ export class PartnerReplyActions implements ReplyActions {
         resolution: 'accepted',
         note: `partner bid at the board rate ${partnerRate}`,
         confirmationText: REPLY_TEXTS.offerAccepted(boardLoad.loadCode),
+        asksFor: 'truck',
       };
     });
   }

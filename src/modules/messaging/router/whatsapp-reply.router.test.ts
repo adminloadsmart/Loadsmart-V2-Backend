@@ -37,6 +37,25 @@ class FakeStore implements RouterMessageStore {
       ) ?? null
     );
   }
+  async findLatestAwaitingPickFrom(phone: string, since: Date) {
+    return (
+      this.inbound
+        .filter(
+          (row) =>
+            row.fromPhone === phone &&
+            row.resolution === 'awaiting_load_pick' &&
+            row.receivedAt >= since,
+        )
+        .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0] ?? null
+    );
+  }
+  async findRecentLoadMessagesTo(phone: string, since: Date) {
+    return this.messageLogs
+      .filter(
+        (log) => log.address === phone && log.loadRef !== null && (log.createdAt ?? NOW) >= since,
+      )
+      .sort((a, b) => (b.createdAt ?? NOW).getTime() - (a.createdAt ?? NOW).getTime());
+  }
   async findFirstDecision(messageLogId: string, excludeInboundId: string) {
     return (
       this.inbound.find(
