@@ -80,6 +80,57 @@ export class GeofenceRepository {
     return this.geofences.findOne({ where: { id, tenantId }, relations: WITH_CHILDREN });
   }
 
+  /**
+   * A load's pickup and drop master points — from its requisition, or from its posting for a
+   * posted load. null when the load is not in this tenant.
+   */
+  async loadPoints(
+    tenantId: string,
+    loadId: string,
+  ): Promise<{
+    pickupLoadingPointId: string | null;
+    dropCustomerDeliveryPointId: string | null;
+    dropLoadingPointId: string | null;
+  } | null> {
+    const rows: Array<{
+      pickup: string | null;
+      drop_cdp: string | null;
+      drop_lp: string | null;
+    }> = await this.dataSource.query(
+      `SELECT COALESCE(r.loading_point_id, p.pickup_loading_point_id) AS pickup,
+              COALESCE(r.customer_delivery_point_id, p.drop_customer_delivery_point_id) AS drop_cdp,
+              p.drop_loading_point_id AS drop_lp
+       FROM loads.loads l
+       LEFT JOIN loads.requisitions r ON r.id = l.requisition_id
+       LEFT JOIN loads.load_postings p ON p.id = l.posting_id
+       WHERE l.id = $1 AND l.tenant_id = $2`,
+      [loadId, tenantId],
+    );
+    if (rows.length === 0) return null;
+    return {
+      pickupLoadingPointId: rows[0].pickup,
+      dropCustomerDeliveryPointId: rows[0].drop_cdp,
+      dropLoadingPointId: rows[0].drop_lp,
+    };
+  }
+
+  /** The tenant's active geofences linked to any of these master points. */
+  async findLinked(
+    tenantId: string,
+    loadingPointIds: string[],
+    deliveryPointIds: string[],
+  ): Promise<GeofenceEntity[]> {
+    if (loadingPointIds.length === 0 && deliveryPointIds.length === 0) return [];
+    const where: Array<Record<string, unknown>> = [];
+    if (loadingPointIds.length > 0) {
+      where.push({ tenantId, isActive: true, loadingPointId: In(loadingPointIds) });
+    }
+    if (deliveryPointIds.length > 0) {
+      where.push({ tenantId, isActive: true, customerDeliveryPointId: In(deliveryPointIds) });
+    }
+    return this.geofences.find({ where });
+  }
+
   /** The geofence standing for a master loading point (LoadingPointGeofenceSync). */
   findByLoadingPointId(tenantId: string, loadingPointId: string): Promise<GeofenceEntity | null> {
     return this.geofences.findOne({ where: { tenantId, loadingPointId } });

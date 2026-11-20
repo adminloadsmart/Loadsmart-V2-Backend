@@ -17,6 +17,12 @@ export function createGeofencesRoutes(controller: GeofencesController): Router {
 
   router.post('/', canManage, validate(geofenceValidators.create), asyncHandler(controller.create));
   router.get('/', validate(geofenceValidators.list), asyncHandler(controller.list));
+  // Static prefix before /:geofenceId so "load" is never parsed as a geofence id.
+  router.get(
+    '/load/:loadId',
+    validate(geofenceValidators.forLoad),
+    asyncHandler(controller.forLoad),
+  );
   router.get('/:geofenceId', validate(geofenceValidators.get), asyncHandler(controller.get));
   router.patch(
     '/:geofenceId',

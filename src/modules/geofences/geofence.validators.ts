@@ -102,5 +102,6 @@ export const geofenceValidators = {
     }),
   }),
   get: z.object({ params }),
+  forLoad: z.object({ params: z.object({ loadId: uuid }) }),
   delete: z.object({ params }),
 };

@@ -42,6 +42,21 @@ export function registerGeofencesOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/load/{loadId}`,
+    tags: [TAGS.GEOFENCES],
+    operationId: 'geofences.forLoad',
+    ...authenticated(
+      'The geofences around a load’s loading and unloading points (those linked to its pickup / drop master points), each with role loading | unloading, to draw as areas on the tracking map.',
+    ),
+    request: { params: geofenceValidators.forLoad.shape.params },
+    responses: {
+      200: { description: '{ loadId, geofences: [geofence + role] }' },
+      404: { description: 'Load not found', ...errorContent },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/{geofenceId}`,
     tags: [TAGS.GEOFENCES],
     operationId: 'geofences.get',
