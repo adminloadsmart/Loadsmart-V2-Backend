@@ -105,6 +105,14 @@ export const VALUE_ASKED_BY_PROMPT = {
   slip_request: 'slip',
 } as const;
 
+/** Load-flow templates that themselves ask for a value — "Reply with the truck number, driver
+ *  name…" after the award (LS_N_0107 to the broker, LS_N_0121 to the transporter). Offers
+ *  (LS_N_0105, LS_N_0119…) are not asks. */
+export const VALUE_ASKED_BY_TEMPLATE = {
+  LS_N_0107: 'dispatch',
+  LS_N_0121: 'dispatch',
+} as const;
+
 /** Key in message_log.variables marking a load info text that also asks for a value
  *  ("Done. Send the truck number if you have it."). */
 export const ASKS_FOR_VARIABLE = 'asksFor';

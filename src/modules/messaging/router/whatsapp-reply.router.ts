@@ -8,6 +8,7 @@ import {
   STAGES_ACCEPTING_VALUE,
   TAPPED_MESSAGE_WAIT,
   VALUE_ASKED_BY_PROMPT,
+  VALUE_ASKED_BY_TEMPLATE,
   WHATSAPP_INTERACTIVE_LIMITS,
 } from '../messaging.constants';
 import { OfferAction, RecipientLoadStage, ReplyValueKind, RoutingMethod } from '../messaging.types';
@@ -99,6 +100,9 @@ const acceptsValue = (stage: RecipientLoadStage, kind: ReplyValueKind): boolean 
 /** The value a message of ours asked for: a question (rate / driver details / slip) or a
  *  confirmation marked with one ("Done. Send the truck number…"). Offers are not asks. */
 function askedValueOf(messageLog: MessageLogEntity): ReplyValueKind | null {
+  if (messageLog.templateKey && messageLog.templateKey in VALUE_ASKED_BY_TEMPLATE) {
+    return VALUE_ASKED_BY_TEMPLATE[messageLog.templateKey as keyof typeof VALUE_ASKED_BY_TEMPLATE];
+  }
   if (messageLog.kind === 'info') {
     const asked = messageLog.variables?.[ASKS_FOR_VARIABLE];
     return typeof asked === 'string' ? (asked as ReplyValueKind) : null;
@@ -106,6 +110,16 @@ function askedValueOf(messageLog: MessageLogEntity): ReplyValueKind | null {
   return messageLog.kind && messageLog.kind in VALUE_ASKED_BY_PROMPT
     ? VALUE_ASKED_BY_PROMPT[messageLog.kind as keyof typeof VALUE_ASKED_BY_PROMPT]
     : null;
+}
+
+/** Whether this ask was about this candidate load. A template ask (LS_N_0121) names the
+ *  transporter by its own id while the candidate carries its load_recipients id, so templates match
+ *  on the load — the asks are already only those sent to this phone. */
+function asksCandidate(ask: MessageLogEntity, candidate: OpenRecipientLoad): boolean {
+  if (ask.templateKey && ask.templateKey in VALUE_ASKED_BY_TEMPLATE) {
+    return ask.loadId !== null && ask.loadId === candidate.loadId;
+  }
+  return ask.loadRef === candidate.loadRef && ask.recipientRefId === candidate.recipientRefId;
 }
 
 /**
@@ -374,12 +388,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     const asks = (await this.store.findRecentLoadMessagesTo(senderIdentity.phone, since)).filter(
       (log) => askedValueOf(log) === kind,
     );
-    return candidates.filter((candidate) =>
-      asks.some(
-        (log) =>
-          log.loadRef === candidate.loadRef && log.recipientRefId === candidate.recipientRefId,
-      ),
-    );
+    return candidates.filter((candidate) => asks.some((log) => asksCandidate(log, candidate)));
   }
 
   private async sendPicker(

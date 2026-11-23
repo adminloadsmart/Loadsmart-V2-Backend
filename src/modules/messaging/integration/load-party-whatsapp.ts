@@ -328,7 +328,6 @@ export class LoadPartyWhatsapp {
       {
         vehicle_no: valueOr(load.vehicleNumber),
         destination: notice.destination,
-        destination_query: notice.destinationQuery,
       },
       { once: true, driverHasApp: await this.store.driverHasApp(load.driverNumber) },
     );

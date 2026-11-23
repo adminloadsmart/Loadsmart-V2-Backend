@@ -36,7 +36,7 @@ export const REPLY_TEXTS = {
   // CTA sheet: Negotiate / Give rate → "Type your rate in ₹ and the truck number".
   rateRequest: (loadRef: string) => `${loadRef}: Type your rate in ₹ and the truck number.`,
   dispatchRequest: (loadRef: string) =>
-    `${loadRef}: Reply with the truck number, driver name, driver mobile and DL number.`,
+    `${loadRef}: Reply with the truck number, driver name, driver mobile, DL number and the driver's date of birth.`,
   slipRequest: (loadRef: string) => `${loadRef}: Send a photo of the loading slip here.`,
   // CTA sheet: after the rate → "Thanks. We'll get back to you."
   rateRecorded: (loadRef: string, rate: number) =>

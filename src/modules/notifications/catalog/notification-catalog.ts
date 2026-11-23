@@ -466,6 +466,13 @@ export interface StageChangedContext extends LoadSummary {
   changedAt: string;
 }
 
+/** LS_N_0068 — Loadsmart's bid the shipper accepted. */
+export interface LoadsmartBidAcceptedContext extends LoadSummary {
+  bidId: string;
+  /** When the shipper accepted it (ISO). */
+  acceptedAt: string;
+}
+
 export interface VehicleLoadedContext extends LoadSummary {
   /** When loading was confirmed (ISO). */
   loadedAt: string;
@@ -2210,6 +2217,34 @@ export const NOTIFICATION_CATALOG = {
         metadata: {
           ...loadMetadataOf(context),
           stage: context.stage,
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+  // LS_N_0068 — accepting Loadsmart's bid is not the confirmation; the load memo is.
+  'load.loadsmart_bid_accepted': {
+    label: "Loadsmart's bid accepted",
+    category: 'trip_execution',
+    intent: 'update',
+    description:
+      "The shipper accepted Loadsmart's bid; the truck and driver details and the load memo follow.",
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: [],
+    defaultChannels: [],
+    severity: 'p3_info',
+    dedupeKey: (context: LoadsmartBidAcceptedContext) => `${context.loadId}-${context.bidId}`,
+    buildContent: (context: LoadsmartBidAcceptedContext) => {
+      const loadName = context.loadCode ?? 'Your load';
+      return {
+        title: 'Bid accepted',
+        body: `${loadName}${context.route ? ` (${context.route})` : ''}: we're getting the truck and driver details. The load memo comes next.`,
+        highlights: [loadName],
+        metadata: {
+          ...loadMetadataOf(context),
+          bid_id: context.bidId,
+          cta_label: 'View load',
           cta_path: `/loads/${context.loadId}`,
         },
       };
