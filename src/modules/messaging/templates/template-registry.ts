@@ -46,8 +46,10 @@ export interface TemplateDefinition {
   body: string;
   buttons?: readonly TemplateButton[];
   headerDocument?: boolean;
-  /** A shipper message that goes on WhatsApp before the load memo — the catalog's exceptions
-   *  (LS_N_0067, LS_N_0103) to the "no WhatsApp to the shipper before the memo" rule. */
+  /** A shipper message that may go on WhatsApp before the load memo (an exception to the "no
+   *  WhatsApp to the shipper before the memo" rule). None today: user decision 23 Nov — the memo
+   *  (LS_N_0069) is the shipper's first WhatsApp; LS_N_0067 / LS_N_0103 are held (logged as
+   *  suppressed). Set it back on those two to send them again. */
   sendsBeforeMemo?: boolean;
 }
 
@@ -134,7 +136,7 @@ export const TEMPLATE_REGISTRY = {
       { title: 'Reject', action: 'reject' },
     ],
   },
-  // ---- Shipper, before the memo (catalog exceptions to the channel rule; user decision 18 Nov)
+  // ---- Shipper, before the memo — held by the channel rule until the memo (user decision 23 Nov)
   LS_N_0067: {
     audience: ['shipper_user'],
     intent: 'action',
@@ -147,7 +149,6 @@ export const TEMPLATE_REGISTRY = {
       { title: 'Counter', action: 'negotiate' },
       { title: 'Reject', action: 'reject' },
     ],
-    sendsBeforeMemo: true,
   },
   LS_N_0103: {
     audience: ['shipper_user'],
@@ -157,7 +158,6 @@ export const TEMPLATE_REGISTRY = {
     variables: ['origin', 'destination', 'bid_count', 'best_rate'],
     body: 'Your load {{origin}} to {{destination}} has {{bid_count}} bids. Lowest is ₹{{best_rate}}. Pick one to get the truck details.',
     buttons: [{ title: 'Compare bids', url: true, urlVariable: 'load_uuid' }],
-    sendsBeforeMemo: true,
   },
   LS_N_0069: {
     audience: ['shipper_user'],
