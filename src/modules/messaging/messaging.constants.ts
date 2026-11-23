@@ -105,6 +105,17 @@ export const VALUE_ASKED_BY_PROMPT = {
   slip_request: 'slip',
 } as const;
 
+/** MSG91 message types we can't read but answer with "we can only read text and photos". Others
+ *  of type 'other' (reactions, system events, deleted messages) get no reply. */
+export const UNREADABLE_REPLIED_TYPES = [
+  'audio',
+  'voice',
+  'video',
+  'location',
+  'contacts',
+  'sticker',
+] as const;
+
 /** Load-flow templates that themselves ask for a value — "Reply with the truck number, driver
  *  name…" after the award (LS_N_0107 to the broker, LS_N_0121 to the transporter). Offers
  *  (LS_N_0105, LS_N_0119…) are not asks. */
