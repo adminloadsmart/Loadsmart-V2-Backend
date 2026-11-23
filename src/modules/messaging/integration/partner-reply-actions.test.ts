@@ -158,7 +158,12 @@ describe('PartnerReplyActions', () => {
       'sourcing-1 partner-A rate=42000 truck=-',
       'sourcing-1 partner-A rate=- truck=PB10AB1234',
     ]);
-    expect(await actions.applyDispatch()).toMatchObject({ resolution: 'needs_review' });
+    // Driver details only count once the partner has won the load; a bid alone isn't enough.
+    const details = parseDispatchDetails('Ramesh 9876543210 HR0619850034761 12 May 1990');
+    expect(await actions.applyDispatch(context, details, inbound)).toMatchObject({
+      resolution: 'late',
+    });
+    expect(board.driverCalls).toEqual([]);
   });
 
   it('Reject: "Okay. We\'ll send you the next load."', async () => {
