@@ -1,5 +1,6 @@
 import { AppError } from '../../../shared/errors/AppError';
 import { writeErrorNote } from './write-error-note';
+import { nameDriverRefusalText } from './name-driver-refusal';
 import { bidWindowClosesAt } from '../../loads/bids/bid-rules';
 import { WhatsappBidInput } from '../../loads/utils/load-bid.interface';
 import { LoadPostingType, LoadStatus } from '../../loads/utils/loads.types';
@@ -404,6 +405,15 @@ export class TransporterReplyActions implements ReplyActions {
       return await apply();
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
+      const refusal = nameDriverRefusalText(error, offer.loadCode);
+      if (refusal) {
+        return {
+          resolution: 'validation_failed',
+          note: writeErrorNote(error, offer.loadCode),
+          confirmationText: refusal,
+          asksFor: 'dispatch',
+        };
+      }
       return {
         resolution: 'needs_review',
         note: writeErrorNote(error, offer.loadCode),

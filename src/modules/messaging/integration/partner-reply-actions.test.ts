@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConflictError } from '../../../shared/errors';
+import { ConflictError, ValidationError } from '../../../shared/errors';
 import { LoadBoardOffer } from '../../loadsmart-ops/loadsmart.interface';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
-import { InboundResolution } from '../messaging.types';
+import { InboundResolution, PartnerDriverChecks } from '../messaging.types';
+import { parseDispatchDetails } from '../parsers/reply-value.parsers';
+import { PartnerLoadStatus } from '../../loadsmart-ops/loadsmart.types';
+import { NAME_DRIVER_REFUSALS } from '../../loads/memo/load-memo.constants';
 import { OutboundResult } from '../outbound/outbound-message.service';
 import { RecipientLoadContext, ReplyActions } from '../router/reply-router.ports';
 import { CompositeReplyActions } from './composite-reply-actions';
@@ -55,6 +58,44 @@ class FakeBoard implements PartnerBoardGateway {
     this.live.set(key, {
       vehicleNumber: input.vehicleNumber ?? this.live.get(key)?.vehicleNumber ?? null,
     });
+  }
+  status: PartnerLoadStatus | null = null;
+  async partnerLoadStatus() {
+    return this.status;
+  }
+  driverFailWith: Error | null = null;
+  won: LoadBoardOffer[] = [];
+  async wonLoadsAwaitingDriver(partnerIds: string[]) {
+    return partnerIds.includes('partner-A') ? this.won : [];
+  }
+  driverCalls: string[] = [];
+  driverChecks: PartnerDriverChecks = {
+    clear: false,
+    blockers: ['Licence not found on Sarathi — check the licence number and date of birth'],
+    truck: { status: 'passed' },
+    driver: { status: 'failed' },
+    truckManualAllowed: false,
+    driverManualAllowed: true,
+  };
+  async nameDriverFromWhatsapp(
+    loadId: string,
+    partnerId: string,
+    driver: { driverName: string; licenceNumber: string; vehicleNumber?: string },
+  ) {
+    this.driverCalls.push(
+      `${loadId} ${partnerId} ${driver.driverName} ${driver.licenceNumber} ${driver.vehicleNumber ?? '-'}`,
+    );
+    if (this.driverFailWith) throw this.driverFailWith;
+    return { checks: this.driverChecks };
+  }
+  replies: string[] = [];
+  replyFailWith: Error | null = null;
+  async recordPartnerReplyFromWhatsapp(
+    sourcingId: string,
+    input: { partnerId: string; response: 'declined' | 'negotiating' },
+  ) {
+    if (this.replyFailWith) throw this.replyFailWith;
+    this.replies.push(`${sourcingId} ${input.partnerId} ${input.response}`);
   }
 }
 

@@ -139,3 +139,14 @@ export type ReplyPrompt = (typeof REPLY_PROMPTS)[number];
  *  always kept). */
 export const POLICY_CHANNELS = ['whatsapp', 'sms', 'email', 'push'] as const;
 export type PolicyChannel = (typeof POLICY_CHANNELS)[number];
+
+/** The VAHAN / Sarathi checks after naming the driver — what the broker's reply depends on. */
+export interface PartnerDriverChecks {
+  clear: boolean;
+  blockers: string[];
+  truck: { status: string } | null;
+  driver: { status: string } | null;
+  /** The check couldn't confirm (not reachable / not found): Placement may pass it by hand. */
+  truckManualAllowed: boolean;
+  driverManualAllowed: boolean;
+}

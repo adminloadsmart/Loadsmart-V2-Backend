@@ -276,7 +276,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.matchBrokers,
     description:
-      'Brokers for a load: matched ones ticked with why (lane, truck type) — and any Placement added by hand (`added`) — loads placed on the lane, rating.',
+      "Brokers for a load: matched ones ticked with why (lane, truck type) — and any Placement added by hand (`added`) — loads placed on the lane, rating. Each broker has `whatsapp`: null when the requirement was never sent to them, else { status (`sent` / `not_on_whatsapp` / `failed`), sentAt, deliveredAt, readAt (from WhatsApp's reports), failReason, lastReply } — lastReply is the broker's newest answer that came in on WhatsApp: { response (`bid` / `declined` = Reject / `negotiating` = Negotiate or Give rate tapped, rate not sent yet), rate, at } or null.",
   },
   {
     method: 'get',
@@ -294,7 +294,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT, LS_SETTINGS_MANAGE],
     schema: v.sourcing,
     description:
-      "Placement's load page: the queue row, Load requirements (pickup, drop, full pickup and drop addresses, truck and length, goods and weight, report by, shipper balance terms), Pricing guidance (expected price, shipper price, market rate = median carrier trip amount on the lane over 90 days, rate ceiling = the highest carrier rate that keeps Settings' margin floor), the bid window (hours, closes at, closed), when the requirement went out, the rate handoff (broker, chosen rate, price to the shipper), the latest bid per broker, the call list, the memo (state, truck, driver, licence) and team contacts.",
+      "Placement's load page: the queue row, Load requirements (pickup, drop, full pickup and drop addresses, truck and length, goods and weight, report by, shipper balance terms), Pricing guidance (expected price, shipper price, market rate = median carrier trip amount on the lane over 90 days, rate ceiling = the highest carrier rate that keeps Settings' margin floor), the bid window (hours, closes at, closed), when the requirement went out, the rate handoff (broker, chosen rate, price to the shipper), the latest bid per broker (with `channel` — how its latest rate came in: whatsapp / manual_entry / phone / email — and `updatedAt`), the call list, the memo (state, truck, driver, licence) and team contacts.",
   },
   {
     method: 'post',
@@ -363,7 +363,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.sendRequirement,
     description:
-      "Send Requirement (spec step 4): sends the load's WhatsApp offer from Loadsmart's business number — LS_N_0105 with the partner rate (Accept / Negotiate / Reject) or LS_N_0106 asking for rates (Give rate / Reject) — to the brokers Placement picked. Without partnerIds, the load's matched brokers and any added by hand. Nothing goes to brokers when the load is posted. Each broker's outcome is saved: `sent`, `not_on_whatsapp` (no message — call them) or `failed` (with the reason); delivered and read times follow from WhatsApp. A broker already sent to is skipped (`already_sent`), so sending again reaches only the new ones; a failed one is tried again. Returns { sentAt, sentCount, recipients[] }.",
+      "Send Requirement (spec step 4): sends the load's WhatsApp offer from Loadsmart's business number — LS_N_0105 with the partner rate (Accept / Negotiate / Reject) or LS_N_0106 asking for rates (Give rate / Reject) — to the brokers Placement picked. Without partnerIds, the load's matched brokers and any added by hand. Nothing goes to brokers when the load is posted. Each broker's outcome is saved: `sent`, `not_on_whatsapp` (no message — call them) or `failed` (with the reason); delivered and read times follow from WhatsApp. A broker already sent to is skipped (`already_sent`), so sending again reaches only the new ones; a failed one is tried again. Returns { sentAt, sentCount, recipients[] }; each recipient has partnerId, name, phone, status, failReason, sentAt, deliveredAt, readAt (for `already_sent`: when it first went and what WhatsApp reported since). Later receipts and replies: GET .../sourcings/{sourcingId}/brokers (`whatsapp`).",
   },
   {
     method: 'get',

@@ -1,3 +1,4 @@
+import type { WhatsappOnlyBrokerResponse } from './loadsmart.types';
 /**
  * Placement's work queue and load page (Figma "Placement Work Queue"): the tabs a load shows
  * under, its memo state, the pricing guidance and the requirement sent to brokers. Pure.
@@ -5,7 +6,8 @@
 
 /** What a broker said when Placement logged a response. */
 export const BROKER_RESPONSES = ['bid', 'declined', 'no_truck', 'call_back_later'] as const;
-export type BrokerResponse = (typeof BROKER_RESPONSES)[number];
+/** Any response in a broker's history: one Placement logs, or a WhatsApp-only answer. */
+export type BrokerResponse = (typeof BROKER_RESPONSES)[number] | WhatsappOnlyBrokerResponse;
 
 /** How the response came in. */
 export const BROKER_RESPONSE_CHANNELS = ['manual_entry', 'phone', 'whatsapp', 'email'] as const;

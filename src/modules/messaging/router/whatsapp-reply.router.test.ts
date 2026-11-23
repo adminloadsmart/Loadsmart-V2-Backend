@@ -3,6 +3,8 @@ import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
 import { MessageLogEntity } from '../entities/message-log.entity';
 import { OfferAction, RecipientLoadStage, ReplyPrompt } from '../messaging.types';
 import { InboundResolutionPatch } from '../repositories/whatsapp-inbound.repository';
+import { isInboundRetry } from '../inbound/inbound-pipeline.service';
+import { TAPPED_MESSAGE_WAIT } from '../messaging.constants';
 import { WhatsappReplyRouter } from './whatsapp-reply.router';
 import {
   ActionOutcome,
@@ -251,8 +253,9 @@ function inbound(fields: Partial<WhatsappInboundEntity>): WhatsappInboundEntity 
   return row;
 }
 
-async function route(row: WhatsappInboundEntity) {
+async function route(row: WhatsappInboundEntity): Promise<InboundResolutionPatch> {
   const result = await router.handle(row);
+  if (isInboundRetry(result)) throw new Error(`unexpected retry: ${result.note}`);
   Object.assign(row, result);
   return result;
 }

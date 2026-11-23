@@ -22,12 +22,17 @@ export const REPLY_TEXTS = {
     `${loadRef}: please also send the ${missing.join(' and the ')}, with the driver's name and mobile in one message.`,
   dispatchMemoSent: (loadRef: string, driverName: string) =>
     `${loadRef}: Driver ${driverName} noted and checked. The load memo has gone to your customer.`,
+  // A Loadsmart partner's driver (answer to LS_N_0107): the memo waits for Placement's review.
+  dispatchWithPlacement: (loadRef: string, driverName: string) =>
+    `${loadRef}: Driver ${driverName} noted. Our team will check the papers and confirm.`,
   dispatchRecorded: (loadRef: string, driverName: string) =>
     `${loadRef}: Driver ${driverName} noted. Thanks. We'll get back to you.`,
   dispatchCheckFailed: (loadRef: string, reason: string) =>
     `${loadRef}: we couldn't use these details. ${reason.replace(/\.$/, '')}. Please send another driver or truck.`,
   pickerExpired: "This list has expired. Reply to the load's message to send it again.",
   pickerAlreadyAnswered: 'This list was already answered.',
+  // A tap whose message we still can't find after TAPPED_MESSAGE_WAIT.
+  tapNotMatched: "Sorry, we couldn't record that tap. Please tap the button again.",
   // CTA sheet: Negotiate / Give rate → "Type your rate in ₹ and the truck number".
   rateRequest: (loadRef: string) => `${loadRef}: Type your rate in ₹ and the truck number.`,
   dispatchRequest: (loadRef: string) =>
@@ -64,6 +69,21 @@ export const REPLY_TEXTS = {
     `${loadRef}: Confirmed. Truck ${vehicleNumber} is on its way.`,
   memoExpired: (loadRef: string) => `${loadRef}: This memo has expired. We'll send a new one.`,
   loadClosed: (loadRef: string) => `${loadRef} is no longer open, so this reply was not recorded.`,
+  // Why a reply couldn't be taken, when we know — instead of the general wrongStage / notRecorded.
+  truckInUse: (loadRef: string, truckNumber: string) =>
+    `${loadRef}: Truck ${truckNumber} is already on another active trip, so we can't use it for this load. Please send a different truck number with the driver details.`,
+  truckMissing: (loadRef: string) =>
+    `${loadRef}: Please send the truck number too, with the driver's name, mobile, DL number and date of birth.`,
+  driverAlreadyConfirmed: (loadRef: string) =>
+    `${loadRef}: The truck and driver for this load are already confirmed. To change them, please call the Loadsmart team.`,
+  driverDetailsNeeded: (loadRef: string) =>
+    `${loadRef}: Please send the truck number, driver name, driver mobile, DL number and the driver's date of birth in one message.`,
+  driverBeforeAward: (loadRef: string) =>
+    `${loadRef}: Your rate is with the customer. Send the truck and driver details after we confirm this load to you.`,
+  loadGivenToOther: (loadRef: string) =>
+    `${loadRef} has been given to another truck, so this reply was not recorded. We'll send you the next load.`,
+  loadCancelled: (loadRef: string) =>
+    `${loadRef} was cancelled by the customer, so this reply was not recorded.`,
   notRecorded: (loadRef: string) => `${loadRef}: We couldn't record this. Our team will call you.`,
   pickerPrompt: (kind: ReplyValueKind, sourceText: string) =>
     kind === 'slip'

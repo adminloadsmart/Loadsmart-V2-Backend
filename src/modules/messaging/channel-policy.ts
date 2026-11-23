@@ -15,7 +15,7 @@ export interface ChannelPolicyInput {
   } | null;
   /** Drivers only: registered on the driver app. */
   driverHasApp?: boolean;
-  /** A shipper message the catalog sends before the memo (LS_N_0067, LS_N_0103). */
+  /** A shipper message allowed before the memo (template `sendsBeforeMemo`; none today). */
   allowedBeforeMemo?: boolean;
 }
 
@@ -28,8 +28,9 @@ export interface ChannelPolicyResult {
  * The channel rules of the load module spec (p.30 "Channel rules", p.31–32 "Key messages"):
  * 1. Shipper: actions → WhatsApp + app; updates → app only (WhatsApp dropped; email/SMS stay where
  *    the type lists them — the rule is about WhatsApp's cost).
- * 2. Shipper: no WhatsApp about a load before its load memo (loads with a memo step only) —
- *    except the catalog's LS_N_0067 (Loadsmart's bid) and LS_N_0103 (bids received).
+ * 2. Shipper: no WhatsApp about a load before its load memo (loads with a memo step only) — the
+ *    memo (LS_N_0069) is the first; Loadsmart's bid (LS_N_0067) and bids received (LS_N_0103)
+ *    are held too (user decision 23 Nov).
  * 3. Driver: the driver app if registered, else WhatsApp (SMS stays — the SIM consent link).
  * 4. Receiver: SMS only.
  * 5. Broker / transporter / Loadsmart partner: WhatsApp only.
