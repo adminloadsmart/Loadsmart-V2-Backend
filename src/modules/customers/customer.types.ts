@@ -41,6 +41,7 @@ export interface CreateCustomerInput {
   notes?: string;
   invoiceAgainst?: CustomerInvoiceAgainst;
   freeHoursAtDrop?: number;
+  freightBalancePaidByCustomer?: boolean;
   balanceAmount?: number;
   creditLimit?: number;
   creditDays?: number;
@@ -75,6 +76,7 @@ export interface UpdateCustomerInput {
   notes?: string | null;
   invoiceAgainst?: CustomerInvoiceAgainst | null;
   freeHoursAtDrop?: number | null;
+  freightBalancePaidByCustomer?: boolean;
   balanceAmount?: number | null;
   creditLimit?: number | null;
   creditDays?: number | null;

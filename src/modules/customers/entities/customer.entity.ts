@@ -113,6 +113,9 @@ export class CustomerEntity {
   invoiceAgainst!: CustomerInvoiceAgainst | null;
   @Column({ name: 'free_hours_at_drop', type: 'integer', nullable: true })
   freeHoursAtDrop!: number | null;
+  /** Add / Edit Customer "Freight balance paid by customer" toggle. */
+  @Column({ name: 'freight_balance_paid_by_customer', type: 'boolean', default: false })
+  freightBalancePaidByCustomer!: boolean;
   /** Edit Customer "Balance amount" — entered by hand until invoicing exists. */
   @Column({ name: 'balance_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
   balanceAmount!: string | null;

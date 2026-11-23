@@ -85,6 +85,7 @@ import { createDashboardsModule } from './modules/dashboards';
 import { createCustomersModule } from './modules/customers';
 import { createStorageModule } from './modules/storage';
 import { createPlacesModule } from './modules/places';
+import { createDemoRequestsModule } from './modules/demo-requests';
 import { createLoadsModule } from './modules/loads';
 import { AssignmentComplianceService } from './modules/loads/compliance/assignment-compliance.service';
 import { HttpTrackingClient } from './adapters/tracking.client';
@@ -280,6 +281,7 @@ export function buildContainer(dataSource: DataSource): Container {
   // Stateless Google Places proxy — no DB, no cross-module deps. Mounted in authenticatedRouters
   // below (no tenant required).
   const places = createPlacesModule();
+  const demoRequests = createDemoRequestsModule(dataSource);
 
   // Consumers — each wired to a local gateway wrapping the producer(s) it needs. Maintenance
   // writes to vehicles through masters' vehicleService (the breakdown ⇄ dispatch hold) and reads
@@ -706,6 +708,8 @@ export function buildContainer(dataSource: DataSource): Container {
       { path: '', router: driver.inviteTrackingRouter },
       // POST /webhooks/msg91/whatsapp?token=… — MSG91's WhatsApp inbound + reports (messaging.routes.ts).
       { path: '', router: messaging.webhookRouter },
+      // POST /demo-requests — the landing page's "Book a Demo" form; per-IP rate limited.
+      { path: '/demo-requests', router: demoRequests.router },
     ],
     authenticatedRouters: [
       { path: '/auth', router: auth.protectedRouter },
