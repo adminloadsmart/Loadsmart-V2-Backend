@@ -11,6 +11,7 @@ import { RecipientLoadContext, ReplyActions } from '../router/reply-router.ports
 import { CompositeReplyActions } from './composite-reply-actions';
 import { PartnerBoardNotifier } from './partner-board-notifier';
 import { PartnerBoardGateway, PartnerReplyActions, partnerStage } from './partner-reply-actions';
+import { orderTemplateVariables } from '../templates/template-registry';
 
 const inbound = {} as WhatsappInboundEntity;
 const boardLoad = (overrides: Partial<LoadBoardOffer> = {}): LoadBoardOffer => ({
@@ -248,6 +249,7 @@ describe('PartnerBoardNotifier', () => {
     expect(sent[0].variables).toEqual({
       from_area: 'Gurugram',
       to_area: 'Ludhiana',
+      route: 'Gurugram to Ludhiana',
       truck_type: '24 ft',
       weight: '18',
       reporting_time: expect.any(String),
@@ -255,6 +257,13 @@ describe('PartnerBoardNotifier', () => {
     });
     await notifier.postedToBoard(boardLoad({ partnerRate: null }));
     expect(sent[2].templateKey).toBe('LS_N_0106');
+    // LS_N_0106 as approved: the route as one value, then truck type, weight, reporting time.
+    expect(orderTemplateVariables('LS_N_0106', sent[2].variables)).toEqual([
+      'Gurugram to Ludhiana',
+      '24 ft',
+      '18',
+      expect.any(String),
+    ]);
     // No partner on the lane: nothing goes out.
     await notifier.postedToBoard(boardLoad({ partners: [] }));
     expect(sent).toHaveLength(4);

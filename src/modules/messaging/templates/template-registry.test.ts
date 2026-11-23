@@ -37,14 +37,18 @@ describe('load-flow WhatsApp templates (catalog LS_N_…)', () => {
   it('renders the sent text for the log, and maps a tapped button title to its action', () => {
     expect(
       renderTemplateBody('LS_N_0106', {
-        from_area: 'Gurugram 122001',
-        to_area: 'Ludhiana',
+        route: 'Gurugram 122001 to Ludhiana',
         truck_type: '24 ft',
         weight: '18',
         reporting_time: '15 Nov, 10:00 am',
       }),
     ).toBe(
-      'New load from Loadsmart: Gurugram 122001 to Ludhiana, 24 ft, 18 t, reporting 15 Nov, 10:00 am. Send us your best rate.',
+      'New load from Loadsmart: Gurugram 122001 to Ludhiana. Truck type: 24 ft, weight: 18 tons, reporting time: 15 Nov, 10:00 am. Send us your best rate. We have a new load opportunity available and look forward to receiving your quotation. Please share your best competitive price to proceed with the booking.',
+    );
+    // The approved ls_n_0106 has 4 variables (Meta rejected 5: "localizable_params (5) does not
+    // match the expected number of params (4)").
+    expect(msg91BodyOf('LS_N_0106')).toBe(
+      'New load from Loadsmart: {{var1}}. Truck type: {{var2}}, weight: {{var3}} tons, reporting time: {{var4}}. Send us your best rate. We have a new load opportunity available and look forward to receiving your quotation. Please share your best competitive price to proceed with the booking.',
     );
     expect(offerActionsOf('LS_N_0105')).toEqual(['accept', 'negotiate', 'reject']);
     expect(actionOfButtonTitle('LS_N_0105', 'negotiate')).toBe('negotiate');
