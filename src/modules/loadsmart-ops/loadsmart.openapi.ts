@@ -186,16 +186,16 @@ const ROWS: Row[] = [
     method: 'post',
     path: `${OPS}/loads/{loadId}/verifications/truck/manual`,
     op: 'loadsmart.verifyTruckManually',
-    permissions: [LS_TRUCK_VERIFY_MANUAL],
+    permissions: [LS_TRUCK_VERIFY_MANUAL, LS_PLACEMENT],
     schema: v.verifyTruckManually,
     description:
-      "VAHAN couldn't be reached for the truck on a Loadsmart load — the Admin team checks the RC by hand (rcChecked, optional paper expiry dates). The memo goes out once every check passes.",
+      "VAHAN couldn't be reached for the truck on a Loadsmart load — Placement (or the Admin team) checks the RC by hand (rcChecked, optional paper expiry dates). The memo goes out once every check passes.",
   },
   {
     method: 'post',
     path: `${OPS}/loads/{loadId}/verifications/driver/manual`,
     op: 'loadsmart.verifyDriverManually',
-    permissions: [LS_DRIVER_VERIFY_MANUAL],
+    permissions: [LS_DRIVER_VERIFY_MANUAL, LS_PLACEMENT],
     schema: v.verifyDriverManually,
     description:
       "Sarathi couldn't confirm the driver's licence on a Loadsmart load (not reachable, or no match) — the Admin team checks it by hand (licenceChecked, optional validity date). The memo goes out once every check passes.",

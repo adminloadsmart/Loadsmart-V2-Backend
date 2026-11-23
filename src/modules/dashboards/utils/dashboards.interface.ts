@@ -1,4 +1,5 @@
 import { DateFilter } from '../../../shared/utils/date-filter';
+import { LoadRoute, LoadStatus, PodStatus } from '../../loads/utils/loads.types';
 
 /** Raw `req.query` shape for the fleet-activity endpoint, validated by dashboards.validators.ts. */
 export interface FleetActivityRangeInput {
@@ -170,4 +171,95 @@ export interface LoadsSummary {
   fleetActivity: FleetActivityMetrics;
   /** Home "Where every load is" card — live, not date-scoped. */
   whereEveryLoadIs: WhereEveryLoadIs;
+}
+
+// ─── Home "Waiting on you" ───────────────────────────────────────────────────
+
+/** The six Home "Waiting on you" cards, in display order. Every open load falls in at most one
+ *  bucket — the one its shipper next-action (loads/utils/shipper-action.ts) puts it in — so the
+ *  cards never double-count and always agree with each load's own action card. */
+export const WAITING_ON_YOU_KEYS = [
+  'bids_to_confirm',
+  'advance_to_release',
+  'balance_to_release',
+  'charges_to_approve',
+  'memos_to_confirm',
+  'everything_else',
+] as const;
+export type WaitingOnYouKey = (typeof WAITING_ON_YOU_KEYS)[number];
+
+export interface WaitingOnYouBucket {
+  key: WaitingOnYouKey;
+  /** Loads in the bucket — for charges_to_approve, the number of charges waiting instead. */
+  count: number;
+  /** Loads in the bucket (equals `count` except on charges_to_approve). */
+  loads: number;
+  /** Rupees the bucket carries — see WaitingOnYou for what each one sums. Null when the bucket
+   *  has no money figure (memos_to_confirm). */
+  amount: number | null;
+  /** The bucket's only load when it has exactly one — the card can open it directly. */
+  singleLoadId: string | null;
+}
+
+/**
+ * Home "Waiting on you" — a live snapshot (not date-scoped) of every open load whose shipper
+ * next-action is not 'none'. Amounts:
+ *  - bids_to_confirm: the lowest received bid on each load, summed
+ *  - advance_to_release: freight total × advance %, summed
+ *  - balance_to_release: the load's balance due (money-rules moneySummary), summed
+ *  - charges_to_approve: the raised charges' amounts, summed
+ *  - memos_to_confirm: none
+ *  - everything_else: the loads' freight totals, summed
+ */
+export interface WaitingOnYou {
+  buckets: WaitingOnYouBucket[];
+  /** Loads with any action at all — the sum of every bucket's `loads`. */
+  totalLoads: number;
+}
+
+/** Repository-internal: one open load with everything shipperActionFor and the money rules read. */
+export interface WaitingOnYouLoadRow {
+  id: string;
+  status: LoadStatus;
+  route: LoadRoute | null;
+  awardedParty: string | null;
+  awardedBidId: string | null;
+  memoAcceptedAt: Date | null;
+  invoiceNumber: string | null;
+  invoiceFileKey: string | null;
+  ewayBillNumber: string | null;
+  ewayBillFileKey: string | null;
+  elrFileKey: string | null;
+  podFileKey: string | null;
+  podBackFileKey: string | null;
+  podStatus: PodStatus | null;
+  transporterInvoiceFileKey: string | null;
+  advancePercentage: string | null;
+  advancePaidAt: Date | null;
+  balancePaidAt: Date | null;
+  deliveryIssueSettledAt: Date | null;
+  freightType: 'per_ton' | 'flat' | null;
+  freightValue: string | null;
+  plannedCapacityTonnes: string;
+  deliveryIssueDeductionAmount: string | null;
+}
+
+/** Repository-internal: the open loads plus their per-load side data, keyed by load id. */
+export interface WaitingOnYouRaw {
+  loads: WaitingOnYouLoadRow[];
+  /** Raised (waiting-for-the-shipper) charges per load. */
+  raisedCharges: Map<string, { count: number; total: number }>;
+  /** Every charge per load (any status) — moneySummary counts only the approved ones. */
+  charges: Map<string, { chargeType: string; amount: string; status: string }[]>;
+  payments: Map<
+    string,
+    { paymentType: 'advance' | 'balance'; amount: string; verificationStatus: string | null }[]
+  >;
+  /** The latest memo per load. */
+  latestMemo: Map<string, { status: string; expiresAt: Date }>;
+  /** Loadsmart's open invoice amount per load (open_amount, else balance_due). */
+  invoiceOpen: Map<string, number>;
+  /** The lowest received bid rate per load — in the load's freight basis (per tonne or per
+   *  trip, LoadEntity.freightType), so it goes through freightTotalOf to become rupees. */
+  lowestBid: Map<string, string>;
 }

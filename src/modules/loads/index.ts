@@ -65,6 +65,7 @@ import { LoadAlertScheduler, LOAD_REMINDERS_QUEUE } from './alerts/load-alert-sc
 import {
   createDriverTrackingReevaluator,
   createTrackingSourceHook,
+  createDriverAccountMatcher,
 } from './core/tracking-source.hook';
 import { createLoadRemindersWorker } from './workers/load-reminders.worker';
 import { LoadVerificationRepository } from './verification/load-verification.repository';
@@ -292,6 +293,9 @@ export function createLoadsModule(
     loadDocumentService,
   );
   loadService.setAmountDueResolver(loadPaymentService.amountDueFor);
+  const matchDriverAccount = createDriverAccountMatcher(dataSource);
+  loadService.setDriverAccountMatcher(matchDriverAccount);
+  loadMemoService.setDriverAccountMatcher(matchDriverAccount);
   const truckCancellationService = new TruckCancellationService(
     dataSource,
     loadRepository,

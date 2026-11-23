@@ -162,7 +162,9 @@ export class LoadEntity {
   @JoinColumn({ name: 'vehicle_id' })
   vehicle!: VehicleEntity | null;
 
-  /** Own-fleet only — resolved from the vehicle's linked driver, editable. */
+  /** Own fleet: resolved from the vehicle's linked driver, editable. Market / indent: the driver
+   *  account whose mobile number is driverNumber, when exactly one has it (so the app can track
+   *  the load — tracking-source.hook.ts); null otherwise. */
   @Column({ name: 'driver_id', type: 'uuid', nullable: true })
   driverId!: string | null;
 

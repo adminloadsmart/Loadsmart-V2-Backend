@@ -23,6 +23,10 @@ export class DashboardsController {
     respond(res, summary);
   };
 
+  getWaitingOnYou = async (req: Request, res: Response) => {
+    respond(res, await this.dashboardsService.getWaitingOnYou(requireTenantId(req)));
+  };
+
   listPendingApprovals = async (req: Request, res: Response) => {
     const result = await this.dashboardsService.listPendingApprovals(
       requireTenantId(req),

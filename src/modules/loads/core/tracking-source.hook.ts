@@ -1,4 +1,5 @@
-import { DataSource, In, IsNull } from 'typeorm';
+import { DataSource, In, IsNull, Not } from 'typeorm';
+import { DriverEntity } from '../../driver/entities/driver.entity';
 import { DriverSessionEntity } from '../../driver/entities/driver-session.entity';
 import { VehicleTelemetryMetaEntity } from '../../masters/vehicle/entities/vehicle-telemetry-meta.entity';
 import { normalizePhoneNumber } from '../../../shared/utils/phone-number';
@@ -13,6 +14,37 @@ function hasMobileNumber(value: string | null): boolean {
   const national = digits.length > 10 ? digits.replace(/^(91|0)/, '') : digits;
   return /^[6-9]\d{9}$/.test(national);
 }
+
+/** The forms a mobile number may be stored in on masters.drivers.phone_number (digits only —
+ *  normally the 10-digit national number, sometimes with the 91). Empty for a non-mobile value. */
+function storedPhoneForms(value: string | null): string[] {
+  const digits = normalizePhoneNumber(value ?? '');
+  const national = digits.length > 10 ? digits.replace(/^(91|0)/, '') : digits;
+  if (!/^[6-9]\d{9}$/.test(national)) return [];
+  return [...new Set([national, `91${national}`, digits])];
+}
+
+/**
+ * A market or indent load only carries the driver's free-text mobile number. When that number
+ * belongs to a driver account, the load is linked to it (loads.driver_id) so the app can track
+ * it — see createTrackingSourceResolver. Returns the account's id, or null when no account has
+ * the number, or more than one does (legacy duplicates: never guess). Never creates a driver.
+ */
+export function createDriverAccountMatcher(dataSource: DataSource) {
+  const drivers = dataSource.getRepository(DriverEntity);
+  return async (driverNumber: string | null): Promise<string | null> => {
+    const forms = storedPhoneForms(driverNumber);
+    if (forms.length === 0) return null;
+    const found = await drivers.find({
+      where: { phoneNumber: In(forms), deletedAt: IsNull() },
+      select: { id: true },
+      take: 2,
+    });
+    return found.length === 1 ? found[0].id : null;
+  };
+}
+
+export type DriverAccountMatcher = ReturnType<typeof createDriverAccountMatcher>;
 
 /**
  * Works out how a load's truck can be tracked right now: GPS comes from the vehicle master (own
@@ -71,6 +103,10 @@ export function createTrackingSourceHook(dataSource: DataSource, loadRepository:
  * by the tracking service (it only takes phone points for loads whose source is driver_app) and
  * the SIM trip is ended there. Upgrade-only: GPS loads are left alone, and a load is never moved
  * away from `driver_app`. Only loads still on the road are looked at.
+ *
+ * Market and indent loads named with this driver's mobile number before they had an account
+ * carry no driver_id; those are linked to the driver first (from Bids received on, so a load not
+ * yet at Truck assigned picks the app when it gets there).
  * Returns the ids of the loads that were switched.
  */
 export function createDriverTrackingReevaluator(
@@ -78,8 +114,36 @@ export function createDriverTrackingReevaluator(
   loadRepository: LoadRepository,
 ) {
   const loads = dataSource.getRepository(LoadEntity);
+  const drivers = dataSource.getRepository(DriverEntity);
   const resolveSource = createTrackingSourceResolver(dataSource);
+  const matchAccount = createDriverAccountMatcher(dataSource);
+
+  /** Links this driver's unlinked market / indent loads to the account. */
+  const linkByPhone = async (driverId: string): Promise<void> => {
+    const driver = await drivers.findOne({
+      where: { id: driverId, deletedAt: IsNull() },
+      select: { id: true, phoneNumber: true },
+    });
+    const forms = storedPhoneForms(driver?.phoneNumber ?? null);
+    if (forms.length === 0) return;
+    // A number shared by two accounts is never linked (same rule as at naming).
+    if ((await matchAccount(driver!.phoneNumber)) !== driverId) return;
+    const unlinked = await loads.find({
+      where: {
+        driverId: IsNull(),
+        postingType: Not('own_fleet'),
+        status: In(['bids_received', ...ON_ROAD_LOAD_STATUSES]),
+        driverNumber: In(forms),
+      },
+    });
+    for (const load of unlinked) {
+      await loadRepository.update(load.tenantId, load.id, { driverId });
+      console.info(`[loads] load ${load.id} linked to driver ${driverId} by mobile number`);
+    }
+  };
+
   return async (driverId: string): Promise<string[]> => {
+    await linkByPhone(driverId);
     const candidates = await loads.find({
       where: [
         { driverId, status: In([...ON_ROAD_LOAD_STATUSES]), trackingSource: In(['sim', 'fastag']) },

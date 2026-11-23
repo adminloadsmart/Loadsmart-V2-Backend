@@ -7,6 +7,8 @@ import { CUSTOMERS_APPROVE, MASTERS_APPROVE } from '../../shared/constants/permi
 import { VehicleService } from '../masters/vehicle/vehicle.service';
 import { DriverService } from '../driver/driver.service';
 import { CustomerService } from '../customers/customer.service';
+import { shipperActionFor, ShipperActionKind } from '../loads/utils/shipper-action';
+import { freightTotalOf, moneySummary } from '../loads/money/money-rules';
 import { DashboardsRepository } from './dashboards.repository';
 import { DEFAULT_RANGE_DAYS, LOAD_PIPELINE_STAGES } from './dashboards.constants';
 import {
@@ -19,8 +21,29 @@ import {
   LoadsSummary,
   LoadsSummaryRangeInput,
   PendingApprovalItem,
+  WAITING_ON_YOU_KEYS,
+  WaitingOnYou,
+  WaitingOnYouKey,
   WhereEveryLoadIs,
 } from './utils/dashboards.interface';
+
+/** Which "Waiting on you" card each shipper next-action lands in. 'none' is in no card. */
+const WAITING_ON_YOU_BUCKET: Record<Exclude<ShipperActionKind, 'none'>, WaitingOnYouKey> = {
+  pick_bid: 'bids_to_confirm',
+  record_advance: 'advance_to_release',
+  record_balance: 'balance_to_release',
+  approve_charges: 'charges_to_approve',
+  accept_memo: 'memos_to_confirm',
+  send_invoice: 'everything_else',
+  loading_papers: 'everything_else',
+  upload_pod: 'everything_else',
+  review_pod: 'everything_else',
+  settle_issue: 'everything_else',
+  upload_transporter_invoice: 'everything_else',
+  pay_invoice: 'everything_else',
+};
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** Sibling default to DEFAULT_RANGE_DAYS above, expressed as a DateFilter preset for the
  *  loads-summary endpoint (which uses the shared date-filter.ts range presets rather than plain
@@ -138,6 +161,89 @@ export class DashboardsService {
       openOnMarketFleet: pipeline.openOnMarketFleet,
       tonnesInPlay: Math.round(pipeline.tonnesInPlay * 100) / 100,
     };
+  }
+
+  /** Home "Waiting on you" — each open load's shipper next-action (the same rule GET
+   *  /loads/:id/next-action runs), computed for every open load from batched reads and bucketed
+   *  into the six cards. See WaitingOnYou for what each card's amount sums. */
+  async getWaitingOnYou(tenantId: string): Promise<WaitingOnYou> {
+    try {
+      const raw = await this.dashboardsRepository.getWaitingOnYouRaw(tenantId);
+      const now = new Date();
+      const buckets = new Map(
+        WAITING_ON_YOU_KEYS.map((key) => [
+          key,
+          { key, count: 0, loads: 0, amount: 0, loadIds: [] as string[] },
+        ]),
+      );
+
+      for (const load of raw.loads) {
+        const payments = raw.payments.get(load.id) ?? [];
+        const memo = raw.latestMemo.get(load.id);
+        const action = shipperActionFor({
+          ...load,
+          pendingCharges: raw.raisedCharges.get(load.id) ?? { count: 0, total: 0 },
+          invoiceOpen: load.route === 'loadsmart' ? (raw.invoiceOpen.get(load.id) ?? null) : null,
+          paymentPendingMatch: payments.some(
+            (payment) =>
+              payment.paymentType === 'balance' && payment.verificationStatus === 'pending',
+          ),
+          // Same as loads/index.ts's memo reader: the latest memo is out and not yet expired.
+          memoWaiting: !!memo && memo.status === 'sent' && memo.expiresAt > now,
+        });
+        if (action.kind === 'none') continue;
+
+        const bucket = buckets.get(WAITING_ON_YOU_BUCKET[action.kind])!;
+        bucket.loads += 1;
+        bucket.loadIds.push(load.id);
+        const freightTotal = freightTotalOf(load) ?? 0;
+
+        switch (action.kind) {
+          case 'pick_bid':
+            bucket.count += 1;
+            {
+              // The rate is in the load's freight basis — × planned tonnes when per tonne.
+              const rate = raw.lowestBid.get(load.id);
+              bucket.amount += rate ? (freightTotalOf({ ...load, freightValue: rate }) ?? 0) : 0;
+            }
+            break;
+          case 'record_advance':
+            bucket.count += 1;
+            bucket.amount += (freightTotal * Number(load.advancePercentage ?? 0)) / 100;
+            break;
+          case 'record_balance':
+            bucket.count += 1;
+            bucket.amount += moneySummary(
+              load,
+              payments,
+              raw.charges.get(load.id) ?? [],
+            ).balanceDue;
+            break;
+          case 'approve_charges':
+            bucket.count += action.count ?? 0;
+            bucket.amount += action.amount ?? 0;
+            break;
+          case 'accept_memo':
+            bucket.count += 1;
+            break;
+          default:
+            bucket.count += 1;
+            bucket.amount += action.kind === 'pay_invoice' ? (action.amount ?? 0) : freightTotal;
+        }
+      }
+
+      const result = [...buckets.values()].map(({ loadIds, ...bucket }) => ({
+        ...bucket,
+        amount: bucket.key === 'memos_to_confirm' ? null : round2(bucket.amount),
+        singleLoadId: loadIds.length === 1 ? loadIds[0] : null,
+      }));
+      return {
+        buckets: result,
+        totalLoads: result.reduce((sum, bucket) => sum + bucket.loads, 0),
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to fetch waiting-on-you');
+    }
   }
 
   /** Settings → Approvals — every pending customer/vehicle/driver for the tenant, in one list. */

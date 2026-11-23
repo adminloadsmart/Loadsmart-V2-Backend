@@ -386,7 +386,9 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
   );
   router.post(
     '/loads/:loadId/verifications/truck/manual',
-    team(LS_TRUCK_VERIFY_MANUAL),
+    // Placement verifies truck and driver before the memo, so it may mark the RC checked by hand
+    // when VAHAN can't be reached; the Admin team still can.
+    team(LS_TRUCK_VERIFY_MANUAL, LS_PLACEMENT),
     validate(v.verifyTruckManually),
     asyncHandler(c.verifyTruckManually),
   );

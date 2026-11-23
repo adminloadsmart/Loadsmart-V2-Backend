@@ -322,6 +322,8 @@ export class LoadService {
 
       const driverNumber = input.driverNumber?.trim() ?? null;
       const driverName = input.driverName?.trim() ?? null;
+      // A driver account with this mobile number is linked, so the app can track the load.
+      const driverId = (await this.matchDriverAccount?.(driverNumber)) ?? null;
       const updated = await this.stageService.transition({
         tenantId,
         loadId,
@@ -332,6 +334,7 @@ export class LoadService {
         fields: {
           transporterId: input.transporterId,
           vehicleNumber,
+          driverId,
           driverNumber,
           driverName,
           freightType: input.freightType,
@@ -2112,6 +2115,14 @@ export class LoadService {
 
   setAmountDueResolver(resolver: (load: LoadEntity) => Promise<AmountDue | null>): void {
     this.amountDueResolver = resolver;
+  }
+
+  /** Set by the loads module: the driver account behind a market load's driver mobile number
+   *  (tracking-source.hook.ts createDriverAccountMatcher). */
+  private matchDriverAccount?: (driverNumber: string | null) => Promise<string | null>;
+
+  setDriverAccountMatcher(matcher: (driverNumber: string | null) => Promise<string | null>): void {
+    this.matchDriverAccount = matcher;
   }
 
   async list(

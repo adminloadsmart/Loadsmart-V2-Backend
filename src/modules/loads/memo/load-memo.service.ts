@@ -63,6 +63,14 @@ export class LoadMemoService {
 
   private notifyParties?: LoadPartyNotifier;
 
+  /** The driver account behind a mobile number, so a named market / indent driver who has the app
+   *  is tracked by it (tracking-source.hook.ts createDriverAccountMatcher). */
+  private matchDriverAccount?: (driverNumber: string | null) => Promise<string | null>;
+
+  setDriverAccountMatcher(matcher: (driverNumber: string | null) => Promise<string | null>): void {
+    this.matchDriverAccount = matcher;
+  }
+
   /** Told after every memo version is sent (the shipper gets it on WhatsApp — modules/messaging). */
   setPartyNotifier(notifier: LoadPartyNotifier): void {
     this.notifyParties = notifier;
@@ -148,8 +156,11 @@ export class LoadMemoService {
           );
         }
       }
+      // Re-matched every time: a different mobile number unlinks the previous driver's account.
+      const driverId = (await this.matchDriverAccount?.(input.driverMobile)) ?? null;
       const updated = await this.loadRepository.update(tenantId, loadId, {
         vehicleNumber,
+        driverId,
         driverName: input.driverName,
         driverNumber: input.driverMobile,
         driverLicenceNumber: licenceNumber,

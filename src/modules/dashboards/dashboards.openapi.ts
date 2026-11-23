@@ -60,6 +60,23 @@ export function registerDashboardsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
+    path: `${BASE}/waiting-on-you`,
+    tags: [TAGS.DASHBOARDS],
+    operationId: 'dashboards.getWaitingOnYou',
+    ...authenticated(
+      'Home "Waiting on you" cards — a live snapshot of every open load whose shipper ' +
+        'next-action (the GET /loads/{id}/next-action rule) is not "none", bucketed into ' +
+        'bids_to_confirm, advance_to_release, balance_to_release, charges_to_approve, ' +
+        'memos_to_confirm and everything_else. Each load is in one bucket. count is loads (charges ' +
+        'for charges_to_approve); amount is the lowest bids, advance due, balance due, raised ' +
+        'charges, null, and freight totals respectively; singleLoadId is set when a bucket has ' +
+        'exactly one load.',
+    ),
+    responses: { 200: { description: 'Waiting on you — { data: { buckets, totalLoads } }' } },
+  });
+
+  registry.registerPath({
+    method: 'get',
     path: `${BASE}/pending-approvals`,
     tags: [TAGS.DASHBOARDS],
     operationId: 'dashboards.listPendingApprovals',
