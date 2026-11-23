@@ -131,6 +131,7 @@ export const en = {
     invalidType: 'Invalid type: expected {expected}',
     invalidFormat: 'Invalid format',
     email: 'Enter a valid email address',
+    indianMobile: 'Enter a 10-digit Indian mobile number',
     uuid: 'Enter a valid ID',
     url: 'Enter a valid URL',
     regex: 'Invalid format',

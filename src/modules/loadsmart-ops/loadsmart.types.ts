@@ -1,3 +1,4 @@
+import type { PARTNER_LOAD_STATUSES, WHATSAPP_ONLY_BROKER_RESPONSES } from './loadsmart.constants';
 /** Loadsmart ops value sets — const tuples shared by entities, validators and services. */
 
 /** A Loadsmart sourcing per market load: Approval → load board → Placement sends one bid →
@@ -24,6 +25,12 @@ export type PartnerStatus = (typeof PARTNER_STATUSES)[number];
  *  (`not_on_whatsapp`), or WhatsApp couldn't take it (`failed`). */
 export const REQUIREMENT_SEND_STATUSES = ['sent', 'not_on_whatsapp', 'failed'] as const;
 export type RequirementSendStatus = (typeof REQUIREMENT_SEND_STATUSES)[number];
+
+/** A broker answer that only comes in on WhatsApp (see WHATSAPP_ONLY_BROKER_RESPONSES). */
+export type WhatsappOnlyBrokerResponse = (typeof WHATSAPP_ONLY_BROKER_RESPONSES)[number];
+
+/** See PARTNER_LOAD_STATUSES. */
+export type PartnerLoadStatus = (typeof PARTNER_LOAD_STATUSES)[number];
 
 export const PARTNER_BID_STATUSES = ['received', 'sent', 'won', 'lost'] as const;
 export type PartnerBidStatus = (typeof PARTNER_BID_STATUSES)[number];

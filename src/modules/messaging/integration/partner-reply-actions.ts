@@ -1,8 +1,17 @@
 import { AppError } from '../../../shared/errors/AppError';
 import { writeErrorNote } from './write-error-note';
+import { nameDriverRefusalText } from './name-driver-refusal';
 import { LoadBoardOffer } from '../../loadsmart-ops/loadsmart.interface';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
-import { InboundResolution, OfferAction, RecipientLoadStage } from '../messaging.types';
+import {
+  InboundResolution,
+  OfferAction,
+  PartnerDriverChecks,
+  RecipientLoadStage,
+  ReplyValueKind,
+} from '../messaging.types';
+import type { PartnerLoadStatus } from '../../loadsmart-ops/loadsmart.types';
+import { DispatchDetails } from '../parsers/reply-value.parsers';
 import {
   ActionOutcome,
   OpenRecipientLoad,
@@ -26,6 +35,37 @@ export interface PartnerBoardGateway {
     sourcingId: string,
     input: { partnerId: string; rate?: number; vehicleNumber?: string },
   ): Promise<unknown>;
+  /** Where the load stands for this partner — the reply to a message it can't take. */
+  partnerLoadStatus(loadId: string, partnerId: string): Promise<PartnerLoadStatus | null>;
+  /** Loads these partners won that still wait for the truck and driver (LS_N_0107 asked). */
+  wonLoadsAwaitingDriver(partnerIds: string[]): Promise<LoadBoardOffer[]>;
+  /** The winning partner's truck and driver from WhatsApp — saved and checked, memo held. */
+  nameDriverFromWhatsapp(
+    loadId: string,
+    partnerId: string,
+    driver: {
+      driverName: string;
+      driverMobile: string;
+      licenceNumber: string;
+      dateOfBirth: string;
+      vehicleNumber?: string;
+    },
+  ): Promise<{ checks: PartnerDriverChecks }>;
+  /** A tap that isn't a rate (Reject / Negotiate / Give rate), for the broker's history. */
+  recordPartnerReplyFromWhatsapp(
+    sourcingId: string,
+    input: { partnerId: string; response: 'declined' | 'negotiating' },
+  ): Promise<unknown>;
+}
+
+/** A verdict the broker has to act on — the truck failed on VAHAN, or the licence is expired /
+ *  the wrong class — as one line; null when nothing failed or Placement can still pass it by
+ *  hand (e.g. Sarathi has no match), which stays with Placement. */
+export function hardFailureOf(checks: PartnerDriverChecks): string | null {
+  const truckFailed = checks.truck?.status === 'failed' && !checks.truckManualAllowed;
+  const driverFailed = checks.driver?.status === 'failed' && !checks.driverManualAllowed;
+  if (!truckFailed && !driverFailed) return null;
+  return checks.blockers[0] ?? 'a check failed';
 }
 
 export interface OfferAnswerStore {
@@ -70,13 +110,46 @@ export class PartnerReplyActions implements ReplyActions {
           laneLabel: laneLabelOf(boardLoad),
         });
       }
+      // Loads this partner won: LS_N_0107 asked for the truck and driver.
+      for (const wonLoad of await this.board.wonLoadsAwaitingDriver([partner.id])) {
+        open.push({
+          ...contextOf(wonLoad, partner.id),
+          stage: 'awaiting_dispatch',
+          laneLabel: laneLabelOf(wonLoad),
+        });
+      }
     }
     return open;
   }
 
   async stageOf(context: RecipientLoadContext): Promise<RecipientLoadStage> {
     const boardLoad = await this.boardLoadFor(context);
-    return boardLoad ? this.stageFor(boardLoad, context.recipientRefId) : 'closed';
+    if (boardLoad) return this.stageFor(boardLoad, context.recipientRefId);
+    return (await this.wonLoadFor(context)) ? 'awaiting_dispatch' : 'closed';
+  }
+
+  /** What to tell the broker when the load can't take this value now. */
+  async whyNotAccepted(
+    context: RecipientLoadContext,
+    kind: ReplyValueKind,
+  ): Promise<string | null> {
+    if (context.recipientKind !== 'partner' || !context.loadId) return null;
+    const status = await this.board.partnerLoadStatus(context.loadId, context.recipientRefId);
+    switch (status) {
+      case 'cancelled':
+        return REPLY_TEXTS.loadCancelled(context.loadRef);
+      case 'given_to_other':
+        return REPLY_TEXTS.loadGivenToOther(context.loadRef);
+      case 'driver_confirmed':
+        return REPLY_TEXTS.driverAlreadyConfirmed(context.loadRef);
+      case 'bidding':
+        return kind === 'dispatch' ? REPLY_TEXTS.driverBeforeAward(context.loadRef) : null;
+      case 'awaiting_driver':
+        // Won: only the full truck + driver message is taken now.
+        return kind === 'dispatch' ? null : REPLY_TEXTS.driverDetailsNeeded(context.loadRef);
+      default:
+        return null;
+    }
   }
 
   async applyOfferAction(
@@ -86,17 +159,22 @@ export class PartnerReplyActions implements ReplyActions {
   ): Promise<ActionOutcome> {
     const boardLoad = await this.boardLoadFor(context);
     if (!boardLoad || (await this.stageFor(boardLoad, context.recipientRefId)) === 'closed')
-      return closedOutcome(context.loadRef);
-    if (action === 'reject')
+      return this.closedOutcomeFor(context);
+    if (action === 'reject') {
+      await this.recordTap(boardLoad, context, 'declined');
       return {
         resolution: 'rejected',
         confirmationText: REPLY_TEXTS.brokerRejected(boardLoad.loadCode),
       };
-    if (action === 'negotiate' || action === 'give_rate')
+    }
+    if (action === 'negotiate' || action === 'give_rate') {
+      await this.recordTap(boardLoad, context, 'negotiating');
       return { resolution: 'negotiating', nextPrompt: 'rate_request' };
+    }
 
     const partnerRate = Number(boardLoad.partnerRate);
     if (!boardLoad.partnerRate || !Number.isFinite(partnerRate) || partnerRate <= 0) {
+      await this.recordTap(boardLoad, context, 'negotiating');
       return {
         resolution: 'negotiating',
         note: 'accept on a board load without a partner rate — asked for a rate',
@@ -124,7 +202,7 @@ export class PartnerReplyActions implements ReplyActions {
     _inbound: WhatsappInboundEntity,
   ): Promise<ActionOutcome> {
     const boardLoad = await this.boardLoadFor(context);
-    if (!boardLoad) return closedOutcome(context.loadRef);
+    if (!boardLoad) return this.closedOutcomeFor(context);
     return this.write(boardLoad, async () => {
       await this.board.recordPartnerBidFromWhatsapp(boardLoad.sourcingId, {
         partnerId: context.recipientRefId,
@@ -145,7 +223,7 @@ export class PartnerReplyActions implements ReplyActions {
     _inbound: WhatsappInboundEntity,
   ): Promise<ActionOutcome> {
     const boardLoad = await this.boardLoadFor(context);
-    if (!boardLoad) return closedOutcome(context.loadRef);
+    if (!boardLoad) return this.closedOutcomeFor(context);
     return this.write(boardLoad, async () => {
       await this.board.recordPartnerBidFromWhatsapp(boardLoad.sourcingId, {
         partnerId: context.recipientRefId,
@@ -159,11 +237,54 @@ export class PartnerReplyActions implements ReplyActions {
     });
   }
 
-  async applyDispatch(): Promise<ActionOutcome> {
-    return {
-      resolution: 'needs_review',
-      note: 'driver details are not taken on WhatsApp yet',
-    };
+  /** The truck and driver for a load this partner won (answer to LS_N_0107). Sarathi needs the
+   *  DL number and the date of birth, so both are asked for when missing. The details are saved
+   *  and checked; the memo waits for Placement's review. */
+  async applyDispatch(
+    context: RecipientLoadContext,
+    details: DispatchDetails,
+    _inbound: WhatsappInboundEntity,
+  ): Promise<ActionOutcome> {
+    const wonLoad = await this.wonLoadFor(context);
+    if (!wonLoad) return this.closedOutcomeFor(context);
+    const missing = [
+      ...(details.licenceNumber ? [] : ['DL number']),
+      ...(details.dateOfBirth ? [] : ["driver's date of birth (for example 12 May 1990)"]),
+    ];
+    if (missing.length > 0 || !details.driverMobile) {
+      return {
+        resolution: 'validation_failed',
+        note: `driver details without ${missing.join(', ') || 'a mobile'}`,
+        confirmationText: REPLY_TEXTS.dispatchMissing(wonLoad.loadCode, missing),
+        asksFor: 'dispatch',
+      };
+    }
+    return this.write(wonLoad, async () => {
+      const { checks } = await this.board.nameDriverFromWhatsapp(
+        wonLoad.loadId,
+        context.recipientRefId,
+        {
+          driverName: details.driverName,
+          driverMobile: details.driverMobile!,
+          licenceNumber: details.licenceNumber!,
+          dateOfBirth: details.dateOfBirth!,
+          ...(details.truckNumber ? { vehicleNumber: details.truckNumber } : {}),
+        },
+      );
+      const failed = hardFailureOf(checks);
+      return {
+        resolution: 'details_received',
+        note: `driver ${details.driverName}, DL ${details.licenceNumber}${
+          checks.clear
+            ? ' — checks clear, memo held for Placement'
+            : ` — ${checks.blockers.join('; ')}`
+        }`,
+        confirmationText: failed
+          ? REPLY_TEXTS.dispatchCheckFailed(wonLoad.loadCode, failed)
+          : REPLY_TEXTS.dispatchWithPlacement(wonLoad.loadCode, details.driverName),
+        ...(failed ? { asksFor: 'dispatch' as const } : {}),
+      };
+    });
   }
 
   async applySlip(): Promise<ActionOutcome> {
@@ -180,6 +301,23 @@ export class PartnerReplyActions implements ReplyActions {
     return byCode.length === 1 ? byCode[0] : null;
   }
 
+  /** The load is off the board for this partner: say why when we know (given to another truck,
+   *  cancelled, driver already confirmed), else the general "no longer open". */
+  private async closedOutcomeFor(context: RecipientLoadContext): Promise<ActionOutcome> {
+    const outcome = closedOutcome(context.loadRef);
+    const reason = await this.whyNotAccepted(context, 'rate');
+    return reason ? { ...outcome, confirmationText: reason } : outcome;
+  }
+
+  /** The load this partner won that still waits for the driver, if the context is one. */
+  private async wonLoadFor(context: RecipientLoadContext): Promise<LoadBoardOffer | null> {
+    if (context.recipientKind !== 'partner') return null;
+    const wonLoads = await this.board.wonLoadsAwaitingDriver([context.recipientRefId]);
+    if (context.loadId) return wonLoads.find((load) => load.loadId === context.loadId) ?? null;
+    const byCode = wonLoads.filter((load) => load.loadCode === context.loadRef);
+    return byCode.length === 1 ? byCode[0] : null;
+  }
+
   private async stageFor(
     boardLoad: LoadBoardOffer,
     partnerId: string,
@@ -191,6 +329,24 @@ export class PartnerReplyActions implements ReplyActions {
     return partnerStage(liveBid, lastAnswer);
   }
 
+  /** The tap goes in the broker's history for Placement. Best effort: the broker's answer is
+   *  already decided, so a history write that fails (e.g. the load just left the board) must not
+   *  turn it into needs_review. */
+  private async recordTap(
+    boardLoad: LoadBoardOffer,
+    context: RecipientLoadContext,
+    response: 'declined' | 'negotiating',
+  ): Promise<void> {
+    try {
+      await this.board.recordPartnerReplyFromWhatsapp(boardLoad.sourcingId, {
+        partnerId: context.recipientRefId,
+        response,
+      });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+    }
+  }
+
   private async write(
     boardLoad: LoadBoardOffer,
     apply: () => Promise<ActionOutcome>,
@@ -199,6 +355,15 @@ export class PartnerReplyActions implements ReplyActions {
       return await apply();
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
+      const refusal = nameDriverRefusalText(error, boardLoad.loadCode);
+      if (refusal) {
+        return {
+          resolution: 'validation_failed',
+          note: writeErrorNote(error, boardLoad.loadCode),
+          confirmationText: refusal,
+          asksFor: 'dispatch',
+        };
+      }
       return {
         resolution: 'needs_review',
         note: writeErrorNote(error, boardLoad.loadCode),

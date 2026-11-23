@@ -107,6 +107,10 @@ const CUSTOMER_EXPORT_COLUMNS: CsvColumn<ReturnType<typeof toCustomerView>>[] = 
   { header: 'Credit Limit', value: (c) => c.creditLimit },
   { header: 'Balance Amount', value: (c) => c.balanceAmount },
   { header: 'Free Hours At Drop', value: (c) => c.freeHoursAtDrop },
+  {
+    header: 'Freight Balance Paid By Customer',
+    value: (c) => (c.freightBalancePaidByCustomer ? 'Yes' : 'No'),
+  },
   { header: 'Status', value: (c) => c.status },
   { header: 'Created By', value: (c) => c.createdByUser?.fullName },
   { header: 'Created At', value: (c) => c.createdAt?.toISOString().slice(0, 10) },

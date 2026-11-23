@@ -75,6 +75,7 @@ const fields = {
   notes: z.string().trim().max(2000).optional(),
   invoiceAgainst: z.enum(CUSTOMER_INVOICE_AGAINST).optional(),
   freeHoursAtDrop: z.number().int().min(0).max(240).optional(),
+  freightBalancePaidByCustomer: z.boolean().optional(),
   balanceAmount: money.optional(),
   creditLimit: money.optional(),
   creditDays: z.number().int().nonnegative().max(36500).optional(),

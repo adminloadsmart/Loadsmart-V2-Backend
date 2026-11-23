@@ -15,7 +15,11 @@ import { SettingsReader } from '../settings/settings.types';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LsServiceBase } from './ls-base';
 import { LoadsmartRepository } from './loadsmart.repository';
-import type { BrokerMatcher } from './loadsmart.interface';
+import type {
+  BrokerMatcher,
+  BrokerWhatsappActivity,
+  BrokerWhatsappReply,
+} from './loadsmart.interface';
 import {
   nextOnDuty,
   PLACEMENT_BUCKETS,
@@ -81,6 +85,9 @@ export interface MatchedBrokerProfile {
   truckTypes: string[];
   region: string | null;
   contactName: string | null;
+  /** The requirement sent to this broker on WhatsApp and their latest WhatsApp reply; null when
+   *  it was never sent to them. */
+  whatsapp: BrokerWhatsappActivity | null;
 }
 
 export class LsPlacementService extends LsServiceBase {
@@ -241,6 +248,7 @@ export class LsPlacementService extends LsServiceBase {
       const masters = brokerIds.length
         ? await this.repository.brokerMaster.findBy({ id: In(brokerIds) })
         : [];
+      const whatsapp = await this.whatsappActivityByPartner(sourcingId);
       return {
         lane,
         brokers: brokers.map((broker) => {
@@ -250,12 +258,49 @@ export class LsPlacementService extends LsServiceBase {
             truckTypes: master?.truckSources ?? [],
             region: master?.base ?? null,
             contactName: master?.truckerName ?? null,
+            whatsapp: whatsapp.get(broker.partnerId) ?? null,
           };
         }),
       };
     } catch (error) {
       rethrow(error, 'Failed to match brokers');
     }
+  }
+
+  /** Per broker: the load's WhatsApp requirement (sent / failed / not on WhatsApp, delivered and
+   *  read times from WhatsApp's reports) and the newest response that came in on WhatsApp. */
+  private async whatsappActivityByPartner(
+    sourcingId: string,
+  ): Promise<Map<string, BrokerWhatsappActivity>> {
+    const [sends, replies] = await Promise.all([
+      this.repository.requirementRecipients.findBy({ sourcingId }),
+      this.repository.partnerBidResponses.find({
+        where: { sourcingId, channel: 'whatsapp' },
+        order: { createdAt: 'DESC' },
+      }),
+    ]);
+    const lastReply = new Map<string, BrokerWhatsappReply>();
+    for (const reply of replies) {
+      if (lastReply.has(reply.partnerId)) continue;
+      lastReply.set(reply.partnerId, {
+        response: reply.response,
+        rate: reply.rate === null ? null : Number(reply.rate),
+        at: reply.createdAt.toISOString(),
+      });
+    }
+    return new Map(
+      sends.map((send) => [
+        send.partnerId,
+        {
+          status: send.status,
+          sentAt: send.createdAt.toISOString(),
+          deliveredAt: send.deliveredAt?.toISOString() ?? null,
+          readAt: send.readAt?.toISOString() ?? null,
+          failReason: send.failReason,
+          lastReply: lastReply.get(send.partnerId) ?? null,
+        },
+      ]),
+    );
   }
 
   // --- Owner and roster ----------------------------------------------------------------------

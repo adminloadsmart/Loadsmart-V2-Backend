@@ -132,6 +132,7 @@ export const hi = {
     invalidType: 'गलत प्रकार: {expected} होना चाहिए',
     invalidFormat: 'फ़ॉर्मेट सही नहीं है',
     email: 'सही ईमेल पता दर्ज करें',
+    indianMobile: '10 अंकों का भारतीय मोबाइल नंबर दर्ज करें',
     uuid: 'सही ID दर्ज करें',
     url: 'सही URL दर्ज करें',
     regex: 'फ़ॉर्मेट सही नहीं है',

@@ -6,13 +6,14 @@ import {
   LAST_ASK_WINDOW_MS,
   LOAD_PICK_TTL_MS,
   STAGES_ACCEPTING_VALUE,
+  TAPPED_MESSAGE_WAIT,
   VALUE_ASKED_BY_PROMPT,
   WHATSAPP_INTERACTIVE_LIMITS,
 } from '../messaging.constants';
 import { OfferAction, RecipientLoadStage, ReplyValueKind, RoutingMethod } from '../messaging.types';
 import { actionOfButtonTitle, isTemplateKey } from '../templates/template-registry';
 import { NormalizedMedia } from '../providers/whatsapp-provider.interface';
-import { InboundMessageHandler } from '../inbound/inbound-pipeline.service';
+import { InboundMessageHandler, InboundRetry } from '../inbound/inbound-pipeline.service';
 import { InboundResolutionPatch } from '../repositories/whatsapp-inbound.repository';
 import {
   DispatchDetails,
@@ -132,7 +133,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     this.now = config.now ?? (() => new Date());
   }
 
-  async handle(inbound: WhatsappInboundEntity): Promise<InboundResolutionPatch> {
+  async handle(inbound: WhatsappInboundEntity): Promise<InboundResolutionPatch | InboundRetry> {
     const senderIdentity: SenderIdentity = { phone: inbound.fromPhone, userId: inbound.fromUserId };
     switch (inbound.type) {
       case 'button':
@@ -165,9 +166,16 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
   private async routeOfferTap(
     inbound: WhatsappInboundEntity,
     senderIdentity: SenderIdentity,
-  ): Promise<InboundResolutionPatch> {
+  ): Promise<InboundResolutionPatch | InboundRetry> {
     const buttonId = decodeOfferButtonId(inbound.buttonId);
     const answeredMessage = await this.findAnsweredMessage(inbound);
+    // A template quick reply carries only its text: without the tapped message there is no load
+    // and no action. Its WAMID may simply not be in yet — wait for it rather than drop the tap.
+    const tappedMessageUnknown = !answeredMessage && !!inbound.contextMessageId && !buttonId;
+    if (tappedMessageUnknown) {
+      const retry = this.waitForTappedMessage(inbound);
+      if (retry) return retry;
+    }
     if (answeredMessage && !this.isSameSender(answeredMessage, senderIdentity)) {
       return this.needsReview("tap points at another user's message");
     }
@@ -202,7 +210,15 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         routingMethod = 'button_id';
       }
     }
-    if (!context) return this.needsReview('tap could not be matched to one of our offers');
+    if (!context) {
+      if (!tappedMessageUnknown)
+        return this.needsReview('tap could not be matched to one of our offers');
+      // Reached once: the row leaves 'pending' with this result, so no later run sends it again.
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.tapNotMatched, inbound.id);
+      return this.needsReview(
+        `tapped message ${inbound.contextMessageId} still unknown after ${TAPPED_MESSAGE_WAIT.windowMs / 60_000} min`,
+      );
+    }
     if (!action) {
       return {
         ...evidenceFor(context, routingMethod),
@@ -398,8 +414,17 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
   private async routeLoadPick(
     inbound: WhatsappInboundEntity,
     senderIdentity: SenderIdentity,
-  ): Promise<InboundResolutionPatch> {
+  ): Promise<InboundResolutionPatch | InboundRetry> {
     const pickerMessage = await this.findAnsweredMessage(inbound);
+    if (!pickerMessage && inbound.contextMessageId) {
+      // Same race as a template tap: the list's WAMID may not be in yet.
+      const retry = this.waitForTappedMessage(inbound);
+      if (retry) return retry;
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.tapNotMatched, inbound.id);
+      return this.needsReview(
+        `picked list ${inbound.contextMessageId} still unknown after ${TAPPED_MESSAGE_WAIT.windowMs / 60_000} min`,
+      );
+    }
     if (!pickerMessage || pickerMessage.kind !== 'picker')
       return this.needsReview('list pick does not answer one of our "Load chunein" lists');
     if (!this.isSameSender(pickerMessage, senderIdentity))
@@ -498,9 +523,10 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     const evidence = { ...evidenceFor(context, routingMethod), parsedValues: { value } };
     const stage = await this.actions.stageOf(context);
     if (!acceptsValue(stage, value.kind)) {
+      const reason = (await this.actions.whyNotAccepted?.(context, value.kind)) ?? null;
       await this.sender.sendInfo(
         senderIdentity,
-        REPLY_TEXTS.wrongStage(context.loadRef),
+        reason ?? REPLY_TEXTS.wrongStage(context.loadRef),
         valueMessage.id,
         { context },
       );
@@ -583,6 +609,17 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     return inbound.contextMessageId
       ? this.store.findMessageLogByProviderMessageId(inbound.contextMessageId)
       : null;
+  }
+
+  /** Wait again while the tap is younger than TAPPED_MESSAGE_WAIT.windowMs (from when we stored
+   *  it, not MSG91's time — MSG91 may hand us the tap late too); null once the wait is over. */
+  private waitForTappedMessage(inbound: WhatsappInboundEntity): InboundRetry | null {
+    const waitedMs = this.now().getTime() - new Date(inbound.createdAt).getTime();
+    if (!(waitedMs < TAPPED_MESSAGE_WAIT.windowMs)) return null;
+    return {
+      retryAfterMs: TAPPED_MESSAGE_WAIT.retryMs,
+      note: `waiting for message ${inbound.contextMessageId} to be known`,
+    };
   }
 
   private isSameSender(messageLog: MessageLogEntity, senderIdentity: SenderIdentity): boolean {

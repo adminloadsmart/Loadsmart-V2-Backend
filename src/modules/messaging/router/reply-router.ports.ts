@@ -60,6 +60,9 @@ export interface ReplyActions {
   /** Loads this sender (all of their partner / transporter records) can still answer. */
   findOpenLoadsForSender(sender: SenderIdentity): Promise<OpenRecipientLoad[]>;
   stageOf(context: RecipientLoadContext): Promise<RecipientLoadStage>;
+  /** Why this load can't take a `kind` value from this recipient now, as the reply to send —
+   *  e.g. "the truck and driver are already confirmed". null → the general wrongStage text. */
+  whyNotAccepted?(context: RecipientLoadContext, kind: ReplyValueKind): Promise<string | null>;
   applyOfferAction(
     context: RecipientLoadContext,
     action: OfferAction,

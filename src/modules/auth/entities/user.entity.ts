@@ -76,9 +76,9 @@ export class UserEntity {
   @Column({ type: 'varchar', nullable: true })
   region!: string | null;
 
-  // Employee ID (LS5678 — "LS" + 4 digits), typed in by the platform admin at hire and editable.
-  // AuthService checks it's unique among all active users; the per-team index
-  // (users_employee_id_team_active_unique) is the DB backstop against a race.
+  // Employee ID (LS0001, …), issued by the backend at hire — AuthRepository.nextEmployeeId. Never
+  // reused, so unique across all teams; the per-team index (users_employee_id_team_active_unique)
+  // stays as a backstop for IDs typed in before IDs were generated.
   @Column({ name: 'employee_id', type: 'varchar', nullable: true })
   employeeId!: string | null;
 

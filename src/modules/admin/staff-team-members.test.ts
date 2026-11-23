@@ -14,7 +14,6 @@ vi.mock('../../shared/utils/token-blocklist', () => ({ blockToken: vi.fn(async (
 
 import { AuthService } from '../auth/auth.service';
 import { AdminService } from './admin.service';
-import { adminValidators } from './admin.validators';
 import { RoleService } from '../roles/role.service';
 import { ADMIN_TEAM_BUNDLE, OPS_TEAM_BUNDLES, ROLES } from '../../db/role-catalog';
 import {
@@ -150,7 +149,7 @@ function staffServiceWith(people: Row[] = []) {
     findActivePlatformUsersByIds: vi.fn(async (ids: string[]) =>
       ids.map((id) => byId.get(id)).filter(Boolean),
     ),
-    findUserByEmployeeId: vi.fn(async (): Promise<Row | null> => null),
+    nextEmployeeId: vi.fn(async () => 'LS0042'),
     reportsToChain: vi.fn(async () => [] as string[]),
     countDirectReports: vi.fn(async () => 0),
     countAsmReports: vi.fn(async () => 0),
@@ -195,7 +194,6 @@ function staffServiceWith(people: Row[] = []) {
 
 const newMember = (overrides: Partial<CreateStaffInput> = {}): CreateStaffInput => ({
   fullName: 'Asha Rao',
-  employeeId: 'LS0042',
   phoneNumber: '9000000101',
   email: 'asha@loadsmart.in',
   roleId: 'role-ls_tracking',
@@ -316,11 +314,12 @@ describe('adding a team member (POST /admin/staff)', () => {
     }
   });
 
-  it('rejects an employee ID another active user already holds', async () => {
+  it('issues the employee ID only once every check has passed', async () => {
     const { service, authRepository } = staffServiceWith();
-    authRepository.findUserByEmployeeId.mockResolvedValueOnce(member('other', 'ls_approval'));
-    await expect(service.createStaffUser(owner, newMember())).rejects.toBeInstanceOf(ConflictError);
-    expect(authRepository.createUser).not.toHaveBeenCalled();
+    await expect(
+      service.createStaffUser(owner, newMember({ teamRole: 'asm' })),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(authRepository.nextEmployeeId).not.toHaveBeenCalled();
   });
 
   it('still hires when the invite fails', async () => {
@@ -421,32 +420,25 @@ describe('editing a team member (PATCH /admin/staff/:id)', () => {
     expect(roleService.invalidateUserSession).toHaveBeenCalledWith('m-1');
   });
 
-  it('keeps the employee ID on edit when none is sent', async () => {
+  it('keeps the employee ID on edit', async () => {
     const { service, authRepository } = staffServiceWith([member('m-1', 'ls_tracking')]);
     await service.updateStaff(owner, 'm-1', { region: 'Mumbai' });
+    expect(authRepository.nextEmployeeId).not.toHaveBeenCalled();
     expect(authRepository.updateUser).toHaveBeenCalledWith(
       'm-1',
       expect.not.objectContaining({ employeeId: expect.anything() }),
     );
   });
 
-  it('changes the employee ID on edit', async () => {
-    const { service, authRepository } = staffServiceWith([member('m-1', 'ls_tracking')]);
-    await service.updateStaff(owner, 'm-1', { employeeId: 'LS5678' });
-    expect(authRepository.findUserByEmployeeId).toHaveBeenCalledWith('LS5678');
+  it('issues an employee ID to a member hired before IDs were generated', async () => {
+    const { service, authRepository } = staffServiceWith([
+      member('m-1', 'ls_tracking', { employeeId: null }),
+    ]);
+    await service.updateStaff(owner, 'm-1', { region: 'Mumbai' });
     expect(authRepository.updateUser).toHaveBeenCalledWith(
       'm-1',
-      expect.objectContaining({ employeeId: 'LS5678' }),
+      expect.objectContaining({ employeeId: 'LS0042' }),
     );
-  });
-
-  it('rejects an edit to an employee ID someone else holds', async () => {
-    const { service, authRepository } = staffServiceWith([member('m-1', 'ls_tracking')]);
-    authRepository.findUserByEmployeeId.mockResolvedValueOnce(member('other', 'ls_approval'));
-    await expect(
-      service.updateStaff(owner, 'm-1', { employeeId: 'LS5678' }),
-    ).rejects.toBeInstanceOf(ConflictError);
-    expect(authRepository.updateUser).not.toHaveBeenCalled();
   });
 
   it('does not end sessions for other edits', async () => {
@@ -855,35 +847,5 @@ describe('the Team members form team picker (GET /admin/staff/teams)', () => {
       },
     ]);
     expect(roleRepository.listRolesWithPermissionsByNames).toHaveBeenCalledWith([...STAFF_TEAMS]);
-  });
-});
-
-describe('employee ID format (POST /admin/staff)', () => {
-  const body = (employeeId?: string) => ({
-    body: {
-      fullName: 'Asha Rao',
-      ...(employeeId === undefined ? {} : { employeeId }),
-      phoneNumber: '9000000101',
-      email: 'asha@loadsmart.in',
-      roleId: '00000000-0000-4000-8000-000000000001',
-      teamRole: 'team_member',
-      region: 'Pune',
-    },
-  });
-
-  it('accepts LS + 4 digits, uppercasing lowercase input', () => {
-    for (const [input, stored] of [
-      ['LS5678', 'LS5678'],
-      [' ls0001 ', 'LS0001'],
-    ]) {
-      const parsed = adminValidators.createStaff.safeParse(body(input));
-      expect(parsed.success && parsed.data.body.employeeId).toBe(stored);
-    }
-  });
-
-  it('rejects a missing or malformed employee ID', () => {
-    for (const input of [undefined, '', 'LS567', 'LS56789', 'AB5678', '5678', '12222']) {
-      expect(adminValidators.createStaff.safeParse(body(input)).success).toBe(false);
-    }
   });
 });

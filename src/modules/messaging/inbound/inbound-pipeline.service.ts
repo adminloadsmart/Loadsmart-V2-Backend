@@ -17,9 +17,21 @@ import { InboundResolutionPatch } from '../repositories/whatsapp-inbound.reposit
 import { MessageLogPatch } from '../repositories/message-log.repository';
 import { planStatusUpdate } from './delivery-status';
 
+/** The handler can't decide yet — e.g. a tap on a template whose WAMID MSG91's delivery report
+ *  hasn't brought in yet. The message stays pending and is looked at again after `retryAfterMs`;
+ *  the handler decides when to stop waiting. Nothing may be sent before returning this. */
+export interface InboundRetry {
+  retryAfterMs: number;
+  note: string;
+}
+
+export const isInboundRetry = (
+  result: InboundResolutionPatch | InboundRetry,
+): result is InboundRetry => 'retryAfterMs' in result;
+
 /** Decides what an inbound message means (Part 3: the reply router). Must not return 'pending'. */
 export interface InboundMessageHandler {
-  handle(inbound: WhatsappInboundEntity): Promise<InboundResolutionPatch>;
+  handle(inbound: WhatsappInboundEntity): Promise<InboundResolutionPatch | InboundRetry>;
 }
 
 export interface InboundStore {
@@ -152,10 +164,12 @@ export class InboundPipelineService {
         triggeringMessage.receivedAt,
       );
       for (const pendingMessage of pendingMessages) {
-        await this.inboundStore.recordResolution(
-          pendingMessage.id,
-          await this.handleSafely(pendingMessage),
-        );
+        const result = await this.handleSafely(pendingMessage);
+        if (isInboundRetry(result)) {
+          await this.scheduleRetry(pendingMessage, result);
+          continue;
+        }
+        await this.inboundStore.recordResolution(pendingMessage.id, result);
         handledCount += 1;
       }
     } finally {
@@ -227,10 +241,31 @@ export class InboundPipelineService {
     }
   }
 
+  /**
+   * Looks at a still-pending message again later. The job id is the message plus its retry slot,
+   * so the same slot asked for twice (by the retry job and by a newer message from the same
+   * sender) runs once; and every run is under the sender's lock and only touches pending rows,
+   * so the reply goes out once, whichever run settles the message.
+   */
+  private async scheduleRetry(inbound: WhatsappInboundEntity, retry: InboundRetry): Promise<void> {
+    const waitedMs = Math.max(0, Date.now() - new Date(inbound.createdAt).getTime());
+    const slot = Math.floor(waitedMs / retry.retryAfterMs) + 1;
+    const payload: ProcessSenderJobPayload = { inboundId: inbound.id };
+    await this.queue.enqueue(INBOUND_JOB_NAMES.processSender, payload, {
+      jobId: `${inbound.id}-retry-${slot}`,
+      delay: retry.retryAfterMs,
+      attempts: INBOUND_JOB_RETRY.attempts,
+      backoff: { type: 'fixed', delay: INBOUND_JOB_RETRY.backoffMs },
+    });
+  }
+
   /** One bad message must not block the sender's queue: a handler failure becomes needs_review. */
-  private async handleSafely(inbound: WhatsappInboundEntity): Promise<InboundResolutionPatch> {
+  private async handleSafely(
+    inbound: WhatsappInboundEntity,
+  ): Promise<InboundResolutionPatch | InboundRetry> {
     try {
       const result = await this.handler.handle(inbound);
+      if (isInboundRetry(result)) return result;
       if (result.resolution === 'pending') {
         return {
           ...result,

@@ -1,3 +1,4 @@
+import type { NAME_DRIVER_REFUSALS } from '../memo/load-memo.constants';
 import type { LoadMemoEntity } from '../memo/load-memo.entity';
 import type { MemoStatus } from './loads.types';
 import type { LoadChecksView } from './load-verification.interface';
@@ -37,6 +38,22 @@ export interface NameDriverInput {
   vehicleNumber?: string;
   /** Why the shipper entered details the transporter gave outside WhatsApp — logged. */
   reason?: string;
+}
+
+/** A refusal reason from NAME_DRIVER_REFUSALS. */
+export type NameDriverRefusal = (typeof NAME_DRIVER_REFUSALS)[keyof typeof NAME_DRIVER_REFUSALS];
+
+/** The `details` of a refused "name the driver". */
+export interface NameDriverRefusalDetails {
+  reason: NameDriverRefusal;
+  vehicleNumber?: string;
+}
+
+export interface NameDriverOptions {
+  /** Save the driver and run the checks, but don't send the memo even when they pass — the
+   *  details came from a Loadsmart partner on WhatsApp and Placement sends the memo after its
+   *  review (re-run checks / manual verification). */
+  holdMemo?: boolean;
 }
 
 /** What naming the driver (or re-running the checks) produced: the memo, or — while a check

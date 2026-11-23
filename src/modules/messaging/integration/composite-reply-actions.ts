@@ -1,5 +1,10 @@
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
-import { MessageRecipientKind, OfferAction, RecipientLoadStage } from '../messaging.types';
+import {
+  MessageRecipientKind,
+  OfferAction,
+  RecipientLoadStage,
+  ReplyValueKind,
+} from '../messaging.types';
 import { DispatchDetails } from '../parsers/reply-value.parsers';
 import { NormalizedMedia } from '../providers/whatsapp-provider.interface';
 import {
@@ -27,6 +32,13 @@ export class CompositeReplyActions implements ReplyActions {
 
   async stageOf(context: RecipientLoadContext): Promise<RecipientLoadStage> {
     return this.byKind[context.recipientKind]?.stageOf(context) ?? 'closed';
+  }
+
+  async whyNotAccepted(
+    context: RecipientLoadContext,
+    kind: ReplyValueKind,
+  ): Promise<string | null> {
+    return (await this.byKind[context.recipientKind]?.whyNotAccepted?.(context, kind)) ?? null;
   }
 
   applyOfferAction(
