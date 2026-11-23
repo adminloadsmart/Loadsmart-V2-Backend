@@ -85,6 +85,7 @@ const transporterFields = {
   upiVpa: upiVpa.optional(),
   gstTreatment: z.enum(TRANSPORTER_GST_TREATMENTS).optional(),
   trucksDeclared: z.number().int().nonnegative().max(100000).optional(),
+  notes: z.string().trim().max(2000).optional(),
   truckType: truckType.optional(),
   contacts: z.array(contact).max(20).optional(),
   lanes: z.array(lane).max(100).optional(),
@@ -137,6 +138,7 @@ export const transporterValidators = {
         upiVpa: transporterFields.upiVpa.nullable(),
         gstTreatment: transporterFields.gstTreatment.nullable(),
         trucksDeclared: transporterFields.trucksDeclared.nullable(),
+        notes: transporterFields.notes.nullable(),
         truckType: transporterFields.truckType.nullable(),
       })
       .partial()

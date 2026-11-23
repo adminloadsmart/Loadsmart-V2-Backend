@@ -577,6 +577,7 @@ export class TransporterService {
       pinCode: value.pinCode,
       gstTreatment: value.gstTreatment,
       trucksDeclared: value.trucksDeclared,
+      notes: value.notes,
       upiVpa: value.upiVpa,
       bankAccountNumber: value.bankAccountNumber,
       bankIfsc: value.bankIfsc,

@@ -35,6 +35,8 @@ export class ProductEntity {
   /** e.g. "Long Products" — Shipper Analytics' Business unit filter and By commodity totals. */
   @Column({ name: 'business_unit', type: 'varchar', length: 80, nullable: true })
   businessUnit!: string | null;
+  /** Add / Edit Product "Add Custom Notes". */
+  @Column({ type: 'text', nullable: true }) notes!: string | null;
   @Column({ name: 'invoice_value', type: 'numeric', precision: 15, scale: 2, nullable: true })
   invoiceValue!: string | null;
   @Column({ name: 'standard_rate', type: 'numeric', precision: 15, scale: 2, nullable: true })
