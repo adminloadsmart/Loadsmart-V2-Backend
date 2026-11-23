@@ -15,6 +15,8 @@ import { createJobQueue } from '../../jobs/queue-registry';
 import { CustomerEntity } from './entities/customer.entity';
 import { CustomerGstVerificationService } from './customer-gst-verification.service';
 import { GST_VERIFICATION_QUEUE } from '../masters/gst/gst-background-verification';
+import { GeofenceRepository } from '../geofences/geofence.repository';
+import { CustomerDeliveryPointGeofenceSync } from './customer-delivery-point-geofence.sync';
 
 export function createCustomersModule(
   dataSource: DataSource,
@@ -35,6 +37,7 @@ export function createCustomersModule(
     gstVerificationService,
     new MasterUsageRepository(dataSource),
     masterApprovalNotifier,
+    new CustomerDeliveryPointGeofenceSync(new GeofenceRepository(dataSource)),
   );
   const controller = new CustomerController(service);
   // Bulk-imported GSTINs are verified in the background, one IDfy lookup per window.

@@ -147,7 +147,17 @@ export class GeofenceService {
           { ...toView(geofence), role: isPickup ? ('loading' as const) : ('unloading' as const) },
         ];
       });
-      return { loadId, geofences };
+      // Entered / left log for the load, e.g. for the tracking page's CSV export.
+      const events = (await this.repository.eventsForLoad(tenantId, loadId)).map((e) => ({
+        geofenceId: e.geofenceId,
+        name: e.name,
+        type: e.type,
+        event: e.event,
+        occurredAt: new Date(e.occurredAt).toISOString(),
+        latitude: Number(e.latitude),
+        longitude: Number(e.longitude),
+      }));
+      return { loadId, geofences, events };
     } catch (error) {
       rethrow(error, 'Failed to fetch the load’s geofences');
     }

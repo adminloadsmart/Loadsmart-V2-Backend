@@ -10,7 +10,8 @@ import {
 } from './utils/load-posting.types';
 
 import { AXLE_TYPES } from '../../masters/vehicle/vehicle.type';
-import { findPickerRow, PICKER_BODIES } from '../../masters/vehicle/truck-type-picker.constants';
+import { PICKER_BODIES } from '../../masters/vehicle/truck-type-picker.constants';
+import { truckPickSchema } from '../../masters/truck-type/truck-type.validators';
 import { MAX_CARGO_VALUE_PER_TONNE } from '../utils/loads.types';
 
 const uuid = z.string().uuid();
@@ -46,20 +47,6 @@ const newAddress = z
     source: z.enum(['google', 'pincode']),
   })
   .strict();
-
-/** A tyre count (number) or an axle type, as the picker's step 2 offers. */
-const pickerWheel = z.union([z.number().int().positive(), z.enum(AXLE_TYPES)]);
-
-/** One truck-type pick; must be a combination the fixed picker table actually offers. */
-const truckPick = z
-  .object({
-    body: z.enum(PICKER_BODIES),
-    wheel: pickerWheel,
-    capacityTons: z.number().positive(),
-    bodyLengthFt: z.string().trim().min(1).max(20),
-  })
-  .strict()
-  .refine((pick) => findPickerRow(pick) !== null, 'Not a truck type we offer');
 
 /** Exactly one way to name a place: a saved master row or a new address. */
 function exactlyOne(values: unknown[]): boolean {
@@ -121,8 +108,8 @@ export const postLoadBody = z
     // Optional value of the cargo per MT — a shortage's value at risk (LS_N_0034).
     cargoValuePerTonne: z.number().positive().max(MAX_CARGO_VALUE_PER_TONNE).optional(),
     truckCount: z.number().int().min(1).default(1),
-    truck: truckPick.optional(),
-    acceptedTrucks: z.array(truckPick).max(10).optional(),
+    truck: truckPickSchema.optional(),
+    acceptedTrucks: z.array(truckPickSchema).max(10).optional(),
     vehicleId: uuid.optional(),
     /** Own fleet: overrides the truck's linked driver (must be idle). */
     driverId: uuid.optional(),

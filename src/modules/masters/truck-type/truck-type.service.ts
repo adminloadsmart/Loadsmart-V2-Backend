@@ -12,7 +12,6 @@ import { AXLE_TYPE_WHEEL_COUNTS } from '../vehicle/vehicle.type';
 import {
   AddTruckTypesFromCatalogInput,
   CreateTruckTypeInput,
-  ResolveTruckTypeInput,
   TruckTypeWithVehicleCount,
 } from './truck-type.interface';
 
@@ -86,56 +85,10 @@ export class TruckTypeService {
   }
 
   /**
-   * Market Fleet's 3-step picker (body type → wheel configuration → capacity) — get-or-create.
-   * Resolves the exact combination against the global catalog, then reuses this tenant's matching
-   * row if one already exists (from a prior pick or "Add from catalog") or creates one on the fly,
-   * so the frontend gets a usable `truckTypeId` straight out of the picker, no separate "add this
-   * to my truck types" step required first.
-   */
-  async resolveFromCatalog(
-    tenantId: string,
-    actorId: string,
-    input: ResolveTruckTypeInput,
-  ): Promise<TruckTypeEntity> {
-    try {
-      const catalogEntry = await this.truckTypeCatalogRepository.findByAttributes(
-        input.bodyType,
-        input.wheelConfiguration,
-        input.capacityTons,
-      );
-      if (!catalogEntry) {
-        throw new NotFoundError(
-          `No catalog entry for ${input.bodyType} · ${input.wheelConfiguration} WH · ${input.capacityTons}T`,
-        );
-      }
-
-      const existing = await this.truckTypeRepository.findByAttributes(
-        tenantId,
-        input.bodyType,
-        input.wheelConfiguration,
-        input.capacityTons,
-      );
-      if (existing) return existing;
-
-      return await this.truckTypeRepository.create({
-        tenantId,
-        name: catalogEntry.name,
-        bodyType: catalogEntry.bodyType,
-        wheelConfiguration: catalogEntry.wheelConfiguration,
-        capacityTons: catalogEntry.capacityTons,
-        deckVolumeCubicMeters: catalogEntry.deckVolumeCubicMeters,
-        createdBy: actorId,
-      });
-    } catch (error) {
-      rethrow(error, 'Failed to resolve truck type from catalog');
-    }
-  }
-
-  /**
-   * The Add Truck drawer's picker (body → tyres/axle → tonnes → feet) — get-or-create, like
-   * resolveFromCatalog but against the picker's own table (TRUCK_TYPE_PICKER_ROWS) rather than the
-   * global catalog, since the picker also splits by length. Matched on the generated name, which is
-   * unique per tenant, so the same pick always lands on one row. Takes the onboarding transaction.
+   * The truck-type picker (body → tyres/axle → tonnes → feet) — get-or-create against
+   * TRUCK_TYPE_PICKER_ROWS, the client's truck-type list. Backs the Add Truck drawer, load posting
+   * and POST /truck-types/resolve (Market Fleet). Matched on the generated name, which is unique
+   * per tenant, so the same pick always lands on one row. Takes the onboarding transaction.
    */
   async findOrCreateFromPicker(
     tenantId: string,

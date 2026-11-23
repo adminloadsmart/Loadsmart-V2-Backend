@@ -1,5 +1,6 @@
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { GeofenceEntity } from './entities/geofence.entity';
+import { GeofenceEventEntity } from './entities/geofence-event.entity';
 import { GeofenceVehicleEntity } from './entities/geofence-vehicle.entity';
 import { GeofenceRecipientEntity } from './entities/geofence-recipient.entity';
 import { VehicleEntity } from '../masters/vehicle/entities/vehicle.entity';
@@ -114,6 +115,41 @@ export class GeofenceRepository {
     };
   }
 
+  /** A load's geofence entered / left log, oldest first, with each geofence's name and type
+   *  (deleted geofences included, so an old visit keeps its name). */
+  eventsForLoad(
+    tenantId: string,
+    loadId: string,
+  ): Promise<
+    Array<{
+      geofenceId: string;
+      name: string | null;
+      type: GeofenceType | null;
+      event: 'enter' | 'exit';
+      occurredAt: Date;
+      latitude: string;
+      longitude: string;
+    }>
+  > {
+    return this.dataSource
+      .getRepository(GeofenceEventEntity)
+      .createQueryBuilder('e')
+      .leftJoin(GeofenceEntity, 'g', 'g.id = e.geofenceId')
+      .withDeleted()
+      .select('e.geofenceId', 'geofenceId')
+      .addSelect('g.name', 'name')
+      .addSelect('g.type', 'type')
+      .addSelect('e.event', 'event')
+      .addSelect('e.occurredAt', 'occurredAt')
+      .addSelect('e.latitude', 'latitude')
+      .addSelect('e.longitude', 'longitude')
+      .where('e.tenantId = :tenantId', { tenantId })
+      .andWhere('e.loadId = :loadId', { loadId })
+      .orderBy('e.occurredAt', 'ASC')
+      .limit(500)
+      .getRawMany();
+  }
+
   /** The tenant's active geofences linked to any of these master points. */
   async findLinked(
     tenantId: string,
@@ -129,6 +165,17 @@ export class GeofenceRepository {
       where.push({ tenantId, isActive: true, customerDeliveryPointId: In(deliveryPointIds) });
     }
     return this.geofences.find({ where });
+  }
+
+  /** The geofences standing for a customer's delivery points, deleted points included
+   *  (CustomerDeliveryPointGeofenceSync). */
+  findByCustomerId(tenantId: string, customerId: string): Promise<GeofenceEntity[]> {
+    return this.geofences
+      .createQueryBuilder('g')
+      .innerJoin(CustomerDeliveryPointEntity, 'p', 'p.id = g.customerDeliveryPointId')
+      .where('g.tenantId = :tenantId', { tenantId })
+      .andWhere('p.customerId = :customerId', { customerId })
+      .getMany();
   }
 
   /** The geofence standing for a master loading point (LoadingPointGeofenceSync). */
