@@ -36,7 +36,7 @@ export class TruckTypeController {
   };
 
   resolveTruckType = async (req: Request, res: Response) => {
-    const truckType = await this.truckTypeService.resolveFromCatalog(
+    const truckType = await this.truckTypeService.findOrCreateFromPicker(
       requireTenantId(req),
       req.user!.id,
       req.body as ResolveTruckTypeInput,

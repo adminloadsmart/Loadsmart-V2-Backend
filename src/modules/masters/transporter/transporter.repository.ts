@@ -75,6 +75,7 @@ export class TransporterRepository {
         upiVpa: data.upiVpa ?? null,
         gstTreatment: data.gstTreatment ?? null,
         trucksDeclared: data.trucksDeclared ?? null,
+        notes: data.notes?.trim() || null,
         deletedAt: null,
         updatedBy: null,
         ...extra,

@@ -105,6 +105,8 @@ export class TransporterEntity {
   gstTreatment!: TransporterGstTreatment | null;
   @Column({ name: 'trucks_declared', type: 'integer', nullable: true })
   trucksDeclared!: number | null;
+  /** Add / Edit Transporter "Add Custom Notes". */
+  @Column({ type: 'text', nullable: true }) notes!: string | null;
   @Column({ name: 'truck_body_type', type: 'enum', enum: [...PICKER_BODIES], nullable: true })
   truckBodyType!: PickerBody | null;
   @Column({ name: 'truck_wheel_count', type: 'smallint', nullable: true })

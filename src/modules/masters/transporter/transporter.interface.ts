@@ -62,6 +62,7 @@ export interface CreateTransporterInput {
   upiVpa?: string;
   gstTreatment?: TransporterGstTreatment;
   trucksDeclared?: number;
+  notes?: string;
   truckType?: TransporterTruckTypeInput;
   contacts?: TransporterContactInput[];
   lanes?: TransporterLaneInput[];
@@ -92,6 +93,7 @@ export interface UpdateTransporterInput {
   upiVpa?: string | null;
   gstTreatment?: TransporterGstTreatment | null;
   trucksDeclared?: number | null;
+  notes?: string | null;
   truckType?: TransporterTruckTypeInput | null;
   contacts?: TransporterContactInput[];
   lanes?: TransporterLaneInput[];

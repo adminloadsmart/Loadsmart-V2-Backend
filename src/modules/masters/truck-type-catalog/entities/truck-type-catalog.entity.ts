@@ -13,8 +13,8 @@ import { TRUCK_BODY_TYPES, TruckBodyType } from '../../truck-type/truck-type.typ
  * tenant. Org admins browse this list in the "Add truck type" modal and pick which ones to add to
  * their own TruckTypeEntity rows — this table itself is only ever seeded/edited platform-side.
  *
- * The structured picker fields mirror TruckTypeEntity's (Plan Dispatch v2.0 §6.6): nullable since
- * older catalog rows were seeded name-only, before this table carried body/wheel/capacity data.
+ * Contents come from the client's truck-type list (TRUCK_TYPE_CATALOG_CONFIGURATIONS). The
+ * structured fields are nullable since retired, soft-deleted rows were seeded name-only.
  */
 @Entity({ schema: 'masters', name: 'truck_type_catalog' })
 @Index('truck_type_catalog_name_active_unique', ['name'], {

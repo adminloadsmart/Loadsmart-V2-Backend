@@ -27,6 +27,7 @@ export interface CreateProductInput {
   dimensionUnit?: ProductDimensionUnit;
   conversionModel?: ProductConversionModel;
   businessUnit?: string;
+  notes?: string;
   subItems?: ProductSubItemInput[];
 }
 export interface UpdateProductInput {
@@ -45,6 +46,7 @@ export interface UpdateProductInput {
   height?: number | null;
   dimensionUnit?: ProductDimensionUnit | null;
   businessUnit?: string | null;
+  notes?: string | null;
   conversionModel?: ProductConversionModel | null;
   status?: ProductStatus;
   subItems?: {

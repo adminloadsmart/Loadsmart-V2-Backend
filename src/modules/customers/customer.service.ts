@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, rethrow } from '../../shared/errors';
+import { CustomerDeliveryPointGeofenceSync } from './customer-delivery-point-geofence.sync';
 import { AuditService } from '../audit/audit.service';
 import { CUSTOMERS_APPROVE } from '../../shared/constants/permissions';
 import {
@@ -126,6 +127,8 @@ export class CustomerService {
     // LS_N_0009/0010 — optional; only queues a notification after the existing logic and never
     // throws (see notifications/master-approvals.ts).
     private readonly approvalNotifier?: MasterApprovalNotifier,
+    // Keeps an unloading-point geofence on each delivery point; optional so tests can skip it.
+    private readonly geofenceSync?: CustomerDeliveryPointGeofenceSync,
   ) {}
   /** GST bookkeeping columns for a GSTIN + optional verification id. Verified only when backed by
    *  a verified lookup row (GstVerificationService.resolveVerified); otherwise a manual entry. */
@@ -208,6 +211,7 @@ export class CustomerService {
         return this.repository.findById(tenantId, value.id, manager);
       });
       if (!customer) throw new NotFoundError('Customer was not created');
+      await this.geofenceSync?.sync(customer, actorId);
       await this.audit.log({
         tenantId,
         userId: actorId,
@@ -376,6 +380,7 @@ export class CustomerService {
         return this.repository.findById(tenantId, id, manager);
       });
       if (!updated) throw new NotFoundError(`Customer ${id} not found`);
+      await this.geofenceSync?.sync(updated, actorId);
       await this.audit.log({
         tenantId,
         userId: actorId,
@@ -405,6 +410,7 @@ export class CustomerService {
         throw new ConflictError('Only pending customers can be approved');
       const value = await this.repository.approve(tenantId, id, actorId);
       if (!value) throw new ConflictError('Customer approval failed');
+      await this.geofenceSync?.sync(value, actorId);
       await this.audit.log({
         tenantId,
         userId: actorId,
@@ -434,6 +440,7 @@ export class CustomerService {
         throw new ConflictError('Only pending customers can be rejected');
       const value = await this.repository.reject(tenantId, id, actorId, reason);
       if (!value) throw new ConflictError('Customer rejection failed');
+      await this.geofenceSync?.sync(value, actorId);
       await this.audit.log({
         tenantId,
         userId: actorId,
@@ -467,6 +474,7 @@ export class CustomerService {
       if (status === 'inactive') await this.assertNotInUse(tenantId, id, 'made inactive');
       const value = await this.repository.updateStatus(tenantId, id, actorId, status);
       if (!value) throw new ConflictError('Customer status update failed');
+      await this.geofenceSync?.sync(value, actorId);
       await this.audit.log({
         tenantId,
         userId: actorId,
@@ -488,6 +496,7 @@ export class CustomerService {
         this.repository.softDelete(tenantId, id, actorId, manager),
       );
       if (!deleted) throw new NotFoundError(`Customer ${id} not found`);
+      await this.geofenceSync?.remove(tenantId, id);
 
       await this.audit.log({
         tenantId,
