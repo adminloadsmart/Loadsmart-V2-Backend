@@ -391,8 +391,8 @@ export function registerAdminOpenApi(registry: OpenAPIRegistry): void {
         'shipper_sales | tracker_sales, state, asmUserId }) is required on the sales team and ' +
         'rejected elsewhere; a salesperson needs an active sales ASM as asmUserId, an ASM has ' +
         'none. `reportsToUserId` must be an active team member or the platform admin. ' +
-        '`employeeId` is required: "LS" followed by exactly 4 digits (e.g. LS5678; lowercase is ' +
-        'uppercased), unique among active users (409 if taken). It can be changed on edit.\n\n' +
+        'The employee ID is not sent: the backend issues it (LS0001, LS0002, …) and returns it as ' +
+        '`employeeId`; it never changes on edit.\n\n' +
         'No password: team members sign in with their mobile number and an OTP ' +
         '(POST /v1/auth/login/otp/request with portal "platform"); an SMS/email invite tells them ' +
         'so (best-effort — never fails the hire).',
