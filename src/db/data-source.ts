@@ -110,6 +110,7 @@ import { SavedViewEntity } from '../modules/analytics/saved-views/saved-view.ent
 import { SettingsVersionEntity } from '../modules/settings/settings-version.entity';
 import { BrokerEntity } from '../modules/loads/brokers/broker.entity';
 import { GeoPlaceEntity } from '../modules/lane-matching/geo-place.entity';
+import { DemoRequestEntity } from '../modules/demo-requests/demo-request.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -232,6 +233,8 @@ export const AppDataSource = new DataSource({
     SavedViewEntity,
     // settings module (Super Admin → Settings)
     SettingsVersionEntity,
+    // demo-requests module (landing page "Book a Demo")
+    DemoRequestEntity,
   ], // every new module adds its entity here
   // __dirname-relative + dual-ext so this resolves correctly both under ts-node (dev,
   // __dirname = src/db, matches the .ts source migrations) and compiled node (deploy,

@@ -27,6 +27,7 @@ export const TAGS = {
   MAINTENANCE: 'maintenance',
   PLACES: 'places',
   GEOFENCES: 'geofences',
+  DEMO_REQUESTS: 'demo-requests',
 } as const;
 
 /**

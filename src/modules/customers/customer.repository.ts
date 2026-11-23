@@ -76,6 +76,7 @@ export class CustomerRepository {
       notes: input.notes ?? null,
       invoiceAgainst: input.invoiceAgainst ?? null,
       freeHoursAtDrop: input.freeHoursAtDrop ?? null,
+      freightBalancePaidByCustomer: input.freightBalancePaidByCustomer ?? false,
       balanceAmount: input.balanceAmount?.toString() ?? null,
       creditLimit: input.creditLimit?.toString() ?? null,
       deletedAt: null,

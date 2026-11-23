@@ -28,6 +28,7 @@ import { registerDriverPortalOpenApi } from '../../modules/driver/portal/driver-
 import { registerMaintenanceOpenApi } from '../../modules/maintenance/maintenance.openapi';
 import { registerPlacesOpenApi } from '../../modules/places/places.openapi';
 import { registerGeofencesOpenApi } from '../../modules/geofences/geofences.openapi';
+import { registerDemoRequestsOpenApi } from '../../modules/demo-requests/demo-requests.openapi';
 
 /**
  * Builds the OpenAPI document (once, cached) and serves it as Swagger UI. Mounted only
@@ -77,6 +78,7 @@ function getOpenApiDocument() {
     registerMaintenanceOpenApi(registry);
     registerPlacesOpenApi(registry);
     registerGeofencesOpenApi(registry);
+    registerDemoRequestsOpenApi(registry);
 
     cached = new OpenApiGeneratorV31(registry.definitions).generateDocument({
       openapi: '3.1.0',
@@ -146,6 +148,10 @@ function getOpenApiDocument() {
           name: TAGS.GEOFENCES,
           description:
             'Tracking → Geofences: named circle/polygon places with alert rules, plus the location-ping endpoint that detects enter/exit and advances a load’s status at its loading/unloading point',
+        },
+        {
+          name: TAGS.DEMO_REQUESTS,
+          description: 'Public: "Book a Demo" requests from the marketing landing page',
         },
       ],
     });
