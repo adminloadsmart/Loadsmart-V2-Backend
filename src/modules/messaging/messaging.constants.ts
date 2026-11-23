@@ -90,6 +90,12 @@ export const LOAD_PICK_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export const LAST_ASK_WINDOW_MS = 4 * 60 * 60 * 1000;
 
+/** A tap (or list pick) on a message whose WAMID hasn't come yet: MSG91 returns only a request
+ *  id on send, and its delivery report with the WAMID can reach us after the user's tap (seen
+ *  20 Nov: the report came ~6 min late). The tap waits up to `windowMs` from when we stored it,
+ *  looked at again every `retryMs`, before it is given up with a reply. */
+export const TAPPED_MESSAGE_WAIT = { windowMs: 5 * 60 * 1000, retryMs: 30 * 1000 } as const;
+
 /** Which typed value each prompt asks for (a message_log row's `kind`). */
 export const VALUE_ASKED_BY_PROMPT = {
   rate_request: 'rate',

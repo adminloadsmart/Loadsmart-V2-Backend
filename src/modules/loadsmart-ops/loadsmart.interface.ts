@@ -24,7 +24,13 @@ import type { ElrService } from '../loads/elr/elr.service';
 import type { BillingInstruction } from './billing-rules';
 import type { TrackingClient } from '../../adapters/tracking.client';
 import type { LoadCancelService } from '../loads/sourcing/load-cancel.service';
-import type { ChargeType, PartnerStatus, PartnerType, PodType } from './loadsmart.types';
+import type {
+  ChargeType,
+  PartnerStatus,
+  PartnerType,
+  PodType,
+  RequirementSendStatus,
+} from './loadsmart.types';
 import { LoadPartyNotifier } from '../loads/utils/load-party-notifier.interface';
 
 /** Loadsmart ops shapes — service inputs, views and amounts (value sets live in loadsmart.types.ts). */
@@ -132,7 +138,34 @@ export interface PartnerBidView {
   status: LsPartnerBidEntity['status'];
   /** Loadsmart's price to the shipper at the sourcing's margin. */
   shipperPrice: number;
+  /** How the bid's latest rate came in (the broker's own WhatsApp reply, or Placement's entry);
+   *  null when not known. */
+  channel: BrokerResponseChannel | null;
   createdAt: string;
+  /** Last change to the bid — a revised rate, a truck, or its status. */
+  updatedAt: string;
+}
+
+/** The broker's latest answer that came in on WhatsApp (their own tap or typed reply). */
+export interface BrokerWhatsappReply {
+  /** `bid` (a rate), `declined` (Reject), `negotiating` (Negotiate / Give rate tapped, rate not
+   *  sent yet), or another logged response marked as WhatsApp. */
+  response: BrokerResponse;
+  rate: number | null;
+  at: string;
+}
+
+/** The load's WhatsApp requirement to one broker (ls_requirement_recipients), for Placement. */
+export interface BrokerWhatsappActivity {
+  /** `sent`; `not_on_whatsapp` (nothing went — call them); `failed` (see failReason). */
+  status: RequirementSendStatus;
+  /** When it was last sent (or tried). */
+  sentAt: string;
+  /** Receipts from WhatsApp; `delivered` is often skipped and comes with `read`. */
+  deliveredAt: string | null;
+  readAt: string | null;
+  failReason: string | null;
+  lastReply: BrokerWhatsappReply | null;
 }
 
 export interface PlacementView {

@@ -427,7 +427,7 @@ describe('OutboundMessageService — channel rules', () => {
     expect(transporter.status).toBe('queued');
   });
 
-  it("Loadsmart's bid (LS_N_0067) and bids received (LS_N_0103) still reach the shipper before the memo", async () => {
+  it("Loadsmart's bid (LS_N_0067) and bids received (LS_N_0103) are held until the memo", async () => {
     const outbound = new OutboundMessageService(store, queue, optedIn, {
       provider: fakeProvider({ ok: true, providerMessageId: 'wamid.OUT', providerRequestId: null }),
       providerName: 'msg91',
@@ -462,6 +462,6 @@ describe('OutboundMessageService — channel rules', () => {
       templateKey: 'LS_N_0103',
       variables: { origin: 'Delhi', destination: 'Jaipur', bid_count: '2', best_rate: '41,000' },
     });
-    expect([bid.status, bids.status]).toEqual(['queued', 'queued']);
+    expect([bid.status, bids.status]).toEqual(['suppressed', 'suppressed']);
   });
 });

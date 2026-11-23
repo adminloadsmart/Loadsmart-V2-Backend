@@ -653,6 +653,7 @@ export class LsPlacementBoardService extends LsServiceBase {
       });
 
       const byId = new Map(partners.map((partner) => [partner.id, partner]));
+      const earlierById = new Map(earlier.map((row) => [row.partnerId, row]));
       return {
         sentAt: now,
         sentCount,
@@ -663,13 +664,20 @@ export class LsPlacementBoardService extends LsServiceBase {
             phone: byId.get(outcome.partnerId)?.phone ?? null,
             status: outcome.status,
             failReason: outcome.failReason,
+            sentAt: now,
+            deliveredAt: null,
+            readAt: null,
           })),
+          // Not sent again: when it first went and what WhatsApp has reported since.
           ...[...alreadySent].map((partnerId) => ({
             partnerId,
             name: byId.get(partnerId)?.name ?? null,
             phone: byId.get(partnerId)?.phone ?? null,
             status: 'already_sent' as const,
             failReason: null,
+            sentAt: earlierById.get(partnerId)?.createdAt ?? null,
+            deliveredAt: earlierById.get(partnerId)?.deliveredAt ?? null,
+            readAt: earlierById.get(partnerId)?.readAt ?? null,
           })),
         ],
       };

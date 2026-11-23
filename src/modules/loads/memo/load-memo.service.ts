@@ -14,8 +14,11 @@ import {
   LoadingContact,
   MemoView,
   NameDriverInput,
+  NameDriverOptions,
+  NameDriverRefusalDetails,
   NameDriverResult,
 } from '../utils/load-memo.interface';
+import { NAME_DRIVER_REFUSALS } from './load-memo.constants';
 import {
   LoadChecksView,
   ManualDriverCheckInput,
@@ -121,6 +124,7 @@ export class LoadMemoService {
     loadId: string,
     input: NameDriverInput,
     asLoadsmart = false,
+    options: NameDriverOptions = {},
   ): Promise<NameDriverResult> {
     try {
       const load = await this.assertMemoLoad(tenantId, loadId);
@@ -131,7 +135,10 @@ export class LoadMemoService {
       const vehicleNumber = input.vehicleNumber
         ? input.vehicleNumber.replace(/\s+/g, '').toUpperCase()
         : load.vehicleNumber;
-      if (!vehicleNumber) throw new ValidationError('Add the truck number with the driver');
+      if (!vehicleNumber) {
+        const details: NameDriverRefusalDetails = { reason: NAME_DRIVER_REFUSALS.vehicleMissing };
+        throw new ValidationError('Add the truck number with the driver', details);
+      }
       if (vehicleNumber !== load.vehicleNumber) {
         const clash = await this.loadRepository.findActiveByVehicleNumber(
           tenantId,
@@ -139,8 +146,13 @@ export class LoadMemoService {
           loadId,
         );
         if (clash) {
+          const details: NameDriverRefusalDetails = {
+            reason: NAME_DRIVER_REFUSALS.vehicleInUse,
+            vehicleNumber,
+          };
           throw new ConflictError(
             `Vehicle ${vehicleNumber} is already on an active load elsewhere (load ${clash.code})`,
+            details,
           );
         }
       }
@@ -182,7 +194,9 @@ export class LoadMemoService {
       // Details the transporter sent on WhatsApp are answered there; typed in by a user, the
       // transporter / broker hears of a failed check on WhatsApp (LS_N_0108).
       if (actorId) await this.notifyFailedChecks(updated, checks);
-      if (!checks.clear || LoadMemoService.memoHold(updated)) return { memo: null, checks };
+      if (!checks.clear || options.holdMemo || LoadMemoService.memoHold(updated)) {
+        return { memo: null, checks };
+      }
       return { memo: await this.send(updated, actorId), checks };
     } catch (error) {
       rethrow(error, 'Failed to name the driver');

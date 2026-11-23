@@ -21,6 +21,8 @@ import { LsPartnerEntity } from './entities/ls-partner.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { DEFAULT_TDS_PERCENT, MIN_MARGIN_PERCENT, PARTNER_CALL_AFTER_MS } from './loadsmart.types';
+import type { PartnerLoadStatus, WhatsappOnlyBrokerResponse } from './loadsmart.types';
+import type { BrokerResponseChannel } from './placement-board-rules';
 import {
   effectiveMarginPercent,
   marginError,
@@ -32,7 +34,11 @@ import { LsServiceBase } from './ls-base';
 import { LsStaffNotifier } from './ls-staff-notifier';
 import { describeMatch, routeOf } from '../lane-matching';
 import { LS_PLACEMENT } from '../../shared/constants/permissions';
-import { AcceptMemoInput, NameDriverInput } from '../loads/utils/load-memo.interface';
+import {
+  AcceptMemoInput,
+  NameDriverInput,
+  NameDriverResult,
+} from '../loads/utils/load-memo.interface';
 import type {
   ManualDriverCheckInput,
   ManualTruckCheckInput,
@@ -508,7 +514,16 @@ export class LsSourcingService extends LsServiceBase {
       if (!live) throw new ConflictError('The truck number came before any rate for this load');
       rate = Number(live.rate);
     }
-    return this.savePartnerBid(null, sourcingId, { ...input, rate });
+    return this.savePartnerBid(null, sourcingId, { ...input, rate, channel: 'whatsapp' });
+  }
+
+  /** The partner's WhatsApp tap that isn't a rate — Reject (`declined`) or Negotiate / Give rate
+   *  (`negotiating`) — saved in their history so Placement sees it. Their live bid is untouched. */
+  async recordPartnerReplyFromWhatsapp(
+    sourcingId: string,
+    input: { partnerId: string; response: 'declined' | WhatsappOnlyBrokerResponse },
+  ): Promise<PartnerBidView> {
+    return this.savePartnerBid(null, sourcingId, { ...input, channel: 'whatsapp' });
   }
 
   /** The partner's live bid on a board load, if any. */
@@ -631,13 +646,21 @@ export class LsSourcingService extends LsServiceBase {
         vehicleNumber,
         truckVerified,
       });
-      return this.partnerBidView({ ...saved, partner }, Number(sourcing.marginPercent));
+      return this.partnerBidView(
+        { ...saved, partner },
+        Number(sourcing.marginPercent),
+        history.channel,
+      );
     } catch (error) {
       rethrow(error, 'Failed to record the partner bid');
     }
   }
 
-  private partnerBidView(bid: LsPartnerBidEntity, marginPercent: number): PartnerBidView {
+  private partnerBidView(
+    bid: LsPartnerBidEntity,
+    marginPercent: number,
+    channel: BrokerResponseChannel | null = null,
+  ): PartnerBidView {
     return {
       id: bid.id,
       partner: { id: bid.partner.id, name: bid.partner.name, partnerType: bid.partner.partnerType },
@@ -646,7 +669,9 @@ export class LsSourcingService extends LsServiceBase {
       truckVerified: bid.truckVerified,
       status: bid.status,
       shipperPrice: shipperPriceFor(Number(bid.rate), marginPercent),
+      channel,
       createdAt: bid.createdAt.toISOString(),
+      updatedAt: bid.updatedAt.toISOString(),
     };
   }
 
@@ -655,6 +680,16 @@ export class LsSourcingService extends LsServiceBase {
   async placement(sourcingId: string): Promise<PlacementView> {
     const sourcing = await this.assertSourcing(sourcingId);
     const bids = await this.repository.listPartnerBids(sourcingId);
+    // How each broker's latest rate came in: their newest `bid` response.
+    const bidResponses = await this.repository.partnerBidResponses.find({
+      where: { sourcingId, response: 'bid' },
+      order: { createdAt: 'DESC' },
+    });
+    const bidChannels = new Map<string, BrokerResponseChannel>();
+    for (const response of bidResponses) {
+      if (!bidChannels.has(response.partnerId))
+        bidChannels.set(response.partnerId, response.channel);
+    }
     const usable = (bid: LsPartnerBidEntity) => bid.truckVerified !== false;
     const ranked = [...bids].sort(
       (a, b) =>
@@ -674,7 +709,9 @@ export class LsSourcingService extends LsServiceBase {
       : [];
     return {
       sourcing,
-      bids: ranked.map((bid) => this.partnerBidView(bid, Number(sourcing.marginPercent))),
+      bids: ranked.map((bid) =>
+        this.partnerBidView(bid, Number(sourcing.marginPercent), bidChannels.get(bid.partnerId)),
+      ),
       callList,
     };
   }
@@ -923,6 +960,81 @@ export class LsSourcingService extends LsServiceBase {
       await this.step(sourcing, actorId, 'driver_named', 'LS_DRIVER_NAMED', {
         driverName: driver.driverName,
         checksClear: result.checks.clear,
+      });
+      return result;
+    } catch (error) {
+      rethrow(error, 'Failed to name the driver');
+    }
+  }
+
+  /** Loads a partner won (the shipper accepted Loadsmart's bid on their rate) that still wait
+   *  for the truck and driver — until the memo is accepted. LS_N_0107 asked them for these on
+   *  WhatsApp; the shape is the board offer's, so WhatsApp replies route the same way. */
+  async wonLoadsAwaitingDriver(partnerIds: string[]): Promise<LoadBoardOffer[]> {
+    if (!partnerIds.length) return [];
+    const sourcings = await this.repository.sourcings.find({
+      where: { status: 'won', partnerId: In(partnerIds) },
+      relations: { load: true },
+    });
+    const offers: LoadBoardOffer[] = [];
+    for (const sourcing of sourcings) {
+      const load = sourcing.load;
+      if (!load || load.status !== 'bids_received' || load.memoAcceptedAt) continue;
+      const posting = load.postingId
+        ? await this.repository.findPosting(sourcing.tenantId, load.postingId)
+        : null;
+      offers.push(boardOfferOf(sourcing, load, posting, sourcing.partnerRate));
+    }
+    return offers;
+  }
+
+  /** Where this load stands for this partner (PARTNER_LOAD_STATUSES); null when it isn't a
+   *  Loadsmart load or isn't on the board yet. */
+  async partnerLoadStatus(loadId: string, partnerId: string): Promise<PartnerLoadStatus | null> {
+    const sourcing = await this.repository.findSourcingByLoad(loadId);
+    if (!sourcing) return null;
+    if (sourcing.status === 'cancelled' || sourcing.load?.status === 'cancelled') {
+      return 'cancelled';
+    }
+    if (sourcing.status === 'lost') return 'given_to_other';
+    if (sourcing.status === 'won') {
+      if (sourcing.partnerId !== partnerId) return 'given_to_other';
+      const load = sourcing.load;
+      return load && load.status === 'bids_received' && !load.memoAcceptedAt
+        ? 'awaiting_driver'
+        : 'driver_confirmed';
+    }
+    return sourcing.status === 'posted' || sourcing.status === 'bid_sent' ? 'bidding' : null;
+  }
+
+  /** The winning partner sent the truck and driver on WhatsApp (answer to LS_N_0107): saved on
+   *  the load and checked on VAHAN / Sarathi like Placement's "Name driver", but the memo is held
+   *  — Placement adds the licence and RC photos and sends it (re-run checks or a manual pass).
+   *  No entering user. */
+  async nameDriverFromWhatsapp(
+    loadId: string,
+    partnerId: string,
+    driver: NameDriverInput,
+  ): Promise<NameDriverResult> {
+    try {
+      const sourcing = await this.assertWonLoad(loadId);
+      if (sourcing.partnerId !== partnerId) {
+        throw new ConflictError('This load is placed with another partner');
+      }
+      await this.repository.updateSourcing(sourcing.id, { driverNamedAt: this.now() });
+      const result = await this.memoService.nameDriver(
+        sourcing.tenantId,
+        null,
+        loadId,
+        driver,
+        true,
+        { holdMemo: true },
+      );
+      await this.step(sourcing, null, 'driver_named', 'LS_DRIVER_NAMED', {
+        driverName: driver.driverName,
+        checksClear: result.checks.clear,
+        channel: 'whatsapp',
+        partnerId,
       });
       return result;
     } catch (error) {
