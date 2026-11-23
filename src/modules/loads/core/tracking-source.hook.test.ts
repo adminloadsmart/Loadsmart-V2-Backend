@@ -75,7 +75,9 @@ function world(opts: {
       return repos.get(entity.name);
     },
   } as unknown as DataSource;
-  const update = vi.fn(async () => null);
+  const update = vi.fn(
+    async (_tenantId: string, _loadId: string, _data: Record<string, unknown>) => null,
+  );
   return { dataSource, loadRepository: { update } as unknown as LoadRepository, update };
 }
 
