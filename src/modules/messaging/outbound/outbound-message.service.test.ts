@@ -187,7 +187,6 @@ describe('OutboundMessageService', () => {
       variables: {
         vehicle_no: 'PB10AB1234',
         destination: 'Ludhiana',
-        destination_query: '30.9,75.8',
       },
       driverHasApp: true,
     });

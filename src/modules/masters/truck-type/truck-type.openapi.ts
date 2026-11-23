@@ -21,8 +21,9 @@ export function registerTruckTypeOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.listTruckTypeCatalog',
     ...authenticated(
-      'List the global truck-type catalog (PRD §5.7, "configurable from the Admin Panel") — the ' +
-        'fixed reference names the "Add truck type" modal offers to pick from. Not tenant-scoped.',
+      "List the global truck-type catalog (PRD §5.7) — the client's fixed truck-type list, one " +
+        'entry per body → tyres/axle → tonnes → feet combination, each carrying its picker values ' +
+        '(family, body, wheel, bodyLengthFt). Not tenant-scoped.',
     ),
     responses: {
       200: { description: 'Catalog entries' },
@@ -52,16 +53,16 @@ export function registerTruckTypeOpenApi(registry: OpenAPIRegistry): void {
     tags: [TAGS.MASTERS],
     operationId: 'masters.resolveTruckType',
     ...write(
-      "Market Fleet's 3-step picker (body type → wheel configuration → capacity) resolved " +
-        "directly to a usable truckTypeId — get-or-create against the tenant's own truck types, " +
-        'backed by the global catalog. No separate "add from catalog" step required first.',
+      "Market Fleet's truck-type picker (body → tyres/axle → tonnes → feet) resolved directly " +
+        "to a usable truckTypeId — get-or-create against the tenant's own truck types. The pick " +
+        'must be a combination the fixed truck-type list offers (the same one the Add Truck ' +
+        'drawer and load posting use).',
     ),
     request: { body: json(truckTypeValidators.resolveTruckType.shape.body) },
     responses: {
       200: { description: 'The matching (or newly created) tenant truck type' },
-      400: { description: 'Validation failed', ...errorContent },
-      404: {
-        description: 'No catalog entry for this body/wheel/capacity combination',
+      400: {
+        description: 'Validation failed, or not a combination the truck-type list offers',
         ...errorContent,
       },
     },

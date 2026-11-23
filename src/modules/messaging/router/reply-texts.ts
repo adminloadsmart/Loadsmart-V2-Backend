@@ -33,10 +33,24 @@ export const REPLY_TEXTS = {
   pickerAlreadyAnswered: 'This list was already answered.',
   // A tap whose message we still can't find after TAPPED_MESSAGE_WAIT.
   tapNotMatched: "Sorry, we couldn't record that tap. Please tap the button again.",
+  // Every message we get is answered: the closing reply when it goes to the team to review.
+  teamWillCheck: (loadRef: string | null) =>
+    loadRef ? `${loadRef}: Our team will check it.` : 'Our team will check it.',
+  // The closing reply when the step is done but its outcome has no wording of its own.
+  noted: (loadRef: string) => `${loadRef}: Noted.`,
+  // The same button tapped again on the same message.
+  alreadyNoted: (loadRef: string, answer: string) => `${loadRef}: Already noted: "${answer}".`,
+  // A tap or reply on a message that was sent to someone else (forwarded), or one we can't place.
+  notYourLoadMessage: "We couldn't match this to your loads. Our team will check it.",
+  // A voice note, location, contact, sticker or video.
+  textAndPhotosOnly: 'Sorry, we can only read text and photos here.',
+  // A rate or Negotiate on an indent: it has a contract rate.
+  indentFixedRate: (loadRef: string) =>
+    `${loadRef}: This indent has a fixed contract rate. Our team will check your message.`,
   // CTA sheet: Negotiate / Give rate → "Type your rate in ₹ and the truck number".
   rateRequest: (loadRef: string) => `${loadRef}: Type your rate in ₹ and the truck number.`,
   dispatchRequest: (loadRef: string) =>
-    `${loadRef}: Reply with the truck number, driver name, driver mobile and DL number.`,
+    `${loadRef}: Reply with the truck number, driver name, driver mobile, DL number and the driver's date of birth.`,
   slipRequest: (loadRef: string) => `${loadRef}: Send a photo of the loading slip here.`,
   // CTA sheet: after the rate → "Thanks. We'll get back to you."
   rateRecorded: (loadRef: string, rate: number) =>

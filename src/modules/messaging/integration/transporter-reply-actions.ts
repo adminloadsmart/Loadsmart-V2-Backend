@@ -226,6 +226,7 @@ export class TransporterReplyActions implements ReplyActions {
       return {
         resolution: 'needs_review',
         note: `"${action}" on an indent — it has a contract rate`,
+        confirmationText: REPLY_TEXTS.indentFixedRate(offer.loadCode),
       };
     }
     if (action === 'negotiate' || action === 'give_rate') {
@@ -266,8 +267,13 @@ export class TransporterReplyActions implements ReplyActions {
   ): Promise<ActionOutcome> {
     const offer = await this.offerFor(context);
     if (!offer) return closedOutcome(context.loadRef);
-    if (offer.postingType !== 'market_fleet')
-      return { resolution: 'needs_review', note: 'rate on an indent — it has a contract rate' };
+    if (offer.postingType !== 'market_fleet') {
+      return {
+        resolution: 'needs_review',
+        note: 'rate on an indent — it has a contract rate',
+        confirmationText: REPLY_TEXTS.indentFixedRate(offer.loadCode),
+      };
+    }
     return this.write(offer, async () => {
       await this.bids.recordWhatsappBid(offer.tenantId, offer.loadId, {
         transporterId: offer.transporterId,

@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import { DataSource } from 'typeorm';
 import { DrivingRoute, GoogleRoutesClient, LatLng } from '../../../adapters/google-routes.client';
 import { env } from '../../../config/env';
+import { DEFAULT_GEOFENCE_RADIUS_M } from '../../../shared/constants/location-source';
 import { CustomerDeliveryPointEntity } from '../../customers/entities/customer-delivery-point.entity';
 import { LoadEntity } from '../../loads/entities/load.entity';
 import { LoadingPointEntity } from '../../masters/loading-point/entities/loading-point.entity';
@@ -49,7 +50,6 @@ const MAX_CACHED_TRIPS = 2000;
 /** "Reached unloading" with a fresh fix further than max(drop geofence, this) from the drop is
  *  not believed: the left distance is measured from the truck instead. */
 const AT_DROP_MIN_M = 2000;
-const DEFAULT_GEOFENCE_M = 300;
 
 interface TripPoints {
   status: LoadStatus;
@@ -255,7 +255,7 @@ export class RedisTrackingEtaReader implements TrackingEtaReader {
         vehicleId: trackingVehicleId(load.tenantId, load.vehicleId, load.vehicleNumber),
         origin: pointOfPlace(pickup),
         destination: pointOfPlace(drop),
-        destinationRadiusM: dropMaster?.geofenceRadiusM ?? DEFAULT_GEOFENCE_M,
+        destinationRadiusM: dropMaster?.geofenceRadiusM ?? DEFAULT_GEOFENCE_RADIUS_M,
       };
     } catch (err) {
       console.warn(`[tracking-eta] trip ${tripId}: reading the load failed`, err);

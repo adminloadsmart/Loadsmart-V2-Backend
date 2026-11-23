@@ -50,7 +50,10 @@ export function registerGeofencesOpenApi(registry: OpenAPIRegistry): void {
     ),
     request: { params: geofenceValidators.forLoad.shape.params },
     responses: {
-      200: { description: '{ loadId, geofences: [geofence + role] }' },
+      200: {
+        description:
+          '{ loadId, geofences: [geofence + role], events: [{ geofenceId, name, type, event: enter | exit, occurredAt, latitude, longitude }] } (events oldest first)',
+      },
       404: { description: 'Load not found', ...errorContent },
     },
   });

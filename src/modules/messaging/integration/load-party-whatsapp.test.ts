@@ -367,7 +367,6 @@ describe('LoadPartyWhatsapp — papers, POD and payments', () => {
       variables: {
         vehicle_no: 'PB10AB1234',
         destination: 'Ludhiana',
-        destination_query: '30.9,75.85',
       },
       driverHasApp: true,
     });

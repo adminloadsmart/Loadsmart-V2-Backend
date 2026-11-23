@@ -1,26 +1,41 @@
 import { rethrow } from '../../../shared/errors';
 import { TruckTypeCatalogEntity } from './entities/truck-type-catalog.entity';
 import { TruckTypeCatalogRepository } from './truck-type-catalog.repository';
-import { DEFAULT_TRUCK_TYPES } from '../truck-type/truck-type.constants';
-import { TRUCK_TYPE_CATALOG_CONFIGURATIONS } from './truck-type-catalog-configurations.constants';
+import {
+  TruckTypeCatalogConfiguration,
+  TRUCK_TYPE_CATALOG_CONFIGURATIONS,
+} from './truck-type-catalog-configurations.constants';
+
+/** A catalog row plus the picker step values it stands for (family, body, tyres/axle, feet). */
+export type TruckTypeCatalogListItem = TruckTypeCatalogEntity &
+  Pick<TruckTypeCatalogConfiguration, 'family' | 'body' | 'wheel' | 'bodyLengthFt'>;
+
+const CONFIGURATION_BY_NAME = new Map(
+  TRUCK_TYPE_CATALOG_CONFIGURATIONS.map((config) => [config.name, config]),
+);
 
 export class TruckTypeCatalogService {
   constructor(private readonly truckTypeCatalogRepository: TruckTypeCatalogRepository) {}
 
-  async listCatalog(): Promise<TruckTypeCatalogEntity[]> {
+  /** Active catalog rows that match the current picker table, each with its picker values. */
+  async listCatalog(): Promise<TruckTypeCatalogListItem[]> {
     try {
-      return await this.truckTypeCatalogRepository.list();
+      const rows = await this.truckTypeCatalogRepository.list();
+      return rows.flatMap((row) => {
+        const config = CONFIGURATION_BY_NAME.get(row.name);
+        if (!config) return [];
+        const { family, body, wheel, bodyLengthFt } = config;
+        return [{ ...row, family, body, wheel, bodyLengthFt }];
+      });
     } catch (error) {
       rethrow(error, 'Failed to list truck type catalog');
     }
   }
 
-  /** Called once by db/seed.ts — platform-side only, not exposed over the API yet. Seeds both the
-   *  legacy name-only entries and the structured body/wheel/capacity catalog (Plan Dispatch v2.0
-   *  §6.6's Market Fleet picker) — each idempotent by name, so re-running only adds what's missing. */
+  /** Called by db/seed.ts — platform-side only. Idempotent by name, so re-running only adds
+   *  what's missing. Retiring old names is the ReplaceTruckTypeCatalog migration's job. */
   async seedDefaults(actorId: string | null): Promise<void> {
     try {
-      await this.truckTypeCatalogRepository.seedMissing(DEFAULT_TRUCK_TYPES, actorId);
       await this.truckTypeCatalogRepository.seedMissingConfigurations(
         TRUCK_TYPE_CATALOG_CONFIGURATIONS,
         actorId,

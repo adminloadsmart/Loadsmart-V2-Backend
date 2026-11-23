@@ -1,5 +1,6 @@
 import { TruckTypeEntity } from './entities/truck-type.entity';
 import { TruckBodyType } from './truck-type.types';
+import { TruckTypePick } from '../vehicle/truck-type-picker.constants';
 
 export interface CreateTruckTypeInput {
   name: string;
@@ -29,14 +30,9 @@ export interface AddTruckTypesFromCatalogInput {
   names: string[];
 }
 
-/** Market Fleet's 3-step picker (body type → wheel configuration → capacity) — resolves straight
- *  to a usable truckTypeId, get-or-create against the tenant's own list (truck-type.service.ts's
- *  resolveFromCatalog). */
-export interface ResolveTruckTypeInput {
-  bodyType: TruckBodyType;
-  wheelConfiguration: number;
-  capacityTons: number;
-}
+/** Market Fleet's picker (body → tyres/axle → tonnes → feet) — resolves straight to a usable
+ *  truckTypeId, get-or-create against the tenant's own list (TruckTypeService.findOrCreateFromPicker). */
+export type ResolveTruckTypeInput = TruckTypePick;
 
 /* Route parameter shapes, used to type `Request<P>` in the controller. */
 

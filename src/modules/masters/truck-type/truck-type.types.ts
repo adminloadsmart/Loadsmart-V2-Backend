@@ -18,3 +18,15 @@ export const TRUCK_BODY_TYPES = [
   'mini_pickup',
 ] as const;
 export type TruckBodyType = (typeof TRUCK_BODY_TYPES)[number];
+
+/**
+ * The body classes the client's truck-type list (TRUCK_TYPE_PICKER_ROWS) still uses. The others in
+ * TRUCK_BODY_TYPES stay only because the Postgres enum and retired (soft-deleted) rows carry them;
+ * validators accept just these.
+ */
+export const ACTIVE_TRUCK_BODY_TYPES = [
+  'open_body',
+  'container',
+  'lcv_open_body',
+  'lcv_container',
+] as const satisfies readonly TruckBodyType[];

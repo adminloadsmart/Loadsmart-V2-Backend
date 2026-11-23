@@ -1,394 +1,66 @@
 import { TruckBodyType } from '../truck-type/truck-type.types';
+import {
+  PickerBody,
+  PickerWheel,
+  pickerTruckTypeName,
+  TRUCK_TYPE_PICKER_ROWS,
+} from '../vehicle/truck-type-picker.constants';
+import { AXLE_TYPE_WHEEL_COUNTS, VehicleAxleType } from '../vehicle/vehicle.type';
 
 export interface TruckTypeCatalogConfiguration {
   name: string;
   bodyType: TruckBodyType;
   wheelConfiguration: number;
   capacityTons: number;
-  deckVolumeCubicMeters: number;
+  /** The client list's "Body Type" label, e.g. "LCV Open Body" or "Multi Axle". */
+  family: string;
+  /** The picker's own step values, so a catalog row maps back to an exact pick. */
+  body: PickerBody;
+  wheel: PickerWheel;
+  bodyLengthFt: string;
 }
 
+const BODY_FAMILY_LABELS: Partial<Record<TruckBodyType, string>> = {
+  open_body: 'Open Body',
+  lcv_open_body: 'LCV Open Body',
+  container: 'Container Body',
+  lcv_container: 'LCV Container Body',
+};
+
+/** 32 ft containers are named by their axle in the client's list, not by body. */
+const AXLE_FAMILY_LABELS: Record<VehicleAxleType, string> = {
+  sxl: 'Single Axle',
+  sxl_hc_9_5: 'Single Axle 9.5 ft HC',
+  sxl_hc_10: 'Single Axle 10 ft HC',
+  mxl: 'Multi Axle',
+  txl: 'Triple Axle',
+};
+
 /**
- * The Market Fleet 3-step picker's body type → wheel configuration → capacity catalog
- * (Plan Dispatch v2.0 §6.6), seeded once into the global `masters.truck_type_catalog` table
- * (not per-tenant) so every org sees the same structured options. Source: the load-posting
- * redesign prototype's TRUCK_CATS table.
+ * The global `masters.truck_type_catalog` contents: one entry per picker combination
+ * (body → tyres/axle → tonnes → feet) in TRUCK_TYPE_PICKER_ROWS — the client's truck-type list.
+ * Derived, not hand-written, so the catalog and the picker can never drift apart, and each name is
+ * exactly what TruckTypeService.findOrCreateFromPicker saves a tenant row under.
  */
-export const TRUCK_TYPE_CATALOG_CONFIGURATIONS: readonly TruckTypeCatalogConfiguration[] = [
-  // open_body
-  {
-    name: 'Open Body · 6 WH · 9T',
-    bodyType: 'open_body',
-    wheelConfiguration: 6,
-    capacityTons: 9,
-    deckVolumeCubicMeters: 30,
-  },
-  {
-    name: 'Open Body · 10 WH · 15T',
-    bodyType: 'open_body',
-    wheelConfiguration: 10,
-    capacityTons: 15,
-    deckVolumeCubicMeters: 45,
-  },
-  {
-    name: 'Open Body · 10 WH · 16T',
-    bodyType: 'open_body',
-    wheelConfiguration: 10,
-    capacityTons: 16,
-    deckVolumeCubicMeters: 48,
-  },
-  {
-    name: 'Open Body · 12 WH · 21T',
-    bodyType: 'open_body',
-    wheelConfiguration: 12,
-    capacityTons: 21,
-    deckVolumeCubicMeters: 55,
-  },
-  {
-    name: 'Open Body · 14 WH · 25T',
-    bodyType: 'open_body',
-    wheelConfiguration: 14,
-    capacityTons: 25,
-    deckVolumeCubicMeters: 60,
-  },
-  {
-    name: 'Open Body · 16 WH · 28T',
-    bodyType: 'open_body',
-    wheelConfiguration: 16,
-    capacityTons: 28,
-    deckVolumeCubicMeters: 65,
-  },
-  {
-    name: 'Open Body · 18 WH · 26T',
-    bodyType: 'open_body',
-    wheelConfiguration: 18,
-    capacityTons: 26,
-    deckVolumeCubicMeters: 70,
-  },
-  {
-    name: 'Open Body · 18 WH · 43T',
-    bodyType: 'open_body',
-    wheelConfiguration: 18,
-    capacityTons: 43,
-    deckVolumeCubicMeters: 95,
-  },
+export const TRUCK_TYPE_CATALOG_CONFIGURATIONS: readonly TruckTypeCatalogConfiguration[] =
+  TRUCK_TYPE_PICKER_ROWS.flatMap((row) =>
+    row.bodyLengthsFt.map((bodyLengthFt) => ({
+      name: pickerTruckTypeName(row, bodyLengthFt),
+      bodyType: row.family,
+      wheelConfiguration:
+        typeof row.wheel === 'number' ? row.wheel : AXLE_TYPE_WHEEL_COUNTS[row.wheel],
+      capacityTons: row.capacityTons,
+      family:
+        typeof row.wheel === 'number'
+          ? (BODY_FAMILY_LABELS[row.family] ?? row.family)
+          : AXLE_FAMILY_LABELS[row.wheel],
+      body: row.body,
+      wheel: row.wheel,
+      bodyLengthFt,
+    })),
+  );
 
-  // container
-  {
-    name: 'Container · 6 WH · 9T',
-    bodyType: 'container',
-    wheelConfiguration: 6,
-    capacityTons: 9,
-    deckVolumeCubicMeters: 28,
-  },
-  {
-    name: 'Container · 10 WH · 15T',
-    bodyType: 'container',
-    wheelConfiguration: 10,
-    capacityTons: 15,
-    deckVolumeCubicMeters: 42,
-  },
-  {
-    name: 'Container · 10 WH · 16T',
-    bodyType: 'container',
-    wheelConfiguration: 10,
-    capacityTons: 16,
-    deckVolumeCubicMeters: 45,
-  },
-  {
-    name: 'Container · 12 WH · 21T',
-    bodyType: 'container',
-    wheelConfiguration: 12,
-    capacityTons: 21,
-    deckVolumeCubicMeters: 52,
-  },
-  {
-    name: 'Container · 14 WH · 25T',
-    bodyType: 'container',
-    wheelConfiguration: 14,
-    capacityTons: 25,
-    deckVolumeCubicMeters: 58,
-  },
-  {
-    name: 'Container · 16 WH · 28T',
-    bodyType: 'container',
-    wheelConfiguration: 16,
-    capacityTons: 28,
-    deckVolumeCubicMeters: 62,
-  },
-
-  // lcv_open_body
-  {
-    name: 'LCV Open Body · 4 WH · 1T',
-    bodyType: 'lcv_open_body',
-    wheelConfiguration: 4,
-    capacityTons: 1,
-    deckVolumeCubicMeters: 5,
-  },
-  {
-    name: 'LCV Open Body · 4 WH · 1.5T',
-    bodyType: 'lcv_open_body',
-    wheelConfiguration: 4,
-    capacityTons: 1.5,
-    deckVolumeCubicMeters: 7,
-  },
-  {
-    name: 'LCV Open Body · 4 WH · 2.5T',
-    bodyType: 'lcv_open_body',
-    wheelConfiguration: 4,
-    capacityTons: 2.5,
-    deckVolumeCubicMeters: 10,
-  },
-  {
-    name: 'LCV Open Body · 6 WH · 4T',
-    bodyType: 'lcv_open_body',
-    wheelConfiguration: 6,
-    capacityTons: 4,
-    deckVolumeCubicMeters: 14,
-  },
-  {
-    name: 'LCV Open Body · 6 WH · 5T',
-    bodyType: 'lcv_open_body',
-    wheelConfiguration: 6,
-    capacityTons: 5,
-    deckVolumeCubicMeters: 17,
-  },
-  {
-    name: 'LCV Open Body · 6 WH · 7T',
-    bodyType: 'lcv_open_body',
-    wheelConfiguration: 6,
-    capacityTons: 7,
-    deckVolumeCubicMeters: 22,
-  },
-
-  // lcv_container
-  {
-    name: 'LCV Container · 4 WH · 1T',
-    bodyType: 'lcv_container',
-    wheelConfiguration: 4,
-    capacityTons: 1,
-    deckVolumeCubicMeters: 4.5,
-  },
-  {
-    name: 'LCV Container · 4 WH · 1.5T',
-    bodyType: 'lcv_container',
-    wheelConfiguration: 4,
-    capacityTons: 1.5,
-    deckVolumeCubicMeters: 6.5,
-  },
-  {
-    name: 'LCV Container · 4 WH · 2.5T',
-    bodyType: 'lcv_container',
-    wheelConfiguration: 4,
-    capacityTons: 2.5,
-    deckVolumeCubicMeters: 9,
-  },
-  {
-    name: 'LCV Container · 6 WH · 4T',
-    bodyType: 'lcv_container',
-    wheelConfiguration: 6,
-    capacityTons: 4,
-    deckVolumeCubicMeters: 13,
-  },
-  {
-    name: 'LCV Container · 6 WH · 5T',
-    bodyType: 'lcv_container',
-    wheelConfiguration: 6,
-    capacityTons: 5,
-    deckVolumeCubicMeters: 16,
-  },
-  {
-    name: 'LCV Container · 6 WH · 7T',
-    bodyType: 'lcv_container',
-    wheelConfiguration: 6,
-    capacityTons: 7,
-    deckVolumeCubicMeters: 20,
-  },
-
-  // trailer_dala_body
-  {
-    name: 'Trailer Dala Body · 14 WH · 25T',
-    bodyType: 'trailer_dala_body',
-    wheelConfiguration: 14,
-    capacityTons: 25,
-    deckVolumeCubicMeters: 65,
-  },
-  {
-    name: 'Trailer Dala Body · 18 WH · 30T',
-    bodyType: 'trailer_dala_body',
-    wheelConfiguration: 18,
-    capacityTons: 30,
-    deckVolumeCubicMeters: 80,
-  },
-  {
-    name: 'Trailer Dala Body · 18 WH · 35T',
-    bodyType: 'trailer_dala_body',
-    wheelConfiguration: 18,
-    capacityTons: 35,
-    deckVolumeCubicMeters: 90,
-  },
-  {
-    name: 'Trailer Dala Body · 22 WH · 40T',
-    bodyType: 'trailer_dala_body',
-    wheelConfiguration: 22,
-    capacityTons: 40,
-    deckVolumeCubicMeters: 100,
-  },
-
-  // trailer_flat_bed
-  {
-    name: 'Trailer Flat Bed · 14 WH · 26T',
-    bodyType: 'trailer_flat_bed',
-    wheelConfiguration: 14,
-    capacityTons: 26,
-    deckVolumeCubicMeters: 60,
-  },
-  {
-    name: 'Trailer Flat Bed · 18 WH · 30T',
-    bodyType: 'trailer_flat_bed',
-    wheelConfiguration: 18,
-    capacityTons: 30,
-    deckVolumeCubicMeters: 75,
-  },
-  {
-    name: 'Trailer Flat Bed · 18 WH · 35T',
-    bodyType: 'trailer_flat_bed',
-    wheelConfiguration: 18,
-    capacityTons: 35,
-    deckVolumeCubicMeters: 85,
-  },
-  {
-    name: 'Trailer Flat Bed · 22 WH · 40T',
-    bodyType: 'trailer_flat_bed',
-    wheelConfiguration: 22,
-    capacityTons: 40,
-    deckVolumeCubicMeters: 95,
-  },
-  {
-    name: 'Trailer Flat Bed · 22 WH · 45T',
-    bodyType: 'trailer_flat_bed',
-    wheelConfiguration: 22,
-    capacityTons: 45,
-    deckVolumeCubicMeters: 105,
-  },
-
-  // tanker (deck volume mirrors capacity in the source prototype)
-  {
-    name: 'Tanker · 6 WH · 12T',
-    bodyType: 'tanker',
-    wheelConfiguration: 6,
-    capacityTons: 12,
-    deckVolumeCubicMeters: 12,
-  },
-  {
-    name: 'Tanker · 10 WH · 16T',
-    bodyType: 'tanker',
-    wheelConfiguration: 10,
-    capacityTons: 16,
-    deckVolumeCubicMeters: 16,
-  },
-  {
-    name: 'Tanker · 10 WH · 20T',
-    bodyType: 'tanker',
-    wheelConfiguration: 10,
-    capacityTons: 20,
-    deckVolumeCubicMeters: 20,
-  },
-  {
-    name: 'Tanker · 12 WH · 24T',
-    bodyType: 'tanker',
-    wheelConfiguration: 12,
-    capacityTons: 24,
-    deckVolumeCubicMeters: 24,
-  },
-  {
-    name: 'Tanker · 14 WH · 30T',
-    bodyType: 'tanker',
-    wheelConfiguration: 14,
-    capacityTons: 30,
-    deckVolumeCubicMeters: 30,
-  },
-
-  // tipper
-  {
-    name: 'Tipper · 6 WH · 9T',
-    bodyType: 'tipper',
-    wheelConfiguration: 6,
-    capacityTons: 9,
-    deckVolumeCubicMeters: 8,
-  },
-  {
-    name: 'Tipper · 10 WH · 16T',
-    bodyType: 'tipper',
-    wheelConfiguration: 10,
-    capacityTons: 16,
-    deckVolumeCubicMeters: 14,
-  },
-  {
-    name: 'Tipper · 12 WH · 21T',
-    bodyType: 'tipper',
-    wheelConfiguration: 12,
-    capacityTons: 21,
-    deckVolumeCubicMeters: 18,
-  },
-  {
-    name: 'Tipper · 16 WH · 25T',
-    bodyType: 'tipper',
-    wheelConfiguration: 16,
-    capacityTons: 25,
-    deckVolumeCubicMeters: 22,
-  },
-
-  // bulker
-  {
-    name: 'Bulker · 14 WH · 25T',
-    bodyType: 'bulker',
-    wheelConfiguration: 14,
-    capacityTons: 25,
-    deckVolumeCubicMeters: 30,
-  },
-  {
-    name: 'Bulker · 16 WH · 28T',
-    bodyType: 'bulker',
-    wheelConfiguration: 16,
-    capacityTons: 28,
-    deckVolumeCubicMeters: 34,
-  },
-  {
-    name: 'Bulker · 18 WH · 30T',
-    bodyType: 'bulker',
-    wheelConfiguration: 18,
-    capacityTons: 30,
-    deckVolumeCubicMeters: 36,
-  },
-
-  // mini_pickup
-  {
-    name: 'Mini / Pickup Truck · 4 WH · 0.75T',
-    bodyType: 'mini_pickup',
-    wheelConfiguration: 4,
-    capacityTons: 0.75,
-    deckVolumeCubicMeters: 3,
-  },
-  {
-    name: 'Mini / Pickup Truck · 4 WH · 1T',
-    bodyType: 'mini_pickup',
-    wheelConfiguration: 4,
-    capacityTons: 1,
-    deckVolumeCubicMeters: 4,
-  },
-  {
-    name: 'Mini / Pickup Truck · 4 WH · 1.25T',
-    bodyType: 'mini_pickup',
-    wheelConfiguration: 4,
-    capacityTons: 1.25,
-    deckVolumeCubicMeters: 5,
-  },
-  {
-    name: 'Mini / Pickup Truck · 4 WH · 1.7T',
-    bodyType: 'mini_pickup',
-    wheelConfiguration: 4,
-    capacityTons: 1.7,
-    deckVolumeCubicMeters: 6,
-  },
-];
+/** Every name the catalog (and a tenant's truck types) may carry. */
+export const TRUCK_TYPE_CATALOG_NAMES: readonly string[] = TRUCK_TYPE_CATALOG_CONFIGURATIONS.map(
+  (config) => config.name,
+);

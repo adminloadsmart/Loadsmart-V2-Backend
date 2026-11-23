@@ -23,7 +23,7 @@ import { elrIssueBody, reviewPodBody, unloadingDetailsBody } from '../loads/core
 import { ELR_EDIT_REASONS } from '../loads/elr/load-elr-revision.entity';
 import { booleanString } from '../../shared/validators/boolean-string';
 import { TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
-import { TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
+import { ACTIVE_TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
 import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
 import { BALANCE_PAYERS, GST_TREATMENTS, RECEIVABLE_STATUSES } from './receivables-rules';
 import {
@@ -369,7 +369,7 @@ export const loadsmartValidators = {
           .array(
             z
               .object({
-                bodyType: z.enum(TRUCK_BODY_TYPES),
+                bodyType: z.enum(ACTIVE_TRUCK_BODY_TYPES),
                 capacityTons: z.number().positive().max(100).optional(),
               })
               .strict(),

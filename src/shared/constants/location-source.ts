@@ -4,7 +4,7 @@ export const LOCATION_SOURCES = ['google_places', 'manual'] as const;
 export type LocationSource = (typeof LOCATION_SOURCES)[number];
 
 /** Default arrival geofence around a loading/unloading point, in metres. */
-export const DEFAULT_GEOFENCE_RADIUS_M = 300;
+export const DEFAULT_GEOFENCE_RADIUS_M = 2000;
 
 /** google_places only when the client sent a place id AND a pin — otherwise it's a manual entry. */
 export function resolveLocationSource(input: {
