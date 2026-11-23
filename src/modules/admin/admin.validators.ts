@@ -8,7 +8,6 @@ import { ALL_TEAM_ROLES, SALES_TYPES, STAFF_TEAMS } from '../../shared/constants
 import { REFERRAL_CODE_REGEX } from '../organization/organization.constants';
 import { REFERRAL_CODE_SETTABLE_STATUSES } from '../organization/referral-code.service';
 import { DATE_FILTERS } from '../../shared/utils/date-filter';
-import { EMPLOYEE_ID_FORMAT_MESSAGE, EMPLOYEE_ID_REGEX } from '../auth/auth.constants';
 import { paginationQuery as pagination } from '../../shared/validators/pagination';
 import { booleanString } from '../../shared/validators/boolean-string';
 
@@ -19,12 +18,6 @@ const organizationDocumentParams = organizationParams.extend({ documentId: uuid 
 const decisionReasonBody = z.object({ reason: z.string().min(1) });
 const referralCodeParams = z.object({ referralCodeId: uuid });
 const trimmed = z.string().trim().min(1);
-// LS5678 — uppercased first so "ls5678" is accepted and stored as LS5678.
-const employeeId = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(EMPLOYEE_ID_REGEX, EMPLOYEE_ID_FORMAT_MESSAGE);
 const staffSalesBody = z
   .object({
     salesType: z.enum(SALES_TYPES),
@@ -166,7 +159,6 @@ export const adminValidators = {
     body: z
       .object({
         fullName: trimmed,
-        employeeId,
         phoneNumber: z.string().min(10),
         email: z.string().email(),
         roleId: uuid,
@@ -183,7 +175,6 @@ export const adminValidators = {
     body: z
       .object({
         fullName: trimmed.optional(),
-        employeeId: employeeId.optional(),
         phoneNumber: z.string().min(10).optional(),
         email: z.string().email().optional(),
         roleId: uuid.optional(),
