@@ -1086,6 +1086,17 @@ export class LoadBidService {
         vehicleChecked: false,
         driverChecked: false,
       });
+      // LS_N_0068 — accepting Loadsmart's bid is not the confirmation: the shipper is told the
+      // truck and driver details come next, then the load memo.
+      if (toLoadsmart) {
+        await this.onLoadEvent?.({
+          kind: 'loadsmart_bid_accepted',
+          tenantId,
+          loadId,
+          bidId: bid.id,
+          at: now,
+        });
+      }
       return awarded;
     } catch (error) {
       rethrow(error, 'Failed to accept bid');

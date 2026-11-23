@@ -190,6 +190,9 @@ export type LoadEvent =
   /** Every stage move (LoadStageService.transition) — load.stage_changed for the stages that have
    *  no notification of their own (STAGE_CHANGED_CARD_LABELS). */
   | { kind: 'stage_changed'; tenantId: string; loadId: string; to: LoadStatus; at: Date }
+  /** LS_N_0068 — the shipper accepted Loadsmart's bid (in the app or on WhatsApp): the truck and
+   *  driver come next, then the load memo. load.loadsmart_bid_accepted. */
+  | { kind: 'loadsmart_bid_accepted'; tenantId: string; loadId: string; bidId: string; at: Date }
   /** A market load posted with none of the shipper's transporters on its lane (lane-matching) —
    *  only Loadsmart got it. load.no_transporter_on_lane. */
   | { kind: 'no_transporter_on_lane'; tenantId: string; loadId: string; at: Date };

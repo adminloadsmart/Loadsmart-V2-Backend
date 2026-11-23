@@ -7,7 +7,9 @@ import {
   LOAD_PICK_TTL_MS,
   STAGES_ACCEPTING_VALUE,
   TAPPED_MESSAGE_WAIT,
+  UNREADABLE_REPLIED_TYPES,
   VALUE_ASKED_BY_PROMPT,
+  VALUE_ASKED_BY_TEMPLATE,
   WHATSAPP_INTERACTIVE_LIMITS,
 } from '../messaging.constants';
 import { OfferAction, RecipientLoadStage, ReplyValueKind, RoutingMethod } from '../messaging.types';
@@ -99,6 +101,9 @@ const acceptsValue = (stage: RecipientLoadStage, kind: ReplyValueKind): boolean 
 /** The value a message of ours asked for: a question (rate / driver details / slip) or a
  *  confirmation marked with one ("Done. Send the truck number…"). Offers are not asks. */
 function askedValueOf(messageLog: MessageLogEntity): ReplyValueKind | null {
+  if (messageLog.templateKey && messageLog.templateKey in VALUE_ASKED_BY_TEMPLATE) {
+    return VALUE_ASKED_BY_TEMPLATE[messageLog.templateKey as keyof typeof VALUE_ASKED_BY_TEMPLATE];
+  }
   if (messageLog.kind === 'info') {
     const asked = messageLog.variables?.[ASKS_FOR_VARIABLE];
     return typeof asked === 'string' ? (asked as ReplyValueKind) : null;
@@ -106,6 +111,16 @@ function askedValueOf(messageLog: MessageLogEntity): ReplyValueKind | null {
   return messageLog.kind && messageLog.kind in VALUE_ASKED_BY_PROMPT
     ? VALUE_ASKED_BY_PROMPT[messageLog.kind as keyof typeof VALUE_ASKED_BY_PROMPT]
     : null;
+}
+
+/** Whether this ask was about this candidate load. A template ask (LS_N_0121) names the
+ *  transporter by its own id while the candidate carries its load_recipients id, so templates match
+ *  on the load — the asks are already only those sent to this phone. */
+function asksCandidate(ask: MessageLogEntity, candidate: OpenRecipientLoad): boolean {
+  if (ask.templateKey && ask.templateKey in VALUE_ASKED_BY_TEMPLATE) {
+    return ask.loadId !== null && ask.loadId === candidate.loadId;
+  }
+  return ask.loadRef === candidate.loadRef && ask.recipientRefId === candidate.recipientRefId;
 }
 
 /**
@@ -142,6 +157,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         return this.routeLoadPick(inbound, senderIdentity);
       case 'flow_reply':
         // Stored with its response_json; WhatsApp Flows are not in today's scope.
+        await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.teamWillCheck(null), inbound.id);
         return this.needsReview('Flow replies are not handled yet');
       case 'image':
       case 'document':
@@ -154,6 +170,10 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       case 'text':
         return this.routeText(inbound, senderIdentity);
       default:
+        // A voice note, location… is answered; a reaction or a system event is not.
+        if ((UNREADABLE_REPLIED_TYPES as readonly string[]).includes(inbound.providerType)) {
+          await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.textAndPhotosOnly, inbound.id);
+        }
         return {
           resolution: 'ignored',
           resolutionNote: `unsupported message type "${inbound.providerType}"`,
@@ -177,6 +197,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       if (retry) return retry;
     }
     if (answeredMessage && !this.isSameSender(answeredMessage, senderIdentity)) {
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.notYourLoadMessage, inbound.id);
       return this.needsReview("tap points at another user's message");
     }
     // Our session buttons carry `action:loadRef:recipientRef`; an MSG91 template quick reply
@@ -193,6 +214,12 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         buttonId &&
         (buttonId.loadRef !== context.loadRef || buttonId.recipientRef !== context.recipientRefId)
       ) {
+        await this.sender.sendInfo(
+          senderIdentity,
+          REPLY_TEXTS.teamWillCheck(context.loadRef),
+          inbound.id,
+          { context },
+        );
         return {
           ...evidenceFor(context, routingMethod),
           resolution: 'needs_review',
@@ -211,8 +238,10 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       }
     }
     if (!context) {
-      if (!tappedMessageUnknown)
+      if (!tappedMessageUnknown) {
+        await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.notYourLoadMessage, inbound.id);
         return this.needsReview('tap could not be matched to one of our offers');
+      }
       // Reached once: the row leaves 'pending' with this result, so no later run sends it again.
       await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.tapNotMatched, inbound.id);
       return this.needsReview(
@@ -220,6 +249,13 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       );
     }
     if (!action) {
+      // e.g. "Sent by courier" / "Bringing it" (LS_N_0115 / 0116): the team follows it up.
+      await this.sender.sendInfo(
+        senderIdentity,
+        REPLY_TEXTS.teamWillCheck(context.loadRef),
+        inbound.id,
+        { context },
+      );
       return {
         ...evidenceFor(context, routingMethod),
         resolution: 'needs_review',
@@ -233,6 +269,12 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         ? tapActionOf(firstDecision, decodeOfferButtonId(firstDecision.buttonId), answeredMessage)
         : null;
       if (firstAction === action) {
+        await this.sender.sendInfo(
+          senderIdentity,
+          REPLY_TEXTS.alreadyNoted(context.loadRef, inbound.buttonText ?? action),
+          inbound.id,
+          { context },
+        );
         return { ...evidenceFor(context, routingMethod), resolution: 'repeat_tap' };
       }
       if (firstAction) {
@@ -289,8 +331,10 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
   ): Promise<InboundResolutionPatch> {
     const answeredMessage = await this.findAnsweredMessage(inbound);
     if (answeredMessage) {
-      if (!this.isSameSender(answeredMessage, senderIdentity))
+      if (!this.isSameSender(answeredMessage, senderIdentity)) {
+        await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.notYourLoadMessage, inbound.id);
         return this.needsReview("reply points at another user's message");
+      }
       const context = contextFromMessageLog(answeredMessage);
       // A quoted message without a load (e.g. a plain info text) falls through to the pending loads.
       if (context)
@@ -374,12 +418,7 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     const asks = (await this.store.findRecentLoadMessagesTo(senderIdentity.phone, since)).filter(
       (log) => askedValueOf(log) === kind,
     );
-    return candidates.filter((candidate) =>
-      asks.some(
-        (log) =>
-          log.loadRef === candidate.loadRef && log.recipientRefId === candidate.recipientRefId,
-      ),
-    );
+    return candidates.filter((candidate) => asks.some((log) => asksCandidate(log, candidate)));
   }
 
   private async sendPicker(
@@ -396,8 +435,10 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
       REPLY_TEXTS.pickerPrompt(value.kind, sourceText),
       inbound.id,
     );
-    if (!pickerMessageLogId)
+    if (!pickerMessageLogId) {
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.teamWillCheck(null), inbound.id);
       return this.needsReview('several loads fit but the "Load chunein" list could not be sent');
+    }
     const overflowNote =
       candidates.length > listedLoads.length
         ? `${candidates.length} loads fit, list shows ${listedLoads.length}`
@@ -425,10 +466,14 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
         `picked list ${inbound.contextMessageId} still unknown after ${TAPPED_MESSAGE_WAIT.windowMs / 60_000} min`,
       );
     }
-    if (!pickerMessage || pickerMessage.kind !== 'picker')
+    if (!pickerMessage || pickerMessage.kind !== 'picker') {
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.pickerExpired, inbound.id);
       return this.needsReview('list pick does not answer one of our "Load chunein" lists');
-    if (!this.isSameSender(pickerMessage, senderIdentity))
+    }
+    if (!this.isSameSender(pickerMessage, senderIdentity)) {
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.notYourLoadMessage, inbound.id);
       return this.needsReview("list pick points at another user's list");
+    }
 
     const waitingMessage = await this.store.findAwaitingPick(pickerMessage.id);
     if (!waitingMessage) {
@@ -480,7 +525,10 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     const chosenContext = offeredCandidates.find(
       (candidate) => candidate.loadRef === pickedLoadRef,
     );
-    if (!chosenContext) return this.needsReview(`picked ${pickedLabel} was not in the list`);
+    if (!chosenContext) {
+      await this.sender.sendInfo(senderIdentity, REPLY_TEXTS.pickerExpired, inbound.id);
+      return this.needsReview(`picked ${pickedLabel} was not in the list`);
+    }
 
     if (this.now().getTime() - waitingMessage.receivedAt.getTime() > LOAD_PICK_TTL_MS) {
       await this.store.recordResolution(waitingMessage.id, {
@@ -576,9 +624,17 @@ export class WhatsappReplyRouter implements InboundMessageHandler {
     replyToInboundId: string,
     routingMethod: RoutingMethod,
   ): Promise<InboundResolutionPatch> {
-    // Logged on the load (with what it asks for next), so a swipe on it routes back here.
-    if (outcome.confirmationText)
-      await this.sender.sendInfo(senderIdentity, outcome.confirmationText, replyToInboundId, {
+    // Logged on the load (with what it asks for next), so a swipe on it routes back here. An
+    // outcome with neither a reply nor a next question still gets a closing reply.
+    const closingText =
+      outcome.confirmationText ??
+      (outcome.nextPrompt
+        ? null
+        : outcome.resolution === 'needs_review'
+          ? REPLY_TEXTS.teamWillCheck(context.loadRef)
+          : REPLY_TEXTS.noted(context.loadRef));
+    if (closingText)
+      await this.sender.sendInfo(senderIdentity, closingText, replyToInboundId, {
         context,
         asksFor: outcome.asksFor ?? null,
       });

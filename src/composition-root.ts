@@ -490,6 +490,8 @@ export function buildContainer(dataSource: DataSource): Container {
       // LS_N_0024 vehicle loaded / LS_N_0026 vehicle in transit (from tracking's geofence exit).
       // Generic in-app card for stage moves without a type of their own (spec p.30).
       'load.stage_changed': loadAlertResolvers.stageChanged,
+      // LS_N_0068 — the shipper accepted Loadsmart's bid; truck, driver and memo follow.
+      'load.loadsmart_bid_accepted': loadAlertResolvers.loadsmartBidAccepted,
       // Lane matching: a market load none of the shipper's transporters runs.
       'load.no_transporter_on_lane': loadAlertResolvers.noTransporterOnLane,
       // Log a call (spec p.36) — null once the reminder was closed or changed. `loads` is built

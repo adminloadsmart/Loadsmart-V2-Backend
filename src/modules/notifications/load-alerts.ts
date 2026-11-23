@@ -29,6 +29,7 @@ import {
   VehicleHaltedContext,
   VehicleInTransitContext,
   StageChangedContext,
+  LoadsmartBidAcceptedContext,
   NoTransporterOnLaneContext,
   VehicleLoadedContext,
   VehicleNotReportedContext,
@@ -100,6 +101,13 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
             loadId,
             stage: event.to,
             changedAt: event.at.toISOString(),
+          });
+          return;
+        case 'loadsmart_bid_accepted':
+          await triggers.enqueue('load.loadsmart_bid_accepted', tenantId, {
+            loadId,
+            bidId: event.bidId,
+            acceptedAt: event.at.toISOString(),
           });
           return;
         case 'no_transporter_on_lane':
@@ -345,6 +353,16 @@ export function createLoadAlertResolvers(
     ): Promise<StageChangedContext | null> => {
       const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
       if (!snapshot || snapshot.status !== context.stage) return null;
+      return { ...context, ...summaryOf(context.loadId, snapshot) };
+    },
+
+    /** LS_N_0068 — the load's code and route; null once the load is gone. */
+    loadsmartBidAccepted: async (
+      tenantId: string,
+      context: LoadsmartBidAcceptedContext,
+    ): Promise<LoadsmartBidAcceptedContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot) return null;
       return { ...context, ...summaryOf(context.loadId, snapshot) };
     },
 

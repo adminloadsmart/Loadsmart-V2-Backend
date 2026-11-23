@@ -320,6 +320,7 @@ describe('offer taps', () => {
     const log = offerLog('LS-2004', 'partner_B', PHONE_B);
     expect((await route(tap(log, 'negotiate', PHONE_B))).resolution).toBe('negotiating');
     expect((await route(tap(log, 'negotiate', PHONE_B))).resolution).toBe('repeat_tap');
+    expect(sender.infos.at(-1)).toBe('LS-2004: Already noted: "negotiate".');
     expect((await route(tap(log, 'accept', PHONE_B))).resolution).toBe('changed_answer');
     expect(actions.calls).toEqual(['negotiate LS-2004/partner_B']);
     expect(sender.infos.at(-1)).toContain('first answer "negotiate"');
@@ -371,6 +372,7 @@ describe('offer taps', () => {
     );
     expect(result.resolution).toBe('needs_review');
     expect(actions.calls).toEqual([]);
+    expect(sender.infos).toEqual(['LS-2001: Our team will check it.']);
   });
 
   it("matches a tap without context by its button id among the sender's open loads", async () => {
@@ -521,6 +523,42 @@ describe('truck/driver details and loading slips', () => {
     );
     expect(result).toMatchObject({ resolution: 'slip_received', routingMethod: 'only_pending' });
     expect(actions.calls).toEqual(['slip media1 LS-2001/partner_A']);
+    // The outcome had no wording of its own: it still gets a closing reply.
+    expect(sender.infos).toEqual(['LS-2001: Noted.']);
+  });
+
+  // 23 Nov: the bot had asked for LOAD-1027's driver earlier ("please also send…"); then LS_N_0107
+  // asked for LOAD-1029's. Plain details went to 1027 because the template didn't count as an ask.
+  it('counts LS_N_0107 as an ask: two asked loads → the list, never a guess', async () => {
+    actions.addLoad('LS-2007', 'partner_B', PHONE_B, 'awaiting_dispatch');
+    actions.addLoad('LS-2009', 'partner_B', PHONE_B, 'awaiting_dispatch');
+    offerLog('LS-2007', 'partner_B', PHONE_B, 'info').variables = { asksFor: 'dispatch' };
+    offerLog('LS-2009', 'partner_B', PHONE_B, 'template').templateKey = 'LS_N_0107';
+
+    const result = await route(
+      inbound({
+        fromPhone: PHONE_B,
+        body: 'RJ11GC9628\nRAJIV\n6284333505\nHR3120210000616\n19 may 2000',
+      }),
+    );
+    expect(result.resolution).toBe('awaiting_load_pick');
+    expect(actions.calls).toEqual([]);
+  });
+
+  it('LS_N_0121 names the transporter by its own id: the ask is matched on the load', async () => {
+    actions.addLoad('LS-2007', 'recipient_7', PHONE_B, 'awaiting_dispatch');
+    actions.addLoad('LS-2009', 'recipient_9', PHONE_B, 'awaiting_dispatch');
+    offerLog('LS-2009', 'transporter_master', PHONE_B, 'template').templateKey = 'LS_N_0121';
+
+    const result = await route(
+      inbound({ fromPhone: PHONE_B, body: 'RJ11GC9628 RAJIV 6284333505' }),
+    );
+    expect(result).toMatchObject({
+      resolution: 'details_received',
+      routingMethod: 'last_ask',
+      loadRef: 'LS-2009',
+    });
+    expect(actions.calls).toEqual(['dispatch RJ11GC9628 LS-2009/recipient_9']);
   });
 });
 
@@ -537,11 +575,24 @@ describe('Flow replies', () => {
     );
     expect(result.resolution).toBe('needs_review');
     expect(actions.calls).toEqual([]);
+    expect(sender.infos).toEqual(['Our team will check it.']);
   });
 });
 
-it('ignores unsupported message types', async () => {
+it('ignores unsupported message types: a reaction silently, a voice note with a reply', async () => {
   expect((await route(inbound({ type: 'other', providerType: 'reaction' }))).resolution).toBe(
     'ignored',
   );
+  expect(sender.infos).toEqual([]);
+  expect((await route(inbound({ type: 'other', providerType: 'audio' }))).resolution).toBe(
+    'ignored',
+  );
+  expect(sender.infos).toEqual(['Sorry, we can only read text and photos here.']);
+});
+
+it('answers a tap on a message sent to someone else', async () => {
+  const log = offerLog('LS-2001', 'partner_A', PHONE_A);
+  const result = await route(tap(log, 'accept', PHONE_B));
+  expect(result.resolution).toBe('needs_review');
+  expect(sender.infos).toEqual(["We couldn't match this to your loads. Our team will check it."]);
 });

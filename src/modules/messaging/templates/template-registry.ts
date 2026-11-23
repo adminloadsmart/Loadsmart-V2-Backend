@@ -22,8 +22,9 @@ import {
 /** A template button. A quick reply with `action` is acted on when tapped (the reply router reads
  *  the tapped message and this title); one without is shown but not handled yet; `url` buttons
  *  open a link. A URL button with `urlVariable` has a dynamic link: the template's URL ends in
- *  {{1}} and the send fills it with that variable's value (load_uuid → the load's id,
- *  destination_query → "lat,lng" or the drop address for a maps search). */
+ *  {{1}} and the send fills it with that variable's value (load_uuid → the load's id). One
+ *  without `urlVariable` has a static link and is sent with no button parameter.
+ */
 export interface TemplateButton {
   title: string;
   action?: OfferAction;
@@ -179,7 +180,7 @@ export const TEMPLATE_REGISTRY = {
     category: 'UTILITY',
     kind: 'template',
     variables: ['rate', 'from_area', 'to_area'],
-    body: 'Your rate of ₹{{rate}} for {{from_area}} to {{to_area}} is accepted. Reply with the truck number, driver name, driver mobile and DL number.',
+    body: "Your rate of ₹{{rate}} for {{from_area}} to {{to_area}} is accepted. Reply with the truck number, driver name, driver mobile, DL number and the driver's date of birth.",
   },
   // A truck or driver failed its check before the memo (VAHAN, Sarathi, or a licence class that
   // doesn't fit the truck) — to the broker on a Loadsmart load, else the shipper's transporter.
@@ -224,7 +225,9 @@ export const TEMPLATE_REGISTRY = {
     kind: 'template',
     variables: ['vehicle_no', 'destination'],
     body: 'Papers approved for truck {{vehicle_no}}. You can leave for {{destination}} now.',
-    buttons: [{ title: 'Get directions', url: true, urlVariable: 'destination_query' }],
+    // Static CTA: the approved template's button links to https://www.loadsmart.in/ and takes no
+    // parameter (sending one fails with "Button at index 0 of type Url does not require parameters").
+    buttons: [{ title: 'Get directions', url: true }],
   },
   LS_N_0112: {
     audience: BROKER,
