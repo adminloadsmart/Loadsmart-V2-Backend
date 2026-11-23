@@ -84,8 +84,9 @@ export const TEMPLATE_REGISTRY = {
     intent: 'action',
     category: 'UTILITY',
     kind: 'offer',
-    variables: ['from_area', 'to_area', 'truck_type', 'weight', 'reporting_time'],
-    body: 'New load from Loadsmart: {{from_area}} to {{to_area}}, {{truck_type}}, {{weight}} t, reporting {{reporting_time}}. Send us your best rate.',
+    // As approved in MSG91 (ls_n_0106, 4 variables): the route is one value, "from_area to to_area".
+    variables: ['route', 'truck_type', 'weight', 'reporting_time'],
+    body: 'New load from Loadsmart: {{route}}. Truck type: {{truck_type}}, weight: {{weight}} tons, reporting time: {{reporting_time}}. Send us your best rate. We have a new load opportunity available and look forward to receiving your quotation. Please share your best competitive price to proceed with the booking.',
     buttons: QUOTE_REPLIES,
   },
   LS_N_0119: {

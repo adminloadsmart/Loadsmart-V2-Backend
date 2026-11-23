@@ -30,6 +30,8 @@ export class PartnerBoardNotifier implements LoadBoardNotifier {
     const variables: Record<string, string> = {
       from_area: offer.pickupLabel,
       to_area: offer.dropLabel,
+      // LS_N_0106 takes the route as one value.
+      route: `${offer.pickupLabel} to ${offer.dropLabel}`,
       truck_type: offer.truckLabel,
       weight: formatTonnes(offer.weightTonnes),
       reporting_time: reportingTime,
