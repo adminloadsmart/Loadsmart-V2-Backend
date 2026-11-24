@@ -60,6 +60,14 @@ export interface TruckPickInput {
   bodyLengthFt: string;
 }
 
+export interface UnloadingAppointmentInput {
+  appointmentId: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** "10:00–12:00" */
+  slot: string;
+}
+
 export interface PostLoadInput {
   mode: PostMode;
   customerId?: string;
@@ -67,6 +75,9 @@ export interface PostLoadInput {
   drop: DropInput;
   pickupAt: string;
   deliverByAt?: string;
+  /** The drop warehouse's appointment — the alternative to Deliver by. Saved on every load as
+   *  its unloading details. */
+  unloadingAppointment?: UnloadingAppointmentInput;
   commodity: CommodityInput;
   packaging: string;
   weightTonnes?: number;

@@ -349,6 +349,28 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
+    path: `${BASE}/loads/{loadId}/bid-window/extend`,
+    tags: [TAGS.LOADS],
+    operationId: 'loads.extendBidWindow',
+    ...manageDispatch(
+      '"Extend" on a market load still taking bids (Created or Bids received, nothing accepted): ' +
+        'the bid window restarts and closes 4 hours from now — a closed window reopens. A window ' +
+        'Loadsmart Placement already pushed later is kept. Returns the bid list with the new ' +
+        '`biddingClosesAt`.',
+    ),
+    request: { params: v.extendBidWindow.shape.params },
+    responses: {
+      200: { description: 'LoadBidsView — { loadId, loadStatus, biddingClosesAt, bids }' },
+      404: { description: 'Load or posting not found', ...errorContent },
+      409: {
+        description: 'Not a market load, no posting, or a bid is already accepted',
+        ...errorContent,
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
     path: `${BASE}/loads/{loadId}/withdraw`,
     tags: [TAGS.LOADS],
     operationId: 'loads.withdrawLoad',

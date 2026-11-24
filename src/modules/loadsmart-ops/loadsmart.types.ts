@@ -132,8 +132,8 @@ export type PaymentVerificationStatus = (typeof PAYMENT_VERIFICATION_STATUSES)[n
 
 // A shipper without commercial terms of its own (ls_commercial_terms) gets Super Admin →
 // Settings' central margin and default carrier advance (settings/settings.types.ts).
-/** "If the margin is under 6%, the team negotiates with the shipper before sending." */
-export const MIN_MARGIN_PERCENT = 6;
+/** "If the margin is under 5%, the team negotiates with the shipper before sending." */
+export const MIN_MARGIN_PERCENT = 5;
 /** "Calls partners who haven't bid in 5 minutes." */
 export const PARTNER_CALL_AFTER_MS = 5 * 60 * 1000;
 /** TDS on a partner's payments when the partner master has no rate of its own (194C, 1%). */

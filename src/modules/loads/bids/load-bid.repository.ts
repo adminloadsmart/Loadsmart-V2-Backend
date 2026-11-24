@@ -140,6 +140,11 @@ export class LoadBidRepository {
     });
   }
 
+  /** Minutes added to the posting's 4-hour bid window ("Extend"). */
+  async setBidWindowExtraMinutes(tenantId: string, postingId: string, minutes: number) {
+    await this.postings.update({ tenantId, id: postingId }, { bidWindowExtraMinutes: minutes });
+  }
+
   findTransporterRecipient(
     tenantId: string,
     postingId: string,

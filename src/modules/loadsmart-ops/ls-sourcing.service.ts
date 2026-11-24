@@ -69,7 +69,7 @@ const normalizePlate = (value: string) => value.replace(/\s+/g, '').toUpperCase(
  * - the Approval team posts it on the load board (partners see the rate with the margin out);
  * - Placement records partner bids (never from salespeople), calls the ones who haven't bid in
  *   5 minutes, and sends the shipper one best bid as Loadsmart's — no partner name, priced with
- *   the margin, a note required under 6%;
+ *   the margin, a note required under 5%;
  * - once the shipper accepts it, Placement names the partner's driver, the Verification team
  *   approves truck and driver, and the memo goes out;
  * - the Tracking team marks the truck, uploads papers for the driver and approves them (the
@@ -721,7 +721,7 @@ export class LsSourcingService extends LsServiceBase {
   }
 
   /** "Sends the shipper one best bid, without the partner's name." Priced at the margin unless
-   *  Placement sets the price; under 6% needs the negotiation note. */
+   *  Placement sets the price; under 5% needs the negotiation note. */
   /** The shipper countered Loadsmart's bid — the step goes on the timeline for Placement. */
   onLoadsmartBidCountered = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
     const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });

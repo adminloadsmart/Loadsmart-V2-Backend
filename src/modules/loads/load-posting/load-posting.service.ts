@@ -106,6 +106,19 @@ export type TransporterMatcher = Pick<LaneMatchService, 'matchTransporters'>;
  *
  * Sending the message to transporters is behind LoadDispatchNotifier and happens after commit.
  */
+
+/** A posting's warehouse appointment as the load's unloading details; nothing without one. */
+function appointmentFields(appointment: PostLoadInput['unloadingAppointment'], actorId: string) {
+  if (!appointment) return {};
+  return {
+    unloadingAppointmentId: appointment.appointmentId,
+    unloadingAppointmentDate: appointment.date,
+    unloadingAppointmentSlot: appointment.slot,
+    unloadingDetailsAddedBy: actorId,
+    unloadingDetailsAddedAt: new Date(),
+  };
+}
+
 export class LoadPostingService {
   private transporterMatcher?: TransporterMatcher;
 
@@ -206,8 +219,8 @@ export class LoadPostingService {
 
       let laneMatches: TransporterLaneMatch[] = [];
       if (input.mode === 'market_fleet') {
-        // No picking: the load goes to the shipper's transporters whose lane covers it (runs the
-        // lane, or the load lies on its way). `transporterIds` from older clients is ignored.
+        // The transporters the shipper ticked get the load. With none ticked, it goes to the
+        // shipper's transporters whose lane covers it (runs the lane, or the load lies on its way).
         laneMatches = this.transporterMatcher
           ? await this.transporterMatcher.matchTransporters(
               tenantId,
@@ -216,7 +229,9 @@ export class LoadPostingService {
           : [];
         transporters = await this.repository.findActiveTransporters(
           tenantId,
-          laneMatches.map((match) => match.transporterId),
+          input.transporterIds?.length
+            ? [...new Set(input.transporterIds)]
+            : laneMatches.map((match) => match.transporterId),
         );
       } else if (input.mode === 'indent') {
         const contract = await this.assertIndentContract(tenantId, pickup, drop, input);
@@ -287,6 +302,7 @@ export class LoadPostingService {
                 drop: drop.address,
                 pickupAt,
                 deliverByAt: input.deliverByAt ? new Date(input.deliverByAt) : null,
+                unloadingAppointment: input.unloadingAppointment ?? null,
                 commodityName: commodity.name,
                 packaging: input.packaging,
                 weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
@@ -376,6 +392,7 @@ export class LoadPostingService {
           balancePercentage: balance,
           createdBy: actorId,
           ...(input.mode === 'own_fleet' ? vehicleLoadDefaults : {}),
+          ...appointmentFields(input.unloadingAppointment, actorId),
           // The entered cargo wins over the truck's capacity (the truck's is only the fallback).
           plannedCapacityTonnes: plannedCapacity,
         }));
@@ -471,8 +488,8 @@ export class LoadPostingService {
           );
         }
       }
-      if (input.mode === 'market_fleet' && !laneMatches.length) {
-        // None of the shipper's transporters runs this lane: only Loadsmart got the load.
+      if (input.mode === 'market_fleet' && !transporters.length) {
+        // No transporter got the load (none ticked, none on the lane): only Loadsmart did.
         for (const load of result.loads) {
           await this.onLoadEvent?.({
             kind: 'no_transporter_on_lane',
@@ -1145,6 +1162,7 @@ export class LoadPostingService {
                 drop: drop.address,
                 pickupAt,
                 deliverByAt,
+                unloadingAppointment: input.unloadingAppointment ?? null,
                 commodityName: commodity.name,
                 packaging: input.packaging,
                 weightTonnes: input.weightTonnes === undefined ? null : String(input.weightTonnes),
@@ -1205,6 +1223,8 @@ export class LoadPostingService {
             {
               title: input.title || null,
               plannedCapacityTonnes: plannedCapacity,
+              // A newly given appointment replaces the load's; without one, what's there stays.
+              ...appointmentFields(input.unloadingAppointment, actorId),
               ...(posting.mode === 'own_fleet'
                 ? {}
                 : {

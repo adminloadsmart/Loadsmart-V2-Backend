@@ -421,6 +421,48 @@ export class LoadBidService {
     }
   }
 
+  /** The shipper's "Extend" on a market load still taking bids: the bid window restarts, closing
+   *  4 hours from now (BID_WINDOW_MS) whatever was left of it — a closed window reopens. A window
+   *  Placement already pushed further out is kept. Phone and WhatsApp rates follow the new end. */
+  async extendBidWindow(tenantId: string, actorId: string, loadId: string): Promise<LoadBidsView> {
+    try {
+      const load = await this.assertLoad(tenantId, loadId);
+      if (load.postingType !== 'market_fleet') {
+        throw new ConflictError('Only a market load has a bid window');
+      }
+      if ((load.status !== 'created' && load.status !== 'bids_received') || load.awardedBidId) {
+        throw new ConflictError('A bid is already accepted on this load — bidding is over');
+      }
+      if (!load.postingId) throw new ConflictError('This load has no posting');
+      const posting = await this.bidRepository.findPosting(tenantId, load.postingId);
+      if (!posting) throw new NotFoundError('Posting not found');
+
+      const now = this.now();
+      const before = bidWindowClosesAt(posting.createdAt, posting.bidWindowExtraMinutes);
+      // createdAt + 4 h + extra = now + 4 h  →  extra = the minutes since the load was sent.
+      const sinceSent = Math.ceil((now.getTime() - posting.createdAt.getTime()) / 60_000);
+      const extraMinutes = Math.max(posting.bidWindowExtraMinutes, sinceSent);
+      await this.bidRepository.setBidWindowExtraMinutes(tenantId, posting.id, extraMinutes);
+      const closesAt = bidWindowClosesAt(posting.createdAt, extraMinutes);
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_BID_WINDOW_EXTENDED',
+        resourceType: 'load',
+        newData: {
+          id: load.id,
+          postingId: posting.id,
+          closedAt: before.toISOString(),
+          closesAt: closesAt.toISOString(),
+        },
+      });
+      return await this.listForLoad(tenantId, loadId);
+    } catch (error) {
+      rethrow(error, 'Failed to extend the bid window');
+    }
+  }
+
   /** The shipper types in a rate one of their transporters gave by phone — allowed from 30
    *  minutes after the load was sent until bidding closes at 4 hours, with a reason. A transporter
    *  quoting again revises its live bid. */

@@ -116,6 +116,12 @@ export interface CreateLoadData {
   advancePercentage?: string | null;
   balancePercentage?: string | null;
   coversVehicleId?: string | null;
+  /** Warehouse appointment given when the load was posted (unloading details). */
+  unloadingAppointmentId?: string | null;
+  unloadingAppointmentDate?: string | null;
+  unloadingAppointmentSlot?: string | null;
+  unloadingDetailsAddedBy?: string | null;
+  unloadingDetailsAddedAt?: Date | null;
   createdBy: string | null;
 }
 

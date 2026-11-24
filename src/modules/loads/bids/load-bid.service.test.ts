@@ -321,3 +321,99 @@ describe('LoadBidService.recordWhatsappBid', () => {
     expect(created).toEqual([]);
   });
 });
+
+describe('Extending the bid window', () => {
+  const SENT = new Date('2026-10-27T07:00:00Z'); // 3 h before NOW
+
+  function extendSetup(current: Partial<LoadEntity> = {}, extraMinutes = 0, sent = SENT) {
+    const marketLoad = {
+      ...load,
+      status: 'created',
+      postingId: 'posting-1',
+      ...current,
+    } as LoadEntity;
+    const posting = {
+      id: 'posting-1',
+      createdAt: sent,
+      bidWindowExtraMinutes: extraMinutes,
+    };
+    const bidRepository = {
+      findPosting: vi.fn(async () => posting),
+      setBidWindowExtraMinutes: vi.fn(async (_t: string, _p: string, minutes: number) => {
+        posting.bidWindowExtraMinutes = minutes;
+      }),
+      listByLoad: vi.fn(async () => []),
+      markExpired: vi.fn(async () => undefined),
+    };
+    const audit = { log: vi.fn(async () => undefined) };
+    const service = new LoadBidService(
+      bidRepository as unknown as LoadBidRepository,
+      { findById: vi.fn(async () => marketLoad) } as unknown as LoadRepository,
+      {} as TransporterService,
+      {} as LoadStageService,
+      { record: vi.fn(async () => undefined) } as unknown as LoadActivityService,
+      audit as unknown as AuditService,
+      {} as LoadVerificationService,
+      {},
+      undefined,
+      () => NOW,
+    );
+    return { service, bidRepository, audit };
+  }
+
+  it('restarts the window at 4 hours from now and logs it', async () => {
+    const { service, bidRepository, audit } = extendSetup();
+    const view = await service.extendBidWindow('tenant-1', 'user-1', 'load-1');
+
+    expect(bidRepository.setBidWindowExtraMinutes).toHaveBeenCalledWith(
+      'tenant-1',
+      'posting-1',
+      180,
+    );
+    expect(view.biddingClosesAt).toBe('2026-10-27T14:00:00.000Z');
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'LOAD_BID_WINDOW_EXTENDED',
+        newData: expect.objectContaining({
+          closedAt: '2026-10-27T11:00:00.000Z',
+          closesAt: '2026-10-27T14:00:00.000Z',
+        }),
+      }),
+    );
+  });
+
+  it('reopens a window that already closed', async () => {
+    // Sent 6 h ago: its 4 h window closed 2 h ago.
+    const { service } = extendSetup({}, 0, new Date('2026-10-27T04:00:00Z'));
+    const view = await service.extendBidWindow('tenant-1', 'user-1', 'load-1');
+    expect(new Date(view.biddingClosesAt!).getTime()).toBe(NOW.getTime() + 4 * 60 * 60 * 1000);
+  });
+
+  it('keeps a window Placement already pushed later', async () => {
+    const { service, bidRepository } = extendSetup({}, 600);
+    const view = await service.extendBidWindow('tenant-1', 'user-1', 'load-1');
+    expect(bidRepository.setBidWindowExtraMinutes).toHaveBeenCalledWith(
+      'tenant-1',
+      'posting-1',
+      600,
+    );
+    expect(view.biddingClosesAt).toBe('2026-10-27T21:00:00.000Z');
+  });
+
+  it('refuses an indent, and a load whose bid is accepted', async () => {
+    await expect(
+      extendSetup({ postingType: 'indent' } as Partial<LoadEntity>).service.extendBidWindow(
+        'tenant-1',
+        'user-1',
+        'load-1',
+      ),
+    ).rejects.toThrow('Only a market load');
+    await expect(
+      extendSetup({ status: 'bids_received', awardedBidId: 'bid-1' }).service.extendBidWindow(
+        'tenant-1',
+        'user-1',
+        'load-1',
+      ),
+    ).rejects.toThrow('bidding is over');
+  });
+});

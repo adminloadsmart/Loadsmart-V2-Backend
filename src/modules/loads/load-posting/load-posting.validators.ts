@@ -17,6 +17,9 @@ import { MAX_CARGO_VALUE_PER_TONNE } from '../utils/loads.types';
 const uuid = z.string().uuid();
 const packaging = z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']);
 const dateTime = z.string().datetime({ offset: true });
+
+/** The IST calendar day of a moment, YYYY-MM-DD. */
+const istDate = (at: Date) => new Date(at.getTime() + 330 * 60 * 1000).toISOString().slice(0, 10);
 /** Area-level parts of an address — the city and state stay as posted. */
 const addressArea = z
   .object({
@@ -102,6 +105,14 @@ export const postLoadBody = z
     drop,
     pickupAt: dateTime,
     deliverByAt: dateTime.optional(),
+    unloadingAppointment: z
+      .object({
+        appointmentId: z.string().trim().min(1).max(60),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD'),
+        slot: z.string().trim().min(1).max(40),
+      })
+      .strict()
+      .optional(),
     commodity,
     packaging,
     weightTonnes: z.number().positive().optional(),
@@ -129,6 +140,16 @@ export const postLoadBody = z
     // PL-14 — Deliver by is optional but must be after pickup.
     if (body.deliverByAt && Date.parse(body.deliverByAt) <= Date.parse(body.pickupAt)) {
       fail('deliverByAt', 'Deliver by must be after pickup');
+    }
+    // Deliver by and the warehouse appointment are two ways to say when the load is due.
+    if (body.deliverByAt && body.unloadingAppointment) {
+      fail('unloadingAppointment', 'Give a deliver-by time or a warehouse appointment, not both');
+    }
+    if (
+      body.unloadingAppointment &&
+      body.unloadingAppointment.date < istDate(new Date(body.pickupAt))
+    ) {
+      fail('unloadingAppointment', 'The appointment date must be on or after the pickup date');
     }
     // PL-13 — half-hour steps.
     const pickupAt = new Date(body.pickupAt);

@@ -7,6 +7,7 @@ export interface PostMessageInput {
   drop: PostAddress;
   pickupAt: Date;
   deliverByAt: Date | null;
+  unloadingAppointment?: { appointmentId: string; date: string; slot: string } | null;
   commodityName: string;
   packaging: string;
   weightTonnes: string | null;
@@ -24,6 +25,12 @@ const IST_FORMAT = new Intl.DateTimeFormat('en-IN', {
   hour: 'numeric',
   minute: '2-digit',
   hour12: true,
+});
+
+const DAY_FORMAT = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'UTC',
+  day: 'numeric',
+  month: 'short',
 });
 
 function place(address: PostAddress): string {
@@ -46,6 +53,12 @@ export function buildPostMessage(input: PostMessageInput): string {
     `Drop: ${place(input.drop)}`,
   ];
   if (input.deliverByAt) lines.push(`Deliver by: ${IST_FORMAT.format(input.deliverByAt)}`);
+  if (input.unloadingAppointment) {
+    const { appointmentId, date, slot } = input.unloadingAppointment;
+    lines.push(
+      `Warehouse appointment: ${DAY_FORMAT.format(new Date(`${date}T00:00:00Z`))}, ${slot} (ID ${appointmentId})`,
+    );
+  }
   lines.push(`Truck: ${input.truckLabels.join(' / ')} x ${input.truckCount}`);
   const cargo = [input.commodityName, input.packaging];
   if (input.weightTonnes) cargo.push(`${Number(input.weightTonnes)} T`);

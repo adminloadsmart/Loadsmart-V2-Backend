@@ -5,6 +5,7 @@ import { LoadActivityService } from '../loads/activity/load-activity.service';
 import { LoadEntity } from '../loads/entities/load.entity';
 import { LoadMemoEntity } from '../loads/memo/load-memo.entity';
 import { LoadPostingEntity } from '../loads/load-posting/entities/load-posting.entity';
+import { LoadRecipientEntity } from '../loads/load-posting/entities/load-recipient.entity';
 import { PostAddress } from '../loads/load-posting/utils/load-posting.types';
 import { BID_WINDOW_MS, bidWindowClosesAt } from '../loads/bids/bid-rules';
 import { OrganizationEntity } from '../organization/entities/organization.entity';
@@ -225,17 +226,24 @@ export class LsPlacementBoardService extends LsServiceBase {
       if (!sourcing) throw new NotFoundError(`Loadsmart sourcing ${sourcingId} not found`);
       const load = sourcing.load;
       const posting = load.posting;
-      const [[row], terms, settings, placement, shipper, latestMemo] = await Promise.all([
-        this.rowsFor([sourcing]),
-        this.sourcingService.getTerms(sourcing.tenantId),
-        this.settings.forLoad(load),
-        this.sourcingService.placement(sourcingId),
-        this.consoleRepository.shipperDetails(sourcing.tenantId),
-        this.dataSource.getRepository(LoadMemoEntity).findOne({
-          where: { loadId: load.id },
-          order: { sentAt: 'DESC' },
-        }),
-      ]);
+      const [[row], terms, settings, placement, shipper, latestMemo, ownTransporters] =
+        await Promise.all([
+          this.rowsFor([sourcing]),
+          this.sourcingService.getTerms(sourcing.tenantId),
+          this.settings.forLoad(load),
+          this.sourcingService.placement(sourcingId),
+          this.consoleRepository.shipperDetails(sourcing.tenantId),
+          this.dataSource.getRepository(LoadMemoEntity).findOne({
+            where: { loadId: load.id },
+            order: { sentAt: 'DESC' },
+          }),
+          // The shipper's own transporters the posting went to — who Loadsmart competes with.
+          posting
+            ? this.dataSource
+                .getRepository(LoadRecipientEntity)
+                .countBy({ postingId: posting.id, recipientType: 'transporter' })
+            : Promise.resolve(0),
+        ]);
       const staff = await this.consoleRepository.staffContacts([
         sourcing.placementOwnerId,
         shipper?.salesUserId ?? null,
@@ -277,6 +285,8 @@ export class LsPlacementBoardService extends LsServiceBase {
           marginFloorPercent: settings.values.marginFloorPercent,
         },
         bidWindow: window,
+        postedAt: posting?.createdAt ?? null,
+        competing: { ownTransporters },
         requirementSent: sourcing.requirementSentAt
           ? { at: sourcing.requirementSentAt, brokers: sourcing.requirementSentCount }
           : null,

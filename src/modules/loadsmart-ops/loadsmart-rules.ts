@@ -1,6 +1,6 @@
 /**
- * Pure money rules of a Loadsmart load — no DB/IO. Margin is the share of the shipper's price
- * Loadsmart keeps: margin% = (price − partner rate) / price. All rates are in the load's own
+ * Pure money rules of a Loadsmart load — no DB/IO. Margin is added on top of the partner's rate:
+ * margin% = (price − partner rate) / partner rate, so a 3000 bid at 5% is priced 3150. All rates are in the load's own
  * freight basis (per trip, or per tonne × the load's tonnes).
  */
 import {
@@ -22,11 +22,11 @@ export function partnerTargetRate(targetRate: number | null, marginPercent: numb
 
 /** Loadsmart's price to the shipper for a partner's rate at this margin, rounded up to the rupee. */
 export function shipperPriceFor(partnerRate: number, marginPercent: number): number {
-  return Math.ceil(partnerRate / (1 - marginPercent / 100));
+  return Math.ceil(partnerRate * (1 + marginPercent / 100));
 }
 
 export function effectiveMarginPercent(shipperPrice: number, partnerRate: number): number {
-  return round2(((shipperPrice - partnerRate) / shipperPrice) * 100);
+  return round2(((shipperPrice - partnerRate) / partnerRate) * 100);
 }
 
 /** Why the bid can't be sent at this margin, or null. Under the minimum it needs a note of the
