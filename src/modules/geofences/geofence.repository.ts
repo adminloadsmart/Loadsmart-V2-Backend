@@ -115,6 +115,50 @@ export class GeofenceRepository {
     };
   }
 
+  /**
+   * A trip created from the tracking screen (the tracking service's tracking.trips — same
+   * database), for its geofences: each end is a picked loading point or customer address, or a
+   * typed address with no master (and so no geofence). Null when there is no such trip.
+   */
+  async trackingTripPoints(
+    tenantId: string,
+    tripId: string,
+  ): Promise<{
+    pickupLoadingPointId: string | null;
+    pickupCustomerDeliveryPointId: string | null;
+    dropCustomerDeliveryPointId: string | null;
+    dropLoadingPointId: string | null;
+  } | null> {
+    const row = await this.dataSource
+      .createQueryBuilder()
+      .select([
+        't.origin_kind AS origin_kind',
+        't.origin_ref_id AS origin_ref_id',
+        't.destination_kind AS destination_kind',
+        't.destination_ref_id AS destination_ref_id',
+      ])
+      .from('tracking.trips', 't')
+      .where('t.id = :tripId AND t.tenant_id = :tenantId', { tripId, tenantId })
+      .getRawOne<{
+        origin_kind: string;
+        origin_ref_id: string | null;
+        destination_kind: string;
+        destination_ref_id: string | null;
+      }>();
+    if (!row) return null;
+    const ref = (kind: string, id: string | null, wanted: string) => (kind === wanted ? id : null);
+    return {
+      pickupLoadingPointId: ref(row.origin_kind, row.origin_ref_id, 'loading_point'),
+      pickupCustomerDeliveryPointId: ref(row.origin_kind, row.origin_ref_id, 'customer_address'),
+      dropCustomerDeliveryPointId: ref(
+        row.destination_kind,
+        row.destination_ref_id,
+        'customer_address',
+      ),
+      dropLoadingPointId: ref(row.destination_kind, row.destination_ref_id, 'loading_point'),
+    };
+  }
+
   /** A load's geofence entered / left log, oldest first, with each geofence's name and type
    *  (deleted geofences included, so an old visit keeps its name). */
   eventsForLoad(
