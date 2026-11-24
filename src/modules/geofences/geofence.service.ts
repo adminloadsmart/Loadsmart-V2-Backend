@@ -124,9 +124,22 @@ export class GeofenceService {
    */
   async forLoad(tenantId: string, loadId: string) {
     try {
-      const points = await this.repository.loadPoints(tenantId, loadId);
+      // A load, else a trip created from the tracking screen (tracking.trips) — the tracking
+      // page asks with whichever trip id it shows.
+      const points: {
+        pickupLoadingPointId: string | null;
+        pickupCustomerDeliveryPointId?: string | null;
+        dropCustomerDeliveryPointId: string | null;
+        dropLoadingPointId: string | null;
+      } | null =
+        (await this.repository.loadPoints(tenantId, loadId)) ??
+        (await this.repository.trackingTripPoints(tenantId, loadId));
       if (!points) throw new NotFoundError(`Load ${loadId} not found`);
       const pickupIds = points.pickupLoadingPointId ? [points.pickupLoadingPointId] : [];
+      // An inbound created trip can start at a customer address.
+      const pickupDeliveryIds = points.pickupCustomerDeliveryPointId
+        ? [points.pickupCustomerDeliveryPointId]
+        : [];
       const dropLoadingIds = points.dropLoadingPointId ? [points.dropLoadingPointId] : [];
       const dropDeliveryIds = points.dropCustomerDeliveryPointId
         ? [points.dropCustomerDeliveryPointId]
@@ -134,10 +147,13 @@ export class GeofenceService {
       const found = await this.repository.findLinked(
         tenantId,
         [...pickupIds, ...dropLoadingIds],
-        dropDeliveryIds,
+        [...pickupDeliveryIds, ...dropDeliveryIds],
       );
       const geofences = found.flatMap((geofence) => {
-        const isPickup = !!geofence.loadingPointId && pickupIds.includes(geofence.loadingPointId);
+        const isPickup =
+          (!!geofence.loadingPointId && pickupIds.includes(geofence.loadingPointId)) ||
+          (!!geofence.customerDeliveryPointId &&
+            pickupDeliveryIds.includes(geofence.customerDeliveryPointId));
         const isDrop =
           (!!geofence.customerDeliveryPointId &&
             dropDeliveryIds.includes(geofence.customerDeliveryPointId)) ||
