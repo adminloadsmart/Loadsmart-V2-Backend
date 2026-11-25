@@ -304,6 +304,13 @@ export interface PartnerPayInput {
   proofFileKey?: string;
 }
 
+/** Super Admin's manual amount/deduction, raised in place of the computed balance and its
+ *  holds. */
+export interface RaiseBalanceOverride {
+  amount: number;
+  deduction: number;
+}
+
 /** The shipper's decision on a charge Loadsmart raised. */
 export interface ChargeDecisionInput {
   /** `queried`: the shipper asks Loadsmart about it; Tracking's answer brings it back. */

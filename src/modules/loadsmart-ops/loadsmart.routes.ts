@@ -665,7 +665,7 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
   router.post(
     '/loads/:loadId/partner-balance/raise',
     team(LS_PAYABLES),
-    validate(v.load),
+    validate(v.raiseBalance),
     asyncHandler(c.raiseBalance),
   );
   router.post(

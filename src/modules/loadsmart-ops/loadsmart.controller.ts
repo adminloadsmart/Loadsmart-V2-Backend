@@ -723,7 +723,12 @@ export class LoadsmartOpsController {
   balancePreview = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.payables.balancePreview(req.params.loadId));
   raiseBalance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    this.out(req, res, await this.payables.raiseBalance(req.user!.id, req.params.loadId), 201);
+    this.out(
+      req,
+      res,
+      await this.payables.raiseBalance(req.user!.id, req.params.loadId, req.body),
+      201,
+    );
   partnerBalance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.payables.payBalance(req.user!.id, req.params.loadId, req.body));
 
