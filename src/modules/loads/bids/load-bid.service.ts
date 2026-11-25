@@ -190,6 +190,41 @@ export class LoadBidService {
     }
   }
 
+  /** "Extend" (the shipper's or Placement's) moves the window's end, not the bids'. Bids already
+   *  in follow the window: a live one gets the new end, and each bidder's latest bid that lapsed
+   *  with the old window is live again — so a bidder never has two live bids. */
+  private async carryBidsToWindow(
+    tenantId: string,
+    bids: LoadBidEntity[],
+    closesAt: Date,
+    now: Date,
+  ) {
+    if (closesAt <= now) return;
+    const bidderOf = (bid: LoadBidEntity) =>
+      bid.source === 'loadsmart' ? 'loadsmart' : (bid.transporterId ?? bid.id);
+    const latest = new Map<string, LoadBidEntity>();
+    for (const bid of bids) {
+      const seen = latest.get(bidderOf(bid));
+      if (!seen || bid.createdAt >= seen.createdAt) latest.set(bidderOf(bid), bid);
+    }
+    const carried = bids.filter(
+      (bid) =>
+        bid.expiresAt !== null &&
+        bid.expiresAt < closesAt &&
+        (bid.status === 'received' ||
+          (bid.status === 'expired' && latest.get(bidderOf(bid)) === bid)),
+    );
+    await this.bidRepository.reopen(
+      tenantId,
+      carried.map((bid) => bid.id),
+      closesAt,
+    );
+    for (const bid of carried) {
+      bid.status = 'received';
+      bid.expiresAt = closesAt;
+    }
+  }
+
   private async expireStale(tenantId: string, bids: LoadBidEntity[], now: Date) {
     const stale = bids.filter(
       (bid) => bid.status === 'received' && effectiveBidStatus(bid, now) === 'expired',
@@ -405,6 +440,13 @@ export class LoadBidService {
       const load = await this.assertLoad(tenantId, loadId);
       const now = this.now();
       const bids = await this.bidRepository.listByLoad(tenantId, loadId);
+      const closesAt =
+        load.postingType === 'market_fleet'
+          ? await this.windowOf(load).then((window) =>
+              bidWindowClosesAt(window.sentAt, window.extraMinutes),
+            )
+          : null;
+      if (closesAt) await this.carryBidsToWindow(tenantId, bids, closesAt, now);
       await this.expireStale(tenantId, bids, now);
 
       const ranked = rankBids(bids, now);
@@ -412,12 +454,7 @@ export class LoadBidService {
       return {
         loadId,
         loadStatus: load.status,
-        biddingClosesAt:
-          load.postingType === 'market_fleet'
-            ? await this.windowOf(load).then((window) =>
-                bidWindowClosesAt(window.sentAt, window.extraMinutes).toISOString(),
-              )
-            : null,
+        biddingClosesAt: closesAt?.toISOString() ?? null,
         bids: [
           ...ranked.map((bid, index) => this.toView(bid, now, index + 1)),
           ...rest.map((bid) => this.toView(bid, now, null)),
@@ -425,6 +462,48 @@ export class LoadBidService {
       };
     } catch (error) {
       rethrow(error, 'Failed to list bids');
+    }
+  }
+
+  /** The shipper's "Extend" on a market load still taking bids: the bid window restarts, closing
+   *  4 hours from now (BID_WINDOW_MS) whatever was left of it — a closed window reopens. A window
+   *  Placement already pushed further out is kept. Phone and WhatsApp rates follow the new end. */
+  async extendBidWindow(tenantId: string, actorId: string, loadId: string): Promise<LoadBidsView> {
+    try {
+      const load = await this.assertLoad(tenantId, loadId);
+      if (load.postingType !== 'market_fleet') {
+        throw new ConflictError('Only a market load has a bid window');
+      }
+      if ((load.status !== 'created' && load.status !== 'bids_received') || load.awardedBidId) {
+        throw new ConflictError('A bid is already accepted on this load — bidding is over');
+      }
+      if (!load.postingId) throw new ConflictError('This load has no posting');
+      const posting = await this.bidRepository.findPosting(tenantId, load.postingId);
+      if (!posting) throw new NotFoundError('Posting not found');
+
+      const now = this.now();
+      const before = bidWindowClosesAt(posting.createdAt, posting.bidWindowExtraMinutes);
+      // createdAt + 4 h + extra = now + 4 h  →  extra = the minutes since the load was sent.
+      const sinceSent = Math.ceil((now.getTime() - posting.createdAt.getTime()) / 60_000);
+      const extraMinutes = Math.max(posting.bidWindowExtraMinutes, sinceSent);
+      await this.bidRepository.setBidWindowExtraMinutes(tenantId, posting.id, extraMinutes);
+      const closesAt = bidWindowClosesAt(posting.createdAt, extraMinutes);
+
+      await this.auditService.log({
+        tenantId,
+        userId: actorId,
+        action: 'LOAD_BID_WINDOW_EXTENDED',
+        resourceType: 'load',
+        newData: {
+          id: load.id,
+          postingId: posting.id,
+          closedAt: before.toISOString(),
+          closesAt: closesAt.toISOString(),
+        },
+      });
+      return await this.listForLoad(tenantId, loadId);
+    } catch (error) {
+      rethrow(error, 'Failed to extend the bid window');
     }
   }
 

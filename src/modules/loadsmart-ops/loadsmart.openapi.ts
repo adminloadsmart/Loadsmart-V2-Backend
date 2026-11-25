@@ -153,7 +153,7 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.sendBid,
     description:
-      "Send the shipper one bid as Loadsmart's — no partner name, priced at the margin unless shipperPrice is given. Under 6% margin needs negotiationNote.",
+      "Send the shipper one bid as Loadsmart's — no partner name, priced at the margin unless shipperPrice is given. Under 5% margin needs negotiationNote.",
   },
   {
     method: 'post',

@@ -45,6 +45,9 @@ export const manualDriverCheckBody = z
 export const loadSourcingValidators = {
   listBids: z.object({ params }),
 
+  // "Extend": the bid window restarts at 4 hours from now — no body.
+  extendBidWindow: z.object({ params }),
+
   // A rate one of the shipper's transporters gave by phone — reason is required and logged.
   recordBid: z.object({
     params,

@@ -54,6 +54,16 @@ export class LoadBidRepository {
     await this.bids.update({ tenantId, id: In(ids), status: 'received' }, { status: 'expired' });
   }
 
+  /** Carries bids onto a bid window that was extended: they're live again until its new end.
+   *  Only bids still received or lapsed with the old window — never a decided one. */
+  async reopen(tenantId: string, ids: string[], expiresAt: Date): Promise<void> {
+    if (!ids.length) return;
+    await this.bids.update(
+      { tenantId, id: In(ids), status: In(['received', 'expired']) },
+      { status: 'received', expiresAt },
+    );
+  }
+
   /** Accepts one bid, only if it is still live — the conditional update is the race guard
    *  against two accepts landing together. Returns false when it lost. */
   async accept(bid: LoadBidEntity, actorId: string | null): Promise<boolean> {
@@ -138,6 +148,11 @@ export class LoadBidRepository {
       where: { tenantId, id: postingId },
       relations: { pickupLoadingPoint: true },
     });
+  }
+
+  /** Minutes added to the posting's 4-hour bid window ("Extend"). */
+  async setBidWindowExtraMinutes(tenantId: string, postingId: string, minutes: number) {
+    await this.postings.update({ tenantId, id: postingId }, { bidWindowExtraMinutes: minutes });
   }
 
   findTransporterRecipient(

@@ -24,6 +24,12 @@ export function createLoadSourcingRoutes(controller: LoadSourcingController): Ro
     validate(v.recordBid),
     asyncHandler(controller.recordBid),
   );
+  router.post(
+    '/loads/:loadId/bid-window/extend',
+    canManageDispatch,
+    validate(v.extendBidWindow),
+    asyncHandler(controller.extendBidWindow),
+  );
   router.patch(
     '/loads/:loadId/bids/:bidId',
     canManageDispatch,

@@ -70,6 +70,12 @@ export class LoadSourcingController {
     respond(res, await this.bidService.listForLoad(requireTenantId(req), req.params.loadId));
   };
 
+  extendBidWindow = async (req: Request<LoadParams>, res: Response) =>
+    respond(
+      res,
+      await this.bidService.extendBidWindow(requireTenantId(req), req.user!.id, req.params.loadId),
+    );
+
   recordBid = async (req: Request<LoadParams>, res: Response) => {
     const bid = await this.bidService.recordBid(
       requireTenantId(req),
