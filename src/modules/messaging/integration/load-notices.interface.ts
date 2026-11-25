@@ -102,7 +102,17 @@ export interface LoadNoticeStore {
   listTransporterBidders(tenantId: string, loadId: string): Promise<NoticeContact[]>;
   /** The partners who bid on Loadsmart's sourcing of the load. */
   listPartnerBidders(loadId: string): Promise<NoticeContact[]>;
+  /** Everyone of these kinds who was sent a WhatsApp about the load (offer, award, memo…), once
+   *  each, at the number it went to. Suppressed rows don't count. */
+  listWhatsappRecipients(
+    loadId: string,
+    kinds: readonly NoticeRecipientKind[],
+  ): Promise<(NoticeContact & { kind: NoticeRecipientKind })[]>;
 }
+
+/** Who a load-flow notice can go to on the offer side: the shipper's transporters and
+ *  Loadsmart's partners (brokers). */
+export type NoticeRecipientKind = 'transporter' | 'partner';
 
 /** A signed link to a stored file (the payment proof), fetchable by MSG91 / Meta. */
 export type FileLinker = (fileKey: string) => Promise<string>;

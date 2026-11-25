@@ -33,6 +33,7 @@ import {
   LoadPartner,
   NoticeContact,
   NoticeLoad,
+  NoticeRecipientKind,
 } from './load-notices.interface';
 
 /** "Gurugram 122001" — the area (or city) and PIN, as on the offers. */
@@ -276,5 +277,36 @@ export class TypeormLoadNoticeStore implements LoadNoticeStore {
       name: partner.name,
       phone: partner.phone,
     }));
+  }
+
+  async listWhatsappRecipients(
+    loadId: string,
+    kinds: readonly NoticeRecipientKind[],
+  ): Promise<(NoticeContact & { kind: NoticeRecipientKind })[]> {
+    if (kinds.length === 0) return [];
+    const rows = await this.dataSource.getRepository(MessageLogEntity).find({
+      where: {
+        loadId,
+        channel: 'whatsapp',
+        recipientKind: In([...kinds]),
+        recipientRefId: Not(IsNull()),
+        status: Not('suppressed'),
+      },
+      select: { recipientKind: true, recipientRefId: true, recipientName: true, address: true },
+      order: { createdAt: 'DESC' },
+    });
+    // Latest row first, so each recipient is reached at the number we last used for them.
+    const seen = new Map<string, NoticeContact & { kind: NoticeRecipientKind }>();
+    for (const row of rows) {
+      const key = `${row.recipientKind}:${row.recipientRefId}`;
+      if (seen.has(key)) continue;
+      seen.set(key, {
+        kind: row.recipientKind as NoticeRecipientKind,
+        id: row.recipientRefId!,
+        name: row.recipientName,
+        phone: row.address,
+      });
+    }
+    return [...seen.values()];
   }
 }

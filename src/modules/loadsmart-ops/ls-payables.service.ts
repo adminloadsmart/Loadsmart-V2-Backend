@@ -19,7 +19,7 @@ import {
 } from './loadsmart.types';
 import { carrierBalance, daysBetween, originalPodPenalty } from './billing-rules';
 import { LsServiceBase } from './ls-base';
-import { PartnerPayInput } from './loadsmart.interface';
+import { PartnerPayInput, RaiseBalanceOverride } from './loadsmart.interface';
 import { attachPaymentProof } from './ls-payment-proof';
 import { StorageService } from '../storage/storage.service';
 import { LoadDocumentService } from '../loads/documents/load-document.service';
@@ -177,7 +177,11 @@ export class LsPayablesService extends LsServiceBase {
     return this.workOutBalance(sourcing);
   }
 
-  async raiseBalance(actorId: string, loadId: string): Promise<LsPartnerPaymentEntity> {
+  async raiseBalance(
+    actorId: string,
+    loadId: string,
+    override?: RaiseBalanceOverride,
+  ): Promise<LsPartnerPaymentEntity> {
     try {
       const sourcing = await this.assertWonLoad(loadId);
       const existing = await this.repository.findPartnerPayment(sourcing.id, 'balance');
@@ -187,18 +191,34 @@ export class LsPayablesService extends LsServiceBase {
         );
       }
       const { amounts, holds } = await this.workOutBalance(sourcing);
-      if (holds.length) throw new ConflictError(`The balance is on hold: ${holds.join('; ')}`);
-      if (amounts.net < 0) {
+      // Super Admin's manual amount/deduction stands in for the computed balance and its
+      // holds — the "deductions exceed what's owed" guard still applies, since a negative
+      // payout is never sensible regardless of who set the numbers.
+      if (!override && holds.length) {
+        throw new ConflictError(`The balance is on hold: ${holds.join('; ')}`);
+      }
+      const netAmount = override ? override.amount : amounts.net;
+      const deductionAmount = override ? override.deduction : amounts.deductions;
+      if (netAmount < 0) {
         throw new ValidationError(
           'Deductions exceed what is owed to the carrier — settle it by hand',
         );
       }
+      const lines = override
+        ? [
+            ...amounts.lines,
+            {
+              label: 'Super Admin override',
+              amount: Math.round((deductionAmount - amounts.deductions) * 100) / 100,
+            },
+          ]
+        : amounts.lines;
       const data = {
         grossAmount: String(amounts.gross),
         tdsAmount: String(amounts.tds),
-        deductionAmount: String(amounts.deductions),
-        netAmount: String(amounts.net),
-        lines: amounts.lines,
+        deductionAmount: String(deductionAmount),
+        netAmount: String(netAmount),
+        lines,
         status: 'raised' as const,
         raisedBy: actorId,
         raisedAt: this.now(),
@@ -222,8 +242,15 @@ export class LsPayablesService extends LsServiceBase {
       await this.step(sourcing, actorId, 'partner_balance_raised', 'LS_PARTNER_BALANCE_RAISED', {
         gross: amounts.gross,
         tds: amounts.tds,
-        deductions: amounts.deductions,
-        net: amounts.net,
+        deductions: deductionAmount,
+        net: netAmount,
+        ...(override
+          ? {
+              holdsBypassed: holds,
+              computedDeductions: amounts.deductions,
+              computedNet: amounts.net,
+            }
+          : {}),
       });
       return (await this.repository.findPartnerPayment(sourcing.id, 'balance'))!;
     } catch (error) {

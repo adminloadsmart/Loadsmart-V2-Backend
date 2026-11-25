@@ -65,6 +65,15 @@ const partnerPay = z
     path: ['utrReference'],
   });
 
+/** Super Admin's manual amount/deduction, raised in place of the computed balance. */
+const raiseBalanceBody = z
+  .object({
+    amount: money,
+    deduction: money,
+  })
+  .strict()
+  .optional();
+
 const partnerBody = z
   .object({
     name: z.string().trim().min(1).max(150),
@@ -82,6 +91,7 @@ const partnerBody = z
 export const loadsmartValidators = {
   empty: z.object({}),
   load: z.object({ params: loadParams }),
+  raiseBalance: z.object({ params: loadParams, body: raiseBalanceBody }),
   sourcing: z.object({ params: sourcingParams }),
 
   createPartner: z.object({ body: partnerBody }),

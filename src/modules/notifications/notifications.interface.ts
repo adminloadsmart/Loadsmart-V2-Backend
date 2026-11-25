@@ -193,6 +193,9 @@ export type LoadEvent =
   /** LS_N_0068 — the shipper accepted Loadsmart's bid (in the app or on WhatsApp): the truck and
    *  driver come next, then the load memo. load.loadsmart_bid_accepted. */
   | { kind: 'loadsmart_bid_accepted'; tenantId: string; loadId: string; bidId: string; at: Date }
+  /** The shipper rejected a live bid (in the app or on WhatsApp) — the bidder is told on
+   *  WhatsApp when its 24-h window is open (load-party-whatsapp.ts). */
+  | { kind: 'bid_rejected'; tenantId: string; loadId: string; bidId: string; at: Date }
   /** A market load posted with none of the shipper's transporters on its lane (lane-matching) —
    *  only Loadsmart got it. load.no_transporter_on_lane. */
   | { kind: 'no_transporter_on_lane'; tenantId: string; loadId: string; at: Date };
