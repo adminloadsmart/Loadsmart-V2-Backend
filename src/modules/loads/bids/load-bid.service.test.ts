@@ -51,6 +51,7 @@ function setup(onLoadEvent?: LoadEventNotifier, current: LoadEntity = load) {
     accept: vi.fn(async () => undefined),
     rejectOthers: vi.fn(async () => undefined),
     markExpired: vi.fn(async () => undefined),
+    reopen: vi.fn(async () => undefined),
   };
   const loadRepository = {
     findById: vi.fn(async () => current),
@@ -344,6 +345,7 @@ describe('Extending the bid window', () => {
       }),
       listByLoad: vi.fn(async () => []),
       markExpired: vi.fn(async () => undefined),
+      reopen: vi.fn(async () => undefined),
     };
     const audit = { log: vi.fn(async () => undefined) };
     const service = new LoadBidService(
@@ -387,6 +389,50 @@ describe('Extending the bid window', () => {
     const { service } = extendSetup({}, 0, new Date('2026-10-27T04:00:00Z'));
     const view = await service.extendBidWindow('tenant-1', 'user-1', 'load-1');
     expect(new Date(view.biddingClosesAt!).getTime()).toBe(NOW.getTime() + 4 * 60 * 60 * 1000);
+  });
+
+  it('brings back the bids that lapsed with the old window', async () => {
+    // Sent 6 h ago: the window — and the bids on it — ran out 2 h ago.
+    const { service, bidRepository } = extendSetup({}, 0, new Date('2026-10-27T04:00:00Z'));
+    const lapsed = new Date('2026-10-27T08:00:00Z');
+    const bids = [
+      {
+        ...bid,
+        id: 'ls-1',
+        source: 'loadsmart',
+        transporterId: null,
+        status: 'expired',
+        expiresAt: lapsed,
+        vehicleNumber: null,
+      },
+      {
+        ...bid,
+        id: 't-old',
+        status: 'expired',
+        expiresAt: lapsed,
+        createdAt: new Date('2026-10-27T05:00:00Z'),
+      },
+      {
+        ...bid,
+        id: 't-new',
+        status: 'rejected',
+        expiresAt: lapsed,
+        createdAt: new Date('2026-10-27T06:00:00Z'),
+      },
+    ] as unknown as LoadBidEntity[];
+    bidRepository.listByLoad.mockResolvedValue(bids as never);
+
+    const view = await service.extendBidWindow('tenant-1', 'user-1', 'load-1');
+
+    const closesAt = new Date(NOW.getTime() + 4 * 60 * 60 * 1000);
+    // Loadsmart's bid is live again; the transporter's older bid stays lapsed behind its newer,
+    // rejected one.
+    expect(bidRepository.reopen).toHaveBeenCalledWith('tenant-1', ['ls-1'], closesAt);
+    expect(view.bids.map((item) => [item.id, item.status])).toEqual([
+      ['ls-1', 'received'],
+      ['t-old', 'expired'],
+      ['t-new', 'rejected'],
+    ]);
   });
 
   it('keeps a window Placement already pushed later', async () => {
