@@ -1,3 +1,4 @@
+import type { StorageService } from '../storage/storage.service';
 import { DataSource, In, IsNull, Not } from 'typeorm';
 import { NotFoundError } from '../../shared/errors';
 import { PermissionHolder } from '../../shared/middleware/require-permission.middleware';
@@ -73,6 +74,22 @@ export class LsConsoleService {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.history = dataSource.getRepository(LoadStageHistoryEntity);
+  }
+
+  /** Links to charge proofs and query attachments on the load panel — optional, set at wiring. */
+  private storage?: Pick<StorageService, 'getPresignedDownloadUrlForKey'>;
+  setStorage(storage: Pick<StorageService, 'getPresignedDownloadUrlForKey'>): void {
+    this.storage = storage;
+  }
+
+  private async fileUrl(key: string | null): Promise<string | null> {
+    if (!key || !this.storage) return null;
+    return this.storage.getPresignedDownloadUrlForKey(key).catch(() => null);
+  }
+
+  /** "loads/charge-proof/…/stacking-slip.jpg" → "stacking-slip.jpg". */
+  private static fileName(key: string | null): string | null {
+    return key ? (key.split('/').pop() ?? key) : null;
   }
 
   // --- All loads (L01) -----------------------------------------------------------------------
@@ -223,6 +240,53 @@ export class LsConsoleService {
       shipper?.salesUserId ?? null,
     ]);
     const contactOf = (id: string | null) => (id ? (staff.get(id) ?? null) : null);
+    // Who asked about a charge (a shipper user) and who answered (a Tracking member).
+    const threadPeople = await this.consoleRepository.staffContacts(
+      charges.flatMap((charge) => [charge.queriedBy, charge.repliedBy]),
+    );
+    const nameOf = (id: string | null) => (id ? (threadPeople.get(id)?.name ?? null) : null);
+    const chargeRows = await Promise.all(
+      charges.map(async (charge) => ({
+        id: charge.id,
+        type: charge.chargeType,
+        amount: charge.amount,
+        status: charge.status,
+        raisedByParty: charge.raisedByParty,
+        withAdvance: charge.partnerPaymentId !== null,
+        note: charge.note,
+        createdAt: charge.createdAt,
+        proof: charge.proofFileKey
+          ? {
+              name: LsConsoleService.fileName(charge.proofFileKey),
+              url: await this.fileUrl(charge.proofFileKey),
+            }
+          : null,
+        // The shipper's latest question and Tracking's answer, when there is one.
+        query: charge.queryReason
+          ? {
+              reason: charge.queryReason,
+              askedAt: charge.queriedAt,
+              askedBy: nameOf(charge.queriedBy),
+              attachment: charge.queryFileKey
+                ? {
+                    name: LsConsoleService.fileName(charge.queryFileKey),
+                    url: await this.fileUrl(charge.queryFileKey),
+                  }
+                : null,
+              reply: charge.queryReply,
+              repliedAt: charge.repliedAt,
+              repliedBy: nameOf(charge.repliedBy),
+              replyTag: charge.replyTag,
+              replyAttachment: charge.replyFileKey
+                ? {
+                    name: LsConsoleService.fileName(charge.replyFileKey),
+                    url: await this.fileUrl(charge.replyFileKey),
+                  }
+                : null,
+            }
+          : null,
+      })),
+    );
     return {
       load: {
         id: load.id,
@@ -290,14 +354,7 @@ export class LsConsoleService {
         reviewStatus: doc.reviewStatus,
         referenceOnly: doc.source === 'console' && SHIPPER_PRECEDENCE_TYPES.includes(doc.docType),
       })),
-      charges: charges.map((charge) => ({
-        id: charge.id,
-        type: charge.chargeType,
-        amount: charge.amount,
-        status: charge.status,
-        raisedByParty: charge.raisedByParty,
-        withAdvance: charge.partnerPaymentId !== null,
-      })),
+      charges: chargeRows,
       // "Contact details are never masked in the console."
       people: {
         driver: {

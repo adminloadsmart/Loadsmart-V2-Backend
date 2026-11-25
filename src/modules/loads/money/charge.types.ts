@@ -41,3 +41,12 @@ export type ChargeStatus = (typeof CHARGE_STATUSES)[number];
 /** Who raised the charge — Loadsmart's team, or the shipper (approved as it is entered). */
 export const CHARGE_RAISERS = ['loadsmart', 'shipper'] as const;
 export type ChargeRaiser = (typeof CHARGE_RAISERS)[number];
+
+/** What kind of answer Tracking gives to the shipper's question on a charge. */
+export const CHARGE_REPLY_TAGS = [
+  'clarification',
+  'proof_shared',
+  'amount_revised',
+  'other',
+] as const;
+export type ChargeReplyTag = (typeof CHARGE_REPLY_TAGS)[number];

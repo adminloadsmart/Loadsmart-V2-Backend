@@ -625,6 +625,7 @@ export function buildContainer(dataSource: DataSource): Container {
     trackingClient,
     loadCancelService: loads.loadCancelService,
     partyNotifier: loadNotices.notify,
+    notificationTriggers: notifications.triggers,
   });
   ewayBillRiskHook.notify = loadsmart.notifyEwayBillAtRisk;
   // WhatsApp: board loads go to partners; replies (accept / rate / truck number) from transporters

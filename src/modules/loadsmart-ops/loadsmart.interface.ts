@@ -1,3 +1,4 @@
+import type { ChargeReplyTag } from '../loads/money/charge.types';
 import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
 import type { LaneMatchService } from '../lane-matching';
 import type { BalancePayer } from './receivables-rules';
@@ -32,6 +33,7 @@ import type {
   RequirementSendStatus,
 } from './loadsmart.types';
 import { LoadPartyNotifier } from '../loads/utils/load-party-notifier.interface';
+import type { NotificationTriggers } from '../notifications/notifications.interface';
 
 /** Loadsmart ops shapes — service inputs, views and amounts (value sets live in loadsmart.types.ts). */
 
@@ -310,6 +312,16 @@ export interface ChargeDecisionInput {
   decision: 'approved' | 'rejected' | 'queried';
   /** Required when rejecting or querying. */
   reason?: string;
+  /** With a question only: a photo or document, uploaded for purpose loads/charge-proof. */
+  attachmentFileKey?: string;
+}
+
+/** Tracking's answer to the shipper's question on a charge. */
+export interface ChargeQueryReplyInput {
+  reply: string;
+  tag?: ChargeReplyTag;
+  /** Proof sent with the answer, uploaded by the Tracking member for purpose loads/charge-proof. */
+  attachmentFileKey?: string;
 }
 
 /** A loading, unloading or detention charge entered by the shipper. */
@@ -405,6 +417,8 @@ export interface LoadsmartOpsModuleDeps {
   loadCancelService: LoadCancelService;
   /** Tells the partner on WhatsApp about payments and the original POD (modules/messaging). */
   partyNotifier?: LoadPartyNotifier;
+  /** Notifications to shipper users (e.g. Tracking answered a question on a charge). */
+  notificationTriggers?: NotificationTriggers;
   /** Which of Loadsmart's brokers run a load's lane (modules/lane-matching). */
   brokerMatcher?: BrokerMatcher;
 }

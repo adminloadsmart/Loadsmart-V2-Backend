@@ -22,7 +22,7 @@ import { reviewDocumentBody } from '../loads/documents/load-document.validators'
 import { elrIssueBody, reviewPodBody, unloadingDetailsBody } from '../loads/core/load.validators';
 import { ELR_EDIT_REASONS } from '../loads/elr/load-elr-revision.entity';
 import { booleanString } from '../../shared/validators/boolean-string';
-import { TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
+import { CHARGE_REPLY_TAGS, TRANSPORTER_CHARGE_HEADS } from '../loads/money/charge.types';
 import { ACTIVE_TRUCK_BODY_TYPES } from '../masters/truck-type/truck-type.types';
 import { CONSOLE_TEAMS, LIVE_STATUSES } from './console-rules';
 import { BALANCE_PAYERS, GST_TREATMENTS, RECEIVABLE_STATUSES } from './receivables-rules';
@@ -295,7 +295,13 @@ export const loadsmartValidators = {
   }),
   replyToChargeQuery: z.object({
     params: z.object({ loadId: uuid, chargeId: uuid }),
-    body: z.object({ reply: z.string().trim().min(1).max(1000) }).strict(),
+    body: z
+      .object({
+        reply: z.string().trim().min(1).max(1000),
+        tag: z.enum(CHARGE_REPLY_TAGS).optional(),
+        attachmentFileKey: z.string().trim().min(1).max(500).optional(),
+      })
+      .strict(),
   }),
   issueElr: z.object({ params: loadParams, body: elrIssueBody }),
   editElr: z.object({
@@ -930,6 +936,7 @@ export const loadsmartValidators = {
       .object({
         decision: z.enum(['approved', 'rejected', 'queried']),
         reason: z.string().trim().min(1).max(500).optional(),
+        attachmentFileKey: z.string().trim().min(1).max(500).optional(),
       })
       .strict(),
   }),
@@ -944,6 +951,7 @@ export const loadsmartValidators = {
                 chargeId: uuid,
                 decision: z.enum(['approved', 'rejected', 'queried']),
                 reason: z.string().trim().min(1).max(500).optional(),
+                attachmentFileKey: z.string().trim().min(1).max(500).optional(),
               })
               .strict(),
           )

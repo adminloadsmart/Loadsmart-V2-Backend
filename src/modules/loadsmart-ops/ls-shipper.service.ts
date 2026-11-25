@@ -10,6 +10,7 @@ import { LoadPaymentRepository } from '../loads/payments/load-payment.repository
 import { LoadRepository } from '../loads/core/load.repository';
 import { LoadMemoRepository } from '../loads/memo/load-memo.repository';
 import { LoadChargeEntity } from '../loads/money/load-charge.entity';
+import { assertConfirmedUpload } from '../loads/documents/upload-check';
 import { LoadClaimEntity } from './entities/load-claim.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { ChargeType, LOADING_SIDE_HEADS } from './loadsmart.types';
@@ -92,18 +93,22 @@ export class LsShipperService extends LsServiceBase {
   async listCharges(tenantId: string, loadId: string, role = 'org_admin') {
     await this.assertLoad(tenantId, loadId);
     const charges = await this.repository.listCharges(tenantId, loadId);
+    const urlOf = (key: string | null) =>
+      key
+        ? this.storageService
+            .getByKey({ tenantId, role }, key)
+            .then((file) => file.downloadUrl)
+            .catch(() => null)
+        : Promise.resolve(null);
     return Promise.all(
       charges.map(async (charge) => ({
         ...charge,
         paidWith: LOADING_SIDE_HEADS.includes(charge.chargeType)
           ? ('advance' as const)
           : ('balance' as const),
-        proofUrl: charge.proofFileKey
-          ? await this.storageService
-              .getByKey({ tenantId, role }, charge.proofFileKey)
-              .then((file) => file.downloadUrl)
-              .catch(() => null)
-          : null,
+        proofUrl: await urlOf(charge.proofFileKey),
+        queryAttachmentUrl: await urlOf(charge.queryFileKey),
+        replyAttachmentUrl: await urlOf(charge.replyFileKey),
       })),
     );
   }
@@ -115,10 +120,11 @@ export class LsShipperService extends LsServiceBase {
     actorId: string,
     loadId: string,
     decisions: (ChargeDecisionInput & { chargeId: string })[],
+    actorRole = 'org_admin',
   ): Promise<LoadChargeEntity[]> {
     const decided: LoadChargeEntity[] = [];
     for (const { chargeId, ...input } of decisions) {
-      decided.push(await this.decideCharge(tenantId, actorId, loadId, chargeId, input));
+      decided.push(await this.decideCharge(tenantId, actorId, loadId, chargeId, input, actorRole));
     }
     return decided;
   }
@@ -130,24 +136,58 @@ export class LsShipperService extends LsServiceBase {
     loadId: string,
     chargeId: string,
     input: ChargeDecisionInput,
+    actorRole = 'org_admin',
   ): Promise<LoadChargeEntity> {
     try {
       await this.assertLoadsmartLoad(tenantId, loadId);
       const charge = await this.repository.charges.findOneBy({ id: chargeId, tenantId, loadId });
       if (!charge) throw new NotFoundError(`Charge ${chargeId} not found`);
-      if (charge.status !== 'raised')
-        throw new ConflictError(`This charge is already ${charge.status}`);
+      // A queried charge can still be approved or rejected (the shipper may not wait for the
+      // answer); asking again waits for Loadsmart's answer first.
+      const decidable =
+        charge.status === 'raised' || (charge.status === 'queried' && input.decision !== 'queried');
+      if (!decidable) {
+        throw new ConflictError(
+          charge.status === 'queried'
+            ? 'You already asked about this charge — Loadsmart will answer it'
+            : `This charge is already ${charge.status}`,
+        );
+      }
       if (input.decision !== 'approved' && !input.reason) {
         throw new ValidationError(
           `reason is required to ${input.decision === 'queried' ? 'query' : 'reject'} a charge`,
         );
       }
+      if (input.attachmentFileKey) {
+        if (input.decision !== 'queried') {
+          throw new ValidationError('An attachment can only be sent with a question');
+        }
+        await assertConfirmedUpload(
+          this.storageService,
+          tenantId,
+          actorRole,
+          input.attachmentFileKey,
+          'loads/charge-proof',
+        );
+      }
       // Approving is the shipper's half: the charge then waits for Super Admin, and only an
       // admin-approved charge reaches the invoice and the carrier's pay.
       const result = await this.repository.charges.update(
-        { id: chargeId, status: 'raised' },
+        { id: chargeId, status: charge.status },
         input.decision === 'queried'
-          ? { status: 'queried', queryReason: input.reason!, queriedAt: this.now() }
+          ? {
+              status: 'queried',
+              queryReason: input.reason!,
+              queriedAt: this.now(),
+              queriedBy: actorId,
+              queryFileKey: input.attachmentFileKey ?? null,
+              // A new question starts a new thread — the last answer no longer applies.
+              queryReply: null,
+              repliedAt: null,
+              repliedBy: null,
+              replyTag: null,
+              replyFileKey: null,
+            }
           : {
               status: input.decision === 'approved' ? 'pending_admin' : input.decision,
               decidedBy: actorId,

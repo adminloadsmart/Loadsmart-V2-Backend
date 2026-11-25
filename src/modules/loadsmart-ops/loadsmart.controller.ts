@@ -242,7 +242,7 @@ export class LoadsmartOpsController {
         req.user!.id,
         req.params.loadId,
         req.params.chargeId!,
-        req.body.reply,
+        req.body,
       ),
     );
   editLoadDetails = async (req: Request<LoadsmartRouteParams>, res: Response) =>
@@ -760,6 +760,7 @@ export class LoadsmartShipperController {
         req.user!.id,
         req.params.loadId,
         req.body.decisions,
+        req.user!.role,
       ),
     );
   decideCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>
@@ -771,6 +772,7 @@ export class LoadsmartShipperController {
         req.params.loadId,
         req.params.chargeId,
         req.body,
+        req.user!.role,
       ),
     );
   addCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>

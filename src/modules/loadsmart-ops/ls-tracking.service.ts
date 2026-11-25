@@ -20,7 +20,8 @@ import { partnerAdvanceWithCharges } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
 import { LsStaffNotifier } from './ls-staff-notifier';
 import { LS_MONEY_APPROVE, LS_PAYABLES, LS_TRACKING } from '../../shared/constants/permissions';
-import { LoadsmartActor, PartnerPayInput } from './loadsmart.interface';
+import { ChargeQueryReplyInput, LoadsmartActor, PartnerPayInput } from './loadsmart.interface';
+import type { NotificationTriggers } from '../notifications/notifications.interface';
 import { attachPaymentProof } from './ls-payment-proof';
 
 /** Tracking raises a charge on a Loadsmart load (with its proof). */
@@ -67,6 +68,10 @@ export function isPreapproved(
 }
 
 /** The notice Super Admin gets when a charge has cleared the shipper and waits for them. */
+/** "unloading_detention" → "Unloading detention". */
+export const chargeHeadLabel = (head: string) =>
+  head.charAt(0).toUpperCase() + head.slice(1).replace(/_/g, ' ');
+
 export function chargeNeedsAdmin(loadCode: string, charge: LoadChargeEntity, head: string) {
   return {
     type: 'charge.pending_admin',
@@ -101,6 +106,12 @@ export class LsTrackingService extends LsServiceBase {
     now?: () => Date,
   ) {
     super(repository, loadActivityService, auditService, now);
+  }
+
+  /** Notifications to shipper users — optional so tests and callers without a queue still work. */
+  private notificationTriggers?: NotificationTriggers;
+  setNotificationTriggers(triggers: NotificationTriggers | undefined): void {
+    this.notificationTriggers = triggers;
   }
 
   // --- Charges ------------------------------------------------------------------------------
@@ -174,12 +185,13 @@ export class LsTrackingService extends LsServiceBase {
     }
   }
 
-  /** Tracking answers the shipper's query — the charge goes back to the shipper to decide. */
+  /** Tracking answers the shipper's query — the charge goes back to the shipper to decide, and
+   *  the shipper user who asked is told (in-app + push). */
   async replyToChargeQuery(
     actorId: string,
     loadId: string,
     chargeId: string,
-    reply: string,
+    input: ChargeQueryReplyInput,
   ): Promise<LoadChargeEntity> {
     try {
       const sourcing = await this.assertWonLoad(loadId);
@@ -191,9 +203,24 @@ export class LsTrackingService extends LsServiceBase {
       if (!charge) throw new NotFoundError(`Charge ${chargeId} not found`);
       if (charge.status !== 'queried')
         throw new ConflictError('The shipper has not queried this charge');
+      if (input.attachmentFileKey) {
+        await this.storageService.attachStaffUpload(
+          actorId,
+          input.attachmentFileKey,
+          'loads/charge-proof',
+          sourcing.tenantId,
+        );
+      }
       const result = await this.repository.charges.update(
         { id: chargeId, status: 'queried' },
-        { status: 'raised', queryReply: reply, repliedAt: this.now() },
+        {
+          status: 'raised',
+          queryReply: input.reply,
+          repliedAt: this.now(),
+          repliedBy: actorId,
+          replyTag: input.tag ?? null,
+          replyFileKey: input.attachmentFileKey ?? null,
+        },
       );
       if (!result.affected) throw new ConflictError('The charge changed — reload it');
       await this.step(
@@ -203,9 +230,24 @@ export class LsTrackingService extends LsServiceBase {
         'LS_CHARGE_RAISED',
         {
           chargeId,
-          reply,
+          reply: input.reply,
+          tag: input.tag ?? null,
         },
       );
+      if (charge.queriedBy && this.notificationTriggers) {
+        // Best-effort: a notification that fails must not undo the answer.
+        await this.notificationTriggers
+          .enqueue('load.charge_query_answered', sourcing.tenantId, {
+            loadId,
+            loadCode: sourcing.load?.code,
+            chargeId,
+            queriedBy: charge.queriedBy,
+            chargeLabel: chargeHeadLabel(charge.chargeType),
+            amount: `₹${Number(charge.amount).toLocaleString('en-IN')}`,
+            reply: input.reply,
+          })
+          .catch((error) => console.warn('Charge query answer notification failed', error));
+      }
       return (await this.repository.charges.findOneBy({ id: chargeId }))!;
     } catch (error) {
       rethrow(error, 'Failed to answer the query');

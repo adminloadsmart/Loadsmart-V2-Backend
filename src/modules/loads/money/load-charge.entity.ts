@@ -86,6 +86,26 @@ export class LoadChargeEntity {
   @Column({ name: 'replied_at', type: 'timestamptz', nullable: true })
   repliedAt!: Date | null;
 
+  /** The shipper user who asked — Loadsmart's reply notifies them. */
+  @Column({ name: 'queried_by', type: 'uuid', nullable: true })
+  queriedBy!: string | null;
+
+  /** A photo or document the shipper sent with the question (purpose loads/charge-proof). */
+  @Column({ name: 'query_file_key', type: 'text', nullable: true })
+  queryFileKey!: string | null;
+
+  /** The Tracking member who answered. */
+  @Column({ name: 'replied_by', type: 'uuid', nullable: true })
+  repliedBy!: string | null;
+
+  /** What kind of answer it is — CHARGE_REPLY_TAGS. */
+  @Column({ name: 'reply_tag', type: 'varchar', length: 40, nullable: true })
+  replyTag!: string | null;
+
+  /** Proof Tracking sent with the answer (purpose loads/charge-proof). */
+  @Column({ name: 'reply_file_key', type: 'text', nullable: true })
+  replyFileKey!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 }
