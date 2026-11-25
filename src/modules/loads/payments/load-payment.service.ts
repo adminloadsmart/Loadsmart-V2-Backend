@@ -301,7 +301,11 @@ export class LoadPaymentService {
         this.repository.listByLoad(tenantId, loadId),
         this.memoWaiting?.(tenantId, loadId) ?? Promise.resolve(false),
       ]);
-      const pending = charges.filter((charge) => charge.status === 'raised');
+      // A charge the shipper asked about is still theirs to approve or reject — keep the
+      // charges card up until they decide.
+      const pending = charges.filter(
+        (charge) => charge.status === 'raised' || charge.status === 'queried',
+      );
       const invoiceOpen =
         load.route === 'loadsmart'
           ? await this.loadsmartBilling?.balanceDueOf(tenantId, loadId)

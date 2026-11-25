@@ -94,6 +94,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     staffNotifier,
     deps.loadPostingService,
   );
+  tracking.setNotificationTriggers(deps.notificationTriggers);
 
   const callLog = new LsCallLogService(
     repository,
@@ -155,6 +156,7 @@ export function createLoadsmartOpsModule(dataSource: DataSource, deps: Loadsmart
     deps.settings,
     deps.loadCancelService,
   );
+  consoleViews.setStorage(deps.storageService);
 
   // Hooks into the loads module: a market post (or a rejected indent) opens a sourcing, which goes
   // to the next Placement member on duty.

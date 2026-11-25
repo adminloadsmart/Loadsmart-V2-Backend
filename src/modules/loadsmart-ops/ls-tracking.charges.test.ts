@@ -117,3 +117,54 @@ describe('Loadsmart charges: shipper first, then Super Admin', () => {
     ).rejects.toThrow(/reason/);
   });
 });
+
+describe('Loadsmart charges: answering the shipper’s question', () => {
+  const queried = {
+    id: 'c-1',
+    loadId: LOAD_ID,
+    tenantId: TENANT,
+    chargeType: 'unloading',
+    amount: '800.00',
+    status: 'queried',
+    queryReason: 'Was this pre-authorized?',
+    queriedBy: 'shipper-user-1',
+  };
+
+  it('puts the charge back with the shipper, records the tag and proof, and notifies the asker', async () => {
+    const { service, repository } = setup({ charge: queried });
+    const triggers = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    service.setNotificationTriggers(triggers as never);
+    await service.replyToChargeQuery('tracking-1', LOAD_ID, 'c-1', {
+      reply: 'Supervisor signed the slip — attached.',
+      tag: 'proof_shared',
+      attachmentFileKey: 'loads/charge-proof/slip.jpg',
+    });
+    expect(repository.charges.update).toHaveBeenCalledWith(
+      { id: 'c-1', status: 'queried' },
+      expect.objectContaining({
+        status: 'raised',
+        queryReply: 'Supervisor signed the slip — attached.',
+        repliedBy: 'tracking-1',
+        replyTag: 'proof_shared',
+        replyFileKey: 'loads/charge-proof/slip.jpg',
+      }),
+    );
+    expect(triggers.enqueue).toHaveBeenCalledWith(
+      'load.charge_query_answered',
+      TENANT,
+      expect.objectContaining({
+        chargeId: 'c-1',
+        queriedBy: 'shipper-user-1',
+        chargeLabel: 'Unloading',
+        amount: '₹800',
+      }),
+    );
+  });
+
+  it('refuses to answer a charge the shipper has not queried', async () => {
+    const { service } = setup({ charge: { ...queried, status: 'raised' } });
+    await expect(
+      service.replyToChargeQuery('tracking-1', LOAD_ID, 'c-1', { reply: 'Hi' }),
+    ).rejects.toThrow('The shipper has not queried this charge');
+  });
+});

@@ -171,7 +171,7 @@ export class DashboardsRepository {
 
     const raisedCharges = new Map<string, { count: number; total: number }>();
     for (const row of chargeRows) {
-      if (row.status !== 'raised') continue;
+      if (row.status !== 'raised' && row.status !== 'queried') continue;
       const entry = raisedCharges.get(row.loadId) ?? { count: 0, total: 0 };
       entry.count += 1;
       entry.total += Number(row.amount);

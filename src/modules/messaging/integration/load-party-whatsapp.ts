@@ -23,6 +23,7 @@ import {
   WHATSAPP_ANSWERABLE_LOAD_STATUSES,
 } from '../messaging.constants';
 import { OutboundMessageService, OutboundRecipient } from '../outbound/outbound-message.service';
+import { NOTICE_TEXTS } from '../router/reply-texts';
 import { TemplateKey } from '../templates/template-registry';
 import type { LoadMemoEntity } from '../../loads/memo/load-memo.entity';
 import {
@@ -65,7 +66,7 @@ function fileNameOf(fileKey: string, label: string): string {
 export class LoadPartyWhatsapp {
   constructor(
     private readonly store: LoadNoticeStore,
-    private readonly outbound: Pick<OutboundMessageService, 'sendTemplate'>,
+    private readonly outbound: Pick<OutboundMessageService, 'sendTemplate' | 'sendSession'>,
     private readonly settings: SettingsReader,
     private readonly linkFile: FileLinker,
     private readonly scheduleRollup: RollupScheduler,
@@ -174,7 +175,10 @@ export class LoadPartyWhatsapp {
         if (event.to === 'truck_assigned') return this.memoAccepted(event.tenantId, event.loadId);
         if (event.to === 'bids_received') return this.indentAccepted(event.tenantId, event.loadId);
         if (event.to === 'loaded') return this.papersApproved(event.tenantId, event.loadId);
+        if (event.to === 'cancelled') return this.loadCancelled(event.tenantId, event.loadId);
         return;
+      case 'bid_rejected':
+        return this.bidRejected(event.tenantId, event.loadId, event.bidId);
       case 'assigned':
         return this.bidAccepted(event.tenantId, event.loadId);
       case 'pod_uploaded':
@@ -291,6 +295,44 @@ export class LoadPartyWhatsapp {
       },
       { once: true },
     );
+  }
+
+  /** The shipper rejected a transporter's bid: that transporter is told (free text). Loadsmart's
+   *  own bid is not passed on — the partner's rate goes back to Placement, who may quote again. */
+  private async bidRejected(tenantId: string, loadId: string, bidId: string): Promise<void> {
+    const notice = await this.store.findLoad(tenantId, loadId);
+    const bid = await this.store.findBid(tenantId, bidId);
+    if (!notice || bid?.source !== 'transporter' || !bid.transporterId) return;
+    const transporter = await this.store.findTransporter(tenantId, bid.transporterId);
+    if (!transporter) return;
+    await this.sendText(
+      notice,
+      this.transporterRecipient(transporter),
+      NOTICE_TEXTS.bidRejected(
+        notice.load.code,
+        formatRupees(bid.rate),
+        notice.origin,
+        notice.destination,
+      ),
+    );
+  }
+
+  /** The shipper cancelled or withdrew the load (or Super Admin approved it on a Loadsmart load):
+   *  every transporter and broker we messaged about it is told (free text). */
+  private async loadCancelled(tenantId: string, loadId: string): Promise<void> {
+    const notice = await this.store.findLoad(tenantId, loadId);
+    if (!notice) return;
+    const text = NOTICE_TEXTS.loadCancelled(notice.load.code, notice.origin, notice.destination);
+    const recipients = await this.store.listWhatsappRecipients(loadId, ['transporter', 'partner']);
+    for (const recipient of recipients) {
+      await this.sendText(
+        notice,
+        recipient.kind === 'partner'
+          ? this.partnerRecipient(recipient)
+          : this.transporterRecipient(recipient),
+        text,
+      );
+    }
   }
 
   /** LS_N_0122 to the shipper's other transporters who bid (an indent has none). */
@@ -663,6 +705,24 @@ export class LoadPartyWhatsapp {
       actor: MESSAGING_ACTORS.loadNotices,
       ...(options.headerDocument ? { headerDocument: options.headerDocument } : {}),
       ...(options.driverHasApp !== undefined ? { driverHasApp: options.driverHasApp } : {}),
+    });
+  }
+
+  /** A free-text notice: sent inside the recipient's 24-h window, logged as suppressed outside. */
+  private async sendText(
+    notice: NoticeLoad,
+    recipient: OutboundRecipient,
+    text: string,
+  ): Promise<void> {
+    const { load } = notice;
+    await this.outbound.sendSession({
+      tenantId: load.tenantId,
+      loadId: load.id,
+      loadRef: load.code,
+      recipient,
+      kind: 'info',
+      content: { type: 'text', text },
+      actor: MESSAGING_ACTORS.loadNotices,
     });
   }
 

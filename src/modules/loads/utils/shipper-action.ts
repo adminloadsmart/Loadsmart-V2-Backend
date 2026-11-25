@@ -45,7 +45,8 @@ export interface ShipperActionInput {
   advancePaidAt: Date | null;
   balancePaidAt: Date | null;
   deliveryIssueSettledAt: Date | null;
-  /** Charges still waiting for the shipper (raised by Loadsmart, not yet decided). */
+  /** Charges still waiting for the shipper (raised by Loadsmart, not yet decided — including
+   *  ones the shipper asked about). */
   pendingCharges: { count: number; total: number };
   /** Loadsmart's open invoice amount, when there is one. */
   invoiceOpen: number | null;

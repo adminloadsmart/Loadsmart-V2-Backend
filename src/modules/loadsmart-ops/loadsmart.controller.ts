@@ -242,7 +242,7 @@ export class LoadsmartOpsController {
         req.user!.id,
         req.params.loadId,
         req.params.chargeId!,
-        req.body.reply,
+        req.body,
       ),
     );
   editLoadDetails = async (req: Request<LoadsmartRouteParams>, res: Response) =>
@@ -723,7 +723,12 @@ export class LoadsmartOpsController {
   balancePreview = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.payables.balancePreview(req.params.loadId));
   raiseBalance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
-    this.out(req, res, await this.payables.raiseBalance(req.user!.id, req.params.loadId), 201);
+    this.out(
+      req,
+      res,
+      await this.payables.raiseBalance(req.user!.id, req.params.loadId, req.body),
+      201,
+    );
   partnerBalance = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.payables.payBalance(req.user!.id, req.params.loadId, req.body));
 
@@ -760,6 +765,7 @@ export class LoadsmartShipperController {
         req.user!.id,
         req.params.loadId,
         req.body.decisions,
+        req.user!.role,
       ),
     );
   decideCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>
@@ -771,6 +777,7 @@ export class LoadsmartShipperController {
         req.params.loadId,
         req.params.chargeId,
         req.body,
+        req.user!.role,
       ),
     );
   addCharge = async (req: Request<LoadsmartRouteParams>, res: Response) =>

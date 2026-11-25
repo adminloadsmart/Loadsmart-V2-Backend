@@ -190,6 +190,41 @@ export class LoadBidService {
     }
   }
 
+  /** "Extend" (the shipper's or Placement's) moves the window's end, not the bids'. Bids already
+   *  in follow the window: a live one gets the new end, and each bidder's latest bid that lapsed
+   *  with the old window is live again — so a bidder never has two live bids. */
+  private async carryBidsToWindow(
+    tenantId: string,
+    bids: LoadBidEntity[],
+    closesAt: Date,
+    now: Date,
+  ) {
+    if (closesAt <= now) return;
+    const bidderOf = (bid: LoadBidEntity) =>
+      bid.source === 'loadsmart' ? 'loadsmart' : (bid.transporterId ?? bid.id);
+    const latest = new Map<string, LoadBidEntity>();
+    for (const bid of bids) {
+      const seen = latest.get(bidderOf(bid));
+      if (!seen || bid.createdAt >= seen.createdAt) latest.set(bidderOf(bid), bid);
+    }
+    const carried = bids.filter(
+      (bid) =>
+        bid.expiresAt !== null &&
+        bid.expiresAt < closesAt &&
+        (bid.status === 'received' ||
+          (bid.status === 'expired' && latest.get(bidderOf(bid)) === bid)),
+    );
+    await this.bidRepository.reopen(
+      tenantId,
+      carried.map((bid) => bid.id),
+      closesAt,
+    );
+    for (const bid of carried) {
+      bid.status = 'received';
+      bid.expiresAt = closesAt;
+    }
+  }
+
   private async expireStale(tenantId: string, bids: LoadBidEntity[], now: Date) {
     const stale = bids.filter(
       (bid) => bid.status === 'received' && effectiveBidStatus(bid, now) === 'expired',
@@ -340,6 +375,13 @@ export class LoadBidService {
       });
       await this.bidStep(load, actorId, 'BID_REJECTED', bid, { reason: reason ?? null });
       if (bid.source === 'loadsmart') await this.onLoadsmartBidRejected?.(updated, load);
+      await this.onLoadEvent?.({
+        kind: 'bid_rejected',
+        tenantId,
+        loadId,
+        bidId: bid.id,
+        at: now,
+      });
       return this.toView(updated, now, null);
     } catch (error) {
       rethrow(error, 'Failed to reject the bid');
@@ -398,6 +440,13 @@ export class LoadBidService {
       const load = await this.assertLoad(tenantId, loadId);
       const now = this.now();
       const bids = await this.bidRepository.listByLoad(tenantId, loadId);
+      const closesAt =
+        load.postingType === 'market_fleet'
+          ? await this.windowOf(load).then((window) =>
+              bidWindowClosesAt(window.sentAt, window.extraMinutes),
+            )
+          : null;
+      if (closesAt) await this.carryBidsToWindow(tenantId, bids, closesAt, now);
       await this.expireStale(tenantId, bids, now);
 
       const ranked = rankBids(bids, now);
@@ -405,12 +454,7 @@ export class LoadBidService {
       return {
         loadId,
         loadStatus: load.status,
-        biddingClosesAt:
-          load.postingType === 'market_fleet'
-            ? await this.windowOf(load).then((window) =>
-                bidWindowClosesAt(window.sentAt, window.extraMinutes).toISOString(),
-              )
-            : null,
+        biddingClosesAt: closesAt?.toISOString() ?? null,
         bids: [
           ...ranked.map((bid, index) => this.toView(bid, now, index + 1)),
           ...rest.map((bid) => this.toView(bid, now, null)),

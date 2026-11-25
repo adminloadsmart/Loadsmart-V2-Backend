@@ -104,3 +104,17 @@ export const REPLY_TEXTS = {
       ? 'Which load is this loading slip for? Pick it from the list or type the load code.'
       : `Which load is "${sourceText}" for? Pick it from the list or type the load code.`,
 } as const;
+
+/**
+ * Free-text notices the shipper's own actions trigger (load-party-whatsapp.ts). Session messages
+ * with no approved template: they reach a transporter / broker only inside its 24-h window
+ * (it wrote to us in the last 24 h); outside it they are logged as suppressed.
+ */
+export const NOTICE_TEXTS = {
+  // The shipper rejected this transporter's bid.
+  bidRejected: (loadRef: string, rate: string, origin: string, destination: string) =>
+    `${loadRef}: Your rate of ₹${rate} for ${origin} to ${destination} was not accepted.`,
+  // The shipper cancelled (or withdrew) the load — to everyone we messaged about it.
+  loadCancelled: (loadRef: string, origin: string, destination: string) =>
+    `${loadRef}: The load ${origin} to ${destination} has been cancelled.`,
+} as const;

@@ -466,6 +466,18 @@ export interface StageChangedContext extends LoadSummary {
   changedAt: string;
 }
 
+/** Loadsmart answered the shipper's question on a charge — the charge is back for a decision. */
+export interface ChargeQueryAnsweredContext extends LoadSummary {
+  chargeId: string;
+  /** The shipper user who asked. */
+  queriedBy: string;
+  /** "Extra labour", from the charge head. */
+  chargeLabel: string;
+  /** "₹800". */
+  amount: string;
+  reply: string;
+}
+
 /** LS_N_0068 — Loadsmart's bid the shipper accepted. */
 export interface LoadsmartBidAcceptedContext extends LoadSummary {
   bidId: string;
@@ -2245,6 +2257,34 @@ export const NOTIFICATION_CATALOG = {
           ...loadMetadataOf(context),
           bid_id: context.bidId,
           cta_label: 'View load',
+          cta_path: `/loads/${context.loadId}`,
+        },
+      };
+    },
+  },
+  // Tracking answered the shipper's "Ask about it" on a Loadsmart charge — to the person who
+  // asked, in-app + push. (WhatsApp needs an approved MSG91 template before it can be added.)
+  'load.charge_query_answered': {
+    label: 'Charge question answered',
+    category: 'money',
+    intent: 'action',
+    description: 'Loadsmart answered your question on a charge; it is back with you to approve.',
+    recipientRoles: [],
+    recipientUserId: (context: ChargeQueryAnsweredContext) => context.queriedBy,
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: ChargeQueryAnsweredContext) => context.chargeId,
+    buildContent: (context: ChargeQueryAnsweredContext) => {
+      const loadName = context.loadCode ?? 'your load';
+      return {
+        title: `Loadsmart answered your question on ${loadName}`,
+        body: `${context.chargeLabel} (${context.amount}): ${context.reply}`,
+        highlights: [context.amount],
+        metadata: {
+          ...loadMetadataOf(context),
+          charge_id: context.chargeId,
+          cta_label: 'Review charge',
           cta_path: `/loads/${context.loadId}`,
         },
       };
