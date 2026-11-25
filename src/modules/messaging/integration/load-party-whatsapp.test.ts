@@ -5,9 +5,15 @@ import { LoadMemoEntity } from '../../loads/memo/load-memo.entity';
 import { LoadPaymentEntity } from '../../loads/entities/load-payment.entity';
 import { LsPartnerPaymentEntity } from '../../loadsmart-ops/entities/ls-partner-payment.entity';
 import { SettingsReader } from '../../settings/settings.types';
-import { TemplateSendRequest } from '../outbound/outbound-message.service';
+import { SessionSendRequest, TemplateSendRequest } from '../outbound/outbound-message.service';
 import { TemplateKey } from '../templates/template-registry';
-import { AwaitedOriginalPod, LoadNoticeStore, NoticeLoad } from './load-notices.interface';
+import {
+  AwaitedOriginalPod,
+  LoadNoticeStore,
+  NoticeContact,
+  NoticeLoad,
+  NoticeRecipientKind,
+} from './load-notices.interface';
 import { LoadPartyWhatsapp } from './load-party-whatsapp';
 
 const TENANT = 'tenant-1';
@@ -150,6 +156,10 @@ class FakeStore implements LoadNoticeStore {
   async listPartnerBidders() {
     return this.partnerBidders;
   }
+  messaged: (NoticeContact & { kind: NoticeRecipientKind })[] = [];
+  async listWhatsappRecipients(_loadId: string, kinds: readonly NoticeRecipientKind[]) {
+    return this.messaged.filter((row) => kinds.includes(row.kind));
+  }
 }
 
 const settings: SettingsReader = {
@@ -163,6 +173,7 @@ function setup(start = new Date('2026-11-18T05:00:00Z')) {
   const clock = { now: start };
   const store = new FakeStore();
   const requests: TemplateSendRequest[] = [];
+  const sessions: SessionSendRequest[] = [];
   const rollups: { job: { tenantId: string; loadId: string }; delayMs: number }[] = [];
   const reminders: {
     job: { tenantId: string; loadId: string; memoId: string };
@@ -180,6 +191,10 @@ function setup(start = new Date('2026-11-18T05:00:00Z')) {
       });
       return { messageLogId: `log-${requests.length}`, status: 'queued' as const };
     },
+    sendSession: async (request: SessionSendRequest) => {
+      sessions.push(request);
+      return { messageLogId: `session-${sessions.length}`, status: 'queued' as const };
+    },
   };
   const notices = new LoadPartyWhatsapp(
     store,
@@ -195,7 +210,7 @@ function setup(start = new Date('2026-11-18T05:00:00Z')) {
       reminders.push({ job, delayMs });
     },
   );
-  return { store, requests, notices, rollups, reminders, clock };
+  return { store, requests, sessions, notices, rollups, reminders, clock };
 }
 
 const at = new Date('2026-11-18T05:00:00Z');

@@ -340,6 +340,13 @@ export class LoadBidService {
       });
       await this.bidStep(load, actorId, 'BID_REJECTED', bid, { reason: reason ?? null });
       if (bid.source === 'loadsmart') await this.onLoadsmartBidRejected?.(updated, load);
+      await this.onLoadEvent?.({
+        kind: 'bid_rejected',
+        tenantId,
+        loadId,
+        bidId: bid.id,
+        at: now,
+      });
       return this.toView(updated, now, null);
     } catch (error) {
       rethrow(error, 'Failed to reject the bid');
