@@ -862,9 +862,9 @@ const ROWS: Row[] = [
     path: `${OPS}/loads/{loadId}/partner-balance/raise`,
     op: 'loadsmart.raiseBalance',
     permissions: [LS_PAYABLES],
-    schema: v.load,
+    schema: v.raiseBalance,
     description:
-      'Raise the carrier balance for Super Admin once the original POD is filed (and, with damage noted, the claim closed and the shipper paid). A rejected balance can be raised again.',
+      'Raise the carrier balance for Super Admin once the original POD is filed (and, with damage noted, the claim closed and the shipper paid). A rejected balance can be raised again. An optional body with `amount` and `deduction` overrides the computed balance and bypasses its holds.',
   },
   {
     method: 'post',
