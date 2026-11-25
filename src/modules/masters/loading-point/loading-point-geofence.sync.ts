@@ -1,3 +1,4 @@
+import { FENCED_MASTER_STATUSES } from '../../../shared/constants/location-source';
 import { rethrow } from '../../../shared/errors';
 import { GeofenceRepository } from '../../geofences/geofence.repository';
 import { LoadingPointEntity } from './entities/loading-point.entity';
@@ -11,7 +12,8 @@ function geofenceAddress(point: LoadingPointEntity): string {
 /**
  * Keeps one circle geofence (tracking.geofences, type loading_point) linked to each master loading
  * point, so the tracking service can detect arrival there and drive load status. The loading
- * point's pin + radius are the source of truth for name / address / pin / radius / active; alert
+ * point's pin + radius are the source of truth for name / address / pin / radius / active (on
+ * unless the point is rejected or retired); alert
  * rules and recipients edited later in Tracking → Geofences are left alone.
  *
  * Errors are rethrown (as the codebase's usual InternalError), so a failed sync surfaces to the caller.
@@ -28,8 +30,8 @@ export class LoadingPointGeofenceSync {
   async upsert(point: LoadingPointEntity, actorId: string | null): Promise<void> {
     try {
       if (point.latitude === null || point.longitude === null) return;
-      // Only an approved point drives load status; pending / rejected / retired stay inert.
-      const isActive = point.status === 'active';
+      // Approved and pending points are fenced; rejected / retired ones stay inert.
+      const isActive = FENCED_MASTER_STATUSES.includes(point.status);
       const existing = await this.geofences.findByLoadingPointId(point.tenantId, point.id);
 
       if (existing) {

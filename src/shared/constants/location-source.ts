@@ -3,6 +3,13 @@
 export const LOCATION_SOURCES = ['google_places', 'manual'] as const;
 export type LocationSource = (typeof LOCATION_SOURCES)[number];
 
+/**
+ * Master statuses whose point keeps its geofence switched on. A pending point (added by someone
+ * without approval rights, e.g. from Create trip) is already used by trips, so it is fenced
+ * straight away; only a rejected or retired point's geofence is off.
+ */
+export const FENCED_MASTER_STATUSES: readonly string[] = ['active', 'pending'];
+
 /** Default arrival geofence around a loading/unloading point, in metres. */
 export const DEFAULT_GEOFENCE_RADIUS_M = 2000;
 
