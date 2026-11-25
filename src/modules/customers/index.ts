@@ -1,3 +1,4 @@
+import { GooglePlacesClient } from '../../adapters/google-places.client';
 import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { DataSource } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
@@ -38,6 +39,7 @@ export function createCustomersModule(
     new MasterUsageRepository(dataSource),
     masterApprovalNotifier,
     new CustomerDeliveryPointGeofenceSync(new GeofenceRepository(dataSource)),
+    new GooglePlacesClient(),
   );
   const controller = new CustomerController(service);
   // Bulk-imported GSTINs are verified in the background, one IDfy lookup per window.

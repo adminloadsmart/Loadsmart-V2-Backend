@@ -1,3 +1,4 @@
+import { GooglePlacesClient } from '../../adapters/google-places.client';
 import { MasterApprovalNotifier } from '../notifications/notifications.interface';
 import { DataSource } from 'typeorm';
 import { UlipClient } from '../../adapters/ulip.client';
@@ -143,6 +144,7 @@ export function createMastersModule(
     masterUsageRepository,
     deps.masterApprovalNotifier,
     new LoadingPointGeofenceSync(new GeofenceRepository(dataSource)),
+    new GooglePlacesClient(),
   );
   const loadingPointController = new LoadingPointController(loadingPointService);
   const loadingPointImportService = new LoadingPointImportService(

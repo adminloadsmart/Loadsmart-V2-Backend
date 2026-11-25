@@ -17,6 +17,7 @@ import {
   resolveLocationSource,
 } from '../../../shared/constants/location-source';
 import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../../shared/utils/csv';
+import { AddressPinLookup, pinForAddress } from '../../places/address-pin';
 import {
   CreateLoadingPointInput,
   ListLoadingPointCitiesInput,
@@ -71,6 +72,8 @@ export class LoadingPointService {
     private readonly approvalNotifier?: MasterApprovalNotifier,
     // Keeps the linked tracking geofence in step; optional.
     private readonly geofenceSync?: LoadingPointGeofenceSync,
+    // Pins a typed-in address (no Google Places pick) so the point still gets its geofence.
+    private readonly pinLookup?: AddressPinLookup,
   ) {}
 
   /** A loading point created by someone holding MASTERS_APPROVE (org_admin by default) lands
@@ -85,6 +88,11 @@ export class LoadingPointService {
   ): Promise<LoadingPointEntity> {
     try {
       const autoApproved = hasPermission(actor, MASTERS_APPROVE);
+      // No pin sent (typed in by hand): look the address up, so the point gets its geofence.
+      if (input.latitude == null || input.longitude == null) {
+        const pin = await pinForAddress(this.pinLookup, input);
+        if (pin) input = { ...input, ...pin };
+      }
 
       const value = await this.repository.create({
         tenantId,
@@ -270,6 +278,18 @@ export class LoadingPointService {
       });
 
       if (!updated) throw new NotFoundError(`Loading point ${id} not found`);
+      // Still no pin after this edit (typed in by hand): look the address up for its geofence.
+      if (updated.latitude === null || updated.longitude === null) {
+        const pin = await pinForAddress(this.pinLookup, updated);
+        if (pin) {
+          updated.latitude = String(pin.latitude);
+          updated.longitude = String(pin.longitude);
+          await this.repository.update(tenantId, id, {
+            latitude: updated.latitude,
+            longitude: updated.longitude,
+          });
+        }
+      }
       await this.geofenceSync?.upsert(updated, actorId);
       if (input.status && input.status !== existing.status)
         await this.auditService.log({

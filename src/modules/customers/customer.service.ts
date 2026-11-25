@@ -16,9 +16,11 @@ import { GstVerificationEntity } from '../masters/gst/entities/gst-verification.
 import { MasterUsageRepository } from '../masters/masters.usage';
 import { gstStateName } from '../../shared/constants/gst-state-codes';
 import { buildCsv, CSV_EXPORT_MAX_ROWS, CsvColumn } from '../../shared/utils/csv';
+import { AddressPinLookup, pinForAddress } from '../places/address-pin';
 import {
   CreateCustomerInput,
   CustomerContactInput,
+  DeliveryPointInput,
   ListCustomersInput,
   UpdateCustomerInput,
 } from './customer.types';
@@ -129,7 +131,20 @@ export class CustomerService {
     private readonly approvalNotifier?: MasterApprovalNotifier,
     // Keeps an unloading-point geofence on each delivery point; optional so tests can skip it.
     private readonly geofenceSync?: CustomerDeliveryPointGeofenceSync,
+    // Pins a typed-in delivery point (no Google Places pick) so it still gets its geofence.
+    private readonly pinLookup?: AddressPinLookup,
   ) {}
+
+  /** Delivery points sent without a pin (typed in by hand) get one from their address. */
+  private async pinned(points: DeliveryPointInput[]): Promise<DeliveryPointInput[]> {
+    return Promise.all(
+      points.map(async (point) => {
+        if (point.latitude != null && point.longitude != null) return point;
+        const pin = await pinForAddress(this.pinLookup, { title: point.location, ...point });
+        return pin ? { ...point, ...pin } : point;
+      }),
+    );
+  }
   /** GST bookkeeping columns for a GSTIN + optional verification id. Verified only when backed by
    *  a verified lookup row (GstVerificationService.resolveVerified); otherwise a manual entry. */
   private async gstColumns(
@@ -192,6 +207,7 @@ export class CustomerService {
         extra.gstVerificationStatus = 'pending';
       // Whoever could approve the customer themselves skips the approval queue.
       const status = hasPermission(actor, CUSTOMERS_APPROVE) ? 'active' : 'pending';
+      const deliveryPoints = await this.pinned(input.deliveryPoints ?? []);
       const customer = await this.dataSource.transaction(async (manager) => {
         const code = formatCustomerCode(
           await this.codeSequences.next('customer', tenantId, manager),
@@ -205,7 +221,7 @@ export class CustomerService {
           code,
           extra,
         );
-        await this.repository.addPoints(value.id, tenantId, input.deliveryPoints ?? [], manager);
+        await this.repository.addPoints(value.id, tenantId, deliveryPoints, manager);
         if (contacts.length)
           await this.repository.syncContacts(tenantId, value.id, contacts, manager);
         return this.repository.findById(tenantId, value.id, manager);
@@ -370,11 +386,13 @@ export class CustomerService {
           );
       }
 
+      const deliveryPoints =
+        input.deliveryPoints === undefined ? undefined : await this.pinned(input.deliveryPoints);
       const updated = await this.dataSource.transaction(async (manager) => {
         const value = await this.repository.update(tenantId, id, actorId, input, manager, extra);
         if (!value) throw new NotFoundError(`Customer ${id} not found`);
-        if (input.deliveryPoints !== undefined)
-          await this.repository.syncPoints(tenantId, id, input.deliveryPoints, manager);
+        if (deliveryPoints !== undefined)
+          await this.repository.syncPoints(tenantId, id, deliveryPoints, manager);
         if (input.contacts !== undefined)
           await this.repository.syncContacts(tenantId, id, input.contacts, manager);
         return this.repository.findById(tenantId, id, manager);
