@@ -117,8 +117,10 @@ export class GeofenceRepository {
 
   /**
    * A trip created from the tracking screen (the tracking service's tracking.trips — same
-   * database), for its geofences: each end is a picked loading point or customer address, or a
-   * typed address with no master (and so no geofence). Null when there is no such trip.
+   * database), for its geofences: each end is a master place — a loading point or a customer
+   * delivery point, whose geofence the geofence syncs keep. (Trips saved before that rule may
+   * have an end typed as an address: no master, so no geofence.) Null when there is no such
+   * trip.
    */
   async trackingTripPoints(
     tenantId: string,

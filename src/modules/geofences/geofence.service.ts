@@ -126,15 +126,17 @@ export class GeofenceService {
     try {
       // A load, else a trip created from the tracking screen (tracking.trips) — the tracking
       // page asks with whichever trip id it shows.
+      const loadPoints = await this.repository.loadPoints(tenantId, loadId);
+      const tripPoints = loadPoints
+        ? null
+        : await this.repository.trackingTripPoints(tenantId, loadId);
       const points: {
         pickupLoadingPointId: string | null;
         pickupCustomerDeliveryPointId?: string | null;
         dropCustomerDeliveryPointId: string | null;
         dropLoadingPointId: string | null;
-      } | null =
-        (await this.repository.loadPoints(tenantId, loadId)) ??
-        (await this.repository.trackingTripPoints(tenantId, loadId));
-      if (!points) throw new NotFoundError(`Load ${loadId} not found`);
+      } | null = loadPoints ?? tripPoints;
+      if (!points) throw new NotFoundError(`Load or trip ${loadId} not found`);
       const pickupIds = points.pickupLoadingPointId ? [points.pickupLoadingPointId] : [];
       // An inbound created trip can start at a customer address.
       const pickupDeliveryIds = points.pickupCustomerDeliveryPointId
