@@ -13,6 +13,7 @@ import { LsPartnerEntity } from '../../loadsmart-ops/entities/ls-partner.entity'
 import { LsPartnerBidEntity } from '../../loadsmart-ops/entities/ls-partner-bid.entity';
 import { LsPartnerPaymentEntity } from '../../loadsmart-ops/entities/ls-partner-payment.entity';
 import { LsSourcingEntity } from '../../loadsmart-ops/entities/ls-sourcing.entity';
+import { tripAmount } from '../../loadsmart-ops/loadsmart-rules';
 import { TransporterEntity } from '../../masters/transporter/entities/transporter.entity';
 import { MessageLogEntity } from '../entities/message-log.entity';
 import { WhatsappInboundEntity } from '../entities/whatsapp-inbound.entity';
@@ -99,9 +100,10 @@ export class TypeormLoadNoticeStore implements LoadNoticeStore {
   }
 
   async findLoadPartner(loadId: string): Promise<LoadPartner | null> {
-    const sourcing = await this.dataSource
-      .getRepository(LsSourcingEntity)
-      .findOneBy({ loadId, status: LOADSMART_WON_SOURCING_STATUS });
+    const sourcing = await this.dataSource.getRepository(LsSourcingEntity).findOne({
+      where: { loadId, status: LOADSMART_WON_SOURCING_STATUS },
+      relations: { load: true },
+    });
     if (!sourcing?.partnerId) return null;
     const partner = await this.dataSource
       .getRepository(LsPartnerEntity)
@@ -109,7 +111,16 @@ export class TypeormLoadNoticeStore implements LoadNoticeStore {
     if (!partner) return null;
     return {
       contact: { id: partner.id, name: partner.name, phone: partner.phone },
-      partnerRate: sourcing.partnerRate,
+      // The trip total — brokers quote the whole trip, never per tonne.
+      partnerRate: sourcing.partnerRate
+        ? String(
+            tripAmount(
+              Number(sourcing.partnerRate),
+              sourcing.load.freightType,
+              Number(sourcing.load.plannedCapacityTonnes),
+            ),
+          )
+        : null,
     };
   }
 

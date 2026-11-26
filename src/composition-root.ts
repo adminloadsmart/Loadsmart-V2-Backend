@@ -514,6 +514,12 @@ export function buildContainer(dataSource: DataSource): Container {
       'load.route_deviation': loadAlertResolvers.routeDeviation,
       'load.tracking_signal_lost': loadAlertResolvers.trackingSignalLost,
       'load.delivery_late': loadAlertResolvers.deliveryLate,
+      // INACT-SIM (tracking's alert.opened): no SIM location for 60 min.
+      'load.sim_tracking_inactive': loadAlertResolvers.simTrackingInactive,
+      // DELAY-SIM / DEV-SIM (tracking's alert.opened): a basic notice per alert.
+      'load.sim_delay': loadAlertResolvers.simDelay,
+      'load.sim_night_driving': loadAlertResolvers.simNightDriving,
+      'load.sim_route_deviation': loadAlertResolvers.simRouteDeviation,
       // LS_N_0021 not reported / LS_N_0022 reached loading point / LS_N_0023 detention at loading.
       'load.vehicle_not_reported': loadAlertResolvers.vehicleNotReported,
       'load.vehicle_reached_pickup': loadAlertResolvers.vehicleReachedPickup,

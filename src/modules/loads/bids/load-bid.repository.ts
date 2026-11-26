@@ -5,6 +5,7 @@ import { LoadRouteChangeEntity } from '../entities/load-route-change.entity';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { LoadPostingEntity } from '../load-posting/entities/load-posting.entity';
 import { LoadRecipientEntity } from '../load-posting/entities/load-recipient.entity';
+import { UserEntity } from '../../auth/entities/user.entity';
 import { LoadBidEntity } from './load-bid.entity';
 import { CreateLoadBidData } from '../utils/load-bid.interface';
 
@@ -12,11 +13,25 @@ export class LoadBidRepository {
   private readonly bids: Repository<LoadBidEntity>;
   private readonly postings: Repository<LoadPostingEntity>;
   private readonly recipients: Repository<LoadRecipientEntity>;
+  private readonly users: Repository<UserEntity>;
 
   constructor(dataSource: DataSource) {
     this.bids = dataSource.getRepository(LoadBidEntity);
     this.postings = dataSource.getRepository(LoadPostingEntity);
     this.recipients = dataSource.getRepository(LoadRecipientEntity);
+    this.users = dataSource.getRepository(UserEntity);
+  }
+
+  /** Full names of the users who entered bids — a shipper user or Loadsmart staff alike, so the
+   *  bid card can say who logged the call. */
+  async userNames(userIds: readonly (string | null)[]): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+    if (!ids.length) return new Map();
+    const users = await this.users.find({
+      where: { id: In(ids) },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.flatMap((user) => (user.fullName ? [[user.id, user.fullName]] : [])));
   }
 
   listByLoad(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
@@ -90,8 +105,35 @@ export class LoadBidRepository {
   }
 
   /** Loadsmart's live bid on the load — a new one from placement replaces it. */
+  /** Loadsmart's newest live bid on a load — it can have several with the shipper at once. */
   findLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity | null> {
-    return this.bids.findOneBy({ tenantId, loadId, source: 'loadsmart', status: 'received' });
+    return this.bids.findOne({
+      where: { tenantId, loadId, source: 'loadsmart', status: 'received' },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Every live Loadsmart bid on a load, newest first. */
+  listLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
+    return this.bids.find({
+      where: { tenantId, loadId, source: 'loadsmart', status: 'received' },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Loadsmart's live bid built on one partner bid — re-sending that broker's rate replaces it. */
+  findLiveLoadsmartFor(
+    tenantId: string,
+    loadId: string,
+    lsPartnerBidId: string,
+  ): Promise<LoadBidEntity | null> {
+    return this.bids.findOneBy({
+      tenantId,
+      loadId,
+      source: 'loadsmart',
+      status: 'received',
+      lsPartnerBidId,
+    });
   }
 
   async markRejected(bid: LoadBidEntity, actorId: string | null): Promise<void> {

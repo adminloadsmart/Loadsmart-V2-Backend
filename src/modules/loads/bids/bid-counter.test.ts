@@ -73,7 +73,7 @@ describe('countering a bid', () => {
     const countered = await service.counterBid('t-1', 'u-1', 'load-1', 'bid-1', { rate: 37000 });
     expect(countered.counter).toMatchObject({ rate: '37000', status: 'pending' });
     expect(countered.canAccept).toBe(false);
-    expect(countered.acceptBlocker).toMatch(/counter of ₹37000/);
+    expect(countered.acceptBlocker).toMatch(/Waiting for the answer to your counter/);
 
     const answered = await service.answerCounter('t-1', 'u-1', 'load-1', 'bid-1', {
       accepted: true,

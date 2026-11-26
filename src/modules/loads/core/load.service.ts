@@ -1988,21 +1988,40 @@ export class LoadService {
       if (driverOwnerId && load.driverId !== driverOwnerId) {
         throw new NotFoundError(`Load ${loadId} not found`);
       }
-      const [timeline, payments, loadWithUrls, fleetOwner, openIssue, assignedBy, licenceKeys] =
-        await Promise.all([
-          this.loadActivityService.listByLoad(tenantId, loadId),
-          this.loadPaymentRepository.listByLoad(tenantId, loadId),
-          this.withDocumentDownloadUrls(tenantId, actorRole, load),
-          this.authService.getFleetOwner(tenantId),
-          this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
-          this.loadActivityService.assignedByLoad([load]),
-          load.driverId
-            ? this.repository.findDriverLicenceKeys(load.driverId)
-            : { dlFrontKey: null, dlBackKey: null },
-        ]);
+      const [
+        timeline,
+        payments,
+        loadWithUrls,
+        fleetOwner,
+        openIssue,
+        assignedBy,
+        accountLicenceKeys,
+        filedLicenceKeys,
+      ] = await Promise.all([
+        this.loadActivityService.listByLoad(tenantId, loadId),
+        this.loadPaymentRepository.listByLoad(tenantId, loadId),
+        this.withDocumentDownloadUrls(tenantId, actorRole, load),
+        this.authService.getFleetOwner(tenantId),
+        this.loadIssueRepository.findLatestOpenByLoad(tenantId, loadId),
+        this.loadActivityService.assignedByLoad([load]),
+        load.driverId
+          ? this.repository.findDriverLicenceKeys(load.driverId)
+          : { dlFrontKey: null, dlBackKey: null },
+        this.documents.currentFileKeys(tenantId, loadId, [
+          'driver_licence_front',
+          'driver_licence_back',
+        ]),
+      ]);
       const incident = buildIncident(openIssue);
-      // Licence keys come from the load's own driver, so they're signed directly — self-registered
-      // and imported drivers' photos can have no tenant-scoped storage.files row for getByKey.
+      // The licence photos filed on this load (Placement uploads them with the driver on a
+      // Loadsmart load) come first — they belong to the driver named on it; otherwise the photos
+      // on the driver's app account.
+      const licenceKeys = {
+        dlFrontKey: filedLicenceKeys.driver_licence_front ?? accountLicenceKeys.dlFrontKey,
+        dlBackKey: filedLicenceKeys.driver_licence_back ?? accountLicenceKeys.dlBackKey,
+      };
+      // Signed directly — self-registered and imported drivers' photos can have no tenant-scoped
+      // storage.files row for getByKey.
       const signLicenceKey = async (key: string | null) =>
         key ? this.storageService.getPresignedDownloadUrlForKey(key) : null;
       const [dlFrontUrl, dlBackUrl] = await Promise.all([

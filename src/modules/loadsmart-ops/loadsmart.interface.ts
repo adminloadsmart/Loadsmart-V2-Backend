@@ -1,5 +1,9 @@
 import type { ChargeReplyTag } from '../loads/money/charge.types';
-import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
+import type {
+  BrokerResponse,
+  BrokerResponseChannel,
+  WhatsappFailure,
+} from './placement-board-rules';
 import type { LaneMatchService } from '../lane-matching';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
@@ -138,8 +142,14 @@ export interface PartnerBidView {
   vehicleNumber: string | null;
   truckVerified: boolean | null;
   status: LsPartnerBidEntity['status'];
-  /** Loadsmart's price to the shipper at the sourcing's margin. */
+  /** `rate` and `shipperPrice` are in the load's own basis (per tonne on a per-tonne load). */
   shipperPrice: number;
+  /** The same as trip totals — what the broker quoted, and Loadsmart's trip price to the shipper. */
+  tripRate: number;
+  shipperTripPrice: number;
+  /** Loadsmart's actual price with the shipper for this broker bid (trip total), while one is
+   *  live; null when it isn't with the shipper. */
+  sentTripPrice: number | null;
   /** How the bid's latest rate came in (the broker's own WhatsApp reply, or Placement's entry);
    *  null when not known. */
   channel: BrokerResponseChannel | null;
@@ -166,7 +176,10 @@ export interface BrokerWhatsappActivity {
   /** Receipts from WhatsApp; `delivered` is often skipped and comes with `read`. */
   deliveredAt: string | null;
   readAt: string | null;
+  /** WhatsApp's raw error, for the tech team. */
   failReason: string | null;
+  /** On a `failed` send: what went wrong in Placement's words (pill label + what to do). */
+  failure: WhatsappFailure | null;
   lastReply: BrokerWhatsappReply | null;
 }
 
@@ -234,7 +247,8 @@ export interface ApproveSourcingInput {
 /** Placement records a partner's rate and truck. */
 export interface PartnerBidInput {
   partnerId: string;
-  /** Required for a bid; optional for a decline / no truck / call back. */
+  /** The total freight for the trip — never per tonne. Required for a bid; optional for a
+   *  decline / no truck / call back. */
   rate?: number;
   vehicleNumber?: string;
   /** What the broker said (default `bid`). Only a bid becomes the broker's live bid. */
@@ -287,8 +301,40 @@ export interface RequirementSendResult {
 }
 
 /** Placement sends one partner bid to the shipper as Loadsmart's. */
+/** Placement takes the shipper's counter to the broker: the broker's rate is the trip total
+ *  (defaults to the counter less Loadsmart's margin). */
+export interface BrokerCounterInput {
+  /** Loadsmart's bid the shipper countered — Loadsmart can have several with the shipper. */
+  bidId: string;
+  rate?: number;
+  note?: string;
+}
+
+/** The shipper's counter waiting on Loadsmart's bid, as Placement sees it. Amounts are trip
+ *  totals. */
+export interface ShipperCounterView {
+  bidId: string;
+  loadId: string;
+  /** The broker bid behind Loadsmart's bid. */
+  partnerBidId: string;
+  /** The shipper's counter, and Loadsmart's price it answers. */
+  rate: number;
+  bidPrice: number;
+  note: string | null;
+  at: string | null;
+  marginPercent: number;
+  /** The counter less Loadsmart's margin — what the broker is offered by default. */
+  suggestedBrokerRate: number;
+  /** The broker behind Loadsmart's bid and their rate now. */
+  broker: { id: string; name: string; phone: string } | null;
+  brokerRate: number | null;
+  /** Placement's offer to the broker, once sent. */
+  sentToBroker: { rate: number; at: string } | null;
+}
+
 export interface SendBidInput {
   partnerBidId: string;
+  /** Loadsmart's trip total to the shipper. */
   shipperPrice?: number;
   /** Required under MIN_MARGIN_PERCENT. */
   negotiationNote?: string;

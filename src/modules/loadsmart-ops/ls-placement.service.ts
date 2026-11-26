@@ -1,3 +1,4 @@
+import { whatsappFailureOf } from './placement-board-rules';
 import { In, IsNull } from 'typeorm';
 import { routeOf } from '../lane-matching';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
@@ -272,7 +273,8 @@ export class LsPlacementService extends LsServiceBase {
   private async whatsappActivityByPartner(
     sourcingId: string,
   ): Promise<Map<string, BrokerWhatsappActivity>> {
-    const [sends, replies] = await Promise.all([
+    const [sourcing, sends, replies] = await Promise.all([
+      this.assertSourcing(sourcingId),
       this.repository.requirementRecipients.findBy({ sourcingId }),
       this.repository.partnerBidResponses.find({
         where: { sourcingId, channel: 'whatsapp' },
@@ -284,7 +286,8 @@ export class LsPlacementService extends LsServiceBase {
       if (lastReply.has(reply.partnerId)) continue;
       lastReply.set(reply.partnerId, {
         response: reply.response,
-        rate: reply.rate === null ? null : Number(reply.rate),
+        // The trip total the broker gave.
+        rate: this.tripRateOf(reply.rate, sourcing.load),
         at: reply.createdAt.toISOString(),
       });
     }
@@ -297,6 +300,7 @@ export class LsPlacementService extends LsServiceBase {
           deliveredAt: send.deliveredAt?.toISOString() ?? null,
           readAt: send.readAt?.toISOString() ?? null,
           failReason: send.failReason,
+          failure: send.status === 'failed' ? whatsappFailureOf(send.failReason) : null,
           lastReply: lastReply.get(send.partnerId) ?? null,
         },
       ]),

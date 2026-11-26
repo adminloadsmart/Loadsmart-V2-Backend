@@ -20,6 +20,9 @@ import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { CallOutcome } from './loadsmart.types';
 import { tripAmount } from './loadsmart-rules';
+import { loadsmartBidEvents } from './bid-history-rules';
+import { LoadBidEntity } from '../loads/bids/load-bid.entity';
+import { LoadActivityEntity } from '../loads/entities/load-activity.entity';
 import { LsServiceBase } from './ls-base';
 import { LsSourcingService } from './ls-sourcing.service';
 import {
@@ -31,9 +34,15 @@ import {
   memoState,
   placementTabs,
   rateCeiling,
+  brokersClosedReason,
+  whatsappFailureOf,
 } from './placement-board-rules';
 import { routeOf } from '../lane-matching';
 import type { BrokerMatcher } from './loadsmart.interface';
+import { GoogleRoutesClient, LatLng } from '../../adapters/google-routes.client';
+import { GooglePlacesClient } from '../../adapters/google-places.client';
+import { AddressPinLookup, pinForAddress } from '../places/address-pin';
+import { TruckBodyType } from '../masters/truck-type/truck-type.types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -62,6 +71,39 @@ export interface BrokerCallInput {
   outcome: CallOutcome;
   quotedRate?: number;
   remarks?: string;
+}
+
+/** Most postings whose road distance is looked up on Google in one queue load — the rest are
+ *  filled on a later load (each is looked up once, then kept on the posting). */
+const MAX_DISTANCE_LOOKUPS_PER_CALL = 10;
+
+/** Truck-master body classes → the picker's open/closed, for postings with no truckPick. */
+const BODY_OF_FAMILY: Partial<Record<TruckBodyType, 'open' | 'closed'>> = {
+  open_body: 'open',
+  lcv_open_body: 'open',
+  container: 'closed',
+  lcv_container: 'closed',
+};
+
+/** Open or closed body of the truck the load asks for; null when neither the posting's picker
+ *  choice nor the truck master row says. */
+function truckBodyOf(load: LoadEntity): 'open' | 'closed' | null {
+  const picked = load.posting?.truckPick?.body;
+  if (picked === 'open' || picked === 'closed') return picked;
+  const family = load.truckType?.bodyType;
+  return (family && BODY_OF_FAMILY[family]) ?? null;
+}
+
+/** A posting address's point, when it has one. */
+function pointOf(address: PostAddress | null | undefined): LatLng | null {
+  const lat = Number(address?.latitude);
+  const lng = Number(address?.longitude);
+  return address?.latitude != null &&
+    address?.longitude != null &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng)
+    ? { lat, lng }
+    : null;
 }
 
 /** IST midnight of `now`, as a UTC instant. */
@@ -103,6 +145,12 @@ function fullAddress(address: PostAddress | null | undefined) {
  * broker gave, the broker calls, extending the bid window, and the requirement sent to brokers.
  * Bids themselves are logged through LsSourcingService.recordPartnerBid.
  */
+/** Brokers are added only while Placement is still sourcing the load. */
+function assertOpenForBrokers(sourcing: LsSourcingEntity): void {
+  const closed = brokersClosedReason(sourcing.status);
+  if (closed) throw new ConflictError(closed);
+}
+
 export class LsPlacementBoardService extends LsServiceBase {
   constructor(
     repository: LoadsmartRepository,
@@ -118,6 +166,68 @@ export class LsPlacementBoardService extends LsServiceBase {
   }
 
   private brokerMatcher?: BrokerMatcher;
+
+  /** Road distance for postings that don't have one yet. */
+  private readonly routes: Pick<GoogleRoutesClient, 'drivingRoute'> = new GoogleRoutesClient();
+
+  /** Pins a posting address with no map point from its text (most addresses picked from the
+   *  masters were saved without one). */
+  private readonly pinLookup: AddressPinLookup = new GooglePlacesClient();
+
+  /**
+   * Looks up and keeps the road distance of postings that have no distance yet (at most
+   * MAX_DISTANCE_LOOKUPS_PER_CALL per call), and sets it on the loaded entities so this call's
+   * rows show it. An address without a map point is first pinned from its text and the point is
+   * kept on the posting, so it is looked up only once. Fail-soft: a posting Google can't pin or
+   * route stays null.
+   */
+  private async fillDistances(sourcings: LsSourcingEntity[]): Promise<void> {
+    const pending = new Map<string, LoadPostingEntity>();
+    for (const sourcing of sourcings) {
+      if (pending.size >= MAX_DISTANCE_LOOKUPS_PER_CALL) break;
+      const posting = sourcing.load?.posting;
+      if (!posting || posting.distanceKm != null || pending.has(posting.id)) continue;
+      if (!posting.pickupAddress || !posting.dropAddress) continue;
+      pending.set(posting.id, posting);
+    }
+    if (!pending.size) return;
+    const postings = this.dataSource.getRepository(LoadPostingEntity);
+    await Promise.all(
+      [...pending.values()].map(async (posting) => {
+        try {
+          const [pickup, drop] = await Promise.all([
+            this.withPoint(posting.pickupAddress!),
+            this.withPoint(posting.dropAddress!),
+          ]);
+          const from = pointOf(pickup);
+          const to = pointOf(drop);
+          const route = from && to ? await this.routes.drivingRoute(from, to) : null;
+          const km = route ? Math.round(route.distanceM / 1000) : null;
+          const pinned = {
+            ...(pickup !== posting.pickupAddress ? { pickupAddress: pickup } : {}),
+            ...(drop !== posting.dropAddress ? { dropAddress: drop } : {}),
+          };
+          if (km === null && !Object.keys(pinned).length) return;
+          await postings.update({ id: posting.id }, { ...pinned, distanceKm: km });
+          // One posting can sit under several sourcings (one per truck).
+          for (const sourcing of sourcings) {
+            const row = sourcing.load?.posting;
+            if (row?.id === posting.id) Object.assign(row, pinned, { distanceKm: km });
+          }
+        } catch (error) {
+          console.warn('[placement] could not fill posting distance', posting.id, error);
+        }
+      }),
+    );
+  }
+
+  /** The address with a map point: as is when it has one, else pinned from its text (the same
+   *  object back when Google can't match it). */
+  private async withPoint(address: PostAddress): Promise<PostAddress> {
+    if (pointOf(address)) return address;
+    const pin = await pinForAddress(this.pinLookup, { ...address, title: address.label });
+    return pin ? { ...address, ...pin } : address;
+  }
 
   /** Which of Loadsmart's brokers run each load's lane (modules/lane-matching). */
   setBrokerMatcher(matcher: BrokerMatcher): void {
@@ -296,16 +406,19 @@ export class LsPlacementBoardService extends LsServiceBase {
             : chosen
               ? chosen.partner
               : null,
+          // Trip totals, as the broker quoted and the shipper is priced.
           chosenRate: sourcing.partnerRate
-            ? Number(sourcing.partnerRate)
+            ? this.tripRateOf(sourcing.partnerRate, load)
             : chosen
-              ? Number(chosen.rate)
+              ? chosen.tripRate
               : null,
           // Loadsmart's price to the shipper, once sent.
-          shipperPrice: sourcing.shipperPrice ? Number(sourcing.shipperPrice) : null,
+          shipperPrice: sourcing.shipperPrice ? shipperPrice : null,
           priceSentAt: sourcing.bidSentAt,
         },
         latestBids: placement.bids,
+        // The shipper's counters on Loadsmart's bids, waiting for Placement (trip totals).
+        shipperCounters: await this.sourcingService.shipperCounters(sourcing),
         callList: placement.callList,
         memo: {
           state: row.memo,
@@ -357,6 +470,7 @@ export class LsPlacementBoardService extends LsServiceBase {
   ) {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
+      assertOpenForBrokers(sourcing);
       // A broker from the broker master gets its partner row (where its bids are kept) first.
       const partnerId = pick.brokerId
         ? await this.brokerMatcher?.partnerForBroker(pick.brokerId)
@@ -382,7 +496,7 @@ export class LsPlacementBoardService extends LsServiceBase {
   /** Adds several broker-master brokers at once. One that is already listed or no longer
    *  approved lands in `failed` and does not stop the others. */
   async addBrokers(actorId: string, sourcingId: string, brokerIds: string[]) {
-    await this.assertSourcing(sourcingId);
+    assertOpenForBrokers(await this.assertSourcing(sourcingId));
     const added: { brokerId: string; partnerId: string; name: string }[] = [];
     const failed: { brokerId: string; reason: string }[] = [];
     for (const brokerId of new Set(brokerIds)) {
@@ -431,27 +545,80 @@ export class LsPlacementBoardService extends LsServiceBase {
     return bySourcing;
   }
 
-  /** "Broker bid history": every response this broker gave on the load, newest first. */
+  /** "Broker bid history", newest first: every response this broker gave on the load, and what
+   *  happened to Loadsmart's bids built on theirs — sent to the shipper, countered, the counter
+   *  taken to the broker, the answer, and rejected / lost / won. `source` tells them apart:
+   *  `broker` rows are what the broker said; `loadsmart` rows are Loadsmart's side. Rates are
+   *  trip totals. */
   async bidHistory(sourcingId: string, partnerId: string) {
-    await this.assertSourcing(sourcingId);
+    const sourcing = await this.assertSourcing(sourcingId);
     const partner = await this.repository.partners.findOneBy({ id: partnerId });
     if (!partner) throw new NotFoundError('Broker not found');
-    const responses = await this.dataSource.getRepository(LsPartnerBidResponseEntity).find({
-      where: { sourcingId, partnerId },
-      order: { createdAt: 'DESC' },
-    });
+    const [responses, partnerBids, counters] = await Promise.all([
+      this.dataSource.getRepository(LsPartnerBidResponseEntity).find({
+        where: { sourcingId, partnerId },
+        order: { createdAt: 'DESC' },
+      }),
+      this.repository.partnerBids.find({ where: { sourcingId, partnerId }, select: { id: true } }),
+      // Every "Counter broker" Placement sent this broker on the load.
+      this.dataSource.getRepository(LoadActivityEntity).find({
+        where: { loadId: sourcing.loadId, action: 'LOADSMART_STEP', toValue: 'broker_countered' },
+      }),
+    ]);
+    const loadsmartBids = partnerBids.length
+      ? await this.dataSource.getRepository(LoadBidEntity).find({
+          where: {
+            loadId: sourcing.loadId,
+            source: 'loadsmart',
+            lsPartnerBidId: In(partnerBids.map((bid) => bid.id)),
+          },
+        })
+      : [];
+    const trip = (rate: string | null) => this.tripRateOf(rate, sourcing.load);
+    const brokerRows = responses.map((response) => ({
+      id: response.id,
+      source: 'broker' as const,
+      at: response.createdAt,
+      response: response.response as string,
+      // The trip total the broker gave.
+      rate: trip(response.rate),
+      channel: response.channel as string | null,
+      note: response.note,
+      vehicleNumber: response.vehicleNumber,
+      enteredBy: response.enteredBy,
+    }));
+    const loadsmartRows = [...loadsmartBidEvents(loadsmartBids, sourcing.load.awardedBidId)].map(
+      (event) => ({
+        id: event.id,
+        source: 'loadsmart' as const,
+        at: event.at,
+        response: event.event as string,
+        rate: trip(event.rate),
+        channel: null as string | null,
+        note: event.note,
+        vehicleNumber: null as string | null,
+        enteredBy: null as string | null,
+      }),
+    );
+    const counterRows = counters
+      .filter((row) => row.metadata?.partnerId === partnerId)
+      .map((row) => ({
+        id: row.id,
+        source: 'loadsmart' as const,
+        at: row.createdAt,
+        response: 'broker_countered',
+        // Already a trip total, with Loadsmart's margin out.
+        rate: Number(row.metadata?.brokerRate) || null,
+        channel: null as string | null,
+        note: (row.metadata?.note as string | null | undefined) ?? null,
+        vehicleNumber: null as string | null,
+        enteredBy: row.actorId,
+      }));
     return {
       partner: { id: partner.id, name: partner.name },
-      responses: responses.map((response) => ({
-        id: response.id,
-        at: response.createdAt,
-        response: response.response,
-        rate: response.rate === null ? null : Number(response.rate),
-        channel: response.channel,
-        note: response.note,
-        vehicleNumber: response.vehicleNumber,
-        enteredBy: response.enteredBy,
-      })),
+      responses: [...brokerRows, ...loadsmartRows, ...counterRows].sort(
+        (a, b) => b.at.getTime() - a.at.getTime(),
+      ),
     };
   }
 
@@ -674,6 +841,7 @@ export class LsPlacementBoardService extends LsServiceBase {
             phone: byId.get(outcome.partnerId)?.phone ?? null,
             status: outcome.status,
             failReason: outcome.failReason,
+            failure: outcome.status === 'failed' ? whatsappFailureOf(outcome.failReason) : null,
             sentAt: now,
             deliveredAt: null,
             readAt: null,
@@ -685,6 +853,7 @@ export class LsPlacementBoardService extends LsServiceBase {
             phone: byId.get(partnerId)?.phone ?? null,
             status: 'already_sent' as const,
             failReason: null,
+            failure: null,
             sentAt: earlierById.get(partnerId)?.createdAt ?? null,
             deliveredAt: earlierById.get(partnerId)?.deliveredAt ?? null,
             readAt: earlierById.get(partnerId)?.readAt ?? null,
@@ -771,6 +940,7 @@ export class LsPlacementBoardService extends LsServiceBase {
       }),
       this.addedBrokers(ids),
       this.laneMatchesFor(sourcings),
+      this.fillDistances(sourcings),
     ]);
     const now = this.now();
     return sourcings.map((sourcing, index) => {
@@ -796,11 +966,11 @@ export class LsPlacementBoardService extends LsServiceBase {
         route: {
           from: posting?.pickupAddress?.city ?? null,
           to: posting?.dropAddress?.city ?? null,
-          // Not stored on the posting yet.
-          distanceKm: null as number | null,
+          distanceKm: posting?.distanceKm ?? null,
         },
         reportingAt: posting?.pickupAt?.toISOString() ?? null,
         truckType: load.truckType?.name ?? load.feetWheels ?? null,
+        truckBody: truckBodyOf(load),
         expectedPrice: rate ? tripAmount(Number(rate), load.freightType, tonnes) : null,
         brokersMatched: matchedIds.size,
         activeBids: bids.filter((bid) => bid.sourcingId === sourcing.id).length,

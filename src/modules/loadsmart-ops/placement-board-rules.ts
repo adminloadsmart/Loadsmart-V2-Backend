@@ -129,3 +129,97 @@ export function whatsappLink(phone: string, message: string): string | null {
   const number = digits.length === 10 ? `91${digits}` : digits.length === 12 ? digits : null;
   return number ? `https://wa.me/${number}?text=${encodeURIComponent(message)}` : null;
 }
+
+/** Why brokers can't be added to a load's list any more, or null while they still can. Placement
+ *  owns a load from Created to Truck assigned, so the list is open only while the load is on the
+ *  board (posted, or its bid sent to the shipper) — the same rule as Send Requirement. */
+export function brokersClosedReason(sourcingStatus: string): string | null {
+  return sourcingStatus === 'posted' || sourcingStatus === 'bid_sent'
+    ? null
+    : "This load is no longer open for sourcing — brokers can't be added";
+}
+
+/** A failed WhatsApp send in Placement's words: a short `label` for the pill and a `hint` that
+ *  says what to do. The raw `failReason` stays on the response for the tech team. */
+export interface WhatsappFailure {
+  label: string;
+  hint: string;
+}
+
+/** Meta / WhatsApp Cloud API error codes seen on broker sends. */
+const WHATSAPP_ERROR_CODES: Record<string, WhatsappFailure> = {
+  '131049': {
+    label: 'Held back by WhatsApp',
+    hint: 'WhatsApp limits business messages to this number for now — call them',
+  },
+  '131026': {
+    label: 'Not delivered',
+    hint: "Number can't get WhatsApp messages — check it or call them",
+  },
+  '131047': {
+    label: 'Not delivered',
+    hint: 'No reply from them in 24 h, so WhatsApp blocked the message — call them',
+  },
+  '131050': {
+    label: 'Opted out',
+    hint: 'They have stopped business messages on WhatsApp — call them',
+  },
+  '131048': {
+    label: 'Held back by WhatsApp',
+    hint: 'WhatsApp spam limit reached — try later or call them',
+  },
+  '131056': {
+    label: 'Too many messages',
+    hint: 'Too many messages to this number just now — try again later',
+  },
+  '130472': {
+    label: 'Held back by WhatsApp',
+    hint: 'WhatsApp is not delivering to this number right now — call them',
+  },
+  '131042': {
+    label: 'Not sent',
+    hint: 'WhatsApp billing problem on our account — tell the tech team',
+  },
+};
+
+/** Reasons our own side gives when nothing went out (suppressed sends, no provider). */
+const SKIPPED_SEND_REASONS: Record<string, WhatsappFailure> = {
+  provider_not_configured: {
+    label: 'Not sent',
+    hint: 'WhatsApp is not set up on this server — tell the tech team',
+  },
+  'WhatsApp is not set up': {
+    label: 'Not sent',
+    hint: 'WhatsApp is not set up on this server — tell the tech team',
+  },
+  template_not_configured: {
+    label: 'Not sent',
+    hint: 'The WhatsApp template is not set up — tell the tech team',
+  },
+  window_closed_no_template: {
+    label: 'Not sent',
+    hint: 'No WhatsApp template for this message — call them',
+  },
+  no_opt_in: {
+    label: 'Not sent',
+    hint: "They haven't agreed to WhatsApp messages — call them",
+  },
+};
+
+/** Turns a raw failure ("131049: This message was not delivered to maintain healthy ecosystem
+ *  engagement.", "WhatsApp error 131026", "provider_not_configured") into Placement's words.
+ *  Template errors (132xxx) and anything unknown get a generic "Not delivered". */
+export function whatsappFailureOf(failReason: string | null): WhatsappFailure {
+  const raw = failReason?.trim() ?? '';
+  const skipped = SKIPPED_SEND_REASONS[raw];
+  if (skipped) return skipped;
+  const code = /\b(13\d{4})\b/.exec(raw)?.[1];
+  if (code && WHATSAPP_ERROR_CODES[code]) return WHATSAPP_ERROR_CODES[code];
+  if (code?.startsWith('132')) {
+    return {
+      label: 'Not sent',
+      hint: 'Problem with our WhatsApp template — tell the tech team',
+    };
+  }
+  return { label: 'Not delivered', hint: "WhatsApp couldn't deliver it — call them" };
+}
