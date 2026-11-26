@@ -34,6 +34,7 @@ import {
   memoState,
   placementTabs,
   rateCeiling,
+  brokersClosedReason,
 } from './placement-board-rules';
 import { routeOf } from '../lane-matching';
 import type { BrokerMatcher } from './loadsmart.interface';
@@ -106,6 +107,12 @@ function fullAddress(address: PostAddress | null | undefined) {
  * broker gave, the broker calls, extending the bid window, and the requirement sent to brokers.
  * Bids themselves are logged through LsSourcingService.recordPartnerBid.
  */
+/** Brokers are added only while Placement is still sourcing the load. */
+function assertOpenForBrokers(sourcing: LsSourcingEntity): void {
+  const closed = brokersClosedReason(sourcing.status);
+  if (closed) throw new ConflictError(closed);
+}
+
 export class LsPlacementBoardService extends LsServiceBase {
   constructor(
     repository: LoadsmartRepository,
@@ -363,6 +370,7 @@ export class LsPlacementBoardService extends LsServiceBase {
   ) {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
+      assertOpenForBrokers(sourcing);
       // A broker from the broker master gets its partner row (where its bids are kept) first.
       const partnerId = pick.brokerId
         ? await this.brokerMatcher?.partnerForBroker(pick.brokerId)
@@ -388,7 +396,7 @@ export class LsPlacementBoardService extends LsServiceBase {
   /** Adds several broker-master brokers at once. One that is already listed or no longer
    *  approved lands in `failed` and does not stop the others. */
   async addBrokers(actorId: string, sourcingId: string, brokerIds: string[]) {
-    await this.assertSourcing(sourcingId);
+    assertOpenForBrokers(await this.assertSourcing(sourcingId));
     const added: { brokerId: string; partnerId: string; name: string }[] = [];
     const failed: { brokerId: string; reason: string }[] = [];
     for (const brokerId of new Set(brokerIds)) {

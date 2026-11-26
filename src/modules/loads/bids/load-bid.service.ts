@@ -241,7 +241,12 @@ export class LoadBidService {
     );
   }
 
-  private toView(bid: LoadBidEntity, now: Date, rank: number | null): BidView {
+  private toView(
+    bid: LoadBidEntity,
+    now: Date,
+    rank: number | null,
+    names: ReadonlyMap<string, string> = new Map(),
+  ): BidView {
     const blocker = acceptBlocker(bid, now);
     return {
       id: bid.id,
@@ -260,6 +265,7 @@ export class LoadBidService {
       canAccept: blocker === null,
       acceptBlocker: blocker,
       enteredBy: bid.enteredBy,
+      enteredByName: (bid.enteredBy && names.get(bid.enteredBy)) ?? null,
       entryReason: bid.entryReason,
       expiresAt: bid.expiresAt?.toISOString() ?? null,
       createdAt: bid.createdAt.toISOString(),
@@ -463,13 +469,14 @@ export class LoadBidService {
 
       const ranked = rankBids(bids, now);
       const rest = bids.filter((bid) => !ranked.includes(bid));
+      const names = await this.bidRepository.userNames(bids.map((bid) => bid.enteredBy));
       return {
         loadId,
         loadStatus: load.status,
         biddingClosesAt: closesAt?.toISOString() ?? null,
         bids: [
-          ...ranked.map((bid, index) => this.toView(bid, now, index + 1)),
-          ...rest.map((bid) => this.toView(bid, now, null)),
+          ...ranked.map((bid, index) => this.toView(bid, now, index + 1, names)),
+          ...rest.map((bid) => this.toView(bid, now, null, names)),
         ],
       };
     } catch (error) {

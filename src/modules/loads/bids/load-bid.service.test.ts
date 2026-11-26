@@ -344,6 +344,7 @@ describe('Extending the bid window', () => {
         posting.bidWindowExtraMinutes = minutes;
       }),
       listByLoad: vi.fn(async () => []),
+      userNames: vi.fn(async () => new Map<string, string>()),
       markExpired: vi.fn(async () => undefined),
       reopen: vi.fn(async () => undefined),
     };
