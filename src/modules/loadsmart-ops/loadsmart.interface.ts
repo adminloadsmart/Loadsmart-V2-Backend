@@ -1,5 +1,9 @@
 import type { ChargeReplyTag } from '../loads/money/charge.types';
-import type { BrokerResponse, BrokerResponseChannel } from './placement-board-rules';
+import type {
+  BrokerResponse,
+  BrokerResponseChannel,
+  WhatsappFailure,
+} from './placement-board-rules';
 import type { LaneMatchService } from '../lane-matching';
 import type { BalancePayer } from './receivables-rules';
 import type { LoadPostingService } from '../loads/load-posting/load-posting.service';
@@ -172,7 +176,10 @@ export interface BrokerWhatsappActivity {
   /** Receipts from WhatsApp; `delivered` is often skipped and comes with `read`. */
   deliveredAt: string | null;
   readAt: string | null;
+  /** WhatsApp's raw error, for the tech team. */
   failReason: string | null;
+  /** On a `failed` send: what went wrong in Placement's words (pill label + what to do). */
+  failure: WhatsappFailure | null;
   lastReply: BrokerWhatsappReply | null;
 }
 
