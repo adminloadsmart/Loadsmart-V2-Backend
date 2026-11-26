@@ -117,6 +117,8 @@ export interface BidView {
   /** Why Accept is off, e.g. no truck number yet. */
   acceptBlocker: string | null;
   enteredBy: string | null;
+  /** Full name of whoever entered the bid (shipper user or Loadsmart staff); null when unknown. */
+  enteredByName: string | null;
   entryReason: string | null;
   expiresAt: string | null;
   createdAt: string;

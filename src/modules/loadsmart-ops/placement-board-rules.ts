@@ -129,3 +129,12 @@ export function whatsappLink(phone: string, message: string): string | null {
   const number = digits.length === 10 ? `91${digits}` : digits.length === 12 ? digits : null;
   return number ? `https://wa.me/${number}?text=${encodeURIComponent(message)}` : null;
 }
+
+/** Why brokers can't be added to a load's list any more, or null while they still can. Placement
+ *  owns a load from Created to Truck assigned, so the list is open only while the load is on the
+ *  board (posted, or its bid sent to the shipper) — the same rule as Send Requirement. */
+export function brokersClosedReason(sourcingStatus: string): string | null {
+  return sourcingStatus === 'posted' || sourcingStatus === 'bid_sent'
+    ? null
+    : "This load is no longer open for sourcing — brokers can't be added";
+}
