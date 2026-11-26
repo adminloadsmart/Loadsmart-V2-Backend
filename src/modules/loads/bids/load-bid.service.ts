@@ -13,7 +13,6 @@ import {
   acceptBlocker,
   bidWindowClosesAt,
   effectiveBidStatus,
-  manualIndentAcceptError,
   manualRateError,
   rankBids,
 } from './bid-rules';
@@ -526,9 +525,8 @@ export class LoadBidService {
     }
   }
 
-  /** The shipper types in a rate one of their transporters gave by phone — allowed from 30
-   *  minutes after the load was sent until bidding closes at 4 hours, with a reason. A transporter
-   *  quoting again revises its live bid. */
+  /** The shipper types in a rate one of their transporters gave by phone — allowed until bidding
+   *  closes at 4 hours, with a reason. A transporter quoting again revises its live bid. */
   async recordBid(
     tenantId: string,
     actorId: string,
@@ -863,8 +861,7 @@ export class LoadBidService {
   }
 
   /** "Transporter accepted" — the shipper enters an indent transporter's acceptance given by
-   *  phone (reason optional; their name is kept), from 30 minutes after the request was sent — no
-   *  wait when that transporter already tapped Accept on WhatsApp.
+   *  phone (reason optional; their name is kept).
    *   - without a truck number: noted on the transporter's recipient row and as an
    *     INDENT_ACCEPTED activity (WhatsApp then asks that transporter for the truck); the load
    *     stays at Created;
@@ -881,11 +878,6 @@ export class LoadBidService {
       if (!load.freightValue) throw new ConflictError('This indent has no contract rate');
       const alreadyAccepted = recipient?.replyStatus === 'accepted';
       const now = this.now();
-      if (!alreadyAccepted) {
-        const { sentAt } = await this.windowOf(load);
-        const timingError = manualIndentAcceptError(sentAt, now);
-        if (timingError) throw new ConflictError(timingError);
-      }
 
       if (input.vehicleNumber) {
         const bid = await this.recordIndentAcceptance(
