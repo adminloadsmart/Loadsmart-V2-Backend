@@ -16,12 +16,18 @@ import { LoadPostingController } from './load-posting.controller';
 import { createLoadPostingRoutes } from './load-posting.routes';
 import { LoadDispatchNotifier, LoggingLoadDispatchNotifier } from './load-dispatch-notifier';
 import type { FleetOwnerLookup } from '../utils/driver-assignment-message';
+import type { OwnsFleetLookup } from '../utils/own-fleet-guard';
 import { AssignmentComplianceService } from '../compliance/assignment-compliance.service';
 import { LoadEventNotifier } from '../../notifications/notifications.interface';
 import { LoadStageHook } from '../utils/load.interface';
 import { DriverTripNotifier } from '../utils/load-alert.interface';
 import { LoadPostingHooks } from './utils/load-posting.interface';
 import { SettingsReader } from '../../settings/settings.types';
+import { GooglePlacesClient } from '../../../adapters/google-places.client';
+import { CustomerDeliveryPointGeofenceSync } from '../../customers/customer-delivery-point-geofence.sync';
+import { GeofenceRepository } from '../../geofences/geofence.repository';
+import { MasterPointGeofences } from '../../geofences/master-point-geofences';
+import { LoadingPointGeofenceSync } from '../../masters/loading-point/loading-point-geofence.sync';
 
 export function createLoadPostingModule(
   dataSource: DataSource,
@@ -44,9 +50,20 @@ export function createLoadPostingModule(
     onStageEntered?: LoadStageHook;
     hooks?: LoadPostingHooks;
     fleetOwnerLookup?: FleetOwnerLookup;
+    ownsFleetLookup?: OwnsFleetLookup;
   },
 ) {
   const repository = new LoadPostingRepository(dataSource);
+  // Pickup / drop points saved or picked on Post a load get their pin and arrival geofence.
+  const google = new GooglePlacesClient();
+  const geofences = new GeofenceRepository(dataSource);
+  const pointGeofences = new MasterPointGeofences(
+    dataSource,
+    geofences,
+    new LoadingPointGeofenceSync(geofences),
+    new CustomerDeliveryPointGeofenceSync(geofences),
+    google,
+  );
 
   const postingService = new LoadPostingService(
     dataSource,
@@ -66,6 +83,9 @@ export function createLoadPostingModule(
     deps.onStageEntered,
     deps.hooks,
     deps.fleetOwnerLookup,
+    pointGeofences,
+    google,
+    deps.ownsFleetLookup,
   );
   const lookupService = new LoadPostingLookupService(
     dataSource,

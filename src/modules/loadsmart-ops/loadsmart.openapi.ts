@@ -153,7 +153,16 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.sendBid,
     description:
-      "Send the shipper one bid as Loadsmart's — no partner name, priced at the margin unless shipperPrice is given. Under 5% margin needs negotiationNote.",
+      "Send the shipper a bid as Loadsmart's — no partner name, priced at the margin unless shipperPrice (trip total) is given. Under 5% margin needs negotiationNote. Loadsmart can have several bids with the shipper at once: this adds one and leaves the others live; sending the same partner bid again replaces only its own earlier price.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/send-bids`,
+    op: 'loadsmart.sendBids',
+    permissions: [LS_PLACEMENT],
+    schema: v.sendBids,
+    description:
+      "Send several broker bids to the shipper at once, each as its own Loadsmart bid (same rules as send-bid). One that can't go — margin, failed truck — is listed in `failed` with the reason and does not stop the others. Returns { sent: [{ partnerBidId, bidId }], failed: [{ partnerBidId, reason }] }.",
   },
   {
     method: 'post',
@@ -926,7 +935,16 @@ const ROWS: Row[] = [
     permissions: [LS_PLACEMENT],
     schema: v.answerShipperCounter,
     description:
-      "Placement answers the shipper's counter on Loadsmart's bid. Accepted: the counter becomes Loadsmart's price — the margin rules apply again (a note under the minimum, never at a loss). Declined: the bid stays at its price.",
+      "Placement answers the shipper's counter on Loadsmart's bid. Accepted: the counter becomes Loadsmart's price — the margin rules apply again (a note under the minimum, never at a loss). With brokerRate (trip total), the broker's bid first moves to that rate — the broker agreed to come down. Declined: the bid stays at its price. Either way the offer made to the broker is cleared.",
+  },
+  {
+    method: 'post',
+    path: `${OPS}/sourcings/{sourcingId}/broker-counter`,
+    op: 'loadsmart.counterBroker',
+    permissions: [LS_PLACEMENT],
+    schema: v.counterBroker,
+    description:
+      "Placement takes the shipper's counter on one of Loadsmart's bids (bidId) to the broker behind it: rate is the trip total offered to the broker, by default the counter less Loadsmart's margin (₹7,800 at 5% → ₹7,410); it must stay under the counter. Saved on the broker's bid until the counter is answered. Returns the counter view (an entry of shipperCounters on the Placement page). The WhatsApp to the broker is the notifications team's (hook marked in the service).",
   },
   {
     method: 'get',

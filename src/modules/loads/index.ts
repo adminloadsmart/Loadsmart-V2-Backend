@@ -228,6 +228,7 @@ export function createLoadsModule(
     deps.onLoadEvent,
     runStageHooks,
     (tenantId) => deps.authService.getFleetOwner(tenantId),
+    (tenantId) => deps.authService.ownsFleet(tenantId),
   );
 
   // The e-LR — Loadsmart loads, issued by Loadsmart's Tracking team (loadsmart-ops).
@@ -342,6 +343,7 @@ export function createLoadsModule(
     onStageEntered: runStageHooks,
     hooks: postingHooks,
     fleetOwnerLookup: (tenantId) => deps.authService.getFleetOwner(tenantId),
+    ownsFleetLookup: (tenantId) => deps.authService.ownsFleet(tenantId),
     notifier: deps.loadDispatchNotifier,
   });
   protectedRouter.use('/post', loadPosting.router);

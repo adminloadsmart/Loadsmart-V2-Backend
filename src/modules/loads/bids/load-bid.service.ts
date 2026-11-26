@@ -95,9 +95,10 @@ export class LoadBidService {
     this.onLoadsmartBidRejected = hooks.rejected;
   }
 
-  /** Loadsmart's placement team sends one best bid: the partner's truck at Loadsmart's price,
-   *  shown to the shipper as Loadsmart's, first and highlighted. A new one replaces Loadsmart's
-   *  previous live bid. Market loads only, inside the same 4-hour window. */
+  /** Loadsmart's placement team sends a bid: a partner's truck at Loadsmart's price, shown to the
+   *  shipper as Loadsmart's. Several can be with the shipper at once (one per partner bid);
+   *  sending the same partner bid again replaces its earlier one. Market loads only, inside the
+   *  same 4-hour window. */
   async recordLoadsmartBid(
     tenantId: string,
     actorId: string,
@@ -117,7 +118,12 @@ export class LoadBidService {
       if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
       if (input.vehicleNumber) await this.assertTruckFree(load, input.vehicleNumber);
 
-      const previous = await this.bidRepository.findLiveLoadsmart(tenantId, loadId);
+      // Only this partner bid's earlier price is replaced — Loadsmart's other bids stay live.
+      const previous = await this.bidRepository.findLiveLoadsmartFor(
+        tenantId,
+        loadId,
+        input.lsPartnerBidId,
+      );
       if (previous) await this.bidRepository.markRejected(previous, actorId);
       const created = await this.bidRepository.create({
         tenantId,
@@ -235,7 +241,12 @@ export class LoadBidService {
     );
   }
 
-  private toView(bid: LoadBidEntity, now: Date, rank: number | null): BidView {
+  private toView(
+    bid: LoadBidEntity,
+    now: Date,
+    rank: number | null,
+    names: ReadonlyMap<string, string> = new Map(),
+  ): BidView {
     const blocker = acceptBlocker(bid, now);
     return {
       id: bid.id,
@@ -254,6 +265,7 @@ export class LoadBidService {
       canAccept: blocker === null,
       acceptBlocker: blocker,
       enteredBy: bid.enteredBy,
+      enteredByName: (bid.enteredBy && names.get(bid.enteredBy)) ?? null,
       entryReason: bid.entryReason,
       expiresAt: bid.expiresAt?.toISOString() ?? null,
       createdAt: bid.createdAt.toISOString(),
@@ -388,6 +400,12 @@ export class LoadBidService {
     }
   }
 
+  /** Loadsmart's live bids on a load, newest first — Placement reads the shipper's counters on
+   *  them. */
+  listLiveLoadsmartBids(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
+    return this.bidRepository.listLiveLoadsmart(tenantId, loadId);
+  }
+
   /** One bid as stored — the Loadsmart ops module reads its partner bid from it. */
   findBid(tenantId: string, loadId: string, bidId: string): Promise<LoadBidEntity | null> {
     return this.bidRepository.findById(tenantId, loadId, bidId);
@@ -451,13 +469,14 @@ export class LoadBidService {
 
       const ranked = rankBids(bids, now);
       const rest = bids.filter((bid) => !ranked.includes(bid));
+      const names = await this.bidRepository.userNames(bids.map((bid) => bid.enteredBy));
       return {
         loadId,
         loadStatus: load.status,
         biddingClosesAt: closesAt?.toISOString() ?? null,
         bids: [
-          ...ranked.map((bid, index) => this.toView(bid, now, index + 1)),
-          ...rest.map((bid) => this.toView(bid, now, null)),
+          ...ranked.map((bid, index) => this.toView(bid, now, index + 1, names)),
+          ...rest.map((bid) => this.toView(bid, now, null, names)),
         ],
       };
     } catch (error) {
