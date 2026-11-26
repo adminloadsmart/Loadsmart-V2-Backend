@@ -2,6 +2,7 @@ import { DataSource } from 'typeorm';
 import { AuditService } from '../../audit/audit.service';
 import { CustomerService } from '../../customers/customer.service';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
+import { TransporterService } from '../../masters/transporter/transporter.service';
 import { TruckTypeService } from '../../masters/truck-type/truck-type.service';
 import { CodeSequenceRepository } from '../code-sequence/code-sequence.repository';
 import { LoadRepository } from '../core/load.repository';
@@ -28,6 +29,7 @@ export function createLoadPostingModule(
   deps: {
     auditService: AuditService;
     customerService: CustomerService;
+    transporterService: TransporterService;
     vehicleService: VehicleService;
     loadRepository: LoadRepository;
     codeSequenceRepository: CodeSequenceRepository;
@@ -73,6 +75,7 @@ export function createLoadPostingModule(
     repository,
     deps.loadRepository,
     deps.customerService,
+    deps.transporterService,
     deps.vehicleService,
     postingService,
   );

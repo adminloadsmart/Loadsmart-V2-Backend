@@ -330,6 +330,7 @@ export function createLoadsModule(
   const loadPosting = createLoadPostingModule(dataSource, {
     auditService: deps.auditService,
     customerService: deps.customerService,
+    transporterService: deps.transporterService,
     vehicleService: deps.vehicleService,
     loadRepository,
     codeSequenceRepository,
