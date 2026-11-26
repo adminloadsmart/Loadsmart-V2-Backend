@@ -63,6 +63,18 @@ export function createLoadPostingRoutes(controller: LoadPostingController): Rout
     validate(loadPostingValidators.transporters),
     asyncHandler(controller.transporters),
   );
+  router.post(
+    '/transporters',
+    canPost,
+    validate(loadPostingValidators.quickAddTransporter),
+    asyncHandler(controller.quickAddTransporter),
+  );
+  router.patch(
+    '/transporters/:transporterId/phone',
+    canPost,
+    validate(loadPostingValidators.updateTransporterPhone),
+    asyncHandler(controller.updateTransporterPhone),
+  );
   router.get(
     '/truck-options',
     canPost,

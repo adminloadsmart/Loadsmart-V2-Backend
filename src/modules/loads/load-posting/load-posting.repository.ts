@@ -400,6 +400,12 @@ export class LoadPostingRepository {
     });
   }
 
+  findTransporterByExactName(tenantId: string, name: string) {
+    return this.transporters.findOne({
+      where: { tenantId, deletedAt: IsNull(), status: 'active', name: equalsIgnoreCase(name) },
+    });
+  }
+
   findActiveTransporters(tenantId: string, ids: string[]) {
     if (!ids.length) return Promise.resolve([] as TransporterEntity[]);
     return this.transporters.find({

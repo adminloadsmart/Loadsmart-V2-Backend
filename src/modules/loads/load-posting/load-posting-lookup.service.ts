@@ -3,6 +3,7 @@ import { NotFoundError, rethrow } from '../../../shared/errors';
 import { CustomerService } from '../../customers/customer.service';
 import { PermissionHolder } from '../../../shared/middleware/require-permission.middleware';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
+import { TransporterService } from '../../masters/transporter/transporter.service';
 import { LoadRepository } from '../core/load.repository';
 import { LoadPostingRepository } from './load-posting.repository';
 import { LoadPostingEntity } from './entities/load-posting.entity';
@@ -37,6 +38,7 @@ export class LoadPostingLookupService {
     private readonly repository: LoadPostingRepository,
     private readonly loadRepository: LoadRepository,
     private readonly customerService: CustomerService,
+    private readonly transporterService: TransporterService,
     private readonly vehicleService: VehicleService,
     private readonly postingService: LoadPostingService,
   ) {}
@@ -93,6 +95,45 @@ export class LoadPostingLookupService {
       return { id: customer.id, code: customer.code, name: customer.name, status: customer.status };
     } catch (error) {
       rethrow(error, 'Failed to add customer');
+    }
+  }
+
+  /**
+   * Add a transporter by typed name and contact number (both mandatory in the master); the rest
+   * is completed later in Masters → Transporters. An exact (case-insensitive) existing name is
+   * reused; a number already on another transporter is refused by the master (409).
+   */
+  async quickAddTransporter(
+    tenantId: string,
+    actorId: string,
+    actor: PermissionHolder,
+    input: { name: string; phone: string },
+  ) {
+    try {
+      const existing = await this.repository.findTransporterByExactName(tenantId, input.name);
+      const transporter =
+        existing ?? (await this.transporterService.create(tenantId, actorId, actor, input));
+      return transporterOption(transporter);
+    } catch (error) {
+      rethrow(error, 'Failed to add transporter');
+    }
+  }
+
+  /** The contact number of a transporter just added from Create trip, changed in the same form;
+   *  a number already on another transporter is refused by the master (409). */
+  async updateTransporterPhone(
+    tenantId: string,
+    actorId: string,
+    actor: PermissionHolder,
+    transporterId: string,
+    phone: string,
+  ) {
+    try {
+      return transporterOption(
+        await this.transporterService.update(tenantId, actorId, actor, transporterId, { phone }),
+      );
+    } catch (error) {
+      rethrow(error, 'Failed to update the transporter');
     }
   }
 
@@ -441,6 +482,23 @@ export class LoadPostingLookupService {
       rethrow(error, 'Failed to fetch posting');
     }
   }
+}
+
+/** A transporter as the pickers list it (same shape as `transporters`). */
+function transporterOption(transporter: {
+  id: string;
+  name: string;
+  phone: string;
+  city?: string | null;
+  state?: string | null;
+}) {
+  return {
+    id: transporter.id,
+    name: transporter.name,
+    phone: transporter.phone,
+    city: transporter.city ?? null,
+    state: transporter.state ?? null,
+  };
 }
 
 /** "Closed · MXL · 18T · 32ft" — card label and lane key for a stored picker choice. */

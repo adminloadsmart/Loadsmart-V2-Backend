@@ -15,6 +15,12 @@ import { truckPickSchema } from '../../masters/truck-type/truck-type.validators'
 import { MAX_CARGO_VALUE_PER_TONNE } from '../utils/loads.types';
 
 const uuid = z.string().uuid();
+/** Same rule as the Transporter master's phone. */
+const transporterPhone = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/[\s-]/g, ''))
+  .refine((value) => /^\d{10,15}$/.test(value), 'Expected a 10-15 digit mobile number');
 const packaging = z.enum(['bags', 'drums', 'pallets', 'pieces', 'boxes', 'cartons', 'tonnes']);
 const dateTime = z.string().datetime({ offset: true });
 
@@ -258,6 +264,13 @@ export const loadPostingValidators = {
   }),
   loadingPoints: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   transporters: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
+  quickAddTransporter: z.object({
+    body: z.object({ name: z.string().trim().min(1).max(150), phone: transporterPhone }).strict(),
+  }),
+  updateTransporterPhone: z.object({
+    params: z.object({ transporterId: uuid }),
+    body: z.object({ phone: transporterPhone }).strict(),
+  }),
   commodities: z.object({ query: z.object({ search: z.string().trim().min(1).optional() }) }),
   truckOptions: z.object({
     query: z.object({

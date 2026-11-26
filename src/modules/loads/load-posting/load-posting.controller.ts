@@ -134,6 +134,30 @@ export class LoadPostingController {
       ),
     );
 
+  quickAddTransporter = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.lookupService.quickAddTransporter(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!,
+        req.body as { name: string; phone: string },
+      ),
+      201,
+    );
+
+  updateTransporterPhone = async (req: Request, res: Response) =>
+    respond(
+      res,
+      await this.lookupService.updateTransporterPhone(
+        requireTenantId(req),
+        req.user!.id,
+        req.user!,
+        String(req.params.transporterId),
+        (req.body as { phone: string }).phone,
+      ),
+    );
+
   transporters = async (req: Request, res: Response) =>
     respond(
       res,
