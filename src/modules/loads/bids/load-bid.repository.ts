@@ -5,6 +5,7 @@ import { LoadRouteChangeEntity } from '../entities/load-route-change.entity';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { LoadPostingEntity } from '../load-posting/entities/load-posting.entity';
 import { LoadRecipientEntity } from '../load-posting/entities/load-recipient.entity';
+import { UserEntity } from '../../auth/entities/user.entity';
 import { LoadBidEntity } from './load-bid.entity';
 import { CreateLoadBidData } from '../utils/load-bid.interface';
 
@@ -12,11 +13,25 @@ export class LoadBidRepository {
   private readonly bids: Repository<LoadBidEntity>;
   private readonly postings: Repository<LoadPostingEntity>;
   private readonly recipients: Repository<LoadRecipientEntity>;
+  private readonly users: Repository<UserEntity>;
 
   constructor(dataSource: DataSource) {
     this.bids = dataSource.getRepository(LoadBidEntity);
     this.postings = dataSource.getRepository(LoadPostingEntity);
     this.recipients = dataSource.getRepository(LoadRecipientEntity);
+    this.users = dataSource.getRepository(UserEntity);
+  }
+
+  /** Full names of the users who entered bids — a shipper user or Loadsmart staff alike, so the
+   *  bid card can say who logged the call. */
+  async userNames(userIds: readonly (string | null)[]): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+    if (!ids.length) return new Map();
+    const users = await this.users.find({
+      where: { id: In(ids) },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.flatMap((user) => (user.fullName ? [[user.id, user.fullName]] : [])));
   }
 
   listByLoad(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
