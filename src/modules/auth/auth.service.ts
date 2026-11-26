@@ -1084,6 +1084,12 @@ export class AuthService {
 
   /** The fleet owner (the organisation's admin) and its dispatch contact — name and phone, for the
    *  load detail screen and the driver's "load assigned" message. */
+  /** The onboarding "Do you own a fleet?" answer; null when it was never answered. */
+  async ownsFleet(tenantId: string): Promise<boolean | null> {
+    const organization = await this.organizationService.getOrganizationStatus(tenantId);
+    return organization.hasOwnFleet;
+  }
+
   async getFleetOwner(tenantId: string): Promise<FleetOwnerDetails> {
     const users = await this.authRepository.listUsersByRole(tenantId, [
       ORG_ADMIN_ROLE,

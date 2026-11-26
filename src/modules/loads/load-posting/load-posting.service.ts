@@ -24,6 +24,7 @@ import { LoadEntity } from '../entities/load.entity';
 import { formatLoadCode } from '../utils/code.util';
 import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
 import { LoadStageHook } from '../utils/load.interface';
+import { assertOwnFleetAllowed, OwnsFleetLookup } from '../utils/own-fleet-guard';
 import { CreatePostingData, LoadPostingRepository } from './load-posting.repository';
 import { LoadCargoItemEntity } from '../entities/load-cargo-item.entity';
 import { LoadStatus } from '../utils/loads.types';
@@ -161,6 +162,8 @@ export class LoadPostingService {
     private readonly pointGeofences?: MasterPointGeofences,
     /** Pins an address typed on the form (no Google pick), so its new master point is fenced. */
     private readonly pinLookup?: AddressPinLookup,
+    /** "Market trucks only" organizations can't post own-fleet loads. */
+    private readonly ownsFleetLookup?: OwnsFleetLookup,
   ) {}
 
   /** The form's timing rules from the latest settings: the earliest truck reporting time to
@@ -245,6 +248,7 @@ export class LoadPostingService {
         contractRate = contract.rate;
         contractId = contract.id;
       } else {
+        await assertOwnFleetAllowed(this.ownsFleetLookup, tenantId);
         const own = await this.assertOwnFleetVehicle(tenantId, input.vehicleId!, input.driverId);
         vehicleLoadDefaults = own.defaults;
         assignedDriverName = own.driverName;

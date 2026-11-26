@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError, ValidationError, rethrow } from '../../..
 import { humanizeStatus } from '../../../shared/utils/humanize';
 import { AuditService } from '../../audit/audit.service';
 import { driverAssignmentMessage, FleetOwnerLookup } from '../utils/driver-assignment-message';
+import { assertOwnFleetAllowed, OwnsFleetLookup } from '../utils/own-fleet-guard';
 import { DriverTripNotifier } from '../utils/load-alert.interface';
 import { VehicleService } from '../../masters/vehicle/vehicle.service';
 import { ListVehiclesInput } from '../../masters/vehicle/vehicle.interface';
@@ -102,6 +103,8 @@ export class DispatchPlanningService {
     private readonly onStageEntered?: LoadStageHook,
     /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
     private readonly fleetOwnerLookup?: FleetOwnerLookup,
+    /** "Market trucks only" organizations can't plan own-fleet lines. */
+    private readonly ownsFleetLookup?: OwnsFleetLookup,
   ) {}
 
   /**
@@ -121,6 +124,9 @@ export class DispatchPlanningService {
     try {
       if (!input.truckLines?.length) {
         throw new ValidationError('At least one truck line is required'); // V-16
+      }
+      if (input.truckLines.some((line) => line.sourceType === 'own_fleet')) {
+        await assertOwnFleetAllowed(this.ownsFleetLookup, tenantId);
       }
 
       const result = await this.dataSource.transaction(async (manager) => {
