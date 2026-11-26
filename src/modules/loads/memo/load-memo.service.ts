@@ -30,6 +30,7 @@ import { StorageService } from '../../storage/storage.service';
 import { LoadDocumentService } from '../documents/load-document.service';
 import { buildMemoPdfContent, renderMemoPdf } from './memo-pdf';
 import { FailedCheck, LoadPartyNotifier } from '../utils/load-party-notifier.interface';
+import type { DriverLicenceLookup } from '../core/tracking-source.hook';
 
 /** A sent memo past its hour is expired, whatever the row still says. */
 export function effectiveMemoStatus(memo: LoadMemoEntity, now: Date): MemoStatus {
@@ -69,6 +70,14 @@ export class LoadMemoService {
 
   setDriverAccountMatcher(matcher: (driverNumber: string | null) => Promise<string | null>): void {
     this.matchDriverAccount = matcher;
+  }
+
+  /** The driver already on file with a licence number (tracking-source.hook.ts
+   *  createDriverLicenceLookup) — naming that licence uses the record's name, mobile and DOB. */
+  private findDriverByLicence?: DriverLicenceLookup;
+
+  setDriverLicenceLookup(lookup: DriverLicenceLookup): void {
+    this.findDriverByLicence = lookup;
   }
 
   /** Told after every memo version is sent (the shipper gets it on WhatsApp — modules/messaging). */
@@ -132,6 +141,13 @@ export class LoadMemoService {
         throw new ConflictError("On a Loadsmart load, Loadsmart's placement team names the driver");
       }
       const licenceNumber = input.licenceNumber.replace(/\s+/g, '').toUpperCase();
+      // A licence already on file names that driver: the record's name, mobile and date of birth
+      // are used (and checked on Sarathi), whatever was typed. A field missing on the record
+      // keeps the typed value.
+      const onRecord = (await this.findDriverByLicence?.(licenceNumber)) ?? null;
+      const driverName = onRecord?.fullName || input.driverName;
+      const driverMobile = onRecord?.mobile ?? input.driverMobile;
+      const dateOfBirth = onRecord?.dateOfBirth ?? input.dateOfBirth;
       const vehicleNumber = input.vehicleNumber
         ? input.vehicleNumber.replace(/\s+/g, '').toUpperCase()
         : load.vehicleNumber;
@@ -157,22 +173,23 @@ export class LoadMemoService {
         }
       }
       // Re-matched every time: a different mobile number unlinks the previous driver's account.
-      const driverId = (await this.matchDriverAccount?.(input.driverMobile)) ?? null;
+      const driverId = (await this.matchDriverAccount?.(driverMobile)) ?? null;
       const updated = await this.loadRepository.update(tenantId, loadId, {
         vehicleNumber,
         driverId,
-        driverName: input.driverName,
-        driverNumber: input.driverMobile,
+        driverName,
+        driverNumber: driverMobile,
         driverLicenceNumber: licenceNumber,
-        driverDateOfBirth: input.dateOfBirth,
+        driverDateOfBirth: dateOfBirth,
         updatedBy: actorId,
       });
       if (!updated) throw new ConflictError('Naming the driver failed');
 
       await this.loadActivityService.record(tenantId, loadId, actorId, 'DRIVER_NAMED', null, null, {
-        driverName: input.driverName,
-        driverMobile: input.driverMobile,
+        driverName,
+        driverMobile,
         licenceNumber,
+        ...(onRecord ? { driverOnRecordId: onRecord.id } : {}),
         ...(input.reason ? { reason: input.reason, onBehalf: true } : {}),
       });
       await this.auditService.log({
@@ -181,23 +198,29 @@ export class LoadMemoService {
         action: 'LOAD_DRIVER_NAMED',
         resourceType: 'load',
         oldData: { id: loadId, driverName: load.driverName, driverNumber: load.driverNumber },
-        newData: { id: loadId, driverName: input.driverName, driverNumber: input.driverMobile },
+        newData: { id: loadId, driverName, driverNumber: driverMobile },
       });
 
       // Truck first: its weight decides the licence class the driver needs.
       await this.verification.ensureTruckChecked(tenantId, updated);
       await this.verification.verifyDriver(tenantId, updated, {
         licenceNumber,
-        dateOfBirth: input.dateOfBirth,
+        dateOfBirth,
       });
       const checks = await this.checksFor(updated);
+      const driver = {
+        name: driverName,
+        mobile: driverMobile,
+        dateOfBirth,
+        driverOnRecordId: onRecord?.id ?? null,
+      };
       // Details the transporter sent on WhatsApp are answered there; typed in by a user, the
       // transporter / broker hears of a failed check on WhatsApp (LS_N_0108).
       if (actorId) await this.notifyFailedChecks(updated, checks);
       if (!checks.clear || options.holdMemo || LoadMemoService.memoHold(updated)) {
-        return { memo: null, checks };
+        return { memo: null, checks, driver };
       }
-      return { memo: await this.send(updated, actorId), checks };
+      return { memo: await this.send(updated, actorId), checks, driver };
     } catch (error) {
       rethrow(error, 'Failed to name the driver');
     }

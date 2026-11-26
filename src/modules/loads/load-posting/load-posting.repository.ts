@@ -44,6 +44,8 @@ export type CreatePostingData = Omit<
   | 'onBehalfProofKey'
   // Starts at 0; only Placement's "Extend bid window" changes it.
   | 'bidWindowExtraMinutes'
+  // Filled later by Placement's work queue from Google Routes.
+  | 'distanceKm'
 >;
 
 export interface CreateRecipientData {

@@ -1216,7 +1216,7 @@ export class LsSourcingService extends LsServiceBase {
         true,
       );
       await this.step(sourcing, actorId, 'driver_named', 'LS_DRIVER_NAMED', {
-        driverName: driver.driverName,
+        driverName: result.driver?.name ?? driver.driverName,
         checksClear: result.checks.clear,
       });
       return result;
@@ -1289,7 +1289,7 @@ export class LsSourcingService extends LsServiceBase {
         { holdMemo: true },
       );
       await this.step(sourcing, null, 'driver_named', 'LS_DRIVER_NAMED', {
-        driverName: driver.driverName,
+        driverName: result.driver?.name ?? driver.driverName,
         checksClear: result.checks.clear,
         channel: 'whatsapp',
         partnerId,

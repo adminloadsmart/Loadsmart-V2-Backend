@@ -38,6 +38,10 @@ import {
 } from './placement-board-rules';
 import { routeOf } from '../lane-matching';
 import type { BrokerMatcher } from './loadsmart.interface';
+import { GoogleRoutesClient, LatLng } from '../../adapters/google-routes.client';
+import { GooglePlacesClient } from '../../adapters/google-places.client';
+import { AddressPinLookup, pinForAddress } from '../places/address-pin';
+import { TruckBodyType } from '../masters/truck-type/truck-type.types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -66,6 +70,39 @@ export interface BrokerCallInput {
   outcome: CallOutcome;
   quotedRate?: number;
   remarks?: string;
+}
+
+/** Most postings whose road distance is looked up on Google in one queue load — the rest are
+ *  filled on a later load (each is looked up once, then kept on the posting). */
+const MAX_DISTANCE_LOOKUPS_PER_CALL = 10;
+
+/** Truck-master body classes → the picker's open/closed, for postings with no truckPick. */
+const BODY_OF_FAMILY: Partial<Record<TruckBodyType, 'open' | 'closed'>> = {
+  open_body: 'open',
+  lcv_open_body: 'open',
+  container: 'closed',
+  lcv_container: 'closed',
+};
+
+/** Open or closed body of the truck the load asks for; null when neither the posting's picker
+ *  choice nor the truck master row says. */
+function truckBodyOf(load: LoadEntity): 'open' | 'closed' | null {
+  const picked = load.posting?.truckPick?.body;
+  if (picked === 'open' || picked === 'closed') return picked;
+  const family = load.truckType?.bodyType;
+  return (family && BODY_OF_FAMILY[family]) ?? null;
+}
+
+/** A posting address's point, when it has one. */
+function pointOf(address: PostAddress | null | undefined): LatLng | null {
+  const lat = Number(address?.latitude);
+  const lng = Number(address?.longitude);
+  return address?.latitude != null &&
+    address?.longitude != null &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng)
+    ? { lat, lng }
+    : null;
 }
 
 /** IST midnight of `now`, as a UTC instant. */
@@ -128,6 +165,68 @@ export class LsPlacementBoardService extends LsServiceBase {
   }
 
   private brokerMatcher?: BrokerMatcher;
+
+  /** Road distance for postings that don't have one yet. */
+  private readonly routes: Pick<GoogleRoutesClient, 'drivingRoute'> = new GoogleRoutesClient();
+
+  /** Pins a posting address with no map point from its text (most addresses picked from the
+   *  masters were saved without one). */
+  private readonly pinLookup: AddressPinLookup = new GooglePlacesClient();
+
+  /**
+   * Looks up and keeps the road distance of postings that have no distance yet (at most
+   * MAX_DISTANCE_LOOKUPS_PER_CALL per call), and sets it on the loaded entities so this call's
+   * rows show it. An address without a map point is first pinned from its text and the point is
+   * kept on the posting, so it is looked up only once. Fail-soft: a posting Google can't pin or
+   * route stays null.
+   */
+  private async fillDistances(sourcings: LsSourcingEntity[]): Promise<void> {
+    const pending = new Map<string, LoadPostingEntity>();
+    for (const sourcing of sourcings) {
+      if (pending.size >= MAX_DISTANCE_LOOKUPS_PER_CALL) break;
+      const posting = sourcing.load?.posting;
+      if (!posting || posting.distanceKm != null || pending.has(posting.id)) continue;
+      if (!posting.pickupAddress || !posting.dropAddress) continue;
+      pending.set(posting.id, posting);
+    }
+    if (!pending.size) return;
+    const postings = this.dataSource.getRepository(LoadPostingEntity);
+    await Promise.all(
+      [...pending.values()].map(async (posting) => {
+        try {
+          const [pickup, drop] = await Promise.all([
+            this.withPoint(posting.pickupAddress!),
+            this.withPoint(posting.dropAddress!),
+          ]);
+          const from = pointOf(pickup);
+          const to = pointOf(drop);
+          const route = from && to ? await this.routes.drivingRoute(from, to) : null;
+          const km = route ? Math.round(route.distanceM / 1000) : null;
+          const pinned = {
+            ...(pickup !== posting.pickupAddress ? { pickupAddress: pickup } : {}),
+            ...(drop !== posting.dropAddress ? { dropAddress: drop } : {}),
+          };
+          if (km === null && !Object.keys(pinned).length) return;
+          await postings.update({ id: posting.id }, { ...pinned, distanceKm: km });
+          // One posting can sit under several sourcings (one per truck).
+          for (const sourcing of sourcings) {
+            const row = sourcing.load?.posting;
+            if (row?.id === posting.id) Object.assign(row, pinned, { distanceKm: km });
+          }
+        } catch (error) {
+          console.warn('[placement] could not fill posting distance', posting.id, error);
+        }
+      }),
+    );
+  }
+
+  /** The address with a map point: as is when it has one, else pinned from its text (the same
+   *  object back when Google can't match it). */
+  private async withPoint(address: PostAddress): Promise<PostAddress> {
+    if (pointOf(address)) return address;
+    const pin = await pinForAddress(this.pinLookup, { ...address, title: address.label });
+    return pin ? { ...address, ...pin } : address;
+  }
 
   /** Which of Loadsmart's brokers run each load's lane (modules/lane-matching). */
   setBrokerMatcher(matcher: BrokerMatcher): void {
@@ -838,6 +937,7 @@ export class LsPlacementBoardService extends LsServiceBase {
       }),
       this.addedBrokers(ids),
       this.laneMatchesFor(sourcings),
+      this.fillDistances(sourcings),
     ]);
     const now = this.now();
     return sourcings.map((sourcing, index) => {
@@ -863,11 +963,11 @@ export class LsPlacementBoardService extends LsServiceBase {
         route: {
           from: posting?.pickupAddress?.city ?? null,
           to: posting?.dropAddress?.city ?? null,
-          // Not stored on the posting yet.
-          distanceKm: null as number | null,
+          distanceKm: posting?.distanceKm ?? null,
         },
         reportingAt: posting?.pickupAt?.toISOString() ?? null,
         truckType: load.truckType?.name ?? load.feetWheels ?? null,
+        truckBody: truckBodyOf(load),
         expectedPrice: rate ? tripAmount(Number(rate), load.freightType, tonnes) : null,
         brokersMatched: matchedIds.size,
         activeBids: bids.filter((bid) => bid.sourcingId === sourcing.id).length,

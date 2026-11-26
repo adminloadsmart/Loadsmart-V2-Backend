@@ -66,6 +66,7 @@ import {
   createDriverTrackingReevaluator,
   createTrackingSourceHook,
   createDriverAccountMatcher,
+  createDriverLicenceLookup,
 } from './core/tracking-source.hook';
 import { createLoadRemindersWorker } from './workers/load-reminders.worker';
 import { LoadVerificationRepository } from './verification/load-verification.repository';
@@ -297,6 +298,7 @@ export function createLoadsModule(
   const matchDriverAccount = createDriverAccountMatcher(dataSource);
   loadService.setDriverAccountMatcher(matchDriverAccount);
   loadMemoService.setDriverAccountMatcher(matchDriverAccount);
+  loadMemoService.setDriverLicenceLookup(createDriverLicenceLookup(dataSource));
   const truckCancellationService = new TruckCancellationService(
     dataSource,
     loadRepository,
