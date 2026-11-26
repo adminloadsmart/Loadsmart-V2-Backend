@@ -8,8 +8,6 @@ import { BidLike } from '../utils/load-bid.interface';
 
 /** "Bids expire 4 hours after posting." */
 export const BID_WINDOW_MS = 4 * 60 * 60 * 1000;
-/** "Rate given by phone? The shipper can enter it 30 minutes after sending." */
-export const MANUAL_RATE_DELAY_MS = 30 * 60 * 1000;
 /** "The load memo expires 1 hour after it is sent." */
 export const MEMO_TTL_MS = 60 * 60 * 1000;
 
@@ -20,23 +18,8 @@ export function bidWindowClosesAt(sentAt: Date, extraMinutes = 0): Date {
 
 /** Why the shipper can't type in a phone rate right now, or null when they can. */
 export function manualRateError(sentAt: Date, now: Date, extraMinutes = 0): string | null {
-  const opensAt = new Date(sentAt.getTime() + MANUAL_RATE_DELAY_MS);
-  if (now < opensAt) {
-    return `A rate given by phone can be entered from ${opensAt.toISOString()}, 30 minutes after the load was sent`;
-  }
   if (now >= bidWindowClosesAt(sentAt, extraMinutes)) {
     return 'Bidding on this load has closed — bids expire 4 hours after posting';
-  }
-  return null;
-}
-
-/** Why the shipper can't enter an indent acceptance given by phone right now, or null when they
- *  can — "You can enter it for him 30 minutes after the request is sent". An indent has no bid
- *  window, so there is no closing time. */
-export function manualIndentAcceptError(sentAt: Date, now: Date): string | null {
-  const opensAt = new Date(sentAt.getTime() + MANUAL_RATE_DELAY_MS);
-  if (now < opensAt) {
-    return `An acceptance given by phone can be entered from ${opensAt.toISOString()}, 30 minutes after the request was sent`;
   }
   return null;
 }

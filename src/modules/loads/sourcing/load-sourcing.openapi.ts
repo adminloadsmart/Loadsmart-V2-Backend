@@ -44,7 +44,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     operationId: 'loads.recordBid',
     ...manageDispatch(
       'Record a rate one of the shipper’s own transporters gave by phone, on a market load. ' +
-        'Allowed from 30 minutes after the load was sent until bidding closes 4 hours after it; ' +
+        'Allowed until bidding closes 4 hours after the load was sent; ' +
         '`reason` is optional; the shipper’s name is logged. The transporter must be ' +
         'one the posting went to. Quoting again revises the transporter’s live bid. The ' +
         'first bid moves the load to Bids received.',
@@ -153,8 +153,7 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
     ...manageDispatch(
       '"Transporter accepted" — the shipper enters an indent transporter’s acceptance given by ' +
         'phone. `transporterId` must be a transporter the indent was offered to (today its ' +
-        'contracted transporter). Allowed from 30 minutes after the request was sent — no wait ' +
-        'if that transporter already tapped Accept on WhatsApp. `reason` is optional; the ' +
+        'contracted transporter). `reason` is optional; the ' +
         'shipper’s name is logged. Without `vehicleNumber` the acceptance is only noted ' +
         '(`waitingFor: "truck"`, the load stays at Created) and WhatsApp asks that transporter ' +
         'for the truck. With it, it is the award to that transporter at the contract rate: the ' +
@@ -168,8 +167,8 @@ export function registerLoadSourcingOpenApi(registry: OpenAPIRegistry): void {
       201: { description: '{ loadId, transporterId, loadStatus, waitingFor, bid }' },
       409: {
         description:
-          'Not an indent, already accepted, not offered to that transporter, already noted as ' +
-          'accepted without a truck, or within 30 minutes of sending',
+          'Not an indent, already accepted, not offered to that transporter, or already noted ' +
+          'as accepted without a truck',
         ...errorContent,
       },
     },

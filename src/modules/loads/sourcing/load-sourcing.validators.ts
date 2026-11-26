@@ -136,9 +136,9 @@ export const loadSourcingValidators = {
   }),
   listMemos: z.object({ params }),
 
-  // "Transporter accepted": an indent transporter said yes by phone — entered on their behalf,
-  // 30 minutes after the request went out. The truck number awards the indent to them; it can
-  // follow later (here again, or with the driver).
+  // "Transporter accepted": an indent transporter said yes by phone — entered on their behalf.
+  // The truck number awards the indent to them; it can follow later (here again, or with the
+  // driver).
   recordIndentAcceptance: z.object({
     params,
     body: z
