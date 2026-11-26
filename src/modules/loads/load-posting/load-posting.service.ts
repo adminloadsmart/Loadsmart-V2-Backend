@@ -61,6 +61,8 @@ import {
   assignmentBlockedEvent,
 } from '../compliance/assignment-compliance.service';
 import { DriverTenantRelationEntity } from '../../driver/entities/driver-tenant-relation.entity';
+import { MasterPointGeofences } from '../../geofences/master-point-geofences';
+import { AddressPinLookup, pinForAddress } from '../../places/address-pin';
 import {
   istDateOf,
   licenceClassVerdict,
@@ -155,6 +157,10 @@ export class LoadPostingService {
     private readonly hooks: LoadPostingHooks = {},
     /** The fleet owner's name and phone, added to the driver's "load assigned" push. */
     private readonly fleetOwnerLookup?: FleetOwnerLookup,
+    /** Gives the load's pickup and drop points their pin + arrival geofence after the post. */
+    private readonly pointGeofences?: MasterPointGeofences,
+    /** Pins an address typed on the form (no Google pick), so its new master point is fenced. */
+    private readonly pinLookup?: AddressPinLookup,
   ) {}
 
   /** The form's timing rules from the latest settings: the earliest truck reporting time to
@@ -469,6 +475,7 @@ export class LoadPostingService {
         return { posting, loads, recipients };
       });
 
+      await this.fencePoints(tenantId, result.posting, actorId);
       // After commit — a delivery problem must never undo or fail a posted load.
       const recipients = await this.dispatch(
         tenantId,
@@ -587,16 +594,21 @@ export class LoadPostingService {
     };
   }
 
+  /** A typed address (no Google pick) is pinned here, before the post's transaction, so the
+   *  master point saved from it has a pin and gets its geofence. Unmatched, it stays unpinned. */
+  private async pinned(address: NewAddressInput): Promise<NewAddressInput> {
+    if (address.latitude != null && address.longitude != null) return address;
+    const pin = await pinForAddress(this.pinLookup, { ...address, title: address.label });
+    return pin ? { ...address, ...pin } : address;
+  }
+
   private async resolvePickup(tenantId: string, pickup: PickupInput): Promise<ResolvedPlace> {
     if (pickup.newAddress) {
+      const newAddress = await this.pinned(pickup.newAddress);
       return {
-        address: this.toAddress(
-          pickup.newAddress.label,
-          pickup.newAddress,
-          pickup.newAddress.source,
-        ),
+        address: this.toAddress(newAddress.label, newAddress, newAddress.source),
         masterId: null,
-        newAddress: pickup.newAddress,
+        newAddress,
       };
     }
     const point = await this.repository.findLoadingPoint(tenantId, pickup.loadingPointId!);
@@ -614,10 +626,11 @@ export class LoadPostingService {
     drop: DropInput,
   ): Promise<ResolvedPlace> {
     if (drop.newAddress) {
+      const newAddress = await this.pinned(drop.newAddress);
       return {
-        address: this.toAddress(drop.newAddress.label, drop.newAddress, drop.newAddress.source),
+        address: this.toAddress(newAddress.label, newAddress, newAddress.source),
         masterId: null,
-        newAddress: drop.newAddress,
+        newAddress,
       };
     }
     if (drop.customerDeliveryPointId) {
@@ -915,6 +928,9 @@ export class LoadPostingService {
           city: drop.newAddress.city,
           state: drop.newAddress.state,
           pinCode: drop.newAddress.pinCode,
+          // The pin, so the new unloading point gets its geofence (it used to be dropped here).
+          latitude: drop.newAddress.latitude == null ? null : String(drop.newAddress.latitude),
+          longitude: drop.newAddress.longitude == null ? null : String(drop.newAddress.longitude),
           deletedAt: null,
         }),
       );
@@ -976,6 +992,36 @@ export class LoadPostingService {
   }
 
   // --- After commit ---
+
+  /**
+   * Every pickup / drop master point of a posting gets its pin and arrival geofence: one saved
+   * from this form (written directly in the post's transaction, so the masters' syncs never ran)
+   * and one picked from a master that has none yet. Runs after commit and doesn't fail the post:
+   * the load is already posted, so a failure is logged and the point is fenced on its next save
+   * or post.
+   */
+  private async fencePoints(
+    tenantId: string,
+    posting: Pick<
+      LoadPostingEntity,
+      'id' | 'pickupLoadingPointId' | 'dropLoadingPointId' | 'dropCustomerDeliveryPointId'
+    >,
+    actorId: string,
+  ): Promise<void> {
+    try {
+      await this.pointGeofences?.ensure(
+        tenantId,
+        {
+          loadingPointIds: [posting.pickupLoadingPointId, posting.dropLoadingPointId],
+          deliveryPointIds: [posting.dropCustomerDeliveryPointId],
+        },
+        actorId,
+      );
+    } catch (error) {
+      // Deliberately not rethrown: the posting is committed (same rule as dispatch below).
+      console.error(`[load-posting] geofences for posting ${posting.id} failed`, error);
+    }
+  }
 
   private async dispatch(
     tenantId: string,
@@ -1283,6 +1329,7 @@ export class LoadPostingService {
         }
       }
       const fresh = (await this.repository.findPostingById(tenantId, postingId))!;
+      await this.fencePoints(tenantId, fresh, actorId);
       return { ...(await this.describeExisting(tenantId, fresh)), duplicate: false };
     } catch (error) {
       rethrow(error, 'Failed to edit the load');
