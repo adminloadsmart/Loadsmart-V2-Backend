@@ -73,6 +73,15 @@ export abstract class LsServiceBase {
     });
   }
 
+  /** A rate kept in the load's basis as the trip total brokers and Placement work in. */
+  protected tripRateOf(
+    rate: string | null,
+    load: Pick<LoadEntity, 'freightType' | 'plannedCapacityTonnes'>,
+  ): number | null {
+    if (rate === null) return null;
+    return tripAmount(Number(rate), load.freightType, Number(load.plannedCapacityTonnes));
+  }
+
   /** The partner's trip amount — their rate in the load's freight basis. */
   protected partnerTrip(sourcing: LsSourcingEntity, load: LoadEntity): number {
     if (!sourcing.partnerRate) throw new ConflictError('No partner rate on this load');

@@ -54,7 +54,8 @@ export function acceptBlocker(bid: BidLike, now: Date): string | null {
   if (status === 'expired') return 'This bid has expired — bids expire 4 hours after posting';
   if (status !== 'received') return `This bid is already ${status}`;
   if (bid.counterStatus === 'pending') {
-    return `Waiting for the answer to your counter of ₹${Number(bid.counterRate)} — record it first`;
+    // No amount here: a per-tonne load stores the counter per tonne, and the screen shows it.
+    return 'Waiting for the answer to your counter — record it first';
   }
   // Loadsmart names its truck and driver on the load memo after the award, not on the bid.
   if (!bid.vehicleNumber && bid.source !== 'loadsmart') {

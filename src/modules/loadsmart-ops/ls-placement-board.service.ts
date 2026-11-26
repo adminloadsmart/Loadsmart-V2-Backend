@@ -20,6 +20,9 @@ import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { CallOutcome } from './loadsmart.types';
 import { tripAmount } from './loadsmart-rules';
+import { loadsmartBidEvents } from './bid-history-rules';
+import { LoadBidEntity } from '../loads/bids/load-bid.entity';
+import { LoadActivityEntity } from '../loads/entities/load-activity.entity';
 import { LsServiceBase } from './ls-base';
 import { LsSourcingService } from './ls-sourcing.service';
 import {
@@ -296,16 +299,19 @@ export class LsPlacementBoardService extends LsServiceBase {
             : chosen
               ? chosen.partner
               : null,
+          // Trip totals, as the broker quoted and the shipper is priced.
           chosenRate: sourcing.partnerRate
-            ? Number(sourcing.partnerRate)
+            ? this.tripRateOf(sourcing.partnerRate, load)
             : chosen
-              ? Number(chosen.rate)
+              ? chosen.tripRate
               : null,
           // Loadsmart's price to the shipper, once sent.
-          shipperPrice: sourcing.shipperPrice ? Number(sourcing.shipperPrice) : null,
+          shipperPrice: sourcing.shipperPrice ? shipperPrice : null,
           priceSentAt: sourcing.bidSentAt,
         },
         latestBids: placement.bids,
+        // The shipper's counters on Loadsmart's bids, waiting for Placement (trip totals).
+        shipperCounters: await this.sourcingService.shipperCounters(sourcing),
         callList: placement.callList,
         memo: {
           state: row.memo,
@@ -431,27 +437,80 @@ export class LsPlacementBoardService extends LsServiceBase {
     return bySourcing;
   }
 
-  /** "Broker bid history": every response this broker gave on the load, newest first. */
+  /** "Broker bid history", newest first: every response this broker gave on the load, and what
+   *  happened to Loadsmart's bids built on theirs — sent to the shipper, countered, the counter
+   *  taken to the broker, the answer, and rejected / lost / won. `source` tells them apart:
+   *  `broker` rows are what the broker said; `loadsmart` rows are Loadsmart's side. Rates are
+   *  trip totals. */
   async bidHistory(sourcingId: string, partnerId: string) {
-    await this.assertSourcing(sourcingId);
+    const sourcing = await this.assertSourcing(sourcingId);
     const partner = await this.repository.partners.findOneBy({ id: partnerId });
     if (!partner) throw new NotFoundError('Broker not found');
-    const responses = await this.dataSource.getRepository(LsPartnerBidResponseEntity).find({
-      where: { sourcingId, partnerId },
-      order: { createdAt: 'DESC' },
-    });
+    const [responses, partnerBids, counters] = await Promise.all([
+      this.dataSource.getRepository(LsPartnerBidResponseEntity).find({
+        where: { sourcingId, partnerId },
+        order: { createdAt: 'DESC' },
+      }),
+      this.repository.partnerBids.find({ where: { sourcingId, partnerId }, select: { id: true } }),
+      // Every "Counter broker" Placement sent this broker on the load.
+      this.dataSource.getRepository(LoadActivityEntity).find({
+        where: { loadId: sourcing.loadId, action: 'LOADSMART_STEP', toValue: 'broker_countered' },
+      }),
+    ]);
+    const loadsmartBids = partnerBids.length
+      ? await this.dataSource.getRepository(LoadBidEntity).find({
+          where: {
+            loadId: sourcing.loadId,
+            source: 'loadsmart',
+            lsPartnerBidId: In(partnerBids.map((bid) => bid.id)),
+          },
+        })
+      : [];
+    const trip = (rate: string | null) => this.tripRateOf(rate, sourcing.load);
+    const brokerRows = responses.map((response) => ({
+      id: response.id,
+      source: 'broker' as const,
+      at: response.createdAt,
+      response: response.response as string,
+      // The trip total the broker gave.
+      rate: trip(response.rate),
+      channel: response.channel as string | null,
+      note: response.note,
+      vehicleNumber: response.vehicleNumber,
+      enteredBy: response.enteredBy,
+    }));
+    const loadsmartRows = [...loadsmartBidEvents(loadsmartBids, sourcing.load.awardedBidId)].map(
+      (event) => ({
+        id: event.id,
+        source: 'loadsmart' as const,
+        at: event.at,
+        response: event.event as string,
+        rate: trip(event.rate),
+        channel: null as string | null,
+        note: event.note,
+        vehicleNumber: null as string | null,
+        enteredBy: null as string | null,
+      }),
+    );
+    const counterRows = counters
+      .filter((row) => row.metadata?.partnerId === partnerId)
+      .map((row) => ({
+        id: row.id,
+        source: 'loadsmart' as const,
+        at: row.createdAt,
+        response: 'broker_countered',
+        // Already a trip total, with Loadsmart's margin out.
+        rate: Number(row.metadata?.brokerRate) || null,
+        channel: null as string | null,
+        note: (row.metadata?.note as string | null | undefined) ?? null,
+        vehicleNumber: null as string | null,
+        enteredBy: row.actorId,
+      }));
     return {
       partner: { id: partner.id, name: partner.name },
-      responses: responses.map((response) => ({
-        id: response.id,
-        at: response.createdAt,
-        response: response.response,
-        rate: response.rate === null ? null : Number(response.rate),
-        channel: response.channel,
-        note: response.note,
-        vehicleNumber: response.vehicleNumber,
-        enteredBy: response.enteredBy,
-      })),
+      responses: [...brokerRows, ...loadsmartRows, ...counterRows].sort(
+        (a, b) => b.at.getTime() - a.at.getTime(),
+      ),
     };
   }
 

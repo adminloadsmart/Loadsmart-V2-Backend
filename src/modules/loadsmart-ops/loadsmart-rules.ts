@@ -52,6 +52,19 @@ export function tripAmount(
   return round2(freightType === 'per_ton' ? rate * tonnes : rate);
 }
 
+/** A broker's rate — always the total freight for the trip — as a rate in the load's own basis,
+ *  which every margin and price rule reads: divided by the tonnes on a per-tonne load (to the
+ *  paisa), as is on a per-trip load. Null when a per-tonne load has no weight. */
+export function tripToLoadRate(
+  trip: number,
+  freightType: 'per_ton' | 'flat' | null,
+  tonnes: number,
+): number | null {
+  if (freightType !== 'per_ton') return trip;
+  if (!Number.isFinite(tonnes) || tonnes <= 0) return null;
+  return round2(trip / tonnes);
+}
+
 /** "The team lead releases the advance, less TDS." */
 export function partnerAdvance(
   partnerTrip: number,

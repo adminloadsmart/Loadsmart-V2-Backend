@@ -47,6 +47,14 @@ import {
 const uuid = z.string().uuid();
 const loadParams = z.object({ loadId: uuid });
 const sourcingParams = z.object({ sourcingId: uuid });
+/** One broker bid to send to the shipper as Loadsmart's: its price is a trip total. */
+const sendBidBody = z
+  .object({
+    partnerBidId: uuid,
+    shipperPrice: z.number().positive().optional(),
+    negotiationNote: z.string().trim().min(3).max(500).optional(),
+  })
+  .strict();
 const mobile = z
   .string()
   .trim()
@@ -223,13 +231,34 @@ export const loadsmartValidators = {
       .optional()
       .default({}),
   }),
-  sendBid: z.object({
+  counterBroker: z.object({
     params: sourcingParams,
     body: z
       .object({
-        partnerBidId: uuid,
-        shipperPrice: z.number().positive().optional(),
-        negotiationNote: z.string().trim().min(3).max(500).optional(),
+        // Loadsmart's bid the shipper countered.
+        bidId: uuid,
+        // Trip total; defaults to the shipper's counter less Loadsmart's margin.
+        rate: z.number().int().positive().optional(),
+        note: z.string().trim().max(500).optional(),
+      })
+      .strict(),
+  }),
+  sendBid: z.object({
+    params: sourcingParams,
+    body: sendBidBody,
+  }),
+  sendBids: z.object({
+    params: sourcingParams,
+    body: z
+      .object({
+        bids: z
+          .array(sendBidBody)
+          .min(1)
+          .max(20)
+          .refine(
+            (bids) => new Set(bids.map((bid) => bid.partnerBidId)).size === bids.length,
+            'A broker bid is listed twice',
+          ),
       })
       .strict(),
   }),
@@ -773,6 +802,9 @@ export const loadsmartValidators = {
         accepted: z.boolean(),
         // Required when the counter leaves less than the minimum margin.
         negotiationNote: z.string().trim().min(1).max(1000).optional(),
+        // The broker agreed to come down to this trip rate (usually the counter Placement sent
+        // them) — their bid moves to it before the margin is checked. Accepting only.
+        brokerRate: z.number().int().positive().optional(),
       })
       .strict(),
   }),

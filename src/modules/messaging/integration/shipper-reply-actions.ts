@@ -340,9 +340,11 @@ export class TypeormShipperLoadStore implements ShipperLoadStore {
   }
 
   async findLiveLoadsmartBid(tenantId: string, loadId: string): Promise<LiveLoadsmartBid | null> {
+    // Loadsmart can have several bids with the shipper; a WhatsApp answer is about the newest.
     const bid = await this.dataSource.getRepository(LoadBidEntity).findOne({
       where: { tenantId, loadId, source: 'loadsmart', status: LIVE_BID_STATUS },
       select: { id: true, rate: true },
+      order: { createdAt: 'DESC' },
     });
     return bid ? { id: bid.id, rate: bid.rate } : null;
   }
