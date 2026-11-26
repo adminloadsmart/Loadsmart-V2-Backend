@@ -243,8 +243,98 @@ export function createTrackingEventHandlers(
     // SIM's up to one poll interval later). Queues the
     // halt's 2 h and 6 h checks; each re-checks at send time that the truck is still standing
     // there, outside a known stop, with the ETA slipping (load-alerts.ts vehicleHalted). The
-    // payload is tracking's alert row (snake_case); other rules' alerts are ignored.
+    // payload is tracking's alert row (snake_case). The SIM rules' alerts (INACT-SIM no SIM
+    // location for 60 min, DELAY-SIM late delivery, DEV-SIM off route, NIGHT-SIM night driving) each queue one basic
+    // notice at once (the resolver re-checks the load is still running); other rules' alerts
+    // are ignored.
     'alert.opened': async (event) => {
+      if (event.payload.rule_id === 'INACT-SIM') {
+        const loadId = stringOf(event.payload.trip_id);
+        const alertId = stringOf(event.payload.id);
+        const details = objectOf(event.payload.payload);
+        const lastSeenAt = dateOf(details.lastSeenAt);
+        const thresholdMin = Number(details.thresholdMin);
+        if (
+          !loadId ||
+          !alertId ||
+          !event.tenantId ||
+          !lastSeenAt ||
+          !Number.isFinite(thresholdMin)
+        ) {
+          console.warn(`tracking event ${event.eventId}: INACT-SIM alert missing fields`);
+          return;
+        }
+        await triggers.enqueue('load.sim_tracking_inactive', event.tenantId, {
+          loadId,
+          alertId,
+          lastSeenAt: lastSeenAt.toISOString(),
+          thresholdMin,
+          reason: details.reason === 'vendor_error' ? 'vendor_error' : 'phone_unreachable',
+        });
+        return;
+      }
+      if (event.payload.rule_id === 'NIGHT-SIM') {
+        const loadId = stringOf(event.payload.trip_id);
+        const alertId = stringOf(event.payload.id);
+        const startedAt = dateOf(objectOf(event.payload.payload).startedAt);
+        if (!loadId || !alertId || !event.tenantId || !startedAt) {
+          console.warn(`tracking event ${event.eventId}: NIGHT-SIM alert missing fields`);
+          return;
+        }
+        await triggers.enqueue('load.sim_night_driving', event.tenantId, {
+          loadId,
+          alertId,
+          startedAt: startedAt.toISOString(),
+        });
+        return;
+      }
+      if (event.payload.rule_id === 'DELAY-SIM') {
+        const loadId = stringOf(event.payload.trip_id);
+        const alertId = stringOf(event.payload.id);
+        const details = objectOf(event.payload.payload);
+        const delayMin = Number(details.projectedDelayMin);
+        if (!loadId || !alertId || !event.tenantId || !Number.isFinite(delayMin)) {
+          console.warn(`tracking event ${event.eventId}: DELAY-SIM alert missing fields`);
+          return;
+        }
+        await triggers.enqueue('load.sim_delay', event.tenantId, {
+          loadId,
+          alertId,
+          delayMin,
+          alreadyLate: details.alreadyLate === true,
+          severity: event.payload.severity === 'critical' ? 'critical' : 'warning',
+        });
+        return;
+      }
+      if (event.payload.rule_id === 'DEV-SIM') {
+        const loadId = stringOf(event.payload.trip_id);
+        const alertId = stringOf(event.payload.id);
+        const details = objectOf(event.payload.payload);
+        const position = objectOf(details.position);
+        const lat = Number(position.lat);
+        const lng = Number(position.lng);
+        const startedAt = dateOf(event.payload.occurred_at);
+        const distanceM = Number(details.distanceFromRouteM);
+        if (
+          !loadId ||
+          !alertId ||
+          !event.tenantId ||
+          !startedAt ||
+          ![lat, lng, distanceM].every(Number.isFinite)
+        ) {
+          console.warn(`tracking event ${event.eventId}: DEV-SIM alert missing fields`);
+          return;
+        }
+        await triggers.enqueue('load.sim_route_deviation', event.tenantId, {
+          loadId,
+          alertId,
+          deviationStartedAt: startedAt.toISOString(),
+          distanceOffKm: Math.round(distanceM / 100) / 10,
+          lat,
+          lng,
+        });
+        return;
+      }
       if (event.payload.rule_id !== 'HALT-GPS' && event.payload.rule_id !== 'HALT-SIM') return;
       const loadId = stringOf(event.payload.trip_id);
       const haltAlertId = stringOf(event.payload.id);
