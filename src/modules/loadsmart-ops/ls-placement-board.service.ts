@@ -35,6 +35,7 @@ import {
   placementTabs,
   rateCeiling,
   brokersClosedReason,
+  whatsappFailureOf,
 } from './placement-board-rules';
 import { routeOf } from '../lane-matching';
 import type { BrokerMatcher } from './loadsmart.interface';
@@ -840,6 +841,7 @@ export class LsPlacementBoardService extends LsServiceBase {
             phone: byId.get(outcome.partnerId)?.phone ?? null,
             status: outcome.status,
             failReason: outcome.failReason,
+            failure: outcome.status === 'failed' ? whatsappFailureOf(outcome.failReason) : null,
             sentAt: now,
             deliveredAt: null,
             readAt: null,
@@ -851,6 +853,7 @@ export class LsPlacementBoardService extends LsServiceBase {
             phone: byId.get(partnerId)?.phone ?? null,
             status: 'already_sent' as const,
             failReason: null,
+            failure: null,
             sentAt: earlierById.get(partnerId)?.createdAt ?? null,
             deliveredAt: earlierById.get(partnerId)?.deliveredAt ?? null,
             readAt: earlierById.get(partnerId)?.readAt ?? null,
