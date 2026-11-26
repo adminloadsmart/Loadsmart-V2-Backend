@@ -1,3 +1,4 @@
+import { whatsappFailureOf } from './placement-board-rules';
 import { In, IsNull } from 'typeorm';
 import { routeOf } from '../lane-matching';
 import { ConflictError, NotFoundError, rethrow, ValidationError } from '../../shared/errors';
@@ -297,6 +298,7 @@ export class LsPlacementService extends LsServiceBase {
           deliveredAt: send.deliveredAt?.toISOString() ?? null,
           readAt: send.readAt?.toISOString() ?? null,
           failReason: send.failReason,
+          failure: send.status === 'failed' ? whatsappFailureOf(send.failReason) : null,
           lastReply: lastReply.get(send.partnerId) ?? null,
         },
       ]),
