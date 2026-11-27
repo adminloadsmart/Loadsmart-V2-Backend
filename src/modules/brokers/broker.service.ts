@@ -1,4 +1,4 @@
-import { paginate, Paginated } from '../../../shared/utils/pagination';
+import { paginate, Paginated } from '../../shared/utils/pagination';
 import { BrokerEntity } from './broker.entity';
 import { BrokerRepository } from './broker.repository';
 import type { BrokerStatus } from './broker.types';

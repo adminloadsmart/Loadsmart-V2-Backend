@@ -18,7 +18,7 @@ import { registerLoadsmartOpenApi } from '../../modules/loadsmart-ops/loadsmart.
 import { registerSettingsOpenApi } from '../../modules/settings/settings.openapi';
 import { registerSentLogOpenApi } from '../../modules/messaging/sent-log/sent-log.openapi';
 import { registerLoadCallOpenApi } from '../../modules/loads/calls/load-call.openapi';
-import { registerBrokerOpenApi } from '../../modules/loads/brokers/broker.openapi';
+import { registerBrokerOpenApi } from '../../modules/brokers/broker.openapi';
 import { registerShipperAnalyticsOpenApi } from '../../modules/analytics/shipper/shipper-analytics.openapi';
 import { registerFleetAnalyticsOpenApi } from '../../modules/analytics/fleet-analytics/fleet-analytics.openapi';
 import { registerDriverAnalyticsOpenApi } from '../../modules/analytics/driver-analytics/driver-analytics.openapi';

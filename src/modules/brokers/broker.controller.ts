@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { respond } from '../../../shared/responses/respond';
+import { respond } from '../../shared/responses/respond';
 import { BrokerDetailService } from './broker-detail.service';
 import { BrokerService } from './broker.service';
 import type {

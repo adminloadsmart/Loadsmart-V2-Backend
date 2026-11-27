@@ -1,5 +1,5 @@
 import { DataSource, IsNull } from 'typeorm';
-import { BrokerEntity } from '../loads/brokers/broker.entity';
+import { BrokerEntity } from '../brokers/broker.entity';
 import { partnersForBrokers } from './broker-partners';
 import { TransporterEntity } from '../masters/transporter/entities/transporter.entity';
 import { CityQuery, GeoPlaceResolver, cityKey } from './geo-place-resolver';
@@ -38,7 +38,7 @@ export interface TransporterLaneMatch {
 /**
  * The engine behind "a load goes only to the brokers and transporters on its lane": reads the
  * lanes, locates their cities, and matches them with lane-match-rules. Loadsmart's brokers are
- * loads.brokers (approved only; lanes "origin → each destination", usually states or regions);
+ * brokers.brokers (approved only; lanes "origin → each destination", usually states or regions);
  * a shipper's transporters are its active masters with their operating lanes (cities). Best match
  * first, one per phone, at most MAX_RECIPIENTS.
  */

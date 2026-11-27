@@ -15,7 +15,7 @@ import { LsCallLogEntity } from './entities/ls-call-log.entity';
 import { LsPartnerBidResponseEntity } from './entities/ls-partner-bid-response.entity';
 import { LsSourcingBrokerEntity } from './entities/ls-sourcing-broker.entity';
 import { LsRequirementRecipientEntity } from './entities/ls-requirement-recipient.entity';
-import { BrokerEntity } from '../loads/brokers/broker.entity';
+import { BrokerEntity } from '../brokers/broker.entity';
 import { LsSourcingEntity } from './entities/ls-sourcing.entity';
 import { LoadsmartRepository } from './loadsmart.repository';
 import { CallOutcome } from './loadsmart.types';

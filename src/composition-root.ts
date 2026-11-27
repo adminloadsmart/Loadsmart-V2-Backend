@@ -637,6 +637,10 @@ export function buildContainer(dataSource: DataSource): Container {
   // WhatsApp: board loads go to partners; replies (accept / rate / truck number) from transporters
   // and partners become bids, indent acceptances and partner bids (modules/messaging/integration).
   loadsmart.sourcingService.setLoadBoardNotifier(messaging.createPartnerBoardNotifier());
+  // Masters → Drivers: drivers Placement names on a broker's load join that broker's drivers.
+  loadsmart.sourcingService.setBrokerDriverRecorder((driver) =>
+    loads.brokerDriverService.recordFromPlacement(driver),
+  );
   messaging.connectReplies({
     transporterBids: loads.loadBidService,
     transporterDrivers: loads.loadMemoService,

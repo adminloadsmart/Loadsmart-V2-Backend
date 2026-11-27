@@ -22,7 +22,7 @@ export const BROKER_DOCUMENT_TYPES = [
 export type BrokerDocumentType = (typeof BROKER_DOCUMENT_TYPES)[number];
 
 /** A document on file for a broker — its details only (no file). */
-@Entity({ schema: 'loads', name: 'broker_documents' })
+@Entity({ schema: 'brokers', name: 'broker_documents' })
 @Index('broker_documents_broker_idx', ['brokerId'])
 export class BrokerDocumentEntity {
   @PrimaryGeneratedColumn('uuid')

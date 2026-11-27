@@ -48,6 +48,7 @@ import type {
 import {
   ApproveSourcingInput,
   BrokerMatcher,
+  BrokerDriverRecorder,
   CommercialTermsInput,
   LoadBoardRow,
   BoardPartner,
@@ -101,6 +102,33 @@ export class LsSourcingService extends LsServiceBase {
   }
 
   private boardNotifier?: LoadBoardNotifier;
+  private brokerDriverRecorder?: BrokerDriverRecorder;
+
+  /** Masters → Drivers: a driver named on a broker's load is added to (or refreshed in) the
+   *  broker's drivers (brokers module). */
+  setBrokerDriverRecorder(recorder: BrokerDriverRecorder): void {
+    this.brokerDriverRecorder = recorder;
+  }
+
+  private async recordBrokerDriver(
+    partnerId: string | null,
+    actorId: string | null,
+    driver: NameDriverInput,
+    result: NameDriverResult,
+    photos: { licenceFrontFileKey?: string; licenceBackFileKey?: string } = {},
+  ) {
+    if (!partnerId || !this.brokerDriverRecorder) return;
+    await this.brokerDriverRecorder({
+      partnerId,
+      actorId,
+      fullName: result.driver?.name ?? driver.driverName,
+      mobile: result.driver?.mobile ?? driver.driverMobile,
+      licenceNumber: driver.licenceNumber.replace(/\s+/g, '').toUpperCase(),
+      dateOfBirth: result.driver?.dateOfBirth ?? driver.dateOfBirth ?? null,
+      licenceFrontFileKey: photos.licenceFrontFileKey ?? null,
+      licenceBackFileKey: photos.licenceBackFileKey ?? null,
+    });
+  }
   private brokerMatcher?: BrokerMatcher;
   private staffNotifier?: Pick<LsStaffNotifier, 'notifyPermission'>;
 
@@ -1219,6 +1247,10 @@ export class LsSourcingService extends LsServiceBase {
         driverName: result.driver?.name ?? driver.driverName,
         checksClear: result.checks.clear,
       });
+      await this.recordBrokerDriver(sourcing.partnerId, actorId, driver, result, {
+        licenceFrontFileKey,
+        licenceBackFileKey,
+      });
       return result;
     } catch (error) {
       rethrow(error, 'Failed to name the driver');
@@ -1294,6 +1326,7 @@ export class LsSourcingService extends LsServiceBase {
         channel: 'whatsapp',
         partnerId,
       });
+      await this.recordBrokerDriver(partnerId, null, driver, result);
       return result;
     } catch (error) {
       rethrow(error, 'Failed to name the driver');

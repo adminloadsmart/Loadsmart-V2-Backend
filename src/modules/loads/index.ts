@@ -2,12 +2,15 @@ import { LoadDispatchNotifier } from './load-posting/load-dispatch-notifier';
 import { LoadCallRepository } from './calls/load-call.repository';
 import { LoadCallService } from './calls/load-call.service';
 import { LoadCallController } from './calls/load-call.controller';
-import { BrokerRepository } from './brokers/broker.repository';
-import { BrokerService } from './brokers/broker.service';
-import { BrokerController } from './brokers/broker.controller';
-import { createBrokerRoutes } from './brokers/broker.routes';
-import { BrokerDetailRepository } from './brokers/broker-detail.repository';
-import { BrokerDetailService } from './brokers/broker-detail.service';
+import { BrokerRepository } from '../brokers/broker.repository';
+import { BrokerService } from '../brokers/broker.service';
+import { BrokerController } from '../brokers/broker.controller';
+import { createBrokerRoutes } from '../brokers/broker.routes';
+import { BrokerDetailRepository } from '../brokers/broker-detail.repository';
+import { BrokerDetailService } from '../brokers/broker-detail.service';
+import { BrokerDriverRepository } from '../brokers/broker-driver.repository';
+import { BrokerDriverService } from '../brokers/broker-driver.service';
+import { BrokerDriverController } from '../brokers/broker-driver.controller';
 import {
   createLoadsmartLoadCallRoutes,
   createShipperLoadCallRoutes,
@@ -362,6 +365,13 @@ export function createLoadsModule(
   const loadCallController = new LoadCallController(loadCallService);
   protectedRouter.use(createShipperLoadCallRoutes(loadCallController));
 
+  // Masters → Drivers: the drivers brokers put on Loadsmart loads.
+  const brokerDriverService = new BrokerDriverService(
+    new BrokerDriverRepository(dataSource),
+    deps.storageService,
+    deps.auditService,
+  );
+
   return {
     requisitionService,
     loadService,
@@ -373,7 +383,7 @@ export function createLoadsModule(
     loadActivityService,
     loadCallService,
     loadCallOpsRouter: createLoadsmartLoadCallRoutes(loadCallController),
-    // The Brokers page at /loadsmart-ops/brokers (composition-root.ts).
+    // The Brokers page and Masters → Drivers at /loadsmart-ops/brokers (composition-root.ts).
     brokerOpsRouter: createBrokerRoutes(
       new BrokerController(
         new BrokerService(new BrokerRepository(dataSource)),
@@ -383,7 +393,10 @@ export function createLoadsModule(
           deps.auditService,
         ),
       ),
+      new BrokerDriverController(brokerDriverService),
     ),
+    // Placement's "Verify truck and driver" keeps the drivers master in step (composition-root.ts).
+    brokerDriverService,
     dispatchPlanningService,
     loadPosting,
     postingHooks,

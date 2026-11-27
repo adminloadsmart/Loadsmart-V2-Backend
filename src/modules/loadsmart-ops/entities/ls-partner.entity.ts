@@ -9,7 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { BrokerEntity } from '../../loads/brokers/broker.entity';
+import { BrokerEntity } from '../../brokers/broker.entity';
 import { LsPartnerLaneEntity } from './ls-partner-lane.entity';
 import { LsPartnerTruckTypeEntity } from './ls-partner-truck-type.entity';
 import { PARTNER_STATUSES, PARTNER_TYPES, PartnerStatus, PartnerType } from '../loadsmart.types';
@@ -28,7 +28,7 @@ export class LsPartnerEntity {
   @Column({ type: 'varchar', length: 15 })
   phone!: string;
 
-  /** The loads.brokers row this partner stands for — brokers are the master Placement matches
+  /** The brokers.brokers row this partner stands for — brokers are the master Placement matches
    *  loads against (lane-matching); a matched broker gets this partner row for its bids. */
   @Column({ name: 'broker_id', type: 'uuid', nullable: true })
   brokerId!: string | null;

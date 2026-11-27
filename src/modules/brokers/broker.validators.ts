@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { paginationQuery } from '../../../shared/validators/pagination';
+import { paginationQuery } from '../../shared/validators/pagination';
 import { BROKER_DOCUMENT_TYPES } from './broker-document.entity';
 import { BROKER_DOCUMENT_RULES, normaliseDocumentNumber } from './broker-document.rules';
 import { BROKER_STATUSES } from './broker.types';
@@ -93,7 +93,7 @@ export const brokerValidators = {
   listBrokers: z.object({ query: paginationQuery.extend(filters) }),
   exportBrokers: z.object({ query: z.object(filters) }),
   getBroker: z.object({ params: brokerParams }),
-  /** The broker page's edits: the contact and claimed lane (loads.brokers) and what Loadsmart
+  /** The broker page's edits: the contact and claimed lane (brokers.brokers) and what Loadsmart
    *  adds (the broker's ls_partners row). Only the fields sent change. */
   updateBroker: z.object({
     params: brokerParams,

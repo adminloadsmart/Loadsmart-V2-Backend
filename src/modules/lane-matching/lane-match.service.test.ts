@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DataSource } from 'typeorm';
-import { BrokerEntity } from '../loads/brokers/broker.entity';
+import { BrokerEntity } from '../brokers/broker.entity';
 import { LsPartnerEntity } from '../loadsmart-ops/entities/ls-partner.entity';
 import { TransporterEntity } from '../masters/transporter/entities/transporter.entity';
 import { cityKey } from './geo-place-resolver';

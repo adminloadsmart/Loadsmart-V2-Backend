@@ -49,7 +49,7 @@ export type MatchReason = 'lane' | 'en_route' | 'truck_type';
 
 export interface RankedBroker {
   partnerId: string;
-  /** The broker-master row (loads.brokers) behind this partner, when there is one. */
+  /** The broker-master row (brokers.brokers) behind this partner, when there is one. */
   brokerId: string | null;
   name: string;
   phone: string;

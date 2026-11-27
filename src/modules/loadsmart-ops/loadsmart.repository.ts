@@ -1,4 +1,4 @@
-import { BrokerEntity } from '../loads/brokers/broker.entity';
+import { BrokerEntity } from '../brokers/broker.entity';
 import { DataSource, EntityManager, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { UserEntity } from '../auth/entities/user.entity';
 import { LoadMemoEntity } from '../loads/memo/load-memo.entity';
@@ -57,7 +57,7 @@ export class LoadsmartRepository {
   readonly partnerBidResponses: Repository<LsPartnerBidResponseEntity>;
   readonly sourcingBrokers: Repository<LsSourcingBrokerEntity>;
   readonly requirementRecipients: Repository<LsRequirementRecipientEntity>;
-  /** The broker master (loads.brokers) behind the partners. */
+  /** The broker master (brokers.brokers) behind the partners. */
   readonly brokerMaster: Repository<BrokerEntity>;
   readonly loadDocuments: Repository<LoadDocumentEntity>;
   private readonly postings: Repository<LoadPostingEntity>;

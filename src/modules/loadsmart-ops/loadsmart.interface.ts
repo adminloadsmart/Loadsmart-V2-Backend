@@ -284,6 +284,19 @@ export interface BoardPartner {
   phone: string;
 }
 
+/** Records a driver Placement named on a load into the partner's broker's drivers (Masters →
+ *  Drivers, brokers module). Skips partners that aren't brokers. Never throws. */
+export type BrokerDriverRecorder = (driver: {
+  partnerId: string;
+  actorId: string | null;
+  fullName: string;
+  mobile: string;
+  licenceNumber: string;
+  dateOfBirth: string | null;
+  licenceFrontFileKey: string | null;
+  licenceBackFileKey: string | null;
+}) => Promise<void>;
+
 /** Tells partners about a load on the board (WhatsApp, from the messaging module). Must not
  *  throw — the load is already posted. */
 export interface LoadBoardNotifier {

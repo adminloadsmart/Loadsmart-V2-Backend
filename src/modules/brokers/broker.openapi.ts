@@ -1,7 +1,8 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { API_VERSION_PREFIX } from '../../../shared/constants/api';
-import { TAGS, permissionGated } from '../../../shared/openapi/core';
+import { API_VERSION_PREFIX } from '../../shared/constants/api';
+import { TAGS, permissionGated } from '../../shared/openapi/core';
 import { brokerValidators as v } from './broker.validators';
+import { brokerDriverValidators as dv } from './broker-driver.validators';
 import { BROKER_EDIT_PERMISSIONS, BROKER_VIEW_PERMISSIONS } from './broker.permissions';
 
 /** OpenAPI docs for broker.routes.ts — the Brokers page. */
@@ -32,6 +33,73 @@ export function registerBrokerOpenApi(registry: OpenAPIRegistry): void {
           'tabs { all, approved, awaiting_approval, on_hold, rejected } }',
       },
     },
+  });
+  const driverView =
+    '{ id, broker {id, name}, fullName, mobile, isOnWhatsapp, licenceNumber, dateOfBirth, status ' +
+    '(active / inactive), note, licence { state (verified / manual / expired / failed / unavailable / ' +
+    'not_checked), holderName, validUntil, licenseClass, transportClass, checkedAt, failures[] }, ' +
+    'lastVehicleNumber, loadsLast30Days, totalLoads, lastLoad {id, code, at} | null, createdAt, updatedAt }';
+  const driverDetail =
+    `{ ...${driverView}, photos { front {key, url} | null, back {key, url} | null }, ` +
+    'loads [{ id, code, status, fromCity, toCity, vehicleNumber, namedAt, memoAcceptedAt }], ' +
+    'trucks [{ vehicleNumber, loads, lastUsedAt }], checks [{ id, loadId, loadCode, status, source, ' +
+    'failures[], notes[], validUntil, licenseClass, checkedAt }] }';
+  registry.registerPath({
+    method: 'get',
+    path: `${ops}/brokers/drivers`,
+    tags: [TAGS.LOADS],
+    operationId: 'loadsmartOps.listBrokerDrivers',
+    ...permissionGated(
+      [...BROKER_VIEW_PERMISSIONS],
+      'Masters → Drivers: the drivers brokers put on Loadsmart loads, name A–Z. `brokerId` limits it ' +
+        'to one broker; `status` picks the tab; `search` matches name, mobile, licence or broker. ' +
+        'The licence state is the latest Sarathi (or manual) check of the licence on any load.',
+    ),
+    request: { query: dv.listDrivers.shape.query },
+    responses: {
+      200: {
+        description:
+          `{ items: [${driverView}], page, limit, total, totalPages, summary { total {count, active}, ` +
+          'verified {count}, expiringIn30Days {count}, needsAttention {count}, onWhatsapp {count, notOnWhatsapp} }, ' +
+          'tabs { all, active, inactive } }',
+      },
+    },
+  });
+  registry.registerPath({
+    method: 'post',
+    path: `${ops}/brokers/drivers`,
+    tags: [TAGS.LOADS],
+    operationId: 'loadsmartOps.createBrokerDriver',
+    ...permissionGated(
+      [...BROKER_EDIT_PERMISSIONS],
+      'Adds a driver under a broker. 409 when the broker already has that licence.',
+    ),
+    request: { body: { content: { 'application/json': { schema: dv.createDriver.shape.body } } } },
+    responses: { 201: { description: driverDetail } },
+  });
+  registry.registerPath({
+    method: 'get',
+    path: `${ops}/brokers/drivers/{driverId}`,
+    tags: [TAGS.LOADS],
+    operationId: 'loadsmartOps.getBrokerDriver',
+    ...permissionGated([...BROKER_VIEW_PERMISSIONS], "One driver's page."),
+    request: { params: dv.getDriver.shape.params },
+    responses: { 200: { description: driverDetail } },
+  });
+  registry.registerPath({
+    method: 'patch',
+    path: `${ops}/brokers/drivers/{driverId}`,
+    tags: [TAGS.LOADS],
+    operationId: 'loadsmartOps.updateBrokerDriver',
+    ...permissionGated(
+      [...BROKER_EDIT_PERMISSIONS],
+      'Edits a driver; only the fields sent change. 409 when the new licence clashes.',
+    ),
+    request: {
+      params: dv.updateDriver.shape.params,
+      body: { content: { 'application/json': { schema: dv.updateDriver.shape.body } } },
+    },
+    responses: { 200: { description: driverDetail } },
   });
   registry.registerPath({
     method: 'get',

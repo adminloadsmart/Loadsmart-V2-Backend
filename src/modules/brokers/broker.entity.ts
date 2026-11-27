@@ -11,7 +11,7 @@ import type { BrokerStatus } from './broker.types';
 /** A broker — a carrier who sources trucks from others — and the escalation contact on loads they
  *  place. Platform-wide (no tenant). The loads / rating / POD figures are stored values for now:
  *  this table isn't linked to loads yet. */
-@Entity({ schema: 'loads', name: 'brokers' })
+@Entity({ schema: 'brokers', name: 'brokers' })
 @Index('brokers_phone_uq', ['phone'], { unique: true })
 @Index('brokers_status_idx', ['status'])
 export class BrokerEntity {

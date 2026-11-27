@@ -1,14 +1,14 @@
 import { QueryFailedError } from 'typeorm';
-import { ConflictError, NotFoundError } from '../../../shared/errors';
-import { rethrow } from '../../../shared/errors/rethrow';
+import { ConflictError, NotFoundError } from '../../shared/errors';
+import { rethrow } from '../../shared/errors/rethrow';
 import {
   hasPermission,
   PermissionHolder,
-} from '../../../shared/middleware/require-permission.middleware';
-import { LS_MONEY_APPROVE } from '../../../shared/constants/permissions';
-import { AuditService } from '../../audit/audit.service';
-import { LsPartnerEntity } from '../../loadsmart-ops/entities/ls-partner.entity';
-import { SettingsReader } from '../../settings/settings.types';
+} from '../../shared/middleware/require-permission.middleware';
+import { LS_MONEY_APPROVE } from '../../shared/constants/permissions';
+import { AuditService } from '../audit/audit.service';
+import { LsPartnerEntity } from '../loadsmart-ops/entities/ls-partner.entity';
+import { SettingsReader } from '../settings/settings.types';
 import { BrokerDocumentEntity, BrokerDocumentType } from './broker-document.entity';
 import { BROKER_DOCUMENT_RULES, normaliseDocumentNumber } from './broker-document.rules';
 import { ActivityRow, BrokerDetailRepository, RecentLoadRow } from './broker-detail.repository';

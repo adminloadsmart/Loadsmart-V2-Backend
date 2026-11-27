@@ -10,7 +10,7 @@ import {
 import { BrokerEntity } from './broker.entity';
 
 /** A note the team logs against a broker ("Log note" on the broker page) — its Activity feed. */
-@Entity({ schema: 'loads', name: 'broker_notes' })
+@Entity({ schema: 'brokers', name: 'broker_notes' })
 @Index('broker_notes_broker_idx', ['brokerId', 'createdAt'])
 export class BrokerNoteEntity {
   @PrimaryGeneratedColumn('uuid')

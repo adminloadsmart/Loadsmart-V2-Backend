@@ -1,10 +1,10 @@
-// Seeds 20 dummy brokers into loads.brokers for the Brokers page. Safe to re-run: a broker is
+// Seeds 20 dummy brokers into brokers.brokers for the Brokers page. Safe to re-run: a broker is
 // inserted only when no row with the same phone exists.
 //
 // Run via `npm run seed:all` (src/db/seed.ts) — no standalone CLI entry point of its own.
 
 import { DataSource } from 'typeorm';
-import { BrokerEntity } from '../modules/loads/brokers/broker.entity';
+import { BrokerEntity } from '../modules/brokers/broker.entity';
 
 type BrokerSeed = Pick<
   BrokerEntity,

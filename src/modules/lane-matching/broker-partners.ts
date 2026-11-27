@@ -1,5 +1,5 @@
 import { EntityManager, In, IsNull } from 'typeorm';
-import { BrokerEntity } from '../loads/brokers/broker.entity';
+import { BrokerEntity } from '../brokers/broker.entity';
 import { LsPartnerEntity } from '../loadsmart-ops/entities/ls-partner.entity';
 import { phoneKey } from './lane-match-rules';
 
