@@ -6,6 +6,8 @@ import { BrokerRepository } from './brokers/broker.repository';
 import { BrokerService } from './brokers/broker.service';
 import { BrokerController } from './brokers/broker.controller';
 import { createBrokerRoutes } from './brokers/broker.routes';
+import { BrokerDetailRepository } from './brokers/broker-detail.repository';
+import { BrokerDetailService } from './brokers/broker-detail.service';
 import {
   createLoadsmartLoadCallRoutes,
   createShipperLoadCallRoutes,
@@ -373,7 +375,14 @@ export function createLoadsModule(
     loadCallOpsRouter: createLoadsmartLoadCallRoutes(loadCallController),
     // The Brokers page at /loadsmart-ops/brokers (composition-root.ts).
     brokerOpsRouter: createBrokerRoutes(
-      new BrokerController(new BrokerService(new BrokerRepository(dataSource))),
+      new BrokerController(
+        new BrokerService(new BrokerRepository(dataSource)),
+        new BrokerDetailService(
+          new BrokerDetailRepository(dataSource),
+          deps.settings,
+          deps.auditService,
+        ),
+      ),
     ),
     dispatchPlanningService,
     loadPosting,

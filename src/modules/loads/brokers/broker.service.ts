@@ -61,7 +61,7 @@ export class BrokerService {
       this.repo.totals(),
     ]);
     return {
-      ...paginate(rows.map(toView), total, { page, limit }),
+      ...paginate(rows.map(toBrokerView), total, { page, limit }),
       summary: {
         approved: {
           count: totals.byStatus.approved,
@@ -83,7 +83,7 @@ export class BrokerService {
   async exportCsv(filters: BrokerFilters): Promise<string> {
     const [rows] = await this.repo.list(filters);
     const lines = rows
-      .map(toView)
+      .map(toBrokerView)
       .map((b) =>
         [
           b.brokerName,
@@ -108,7 +108,7 @@ export class BrokerService {
   }
 }
 
-function toView(b: BrokerEntity): BrokerView {
+export function toBrokerView(b: BrokerEntity): BrokerView {
   return {
     id: b.id,
     brokerName: b.truckerCompany,

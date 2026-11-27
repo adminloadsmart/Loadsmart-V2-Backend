@@ -109,6 +109,8 @@ import { WhatsappInboundEntity } from '../modules/messaging/entities/whatsapp-in
 import { SavedViewEntity } from '../modules/analytics/saved-views/saved-view.entity';
 import { SettingsVersionEntity } from '../modules/settings/settings-version.entity';
 import { BrokerEntity } from '../modules/loads/brokers/broker.entity';
+import { BrokerDocumentEntity } from '../modules/loads/brokers/broker-document.entity';
+import { BrokerNoteEntity } from '../modules/loads/brokers/broker-note.entity';
 import { GeoPlaceEntity } from '../modules/lane-matching/geo-place.entity';
 import { DemoRequestEntity } from '../modules/demo-requests/demo-request.entity';
 
@@ -226,6 +228,8 @@ export const AppDataSource = new DataSource({
     LsInvoiceEntity,
     LoadAwardOutcomeEntity,
     BrokerEntity,
+    BrokerNoteEntity,
+    BrokerDocumentEntity,
     GeoPlaceEntity,
     MessageLogEntity,
     WhatsappInboundEntity,

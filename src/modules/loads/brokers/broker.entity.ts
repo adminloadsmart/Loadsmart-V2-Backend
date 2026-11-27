@@ -71,6 +71,34 @@ export class BrokerEntity {
   @Column({ name: 'pending_original_pods', type: 'integer', default: 0 })
   pendingOriginalPods!: number;
 
+  /** "Proprietorship", "Partnership", "Private Limited"… */
+  @Column({ name: 'business_type', type: 'varchar', length: 40, nullable: true })
+  businessType!: string | null;
+
+  @Column({ name: 'pan_number', type: 'varchar', length: 10, nullable: true })
+  panNumber!: string | null;
+
+  /** The PAN API confirmed the PAN is active. */
+  @Column({ name: 'pan_verified', type: 'boolean', default: false })
+  panVerified!: boolean;
+
+  /** Only the last 4 digits — the full Aadhaar number is never stored. */
+  @Column({ name: 'aadhaar_last4', type: 'varchar', length: 4, nullable: true })
+  aadhaarLast4!: string | null;
+
+  @Column({ name: 'aadhaar_linked_to_pan', type: 'boolean', default: false })
+  aadhaarLinkedToPan!: boolean;
+
+  /** The area sales manager — a name only for now. */
+  @Column({ name: 'asm_name', type: 'varchar', length: 150, nullable: true })
+  asmName!: string | null;
+
+  @Column({ name: 'approved_by', type: 'uuid', nullable: true })
+  approvedBy!: string | null;
+
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

@@ -47,6 +47,12 @@ export class LsPartnerEntity {
   @Column({ name: 'tds_percent', type: 'numeric', precision: 5, scale: 2, default: 1 })
   tdsPercent!: string;
 
+  @Column({ name: 'bank_account_name', type: 'varchar', length: 150, nullable: true })
+  bankAccountName!: string | null;
+
+  @Column({ name: 'bank_name', type: 'varchar', length: 100, nullable: true })
+  bankName!: string | null;
+
   @Column({ name: 'bank_account_number', type: 'varchar', length: 30, nullable: true })
   bankAccountNumber!: string | null;
 

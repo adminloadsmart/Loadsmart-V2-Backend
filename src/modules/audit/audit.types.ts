@@ -224,6 +224,7 @@ export const AUDIT_RESOURCE_TYPES = [
   'ls_sourcing',
   'ls_invoice',
   'ls_partner',
+  'broker_document',
   'settings_version',
   'maintenance_job',
   'tyre',
