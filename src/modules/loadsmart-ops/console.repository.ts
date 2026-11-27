@@ -1,4 +1,4 @@
-import { DataSource, In, SelectQueryBuilder } from 'typeorm';
+import { DataSource, In, IsNull, SelectQueryBuilder } from 'typeorm';
 import { ORG_ADMIN_ROLE } from '../../shared/constants/roles';
 import { UserEntity } from '../auth/entities/user.entity';
 import { LoadBidEntity } from '../loads/bids/load-bid.entity';
@@ -199,15 +199,11 @@ export class ConsoleRepository {
     if (!org) return null;
     // The contact is the org's first admin user (as the Shippers directory shows it); the name
     // typed at sign-up is the fallback.
-    const admin = await this.dataSource
-      .getRepository(UserEntity)
-      .createQueryBuilder('u')
-      .innerJoin('u.role', 'role')
-      .where('u.tenantId = :tenantId', { tenantId })
-      .andWhere('role.name = :roleName', { roleName: ORG_ADMIN_ROLE })
-      .andWhere('u.deletedAt IS NULL')
-      .orderBy('u.createdAt', 'ASC')
-      .getOne();
+    const admin = await this.dataSource.getRepository(UserEntity).findOne({
+      where: { tenantId, role: { name: ORG_ADMIN_ROLE }, deletedAt: IsNull() },
+      relations: { role: true },
+      order: { createdAt: 'ASC' },
+    });
     return {
       name: org.name,
       legalName: org.companyLegalName,
