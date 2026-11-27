@@ -199,6 +199,13 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.load),
     asyncHandler(c.claimTracking),
   );
+  // "Send consent link" on the Tracking load page — the driver's SIM-tracking SMS, again.
+  router.post(
+    '/loads/:loadId/tracking/sim-consent/resend',
+    team(LS_TRACKING),
+    validate(v.load),
+    asyncHandler(c.resendSimConsent),
+  );
   router.post(
     '/sourcings/:sourcingId/lost',
     team(LS_PLACEMENT),
