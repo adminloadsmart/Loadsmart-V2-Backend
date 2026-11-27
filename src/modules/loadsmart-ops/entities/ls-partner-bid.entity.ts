@@ -47,6 +47,24 @@ export class LsPartnerBidEntity {
   @Column({ type: 'enum', enum: [...PARTNER_BID_STATUSES], default: 'received' })
   status!: PartnerBidStatus;
 
+  /** The shipper countered Loadsmart's bid built on this one and Placement took it to this
+   *  broker: the rate offered (trip total — the counter less the margin), when, and by whom.
+   *  Cleared once the counter is answered or a new price goes to the shipper. */
+  @Column({
+    name: 'broker_counter_rate',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  brokerCounterRate!: string | null;
+
+  @Column({ name: 'broker_counter_sent_at', type: 'timestamptz', nullable: true })
+  brokerCounterSentAt!: Date | null;
+
+  @Column({ name: 'broker_counter_sent_by', type: 'uuid', nullable: true })
+  brokerCounterSentBy!: string | null;
+
   @Column({ name: 'entered_by', type: 'uuid', nullable: true })
   enteredBy!: string | null;
 

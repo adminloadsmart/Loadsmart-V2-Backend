@@ -12,6 +12,10 @@ import {
   assignmentBlockKeyOf,
   DeliveryLateContext,
   RouteDeviationContext,
+  SimDelayContext,
+  SimNightDrivingContext,
+  SimRouteDeviationContext,
+  SimTrackingInactiveContext,
   TrackingSignalLostContext,
   InvoiceDueContext,
   LoadArrivalReminderContext,
@@ -222,6 +226,16 @@ export function createLoadEventNotifier(triggers: NotificationTriggers): LoadEve
 /** LS_N_0029's "running trip": at the loading point through to the unloading point (tracking
  *  watches the same statuses). */
 const SIGNAL_WATCHED_STATUSES: readonly string[] = [
+  'reached_loading',
+  'loaded',
+  'in_transit_unloading',
+  'reached_unloading',
+];
+
+/** INACT-SIM: tracking watches a SIM trip from assignment until delivery. */
+const SIM_WATCHED_STATUSES: readonly string[] = [
+  'truck_assigned',
+  'in_transit_loading',
   'reached_loading',
   'loaded',
   'in_transit_unloading',
@@ -787,6 +801,79 @@ export function createLoadAlertResolvers(
         // No position on this trip at all → null; the catalog words that case (LS_N_0029).
         lastLocation: lastPoint ? await describeLocation(lastPoint, position?.placeName) : null,
         hoursSince: Math.floor((Date.now() - lastSeenMs) / MS_PER_HOUR),
+        destination: snapshot.destinationCity,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** NIGHT-SIM — null once the load is delivered/closed. */
+    simNightDriving: async (
+      tenantId: string,
+      context: SimNightDrivingContext,
+    ): Promise<SimNightDrivingContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !SIM_WATCHED_STATUSES.includes(snapshot.status)) return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        destination: snapshot.destinationCity,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** DELAY-SIM — null once the load is no longer in transit. */
+    simDelay: async (
+      tenantId: string,
+      context: SimDelayContext,
+    ): Promise<SimDelayContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'in_transit_unloading') return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        destination: snapshot.destinationCity,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** DEV-SIM — null once the load is no longer in transit. Fills in where the truck is. */
+    simRouteDeviation: async (
+      tenantId: string,
+      context: SimRouteDeviationContext,
+    ): Promise<SimRouteDeviationContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || snapshot.status !== 'in_transit_unloading') return null;
+      const { position } = await tracking.getTrip(tenantId, context.loadId);
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
+        location: await describeLocation(
+          { lat: context.lat, lng: context.lng },
+          position?.placeName,
+        ),
+        destination: snapshot.destinationCity,
+        driverName: snapshot.driverName,
+        driverPhone: snapshot.driverPhone,
+      };
+    },
+
+    /** INACT-SIM — null once the load is delivered/closed, or a newer position has come in since
+     *  tracking raised the alert. */
+    simTrackingInactive: async (
+      tenantId: string,
+      context: SimTrackingInactiveContext,
+    ): Promise<SimTrackingInactiveContext | null> => {
+      const snapshot = await loadAlertRepository.findSnapshot(tenantId, context.loadId);
+      if (!snapshot || !SIM_WATCHED_STATUSES.includes(snapshot.status)) return null;
+      const lastSeenMs = new Date(context.lastSeenAt).getTime();
+      const { position } = await tracking.getTrip(tenantId, context.loadId);
+      if (position && position.recordedAt.getTime() > lastSeenMs + MS_PER_MINUTE) return null;
+      return {
+        ...context,
+        ...summaryOf(context.loadId, snapshot),
         destination: snapshot.destinationCity,
         driverName: snapshot.driverName,
         driverPhone: snapshot.driverPhone,

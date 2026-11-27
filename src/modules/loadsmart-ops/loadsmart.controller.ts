@@ -514,6 +514,21 @@ export class LoadsmartOpsController {
       await this.sourcing.recordPartnerBid(actorOf(req), req.params.sourcingId, req.body),
       201,
     );
+  counterBroker = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.sourcing.counterToBroker(req.user!.id, req.params.sourcingId, req.body),
+    );
+
+  sendBids = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(
+      req,
+      res,
+      await this.sourcing.sendBids(req.user!.id, req.params.sourcingId, req.body.bids),
+      201,
+    );
+
   sendBid = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,

@@ -13,7 +13,6 @@ import {
   acceptBlocker,
   bidWindowClosesAt,
   effectiveBidStatus,
-  manualIndentAcceptError,
   manualRateError,
   rankBids,
 } from './bid-rules';
@@ -95,9 +94,10 @@ export class LoadBidService {
     this.onLoadsmartBidRejected = hooks.rejected;
   }
 
-  /** Loadsmart's placement team sends one best bid: the partner's truck at Loadsmart's price,
-   *  shown to the shipper as Loadsmart's, first and highlighted. A new one replaces Loadsmart's
-   *  previous live bid. Market loads only, inside the same 4-hour window. */
+  /** Loadsmart's placement team sends a bid: a partner's truck at Loadsmart's price, shown to the
+   *  shipper as Loadsmart's. Several can be with the shipper at once (one per partner bid);
+   *  sending the same partner bid again replaces its earlier one. Market loads only, inside the
+   *  same 4-hour window. */
   async recordLoadsmartBid(
     tenantId: string,
     actorId: string,
@@ -117,7 +117,12 @@ export class LoadBidService {
       if (now >= closesAt) throw new ConflictError('Bidding on this load has closed');
       if (input.vehicleNumber) await this.assertTruckFree(load, input.vehicleNumber);
 
-      const previous = await this.bidRepository.findLiveLoadsmart(tenantId, loadId);
+      // Only this partner bid's earlier price is replaced — Loadsmart's other bids stay live.
+      const previous = await this.bidRepository.findLiveLoadsmartFor(
+        tenantId,
+        loadId,
+        input.lsPartnerBidId,
+      );
       if (previous) await this.bidRepository.markRejected(previous, actorId);
       const created = await this.bidRepository.create({
         tenantId,
@@ -394,6 +399,12 @@ export class LoadBidService {
     }
   }
 
+  /** Loadsmart's live bids on a load, newest first — Placement reads the shipper's counters on
+   *  them. */
+  listLiveLoadsmartBids(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
+    return this.bidRepository.listLiveLoadsmart(tenantId, loadId);
+  }
+
   /** One bid as stored — the Loadsmart ops module reads its partner bid from it. */
   findBid(tenantId: string, loadId: string, bidId: string): Promise<LoadBidEntity | null> {
     return this.bidRepository.findById(tenantId, loadId, bidId);
@@ -514,9 +525,8 @@ export class LoadBidService {
     }
   }
 
-  /** The shipper types in a rate one of their transporters gave by phone — allowed from 30
-   *  minutes after the load was sent until bidding closes at 4 hours, with a reason. A transporter
-   *  quoting again revises its live bid. */
+  /** The shipper types in a rate one of their transporters gave by phone — allowed until bidding
+   *  closes at 4 hours, with a reason. A transporter quoting again revises its live bid. */
   async recordBid(
     tenantId: string,
     actorId: string,
@@ -851,8 +861,7 @@ export class LoadBidService {
   }
 
   /** "Transporter accepted" — the shipper enters an indent transporter's acceptance given by
-   *  phone (reason optional; their name is kept), from 30 minutes after the request was sent — no
-   *  wait when that transporter already tapped Accept on WhatsApp.
+   *  phone (reason optional; their name is kept).
    *   - without a truck number: noted on the transporter's recipient row and as an
    *     INDENT_ACCEPTED activity (WhatsApp then asks that transporter for the truck); the load
    *     stays at Created;
@@ -869,11 +878,6 @@ export class LoadBidService {
       if (!load.freightValue) throw new ConflictError('This indent has no contract rate');
       const alreadyAccepted = recipient?.replyStatus === 'accepted';
       const now = this.now();
-      if (!alreadyAccepted) {
-        const { sentAt } = await this.windowOf(load);
-        const timingError = manualIndentAcceptError(sentAt, now);
-        if (timingError) throw new ConflictError(timingError);
-      }
 
       if (input.vehicleNumber) {
         const bid = await this.recordIndentAcceptance(

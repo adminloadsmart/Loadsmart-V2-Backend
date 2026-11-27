@@ -65,6 +65,184 @@ describe('tracking trip notices → notifications', () => {
     });
   });
 
+  it('alert.opened for INACT-SIM queues the SIM-inactive notification at once', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['alert.opened']!(
+      event('alert.opened', {
+        rule_id: 'INACT-SIM',
+        id: 'alert-1',
+        trip_id: 'load-1',
+        payload: { source: 'sim', lastSeenAt: AT, thresholdMin: 60, reason: 'vendor_error' },
+      }),
+    );
+    expect(enqueue).toHaveBeenCalledWith('load.sim_tracking_inactive', 'tenant-1', {
+      loadId: 'load-1',
+      alertId: 'alert-1',
+      lastSeenAt: AT,
+      thresholdMin: 60,
+      reason: 'vendor_error',
+    });
+  });
+
+  it('alert.opened for INACT-SIM without a last-seen time is dropped; other rules still are', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['alert.opened']!(
+      event('alert.opened', { rule_id: 'INACT-SIM', id: 'a', trip_id: 'load-1', payload: {} }),
+    );
+    await handlers['alert.opened']!(
+      event('alert.opened', { rule_id: 'DEV-SIM', id: 'a', trip_id: 'load-1', payload: {} }),
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('SIM-inactive copy: phone case asks to call the driver, vendor case names the provider', () => {
+    const base = {
+      loadId: 'load-1',
+      alertId: 'a1',
+      lastSeenAt: AT,
+      thresholdMin: 60,
+      vehicleNo: 'MH12AB1234',
+      loadCode: 'LOAD-1',
+      destination: 'Chennai',
+      driverName: 'Ramesh',
+      driverPhone: '9876500000',
+    } as never;
+    const entry = NOTIFICATION_CATALOG['load.sim_tracking_inactive'];
+    const phone = entry.buildContent({ ...(base as object), reason: 'phone_unreachable' } as never);
+    expect(phone.title).toBe('No SIM location from MH12AB1234');
+    expect(phone.body).toContain('Call Ramesh');
+    const vendor = entry.buildContent({ ...(base as object), reason: 'vendor_error' } as never);
+    expect(vendor.body).toContain('provider');
+    expect(entry.dedupeKey({ ...(base as object), reason: 'vendor_error' } as never)).toBe(
+      'load-1-a1',
+    );
+  });
+
+  it('alert.opened for DELAY-SIM queues the SIM delay notification', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['alert.opened']!(
+      event('alert.opened', {
+        rule_id: 'DELAY-SIM',
+        id: 'alert-2',
+        trip_id: 'load-1',
+        severity: 'critical',
+        payload: { projectedDelayMin: 250, alreadyLate: false },
+      }),
+    );
+    expect(enqueue).toHaveBeenCalledWith('load.sim_delay', 'tenant-1', {
+      loadId: 'load-1',
+      alertId: 'alert-2',
+      delayMin: 250,
+      alreadyLate: false,
+      severity: 'critical',
+    });
+  });
+
+  it('alert.opened for DEV-SIM queues the SIM route-deviation notification', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['alert.opened']!(
+      event('alert.opened', {
+        rule_id: 'DEV-SIM',
+        id: 'alert-3',
+        trip_id: 'load-1',
+        occurred_at: AT,
+        payload: { distanceFromRouteM: 8400, position: { lat: 23.17, lng: 75.78 } },
+      }),
+    );
+    expect(enqueue).toHaveBeenCalledWith('load.sim_route_deviation', 'tenant-1', {
+      loadId: 'load-1',
+      alertId: 'alert-3',
+      deviationStartedAt: AT,
+      distanceOffKm: 8.4,
+      lat: 23.17,
+      lng: 75.78,
+    });
+  });
+
+  it('alert.opened for NIGHT-SIM queues the SIM night-driving notification', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['alert.opened']!(
+      event('alert.opened', {
+        rule_id: 'NIGHT-SIM',
+        id: 'alert-4',
+        trip_id: 'load-1',
+        payload: { night: '2026-10-05', startedAt: AT },
+      }),
+    );
+    expect(enqueue).toHaveBeenCalledWith('load.sim_night_driving', 'tenant-1', {
+      loadId: 'load-1',
+      alertId: 'alert-4',
+      startedAt: AT,
+    });
+    await handlers['alert.opened']!(
+      event('alert.opened', { rule_id: 'NIGHT-SIM', id: 'a', trip_id: null, payload: {} }),
+    );
+    expect(enqueue).toHaveBeenCalledTimes(1); // a night alert with no trip / start is dropped
+    const content = NOTIFICATION_CATALOG['load.sim_night_driving'].buildContent({
+      loadId: 'load-1',
+      alertId: 'a1',
+      startedAt: AT,
+      vehicleNo: 'MH12AB1234',
+      loadCode: 'LOAD-1',
+      destination: 'Chennai',
+    } as never);
+    expect(content.title).toBe('MH12AB1234 is driving at night');
+    expect(content.body).toContain('approximate');
+  });
+
+  it('DELAY-SIM / DEV-SIM alerts with missing fields are dropped', async () => {
+    const { enqueue, handlers } = setup();
+    await handlers['alert.opened']!(
+      event('alert.opened', { rule_id: 'DELAY-SIM', id: 'a', trip_id: 'load-1', payload: {} }),
+    );
+    await handlers['alert.opened']!(
+      event('alert.opened', { rule_id: 'DEV-SIM', id: 'a', trip_id: 'load-1', payload: {} }),
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('SIM delay / deviation copy', () => {
+    const base = {
+      loadId: 'load-1',
+      alertId: 'a1',
+      vehicleNo: 'MH12AB1234',
+      loadCode: 'LOAD-1',
+      destination: 'Chennai',
+      driverName: 'Ramesh',
+      driverPhone: '9876500000',
+    };
+    const delay = NOTIFICATION_CATALOG['load.sim_delay'];
+    const late = delay.buildContent({
+      ...base,
+      delayMin: 95,
+      alreadyLate: false,
+      severity: 'warning',
+    } as never);
+    expect(late.title).toBe('MH12AB1234 is running 1 h 35 min late');
+    expect(late.body).toContain('approximate');
+    const already = delay.buildContent({
+      ...base,
+      delayMin: 30,
+      alreadyLate: true,
+      severity: 'warning',
+    } as never);
+    expect(already.title).toBe('MH12AB1234 is already late');
+    expect(delay.dedupeKey({ ...base, delayMin: 1, alreadyLate: false } as never)).toBe(
+      'load-1-a1',
+    );
+    const dev = NOTIFICATION_CATALOG['load.sim_route_deviation'].buildContent({
+      ...base,
+      deviationStartedAt: AT,
+      distanceOffKm: 8.4,
+      lat: 23.17,
+      lng: 75.78,
+      location: 'Dewas bypass',
+    } as never);
+    expect(dev.title).toBe('MH12AB1234 may be off route');
+    expect(dev.body).toContain('8 km');
+    expect(dev.body).toContain('Dewas bypass');
+  });
+
   it('trip.delivery_late queues LS_N_0030', async () => {
     const { enqueue, handlers } = setup();
     await handlers['trip.delivery_late']!(

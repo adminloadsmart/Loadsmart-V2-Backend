@@ -105,8 +105,35 @@ export class LoadBidRepository {
   }
 
   /** Loadsmart's live bid on the load — a new one from placement replaces it. */
+  /** Loadsmart's newest live bid on a load — it can have several with the shipper at once. */
   findLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity | null> {
-    return this.bids.findOneBy({ tenantId, loadId, source: 'loadsmart', status: 'received' });
+    return this.bids.findOne({
+      where: { tenantId, loadId, source: 'loadsmart', status: 'received' },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Every live Loadsmart bid on a load, newest first. */
+  listLiveLoadsmart(tenantId: string, loadId: string): Promise<LoadBidEntity[]> {
+    return this.bids.find({
+      where: { tenantId, loadId, source: 'loadsmart', status: 'received' },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Loadsmart's live bid built on one partner bid — re-sending that broker's rate replaces it. */
+  findLiveLoadsmartFor(
+    tenantId: string,
+    loadId: string,
+    lsPartnerBidId: string,
+  ): Promise<LoadBidEntity | null> {
+    return this.bids.findOneBy({
+      tenantId,
+      loadId,
+      source: 'loadsmart',
+      status: 'received',
+      lsPartnerBidId,
+    });
   }
 
   async markRejected(bid: LoadBidEntity, actorId: string | null): Promise<void> {

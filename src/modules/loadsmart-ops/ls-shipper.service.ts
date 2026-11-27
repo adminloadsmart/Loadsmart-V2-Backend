@@ -28,16 +28,80 @@ import {
   LoadDocumentKey,
 } from './loadsmart.interface';
 
-/** When each charge can be added: loading at the gate, unloading at the drop, detention any time
- *  the truck is held on the trip. */
+/** When each charge can be added: the loading-side heads at the gate, the unloading-side ones at
+ *  the drop, detention/toll/other any time the truck is held or on the trip. */
 const CHARGE_STAGES: Record<ChargeType, ChargeStageRule> = {
   loading: {
     statuses: ['reached_loading', 'loaded'],
     message: 'The loading charge is added at the loading point',
   },
+  loading_detention: {
+    statuses: ['reached_loading', 'loaded'],
+    message: 'Loading detention is added at the loading point',
+  },
+  tarpaulin: {
+    statuses: ['reached_loading', 'loaded'],
+    message: 'Tarpaulin is added at the loading point',
+  },
+  overloading: {
+    statuses: ['reached_loading', 'loaded'],
+    message: 'The overload charge is added at the loading point',
+  },
   unloading: {
     statuses: ['reached_unloading', 'delivered_ok', 'delivered_with_issues'],
     message: 'The unloading charge is settled at the drop',
+  },
+  unloading_detention: {
+    statuses: ['reached_unloading', 'delivered_ok', 'delivered_with_issues'],
+    message: 'Unloading detention is settled at the drop',
+  },
+  parking: {
+    statuses: [
+      'in_transit_loading',
+      'reached_loading',
+      'loaded',
+      'in_transit_unloading',
+      'reached_unloading',
+      'delivered_ok',
+      'delivered_with_issues',
+    ],
+    message: 'Parking is added while the truck is on the trip',
+  },
+  godown: {
+    statuses: [
+      'in_transit_loading',
+      'reached_loading',
+      'loaded',
+      'in_transit_unloading',
+      'reached_unloading',
+      'delivered_ok',
+      'delivered_with_issues',
+    ],
+    message: 'The godown charge is added while the truck is on the trip',
+  },
+  toll: {
+    statuses: [
+      'in_transit_loading',
+      'reached_loading',
+      'loaded',
+      'in_transit_unloading',
+      'reached_unloading',
+      'delivered_ok',
+      'delivered_with_issues',
+    ],
+    message: 'Toll / entry tax is added while the truck is on the trip',
+  },
+  other: {
+    statuses: [
+      'in_transit_loading',
+      'reached_loading',
+      'loaded',
+      'in_transit_unloading',
+      'reached_unloading',
+      'delivered_ok',
+      'delivered_with_issues',
+    ],
+    message: 'Added while the truck is on the trip',
   },
   detention: {
     statuses: [

@@ -366,6 +366,20 @@ export function createLoadsmartOpsRoutes(c: LoadsmartOpsController): Router {
     validate(v.sendBid),
     asyncHandler(c.sendBid),
   );
+  // Several broker bids to the shipper at once, each as its own Loadsmart bid.
+  router.post(
+    '/sourcings/:sourcingId/send-bids',
+    team(LS_PLACEMENT),
+    validate(v.sendBids),
+    asyncHandler(c.sendBids),
+  );
+  // The shipper countered Loadsmart's bid — Placement takes it to the broker, less the margin.
+  router.post(
+    '/sourcings/:sourcingId/broker-counter',
+    team(LS_PLACEMENT),
+    validate(v.counterBroker),
+    asyncHandler(c.counterBroker),
+  );
   // The shipper countered Loadsmart's bid — Placement answers.
   router.post(
     '/loads/:loadId/bids/:bidId/counter-response',

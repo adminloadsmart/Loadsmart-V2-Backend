@@ -716,6 +716,63 @@ export interface TrackingSignalLostContext extends LoadSummary {
   driverPhone?: string | null;
 }
 
+/** From tracking's DELAY-SIM alert (`alert.opened`): the projected delivery is late, or already is. */
+export interface SimDelayContext extends LoadSummary {
+  alertId: string;
+  /** Projected delay past the promised time, in minutes (at least the time already late). */
+  delayMin: number;
+  /** Past the promised time already (not just projected). */
+  alreadyLate: boolean;
+  severity: 'warning' | 'critical';
+  // Filled in by the resolver:
+  destination?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+}
+
+/** From tracking's DEV-SIM alert (`alert.opened`): SIM pings show the truck off its planned route. */
+export interface SimRouteDeviationContext extends LoadSummary {
+  alertId: string;
+  /** When the deviation began (ISO): the first ping outside the corridor. */
+  deviationStartedAt: string;
+  /** Furthest distance from the route seen so far. */
+  distanceOffKm: number;
+  lat: number;
+  lng: number;
+  // Filled in by the resolver:
+  location?: string | null;
+  destination?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+}
+
+/** From tracking's NIGHT-SIM alert (`alert.opened`): SIM pings show the vehicle driving at night. */
+export interface SimNightDrivingContext extends LoadSummary {
+  alertId: string;
+  /** When the night drive began (ISO): the earlier ping of the first moving pair. */
+  startedAt: string;
+  // Filled in by the resolver:
+  destination?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+}
+
+/** From tracking's INACT-SIM alert (`alert.opened`): no SIM location for the rule's 60 min. */
+export interface SimTrackingInactiveContext extends LoadSummary {
+  /** Tracking's INACT-SIM alert id — one silence. */
+  alertId: string;
+  /** The last SIM ping (ISO). */
+  lastSeenAt: string;
+  /** The silence limit that was crossed, in minutes (60). */
+  thresholdMin: number;
+  /** `phone_unreachable` (phone off / no coverage) or `vendor_error` (the provider's poll failed). */
+  reason: 'phone_unreachable' | 'vendor_error';
+  // Filled in by the resolver:
+  destination?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+}
+
 /** LS_N_0030 — from tracking's `trip.delivery_late` notice: the projected delay passed the
  *  company's limit (org setting, default one day); again each time the delay doubles. */
 export interface DeliveryLateContext extends LoadSummary {
@@ -3059,6 +3116,196 @@ export const NOTIFICATION_CATALOG = {
           destination: context.destination ?? '',
           driver_name: context.driverName ?? '',
           driver_phone: context.driverPhone ?? '',
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // INACT-SIM — tracking's alert (`alert.opened`, tracking-events.consumer.ts) when a SIM-tracked
+  // trip has had no SIM location for 60 min (the rule sheet's INACT-SIM; the phone is off or out
+  // of coverage, or the provider failed). Sent only while the load is still running and no newer
+  // position has arrived. P2, in-app + push to trip.track holders (WhatsApp once a template is
+  // provisioned).
+  'load.sim_tracking_inactive': {
+    label: 'SIM tracking inactive',
+    category: 'trip_execution',
+    intent: 'update',
+    description: 'No SIM location has been received from a vehicle on a running trip for an hour.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: SimTrackingInactiveContext) => `${context.loadId}-${context.alertId}`,
+    buildContent: (context: SimTrackingInactiveContext) => {
+      const vehicleNo = context.vehicleNo ?? 'the vehicle';
+      const lastPingTime = formatIndiaDateTime(context.lastSeenAt);
+      const loadCode = context.loadCode ?? 'the load';
+      const destination = context.destination ?? 'the destination';
+      const driver = driverContactOf(context.driverName, context.driverPhone);
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      const vendorError = context.reason === 'vendor_error';
+      const action = vendorError
+        ? ' The tracking provider is not returning locations; check with the provider.'
+        : ` The driver's phone may be off or out of coverage. Call ${driver || 'the driver'}.`;
+      return {
+        title: `No SIM location from ${vehicleNo}`,
+        body:
+          `No SIM location for ${context.thresholdMin}+ minutes on ${loadCode} to ${destination}.` +
+          ` Last location at ${lastPingTime}.${action}`,
+        highlights: [vehicleNo, `${context.thresholdMin} minutes`],
+        metadata: {
+          ...loadMetadataOf(context),
+          last_ping_time: lastPingTime,
+          last_seen_at: context.lastSeenAt,
+          threshold_min: String(context.thresholdMin),
+          inactive_reason: context.reason,
+          destination: context.destination ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          alert_id: context.alertId,
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // DELAY-SIM — tracking's alert (`alert.opened`) when a SIM-tracked trip is projected to arrive
+  // an hour or more late (or already is). Basic notice: the LS_N_0030 "delivery will be late"
+  // notice still comes separately once the delay passes the company's limit. Sent only while the
+  // load is still in transit. P2, in-app + push to trip.track holders.
+  'load.sim_delay': {
+    label: 'SIM delivery delay',
+    category: 'trip_execution',
+    intent: 'update',
+    description: 'A SIM-tracked load is projected to reach its destination late.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: SimDelayContext) => `${context.loadId}-${context.alertId}`,
+    buildContent: (context: SimDelayContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const loadCode = context.loadCode ?? 'the load';
+      const destination = context.destination ?? 'the destination';
+      const delay = durationOf(context.delayMin);
+      const driver = driverContactOf(context.driverName, context.driverPhone);
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: context.alreadyLate
+          ? `${vehicleNo} is already late`
+          : `${vehicleNo} is running ${delay} late`,
+        body:
+          (context.alreadyLate
+            ? `${loadCode} to ${destination} is past its promised delivery time (${delay} late).`
+            : `${loadCode} to ${destination} is projected to arrive about ${delay} late.`) +
+          ` Position is from the driver's SIM, so it is approximate.` +
+          ` Check with ${driver || 'the driver'}.`,
+        highlights: [vehicleNo, delay],
+        metadata: {
+          ...loadMetadataOf(context),
+          delay,
+          delay_min: String(Math.round(context.delayMin)),
+          already_late: context.alreadyLate ? 'true' : 'false',
+          alert_severity: context.severity,
+          destination: context.destination ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          alert_id: context.alertId,
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // NIGHT-SIM — tracking's alert (`alert.opened`): SIM pings show the vehicle driving inside the
+  // night window (opt-in per tenant in tracking; off by default). One per night per vehicle. Sent
+  // only while the load is still running. P2, in-app + push to trip.track holders.
+  'load.sim_night_driving': {
+    label: 'SIM night driving',
+    category: 'trip_execution',
+    intent: 'update',
+    description: 'A SIM-tracked vehicle is driving during the night window.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: SimNightDrivingContext) => `${context.loadId}-${context.alertId}`,
+    buildContent: (context: SimNightDrivingContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const loadCode = context.loadCode ?? 'the load';
+      const destination = context.destination ?? 'the destination';
+      const since = formatIndiaDateTime(context.startedAt);
+      const driver = driverContactOf(context.driverName, context.driverPhone);
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${vehicleNo} is driving at night`,
+        body:
+          `SIM location shows it moving since about ${since} on ${loadCode} to ${destination}.` +
+          ` SIM positions are approximate. Check with ${driver || 'the driver'}.`,
+        highlights: [vehicleNo],
+        metadata: {
+          ...loadMetadataOf(context),
+          night_started_at: context.startedAt,
+          destination: context.destination ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          alert_id: context.alertId,
+          cta_label: 'Call driver',
+          cta_path: `/loads/${context.loadId}`,
+          ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),
+        },
+      };
+    },
+  },
+
+  // DEV-SIM — tracking's alert (`alert.opened`) when two SIM pings in a row are more than 5 km
+  // from the planned route. Basic notice: LS_N_0028 "off route" still comes separately for a
+  // large, lasting deviation. Sent only while the load is still in transit. P2, in-app + push to
+  // trip.track holders.
+  'load.sim_route_deviation': {
+    label: 'SIM route deviation',
+    category: 'trip_execution',
+    intent: 'update',
+    description: 'A SIM-tracked vehicle is well off its planned route.',
+    recipientRoles: [],
+    recipientPermission: () => ({ permission: TRIP_TRACK }),
+    channels: ['push'],
+    defaultChannels: ['push'],
+    severity: 'p2_action',
+    dedupeKey: (context: SimRouteDeviationContext) => `${context.loadId}-${context.alertId}`,
+    buildContent: (context: SimRouteDeviationContext) => {
+      const vehicleNo = context.vehicleNo ?? 'The vehicle';
+      const distanceOff = `${Math.round(context.distanceOffKm)}`;
+      const location = context.location ?? mapLinkOf({ lat: context.lat, lng: context.lng });
+      const since = formatIndiaDateTime(context.deviationStartedAt);
+      const driver = driverContactOf(context.driverName, context.driverPhone);
+      const driverDialNumber = toInternationalIndianNumber(context.driverPhone);
+      return {
+        title: `${vehicleNo} may be off route`,
+        body:
+          `SIM location shows it about ${distanceOff} km from the planned route near ${location},` +
+          ` since ${since}. SIM positions are approximate.` +
+          ` Check with ${driver || 'the driver'} whether this is a planned diversion.`,
+        highlights: [vehicleNo, `${distanceOff} km`],
+        metadata: {
+          ...loadMetadataOf(context),
+          distance_off: distanceOff,
+          location,
+          deviation_started_at: context.deviationStartedAt,
+          destination: context.destination ?? '',
+          driver_name: context.driverName ?? '',
+          driver_phone: context.driverPhone ?? '',
+          alert_id: context.alertId,
           cta_label: 'Call driver',
           cta_path: `/loads/${context.loadId}`,
           ...(driverDialNumber ? { cta_phone: driverDialNumber } : {}),

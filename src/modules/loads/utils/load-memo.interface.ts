@@ -62,6 +62,15 @@ export interface NameDriverOptions {
 export interface NameDriverResult {
   memo: MemoView | null;
   checks: LoadChecksView;
+  /** The driver as saved on the load. When the licence is already on file (masters.drivers),
+   *  the name, mobile and date of birth come from that record, not from what was typed. */
+  driver?: {
+    name: string;
+    mobile: string;
+    dateOfBirth: string;
+    /** The masters.drivers row the licence matched; null when the licence isn't on file. */
+    driverOnRecordId: string | null;
+  };
 }
 
 /** Who receives the truck at the loading point — overrides the posting's when given. */

@@ -46,6 +46,48 @@ export function createDriverAccountMatcher(dataSource: DataSource) {
 
 export type DriverAccountMatcher = ReturnType<typeof createDriverAccountMatcher>;
 
+/** A driver already on file, found by licence number. */
+export interface DriverOnRecord {
+  id: string;
+  fullName: string;
+  /** The 10-digit national number; null when the stored value isn't a mobile number. */
+  mobile: string | null;
+  /** YYYY-MM-DD; null when not on file. */
+  dateOfBirth: string | null;
+}
+
+/**
+ * The driver on masters.drivers holding this licence number, so naming a driver whose licence is
+ * already on file uses the name, mobile and date of birth on record instead of what was typed.
+ * Spaces and hyphens are ignored on both sides. Null when no driver has the licence, or more than
+ * one does (legacy duplicates: never guess). Never creates a driver.
+ */
+export function createDriverLicenceLookup(dataSource: DataSource) {
+  const drivers = dataSource.getRepository(DriverEntity);
+  return async (licenceNumber: string): Promise<DriverOnRecord | null> => {
+    const key = licenceNumber.replace(/[\s-]+/g, '').toUpperCase();
+    if (!key) return null;
+    const found = await drivers
+      .createQueryBuilder('driver')
+      .select(['driver.id', 'driver.fullName', 'driver.phoneNumber', 'driver.dateOfBirth'])
+      .where("UPPER(REGEXP_REPLACE(driver.license_number, '[\\s-]+', '', 'g')) = :key", { key })
+      .andWhere('driver.deleted_at IS NULL')
+      .take(2)
+      .getMany();
+    if (found.length !== 1) return null;
+    const driver = found[0];
+    const mobile = storedPhoneForms(driver.phoneNumber)[0] ?? null;
+    return {
+      id: driver.id,
+      fullName: driver.fullName,
+      mobile,
+      dateOfBirth: driver.dateOfBirth,
+    };
+  };
+}
+
+export type DriverLicenceLookup = ReturnType<typeof createDriverLicenceLookup>;
+
 /**
  * Works out how a load's truck can be tracked right now: GPS comes from the vehicle master (own
  * fleet: has_gps + gps_enabled); the driver's mobile counts when the load's driver has logged into

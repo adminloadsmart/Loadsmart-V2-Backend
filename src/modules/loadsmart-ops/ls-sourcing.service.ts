@@ -29,6 +29,8 @@ import {
   missingSourcingFields,
   partnerTargetRate,
   shipperPriceFor,
+  tripAmount,
+  tripToLoadRate,
 } from './loadsmart-rules';
 import { LsServiceBase } from './ls-base';
 import { LsStaffNotifier } from './ls-staff-notifier';
@@ -58,6 +60,8 @@ import {
   PartnerInput,
   PlacementView,
   SendBidInput,
+  BrokerCounterInput,
+  ShipperCounterView,
 } from './loadsmart.interface';
 import { ResolvedSettings, SettingsReader } from '../settings/settings.types';
 
@@ -475,7 +479,16 @@ export class LsSourcingService extends LsServiceBase {
       rows.push({
         sourcingId: sourcing.id,
         loadCode: sourcing.load.code,
-        partnerRate: sourcing.partnerTargetRate,
+        // The trip total, as brokers quote.
+        partnerRate: sourcing.partnerTargetRate
+          ? String(
+              tripAmount(
+                Number(sourcing.partnerTargetRate),
+                sourcing.load.freightType,
+                Number(sourcing.load.plannedCapacityTonnes),
+              ),
+            )
+          : null,
         pickupAt: posting?.pickupAt?.toISOString() ?? null,
         route: {
           from: posting?.pickupAddress?.city ?? null,
@@ -512,7 +525,12 @@ export class LsSourcingService extends LsServiceBase {
     if (rate === undefined) {
       const live = await this.findLivePartnerBid(sourcingId, input.partnerId);
       if (!live) throw new ConflictError('The truck number came before any rate for this load');
-      rate = Number(live.rate);
+      const sourcing = await this.assertSourcing(sourcingId);
+      rate = tripAmount(
+        Number(live.rate),
+        sourcing.load.freightType,
+        Number(sourcing.load.plannedCapacityTonnes),
+      );
     }
     return this.savePartnerBid(null, sourcingId, { ...input, rate, channel: 'whatsapp' });
   }
@@ -572,13 +590,28 @@ export class LsSourcingService extends LsServiceBase {
 
       const response = input.response ?? 'bid';
       const vehicleNumber = input.vehicleNumber ? normalizePlate(input.vehicleNumber) : null;
+      // A broker's rate is always the total freight for the trip — never per tonne. It is kept in
+      // the load's own basis (÷ tonnes on a per-tonne load), which every price rule reads.
+      const rate =
+        input.rate === undefined
+          ? null
+          : tripToLoadRate(
+              input.rate,
+              sourcing.load.freightType,
+              Number(sourcing.load.plannedCapacityTonnes),
+            );
+      if (input.rate !== undefined && rate === null) {
+        throw new ValidationError(
+          "This load is priced per tonne but has no weight, so the broker's trip rate can't be used",
+        );
+      }
       // Every response goes in the broker's history ("older offers remain in broker history").
       const history = await this.repository.partnerBidResponses.save(
         this.repository.partnerBidResponses.create({
           sourcingId,
           partnerId: partner.id,
           response,
-          rate: input.rate === undefined ? null : String(input.rate),
+          rate: rate === null ? null : String(rate),
           channel: input.channel ?? 'manual_entry',
           note: input.note?.trim() || null,
           vehicleNumber,
@@ -599,13 +632,11 @@ export class LsSourcingService extends LsServiceBase {
           status: 'received',
         });
         return {
-          ...(live
-            ? this.partnerBidView({ ...live, partner }, Number(sourcing.marginPercent))
-            : null),
+          ...(live ? this.partnerBidView({ ...live, partner }, sourcing) : null),
           response: { id: history.id, response, channel: history.channel, note: history.note },
         } as PartnerBidView;
       }
-      if (input.rate === undefined) throw new ValidationError('A bid needs a rate');
+      if (rate === null) throw new ValidationError('A bid needs a rate');
 
       let truckVerified: boolean | null = null;
       if (vehicleNumber) {
@@ -624,7 +655,7 @@ export class LsSourcingService extends LsServiceBase {
       const saved = live
         ? await this.repository.partnerBids.save({
             ...live,
-            rate: String(input.rate),
+            rate: String(rate),
             vehicleNumber: vehicleNumber ?? live.vehicleNumber,
             truckVerified: vehicleNumber ? truckVerified : live.truckVerified,
             enteredBy: actorId,
@@ -633,7 +664,7 @@ export class LsSourcingService extends LsServiceBase {
             this.repository.partnerBids.create({
               sourcingId,
               partnerId: input.partnerId,
-              rate: String(input.rate),
+              rate: String(rate),
               vehicleNumber,
               truckVerified,
               enteredBy: actorId,
@@ -642,15 +673,12 @@ export class LsSourcingService extends LsServiceBase {
       await this.step(sourcing, actorId, 'partner_bid', 'LS_PARTNER_BID_RECORDED', {
         partnerBidId: saved.id,
         partnerId: partner.id,
-        rate: input.rate,
+        rate,
+        tripRate: input.rate,
         vehicleNumber,
         truckVerified,
       });
-      return this.partnerBidView(
-        { ...saved, partner },
-        Number(sourcing.marginPercent),
-        history.channel,
-      );
+      return this.partnerBidView({ ...saved, partner }, sourcing, history.channel);
     } catch (error) {
       rethrow(error, 'Failed to record the partner bid');
     }
@@ -658,9 +686,15 @@ export class LsSourcingService extends LsServiceBase {
 
   private partnerBidView(
     bid: LsPartnerBidEntity,
-    marginPercent: number,
+    sourcing: LsSourcingEntity,
     channel: BrokerResponseChannel | null = null,
+    /** The price of Loadsmart's live bid on this broker bid (load basis), when one is with the
+     *  shipper — it can differ from the margin price when Placement set it. */
+    sentRate: string | null = null,
   ): PartnerBidView {
+    const { freightType, plannedCapacityTonnes } = sourcing.load;
+    const tonnes = Number(plannedCapacityTonnes);
+    const shipperPrice = shipperPriceFor(Number(bid.rate), Number(sourcing.marginPercent));
     return {
       id: bid.id,
       partner: { id: bid.partner.id, name: bid.partner.name, partnerType: bid.partner.partnerType },
@@ -668,7 +702,10 @@ export class LsSourcingService extends LsServiceBase {
       vehicleNumber: bid.vehicleNumber,
       truckVerified: bid.truckVerified,
       status: bid.status,
-      shipperPrice: shipperPriceFor(Number(bid.rate), marginPercent),
+      shipperPrice,
+      tripRate: tripAmount(Number(bid.rate), freightType, tonnes),
+      shipperTripPrice: tripAmount(shipperPrice, freightType, tonnes),
+      sentTripPrice: sentRate === null ? null : tripAmount(Number(sentRate), freightType, tonnes),
       channel,
       createdAt: bid.createdAt.toISOString(),
       updatedAt: bid.updatedAt.toISOString(),
@@ -680,6 +717,12 @@ export class LsSourcingService extends LsServiceBase {
   async placement(sourcingId: string): Promise<PlacementView> {
     const sourcing = await this.assertSourcing(sourcingId);
     const bids = await this.repository.listPartnerBids(sourcingId);
+    // The price each broker bid is with the shipper at, from Loadsmart's live bids on it.
+    const sentRates = new Map(
+      (await this.bidService.listLiveLoadsmartBids(sourcing.tenantId, sourcing.loadId))
+        .filter((bid) => bid.lsPartnerBidId)
+        .map((bid) => [bid.lsPartnerBidId!, bid.rate]),
+    );
     // How each broker's latest rate came in: their newest `bid` response.
     const bidResponses = await this.repository.partnerBidResponses.find({
       where: { sourcingId, response: 'bid' },
@@ -710,7 +753,12 @@ export class LsSourcingService extends LsServiceBase {
     return {
       sourcing,
       bids: ranked.map((bid) =>
-        this.partnerBidView(bid, Number(sourcing.marginPercent), bidChannels.get(bid.partnerId)),
+        this.partnerBidView(
+          bid,
+          sourcing,
+          bidChannels.get(bid.partnerId),
+          sentRates.get(bid.id) ?? null,
+        ),
       ),
       callList,
     };
@@ -720,12 +768,24 @@ export class LsSourcingService extends LsServiceBase {
     return this.repository.listSourcings(['posted', 'bid_sent'], ['created', 'bids_received']);
   }
 
-  /** "Sends the shipper one best bid, without the partner's name." Priced at the margin unless
-   *  Placement sets the price; under 5% needs the negotiation note. */
-  /** The shipper countered Loadsmart's bid — the step goes on the timeline for Placement. */
+  /** The broker-counter fields on a partner bid, cleared. */
+  private static readonly NO_BROKER_COUNTER = {
+    brokerCounterRate: null,
+    brokerCounterSentAt: null,
+    brokerCounterSentBy: null,
+  };
+
+  /** The shipper countered one of Loadsmart's bids — the step goes on the timeline for
+   *  Placement. A new counter replaces any offer Placement made the broker on the last one. */
   onLoadsmartBidCountered = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
     const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
     if (!sourcing) return;
+    if (bid.lsPartnerBidId) {
+      await this.repository.partnerBids.update(
+        { id: bid.lsPartnerBidId },
+        LsSourcingService.NO_BROKER_COUNTER,
+      );
+    }
     await this.step(
       sourcing,
       load.updatedBy ?? bid.enteredBy ?? sourcing.bidSentBy!,
@@ -738,16 +798,22 @@ export class LsSourcingService extends LsServiceBase {
     );
   };
 
-  /** The shipper rejected Loadsmart's bid — the load is back on the board for Placement to send
-   *  another price. */
+  /** The shipper rejected one of Loadsmart's bids — the broker bid behind it can be sent again.
+   *  The load goes back on the board only when no other Loadsmart bid is still with the
+   *  shipper. */
   onLoadsmartBidRejected = async (bid: LoadBidEntity, load: LoadEntity): Promise<void> => {
     const sourcing = await this.repository.sourcings.findOneBy({ loadId: load.id });
     if (!sourcing || sourcing.status !== 'bid_sent') return;
-    await this.repository.partnerBids.update(
-      { sourcingId: sourcing.id, status: 'sent' },
-      { status: 'received' },
-    );
-    const updated = await this.repository.updateSourcing(sourcing.id, { status: 'posted' });
+    if (bid.lsPartnerBidId) {
+      await this.repository.partnerBids.update(
+        { id: bid.lsPartnerBidId, status: 'sent' },
+        { status: 'received', ...LsSourcingService.NO_BROKER_COUNTER },
+      );
+    }
+    const stillLive = await this.bidService.listLiveLoadsmartBids(sourcing.tenantId, load.id);
+    const updated = stillLive.length
+      ? sourcing
+      : await this.repository.updateSourcing(sourcing.id, { status: 'posted' });
     await this.step(
       updated,
       bid.decidedBy ?? sourcing.bidSentBy!,
@@ -756,18 +822,19 @@ export class LsSourcingService extends LsServiceBase {
       {
         bidId: bid.id,
         reason: bid.rejectionReason,
+        bidsStillWithShipper: stillLive.length,
       },
     );
   };
 
-  /** Placement answers the shipper's counter on Loadsmart's bid. Accepting it is a new price to
-   *  the shipper, so the margin rules apply again (a note under the minimum margin, never at a
-   *  loss). */
+  /** Placement answers the shipper's counter on one of Loadsmart's bids. Accepting it is a new
+   *  price to the shipper, so the margin rules apply again (a note under the minimum margin,
+   *  never at a loss). */
   async answerShipperCounter(
     actorId: string,
     loadId: string,
     bidId: string,
-    input: { accepted: boolean; negotiationNote?: string },
+    input: { accepted: boolean; negotiationNote?: string; brokerRate?: number },
   ) {
     try {
       const sourcing = await this.repository.findSourcingByLoad(loadId);
@@ -781,8 +848,18 @@ export class LsSourcingService extends LsServiceBase {
       let margin: number | null = null;
       if (input.accepted) {
         if (!bid.counterRate) throw new ConflictError('There is no counter waiting on this bid');
-        const partnerBid = await this.repository.partnerBids.findOneBy({ id: bid.lsPartnerBidId });
+        let partnerBid = await this.repository.partnerBids.findOneBy({ id: bid.lsPartnerBidId });
         if (!partnerBid) throw new NotFoundError('Partner bid not found');
+        // The broker agreed to come down (usually to the counter Placement sent them): their bid
+        // moves to that rate first, so the margin is read against what they'll actually charge.
+        if (input.brokerRate !== undefined) {
+          partnerBid = await this.reviseBrokerRateForCounter(
+            sourcing,
+            partnerBid,
+            input.brokerRate,
+            actorId,
+          );
+        }
         margin = effectiveMarginPercent(Number(bid.counterRate), Number(partnerBid.rate));
         const error = marginError(margin, MIN_MARGIN_PERCENT, input.negotiationNote);
         if (error) throw new ConflictError(error);
@@ -795,11 +872,14 @@ export class LsSourcingService extends LsServiceBase {
         { accepted: input.accepted },
         true,
       );
-      if (input.accepted) {
+      // The counter is answered — Placement's offer to the broker is done with either way.
+      await this.repository.partnerBids.update(
+        { id: bid.lsPartnerBidId },
+        LsSourcingService.NO_BROKER_COUNTER,
+      );
+      if (input.accepted && input.negotiationNote) {
         await this.repository.updateSourcing(sourcing.id, {
-          shipperPrice: view.rate,
-          effectiveMarginPercent: String(margin),
-          negotiationNote: input.negotiationNote ?? sourcing.negotiationNote,
+          negotiationNote: input.negotiationNote,
         });
       }
       await this.step(
@@ -819,6 +899,168 @@ export class LsSourcingService extends LsServiceBase {
     }
   }
 
+  /** The shipper's counters waiting on Loadsmart's live bids, as Placement sees them — trip
+   *  totals, with each counter less the margin as what its broker is offered. Newest first. */
+  async shipperCounters(sourcing: LsSourcingEntity): Promise<ShipperCounterView[]> {
+    if (sourcing.status !== 'bid_sent') return [];
+    const bids = (
+      await this.bidService.listLiveLoadsmartBids(sourcing.tenantId, sourcing.loadId)
+    ).filter((bid) => bid.counterStatus === 'pending' && bid.counterRate && bid.lsPartnerBidId);
+    if (!bids.length) return [];
+    const partnerBids = await this.repository.partnerBids.find({
+      where: { id: In(bids.map((bid) => bid.lsPartnerBidId!)) },
+      relations: { partner: true },
+    });
+    const trip = (rate: string | number) =>
+      tripAmount(
+        Number(rate),
+        sourcing.load.freightType,
+        Number(sourcing.load.plannedCapacityTonnes),
+      );
+    const marginPercent = Number(sourcing.marginPercent);
+    return bids.map((bid) => {
+      const partnerBid = partnerBids.find((row) => row.id === bid.lsPartnerBidId) ?? null;
+      const rate = trip(bid.counterRate!);
+      return {
+        bidId: bid.id,
+        loadId: sourcing.loadId,
+        partnerBidId: bid.lsPartnerBidId!,
+        rate,
+        bidPrice: trip(bid.rate),
+        note: bid.counterNote,
+        at: bid.counteredAt?.toISOString() ?? null,
+        marginPercent,
+        suggestedBrokerRate: partnerTargetRate(rate, marginPercent) ?? rate,
+        broker: partnerBid?.partner
+          ? {
+              id: partnerBid.partner.id,
+              name: partnerBid.partner.name,
+              phone: partnerBid.partner.phone,
+            }
+          : null,
+        brokerRate: partnerBid ? trip(partnerBid.rate) : null,
+        sentToBroker:
+          partnerBid?.brokerCounterRate && partnerBid.brokerCounterSentAt
+            ? {
+                rate: Number(partnerBid.brokerCounterRate),
+                at: partnerBid.brokerCounterSentAt.toISOString(),
+              }
+            : null,
+      };
+    });
+  }
+
+  /** Placement takes the shipper's counter on one of Loadsmart's bids to the broker behind it: by
+   *  default the counter less Loadsmart's margin (₹7,800 at 5% → ₹7,410), as a trip total. Saved
+   *  on the broker's bid until the counter is answered; the broker's reply comes back as a new
+   *  bid. */
+  async counterToBroker(
+    actorId: string,
+    sourcingId: string,
+    input: BrokerCounterInput,
+  ): Promise<ShipperCounterView> {
+    try {
+      const sourcing = await this.assertSourcing(sourcingId);
+      const counter = (await this.shipperCounters(sourcing)).find(
+        (row) => row.bidId === input.bidId,
+      );
+      if (!counter) throw new ConflictError("The shipper hasn't countered this bid");
+      if (!counter.broker) throw new ConflictError("No broker is behind Loadsmart's bid");
+      const rate = input.rate ?? counter.suggestedBrokerRate;
+      if (rate >= counter.rate) {
+        throw new ConflictError(
+          `Offer the broker less than the shipper's counter of ₹${counter.rate.toLocaleString('en-IN')} — otherwise Loadsmart makes no margin`,
+        );
+      }
+      const now = this.now();
+      await this.repository.partnerBids.update(
+        { id: counter.partnerBidId },
+        { brokerCounterRate: String(rate), brokerCounterSentAt: now, brokerCounterSentBy: actorId },
+      );
+      await this.step(sourcing, actorId, 'broker_countered', 'LS_BID_SENT', {
+        bidId: counter.bidId,
+        partnerId: counter.broker.id,
+        shipperCounter: counter.rate,
+        brokerRate: rate,
+        note: input.note?.trim() || null,
+      });
+      // TODO(notifications team): send the broker the counter on WhatsApp here — to
+      // counter.broker.phone, for load sourcing.load.code: "Shipper counter: ₹<rate> for the trip"
+      // (`rate` already has Loadsmart's margin out — never show the shipper's counter) with
+      // Accept / Reject. Their Accept should come back as a bid at `rate` via
+      // recordPartnerBidFromWhatsapp, after which Placement accepts the shipper's counter.
+      return {
+        ...counter,
+        sentToBroker: { rate, at: now.toISOString() },
+      };
+    } catch (error) {
+      rethrow(error, 'Failed to send the counter to the broker');
+    }
+  }
+
+  /** The broker agreed to the counter: their bid behind Loadsmart's moves to this trip rate,
+   *  with the change in their history. */
+  private async reviseBrokerRateForCounter(
+    sourcing: LsSourcingEntity,
+    partnerBid: LsPartnerBidEntity,
+    tripRate: number,
+    actorId: string,
+  ): Promise<LsPartnerBidEntity> {
+    const rate = tripToLoadRate(
+      tripRate,
+      sourcing.load.freightType,
+      Number(sourcing.load.plannedCapacityTonnes),
+    );
+    if (rate === null) {
+      throw new ValidationError('This load is priced per tonne but has no weight');
+    }
+    const saved = await this.repository.partnerBids.save({ ...partnerBid, rate: String(rate) });
+    await this.repository.partnerBidResponses.save(
+      this.repository.partnerBidResponses.create({
+        sourcingId: sourcing.id,
+        partnerId: partnerBid.partnerId,
+        response: 'bid',
+        rate: String(rate),
+        channel: 'manual_entry',
+        note: "Agreed to the shipper's counter",
+        vehicleNumber: null,
+        enteredBy: actorId,
+      }),
+    );
+    return saved;
+  }
+
+  /** "Send to shipper" for several broker bids at once — each goes as its own Loadsmart bid,
+   *  priced at the margin unless Placement set its price. One that can't go (margin, truck)
+   *  lands in `failed` and does not stop the others. */
+  async sendBids(
+    actorId: string,
+    sourcingId: string,
+    bids: SendBidInput[],
+  ): Promise<{
+    sent: { partnerBidId: string; bidId: string }[];
+    failed: { partnerBidId: string; reason: string }[];
+  }> {
+    const sent: { partnerBidId: string; bidId: string }[] = [];
+    const failed: { partnerBidId: string; reason: string }[] = [];
+    for (const input of bids) {
+      try {
+        const bid = await this.sendBid(actorId, sourcingId, input);
+        sent.push({ partnerBidId: input.partnerBidId, bidId: bid.id });
+      } catch (error) {
+        failed.push({
+          partnerBidId: input.partnerBidId,
+          reason: error instanceof Error ? error.message : "Failed to send Loadsmart's bid",
+        });
+      }
+    }
+    return { sent, failed };
+  }
+
+  /** Sends one broker bid to the shipper as Loadsmart's, without the partner's name. Loadsmart
+   *  can have several with the shipper at once; sending the same broker bid again replaces only
+   *  its own earlier price. Priced at the margin unless Placement sets the price; under 5% needs
+   *  the negotiation note. */
   async sendBid(actorId: string, sourcingId: string, input: SendBidInput): Promise<LoadBidEntity> {
     try {
       const sourcing = await this.assertSourcing(sourcingId);
@@ -836,15 +1078,23 @@ export class LsSourcingService extends LsServiceBase {
       // once the shipper accepts, and checked there. A truck already on the bid still must pass.
       if (bid.truckVerified === false) {
         throw new ConflictError(
-          'The truck failed the govt portal checks — ask the partner for another',
+          `${bid.partner.name}'s truck failed the govt portal checks — ask them for another`,
         );
       }
       const partnerRate = Number(bid.rate);
-      const price =
-        input.shipperPrice ?? shipperPriceFor(partnerRate, Number(sourcing.marginPercent));
+      // Placement's price, like the broker's rate, is the trip total — kept in the load's basis.
+      const typedPrice =
+        input.shipperPrice === undefined
+          ? null
+          : tripToLoadRate(
+              input.shipperPrice,
+              sourcing.load.freightType,
+              Number(sourcing.load.plannedCapacityTonnes),
+            );
+      const price = typedPrice ?? shipperPriceFor(partnerRate, Number(sourcing.marginPercent));
       const margin = effectiveMarginPercent(price, partnerRate);
       const error = marginError(margin, MIN_MARGIN_PERCENT, input.negotiationNote);
-      if (error) throw new ConflictError(error);
+      if (error) throw new ConflictError(`${bid.partner.name}: ${error}`);
 
       const loadBid = await this.bidService.recordLoadsmartBid(
         sourcing.tenantId,
@@ -857,16 +1107,18 @@ export class LsSourcingService extends LsServiceBase {
           lsPartnerBidId: bid.id,
         },
       );
+      // Only this broker bid is now with the shipper; Loadsmart's other bids stay as they are. A
+      // new price replaces any counter in flight on it.
       await this.repository.partnerBids.update(
-        { sourcingId, status: 'sent' },
-        { status: 'received' },
+        { id: bid.id },
+        { status: 'sent', ...LsSourcingService.NO_BROKER_COUNTER },
       );
-      await this.repository.partnerBids.update({ id: bid.id }, { status: 'sent' });
+      // The sourcing keeps the latest price sent; the accepted bid's price replaces it on win.
       const updated = await this.repository.updateSourcing(sourcingId, {
         status: 'bid_sent',
         shipperPrice: String(price),
         effectiveMarginPercent: String(margin),
-        negotiationNote: input.negotiationNote ?? null,
+        negotiationNote: input.negotiationNote ?? sourcing.negotiationNote,
         bidSentBy: actorId,
         bidSentAt: this.now(),
       });
@@ -881,8 +1133,9 @@ export class LsSourcingService extends LsServiceBase {
     }
   }
 
-  /** LoadBidService hook: the shipper accepted Loadsmart's bid — the partner behind it is on
-   *  the truck. */
+  /** LoadBidService hook: the shipper accepted one of Loadsmart's bids — the partner behind it is
+   *  on the truck, at the price the shipper accepted (Loadsmart's other bids are rejected by the
+   *  award). */
   onLoadsmartBidAccepted = async (bid: LoadBidEntity, load: LoadEntity, actorId: string) => {
     const sourcing = await this.repository.findSourcingByLoad(load.id);
     if (!sourcing || !bid.lsPartnerBidId) return;
@@ -895,10 +1148,15 @@ export class LsSourcingService extends LsServiceBase {
       partnerId: partnerBid.partnerId,
       partnerBidId: partnerBid.id,
       partnerRate: partnerBid.rate,
+      shipperPrice: bid.rate,
+      effectiveMarginPercent: String(
+        effectiveMarginPercent(Number(bid.rate), Number(partnerBid.rate)),
+      ),
     });
     await this.step(updated, actorId, 'bid_won', 'LS_BID_WON', {
       partnerId: partnerBid.partnerId,
       partnerRate: partnerBid.rate,
+      shipperPrice: bid.rate,
     });
   };
 
@@ -958,7 +1216,7 @@ export class LsSourcingService extends LsServiceBase {
         true,
       );
       await this.step(sourcing, actorId, 'driver_named', 'LS_DRIVER_NAMED', {
-        driverName: driver.driverName,
+        driverName: result.driver?.name ?? driver.driverName,
         checksClear: result.checks.clear,
       });
       return result;
@@ -1031,7 +1289,7 @@ export class LsSourcingService extends LsServiceBase {
         { holdMemo: true },
       );
       await this.step(sourcing, null, 'driver_named', 'LS_DRIVER_NAMED', {
-        driverName: driver.driverName,
+        driverName: result.driver?.name ?? driver.driverName,
         checksClear: result.checks.clear,
         channel: 'whatsapp',
         partnerId,
@@ -1129,13 +1387,19 @@ export class LsSourcingService extends LsServiceBase {
   }
 }
 
-/** A board load as partners may see it — cities and truck only, never the shipper's name. */
+/** A board load as partners may see it — cities and truck only, never the shipper's name. The
+ *  rate is the trip total: brokers quote and accept the whole trip, never per tonne. */
 function boardOfferOf(
   sourcing: Pick<LsSourcingEntity, 'id' | 'tenantId'>,
-  load: Pick<LoadEntity, 'id' | 'code'>,
+  load: Pick<LoadEntity, 'id' | 'code' | 'freightType' | 'plannedCapacityTonnes'>,
   posting: LoadPostingEntity | null,
-  partnerRate: string | null,
+  loadBasisRate: string | null,
 ): LoadBoardOffer {
+  const partnerRate = loadBasisRate
+    ? String(
+        tripAmount(Number(loadBasisRate), load.freightType, Number(load.plannedCapacityTonnes)),
+      )
+    : null;
   return {
     sourcingId: sourcing.id,
     tenantId: sourcing.tenantId,

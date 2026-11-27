@@ -35,8 +35,10 @@ export type PartnerLoadStatus = (typeof PARTNER_LOAD_STATUSES)[number];
 export const PARTNER_BID_STATUSES = ['received', 'sent', 'won', 'lost'] as const;
 export type PartnerBidStatus = (typeof PARTNER_BID_STATUSES)[number];
 
-export const CHARGE_TYPES = ['loading', 'unloading', 'detention'] as const;
-export type ChargeType = (typeof CHARGE_TYPES)[number];
+// Every charge head a Loadsmart load can report — the same set own-transporter and indent loads
+// use (CHARGE_HEADS), plus the legacy single `detention` Loadsmart loads still carry.
+export { CHARGE_HEADS as CHARGE_TYPES } from '../loads/money/charge.types';
+export type { ChargeHead as ChargeType } from '../loads/money/charge.types';
 
 export { CHARGE_STATUSES } from '../loads/money/charge.types';
 export type { ChargeStatus } from '../loads/money/charge.types';

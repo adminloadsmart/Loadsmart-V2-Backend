@@ -124,6 +124,11 @@ export class LoadPostingEntity {
   @Column({ name: 'truck_count', type: 'integer', default: 1 })
   truckCount!: number;
 
+  /** Road distance pickup → drop, km — looked up once on Google Routes by Placement's work queue
+   *  (ls-placement-board.service.ts's fillDistances). Null until then. */
+  @Column({ name: 'distance_km', type: 'integer', nullable: true })
+  distanceKm!: number | null;
+
   /** Main truck — body, tyres/axle and tonnes are all carried by the truck master row. */
   @Column({ name: 'truck_type_id', type: 'uuid', nullable: true })
   truckTypeId!: string | null;
