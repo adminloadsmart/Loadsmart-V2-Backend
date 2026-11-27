@@ -52,7 +52,7 @@ export interface LoadChecksView {
   clear: boolean;
   /** Why it isn't clear, one line each. */
   blockers: string[];
-  /** The truck check couldn't run on VAHAN, so an admin (trucks.verify_manual, or
+  /** The truck check couldn't run on VAHAN, or failed, so an admin (trucks.verify_manual, or
    *  loadsmart.truck.verify_manual on a Loadsmart load) may verify it by hand. */
   truckManualAllowed: boolean;
   /** Sarathi couldn't confirm the licence (not found, or not reachable), so an admin

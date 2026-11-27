@@ -43,6 +43,14 @@ export function driverManualAllowedFor(
   );
 }
 
+/** An admin may verify the truck by hand unless it already passed: VAHAN couldn't be reached, or
+ *  VAHAN (or an earlier manual check) failed it. */
+export function truckManualAllowedFor(
+  check: Pick<LoadVerificationEntity, 'status'> | null,
+): boolean {
+  return check?.status === 'unavailable' || check?.status === 'failed';
+}
+
 /** A conclusive check of the same truck/licence this recent is reused instead of a new lookup. */
 const REUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -150,9 +158,11 @@ export class LoadVerificationService {
   }
 
   /**
-   * VAHAN couldn't be reached for the load's truck, so an admin checks the RC by hand. Allowed only
-   * while the latest check of this truck is `unavailable` — a VAHAN verdict (passed or failed)
-   * can't be overridden. Any expiry dates they enter are still checked, so an expired paper fails.
+   * An admin checks the load's truck by hand: when VAHAN couldn't be reached (`unavailable`), or
+   * when VAHAN failed it (e.g. an expired PUC the transporter has since renewed — VAHAN often lags).
+   * A pass can't be re-done. On a VAHAN failure the admin must say why (a note), and VAHAN's paper
+   * dates stand unless the admin enters newer ones read off the papers — so the expired paper has
+   * to be re-dated. Every date is still checked, so an expired one fails again.
    */
   async recordManualTruckCheck(
     tenantId: string,
@@ -168,19 +178,29 @@ export class LoadVerificationService {
         'truck',
         load.vehicleNumber,
       );
-      if (!latest || latest.status !== 'unavailable') {
+      if (!latest || !truckManualAllowedFor(latest)) {
         throw new ConflictError(
-          latest?.status === 'failed'
-            ? "VAHAN failed this truck, so it can't be verified manually — ask for another truck"
-            : latest?.status === 'passed'
-              ? 'The truck check already passed'
-              : 'Run the truck check first — manual verification is only for when VAHAN is down',
+          latest?.status === 'passed'
+            ? 'The truck check already passed'
+            : 'Run the truck check first',
         );
       }
+      const overridingFailure = latest.status === 'failed';
+      if (overridingFailure && !input.note) {
+        throw new ConflictError('Add a note on why the truck passes by hand when VAHAN failed it');
+      }
       const now = this.now();
-      const papers = input.papers ?? {};
+      // Over a failed check, VAHAN's dates (or a previous manual check's) stand unless re-entered.
+      const previousPapers = overridingFailure
+        ? ((latest.details?.papers as TruckPapers | undefined) ?? {})
+        : {};
+      const papers: TruckPapers = { ...previousPapers, ...(input.papers ?? {}) };
       const failures = expiredPaperFailures(papers, istDateOf(now));
-      const notes = ['Verified manually: VAHAN was unavailable, the RC was checked by hand'];
+      const notes = [
+        overridingFailure
+          ? `Verified manually: VAHAN failed the truck (${latest.failures.join('; ')}), the papers were checked by hand`
+          : 'Verified manually: VAHAN was unavailable, the RC was checked by hand',
+      ];
       if (input.note) notes.push(input.note);
       return await this.repository.create({
         tenantId,
@@ -402,7 +422,7 @@ export class LoadVerificationService {
         driver: driver ? toCheckView(driver) : null,
         clear: blockers.length === 0,
         blockers,
-        truckManualAllowed: truck?.status === 'unavailable',
+        truckManualAllowed: truckManualAllowedFor(truck),
         driverManualAllowed: driverManualAllowedFor(driver),
       };
     } catch (error) {

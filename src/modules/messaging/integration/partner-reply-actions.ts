@@ -62,7 +62,9 @@ export interface PartnerBoardGateway {
  *  the wrong class — as one line; null when nothing failed or Placement can still pass it by
  *  hand (e.g. Sarathi has no match), which stays with Placement. */
 export function hardFailureOf(checks: PartnerDriverChecks): string | null {
-  const truckFailed = checks.truck?.status === 'failed' && !checks.truckManualAllowed;
+  // A VAHAN failure is the broker's to fix (another truck, renewed papers) even though Placement
+  // may also pass it by hand.
+  const truckFailed = checks.truck?.status === 'failed';
   const driverFailed = checks.driver?.status === 'failed' && !checks.driverManualAllowed;
   if (!truckFailed && !driverFailed) return null;
   return checks.blockers[0] ?? 'a check failed';
