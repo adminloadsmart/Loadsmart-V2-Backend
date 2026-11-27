@@ -1,6 +1,6 @@
 import type { StorageService } from '../storage/storage.service';
 import { DataSource, In, IsNull, Not } from 'typeorm';
-import { NotFoundError } from '../../shared/errors';
+import { ConflictError, NotFoundError, ServiceUnavailableError } from '../../shared/errors';
 import { PermissionHolder } from '../../shared/middleware/require-permission.middleware';
 import { TrackingClient } from '../../adapters/tracking.client';
 import { LoadActivityService } from '../loads/activity/load-activity.service';
@@ -174,6 +174,22 @@ export class LsConsoleService {
 
   /** One load's panel: milestones, money on both sides, goods and e-way bill, people, latest
    *  events, and the team holding it. */
+  /** "Send consent link": asks tracking to send the driver the SIM-consent SMS again. Tracking
+   *  decides whether it can (a SIM load being tracked, no valid consent on file). */
+  async resendSimConsent(loadId: string) {
+    const sourcing = await this.repository.sourcings.findOne({
+      where: { loadId },
+      select: { id: true, tenantId: true, loadId: true },
+    });
+    if (!sourcing) throw new NotFoundError(`Loadsmart load ${loadId} not found`);
+    const result = await this.trackingClient.resendSimConsent(sourcing.tenantId, loadId);
+    if (result.ok) return result.consent;
+    if (result.status === 404) throw new NotFoundError(result.message);
+    if (result.status === 400 || result.status === 409) throw new ConflictError(result.message);
+    // 401/403 mean this server's token isn't accepted there, 5xx that tracking can't send.
+    throw new ServiceUnavailableError(result.message, 'SIM_CONSENT_UNAVAILABLE');
+  }
+
   async loadPanel(actor: PermissionHolder, loadId: string) {
     const sourcing = await this.repository.sourcings.findOne({
       where: { loadId },
@@ -192,6 +208,7 @@ export class LsConsoleService {
       originalPod,
       simConsent,
       trip,
+      simConsentLive,
       lastCallWithLocation,
       lastCallWithEta,
       currentDocuments,
@@ -208,6 +225,7 @@ export class LsConsoleService {
       this.trackingClient
         .getTrip(sourcing.tenantId, loadId)
         .catch(() => ({ eta: null, position: null })),
+      this.trackingClient.getSimConsent(sourcing.tenantId, loadId).catch(() => null),
       this.repository.callLogs.findOne({
         where: { loadId, locationSource: Not(IsNull()) },
         order: { calledAt: 'DESC' },
@@ -374,6 +392,7 @@ export class LsConsoleService {
           name: shipperName,
           legalName: shipper?.legalName ?? null,
           contactName: shipper?.contactName ?? null,
+          contactPhone: shipper?.contactPhone ?? null,
           city: shipper?.city ?? null,
           state: shipper?.state ?? null,
         },
@@ -395,6 +414,28 @@ export class LsConsoleService {
       // heard on a call. Consent is the driver's answer to the SIM-tracking SMS.
       tracking: {
         simConsent,
+        // Tracking's own view of the consent: whether the link can be sent again, and why not.
+        simConsentActions: simConsentLive
+          ? {
+              applicable: simConsentLive.applicable,
+              status: simConsentLive.status,
+              canResend: simConsentLive.canResend,
+              resendBlockedReason: simConsentLive.resendBlockedReason,
+              sentAt: simConsentLive.sentAt,
+              suggestion: simConsentLive.suggestion,
+            }
+          : load.trackingSource === 'sim'
+            ? // Tracking couldn't be reached: a SIM load still offers the resend, and the click
+              // reports why it can't go.
+              {
+                applicable: true,
+                status: null,
+                canResend: true,
+                resendBlockedReason: null,
+                sentAt: null,
+                suggestion: null,
+              }
+            : null,
         position: trip.position
           ? { source: 'tracking', ...trip.position }
           : lastCallWithLocation

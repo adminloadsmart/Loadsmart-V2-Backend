@@ -1,79 +1,44 @@
 import { env } from '../config/env';
 import { signToken } from '../shared/utils/token';
+import {
+  MAX_TRIPS_PER_LIST,
+  REQUEST_TIMEOUT_MS,
+  SERVICE_TOKEN_TTL_SECONDS,
+  SERVICE_USER_ID,
+  SIM_CONSENT_RESEND_PERMISSION,
+} from './tracking.constants';
+import type {
+  ErrorResponse,
+  SimConsentResendResult,
+  SimConsentResponse,
+  TrackingClient,
+  TripEta,
+  TripListResponse,
+  TripPosition,
+  TripResponse,
+  TripSimConsent,
+} from './tracking.types';
 
-/** A load's live ETA as the tracking service last computed it (every ~15 min, from GPS progress
- *  along the planned route). */
-export interface TripEta {
-  etaAt: Date;
-  remainingKm: number;
-  /** No GPS fix for a while — the ETA is the last one computed, not a fresh one. */
-  stale: boolean;
-  /** Minutes the ETA is behind the promised delivery time (≤ 0 = on time); null when tracking
-   *  has no promised time to compare against. */
-  projectedDelayMin: number | null;
-}
+// Callers import the client's types from here.
+export type {
+  SimConsentResendResult,
+  TrackingClient,
+  TripEta,
+  TripPosition,
+  TripSimConsent,
+} from './tracking.types';
 
-/** The vehicle's last known position on a load. */
-export interface TripPosition {
-  lat: number;
-  lng: number;
-  recordedAt: Date;
-  stale: boolean;
-  /** Tracking's reverse-geocoded address for the position (its `address`); null when tracking
-   *  couldn't resolve one (no Google key there, or the lookup failed). */
-  placeName: string | null;
-}
-
-/** Read side of the loadsmart-tracking service (a separate repo/process sharing our database and
- *  JWT secret). One load is one trip there, keyed by the load id. */
-export interface TrackingClient {
-  /** Null when tracking isn't configured, has no ETA for the load yet (no GPS / no planned
-   *  route), or can't be reached — callers treat that as "ETA unknown", never as an error. */
-  getTripEta(tenantId: string, loadId: string): Promise<TripEta | null>;
-  /** Same call; also the vehicle's last position — null when tracking has none for the load
-   *  (before tracking watches a load from assignment, it only has one once the trip started). */
-  getTrip(
-    tenantId: string,
-    loadId: string,
-  ): Promise<{ eta: TripEta | null; position: TripPosition | null }>;
-  /** Load ids of the tenant's active trips whose live ETA is past the promised delivery time
-   *  (projectedDelayMin > 0, ETA not stale). Null when tracking isn't configured or can't be
-   *  reached — callers fall back to what they know without it. */
-  listRunningLateTripIds(tenantId: string): Promise<string[] | null>;
-}
-
-const REQUEST_TIMEOUT_MS = 5000;
-/** Tracking's own cap on GET /v1/trips. */
-const MAX_TRIPS_PER_LIST = 500;
-const SERVICE_TOKEN_TTL_SECONDS = 60;
-/** Not a real user: tracking only reads the token's tenant, and this backend's own auth rejects
- *  the token (no such user), so it can't be used against our API. */
-const SERVICE_USER_ID = '00000000-0000-0000-0000-000000000000';
-
-interface TripListResponse {
-  data?: {
-    trips?: {
-      tripId?: string;
-      eta?: { projectedDelayMin?: number | null; stale?: boolean } | null;
-    }[];
-  };
-}
-
-interface TripResponse {
-  data?: {
-    eta?: {
-      etaAt?: string;
-      remainingKm?: number;
-      stale?: boolean;
-      projectedDelayMin?: number | null;
-    } | null;
-    position?: {
-      lat?: number;
-      lng?: number;
-      recordedAt?: string;
-      stale?: boolean;
-      address?: string | null;
-    } | null;
+function toSimConsent(body: SimConsentResponse): TripSimConsent {
+  const data = body.data ?? {};
+  const applicable = Boolean(data.applicable);
+  return {
+    applicable,
+    status: applicable ? (data.status ?? null) : null,
+    phone: data.phone ?? null,
+    sentAt: data.sentAt ?? null,
+    canResend: applicable && Boolean(data.canResend),
+    resendBlockedReason: data.resendBlockedReason ?? null,
+    suggestion: data.suggestion ?? null,
   };
 }
 
@@ -151,26 +116,75 @@ export class HttpTrackingClient implements TrackingClient {
     }
   }
 
+  async getSimConsent(tenantId: string, loadId: string): Promise<TripSimConsent | null> {
+    try {
+      const body = await this.get<SimConsentResponse>(
+        tenantId,
+        `/v1/trips/${encodeURIComponent(loadId)}/sim-consent`,
+      );
+      return body ? toSimConsent(body) : null;
+    } catch (error) {
+      console.warn(`Tracking SIM consent lookup failed for load ${loadId}`, error);
+      return null;
+    }
+  }
+
+  async resendSimConsent(tenantId: string, loadId: string): Promise<SimConsentResendResult> {
+    if (!this.baseUrl) {
+      return { ok: false, status: 503, message: 'Tracking is not configured on this server' };
+    }
+    try {
+      const response = await this.request(
+        tenantId,
+        `/v1/trips/${encodeURIComponent(loadId)}/sim-consent/resend`,
+        { method: 'POST', permissions: [SIM_CONSENT_RESEND_PERMISSION] },
+      );
+      const body = (await response.json().catch(() => ({}))) as SimConsentResponse & ErrorResponse;
+      if (response.ok) return { ok: true, consent: toSimConsent(body) };
+      return {
+        ok: false,
+        status: response.status,
+        message:
+          body.error?.message ??
+          body.message ??
+          "Couldn't send the consent link. Please try again.",
+      };
+    } catch (error) {
+      console.warn(`Tracking SIM consent resend failed for load ${loadId}`, error);
+      return { ok: false, status: 503, message: "Tracking can't be reached right now" };
+    }
+  }
+
   /** GET against tracking as this tenant; null when tracking isn't configured or answers non-2xx. */
   private async get<T>(tenantId: string, path: string): Promise<T | null> {
     if (!this.baseUrl) return null;
+    const response = await this.request(tenantId, path);
+    return response.ok ? ((await response.json()) as T) : null;
+  }
+
+  /** A call to tracking as this tenant. Only call with `baseUrl` set. */
+  private request(
+    tenantId: string,
+    path: string,
+    { method = 'GET', permissions = [] }: { method?: 'GET' | 'POST'; permissions?: string[] } = {},
+  ): Promise<Response> {
     // A short-lived token scoped to this tenant, signed with the shared JWT secret — tracking's
-    // staff auth reads the tenant from it (see the tracking requirements list).
+    // staff auth reads the tenant (and, for actions, the permission) from it.
     const token = signToken(
       {
         id: SERVICE_USER_ID,
         tenantId,
         role: 'system',
-        permissions: [],
+        permissions,
         portal: 'organization',
         purpose: 'access',
       },
       SERVICE_TOKEN_TTL_SECONDS,
     );
-    const response = await fetch(`${this.baseUrl.replace(/\/+$/, '')}${path}`, {
+    return fetch(`${this.baseUrl!.replace(/\/+$/, '')}${path}`, {
+      method,
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    return response.ok ? ((await response.json()) as T) : null;
   }
 }

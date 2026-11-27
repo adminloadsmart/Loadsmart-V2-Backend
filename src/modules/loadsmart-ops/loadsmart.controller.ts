@@ -341,6 +341,8 @@ export class LoadsmartOpsController {
     this.out(req, res, await this.placementService.claim(req.user!.id, req.params.sourcingId));
   claimTracking = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(req, res, await this.tracking.claimLoad(req.user!.id, req.params.loadId));
+  resendSimConsent = async (req: Request<LoadsmartRouteParams>, res: Response) =>
+    this.out(req, res, await this.consoleViews.resendSimConsent(req.params.loadId));
   markLost = async (req: Request<LoadsmartRouteParams>, res: Response) =>
     this.out(
       req,

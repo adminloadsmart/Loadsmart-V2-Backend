@@ -1121,6 +1121,15 @@ const ROWS: Row[] = [
       '"Claim this load as mine": a Tracking member takes a load nobody runs yet. 409 when owned.',
   },
   {
+    method: 'post',
+    path: `${OPS}/loads/{loadId}/tracking/sim-consent/resend`,
+    op: 'loadsmart.resendSimConsent',
+    permissions: [LS_TRACKING],
+    schema: v.load,
+    description:
+      "Sends the driver the SIM-tracking consent SMS again, through the tracking service. Returns tracking's consent summary (applicable, status, canResend, resendBlockedReason, sentAt, suggestion). 409 when tracking refuses — not a SIM load, a valid consent already on file, or the trip isn't being tracked; 503 when tracking can't be reached or SIM isn't configured there.",
+  },
+  {
     method: 'get',
     path: `${OPS}/tracking/inbox`,
     op: 'loadsmart.trackingInbox',
